@@ -599,9 +599,37 @@ volumes:
 
 ---
 
+## solar-utils Dependency
+
+`solar-utils` is a shared library published to **GitHub Packages**. It is pulled automatically by Maven — no manual build step required.
+
+Repository: `https://github.com/gregochr/solar-utils`
+
+### One-time machine setup (per developer machine)
+
+Maven requires a GitHub token to download from GitHub Packages even for public packages.
+
+1. Create a GitHub personal access token with **`read:packages`** scope at `https://github.com/settings/tokens`
+2. Copy `settings.xml.example` to `~/.m2/settings.xml` (or merge if one already exists) and replace `YOUR_GITHUB_TOKEN`
+
+```bash
+cp settings.xml.example ~/.m2/settings.xml
+# then edit ~/.m2/settings.xml and set your token
+```
+
+### Publishing a new solar-utils release
+
+```bash
+cd solar-utils
+git tag v1.0.0
+git push origin v1.0.0   # triggers the publish GitHub Actions workflow
+```
+
+---
+
 ## Build & Run Order (First Time Setup)
 
-1. Build and install `solar-utils`: `cd solar-utils && mvn clean install`
+1. Complete the one-time Maven settings setup above (GitHub Packages token)
 2. Start infrastructure: `docker-compose up -d`
 3. Build backend: `cd backend && ./mvnw clean install`
 4. Run backend: `./mvnw spring-boot:run` (Flyway migrations run on first start)
