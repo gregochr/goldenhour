@@ -612,6 +612,34 @@ volumes:
 
 ---
 
+## Running Without Docker (Local Profile)
+
+For laptop development without a running PostgreSQL instance, use the `local` Spring profile.
+This swaps PostgreSQL for a file-based H2 database — no Docker required.
+
+```bash
+# Set your Anthropic API key (required for forecast runs, not for boot)
+export ANTHROPIC_API_KEY=your-key
+
+# Start the backend with the local profile
+cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+**What changes in the local profile:**
+- H2 file database stored at `backend/data/goldenhour` (persists between restarts, gitignored)
+- Flyway migrations are skipped — Hibernate creates the schema automatically from JPA entities
+- All notifications disabled (email, Pushover, macOS toast)
+- H2 console available at `http://localhost:8082/h2-console` for inspecting data
+  - JDBC URL: `jdbc:h2:file:./data/goldenhour`
+  - Username: `sa`, Password: *(empty)*
+
+The frontend runs the same regardless of profile:
+```bash
+cd frontend && npm run dev
+```
+
+---
+
 ## CORS Configuration
 
 Backend must allow requests from the React dev server (`http://localhost:5173`) and any production frontend URL. Configure in `CorsConfig.java`.

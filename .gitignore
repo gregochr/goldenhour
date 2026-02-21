@@ -44,4 +44,5 @@ frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
 backend/target/
+backend/data/
 .claude/

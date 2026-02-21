@@ -32,8 +32,10 @@ export default function CloudCoverBars({ lowCloud = 0, midCloud = 0, highCloud =
           <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
           <Tooltip
             formatter={(value) => [`${value}%`]}
-            contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: '6px', fontSize: '11px' }}
-            labelStyle={{ color: '#d1d5db' }}
+            contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: '6px', fontSize: '11px', padding: '6px 10px' }}
+            labelStyle={{ color: '#9ca3af' }}
+            itemStyle={{ color: '#f3f4f6' }}
+            cursor={{ fill: 'rgba(255,255,255,0.04)' }}
           />
           <Bar dataKey="value" radius={[2, 2, 0, 0]}>
             {data.map((entry, index) => (
