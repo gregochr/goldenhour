@@ -1,0 +1,23 @@
+CREATE TABLE forecast_evaluation
+(
+    id              BIGSERIAL    PRIMARY KEY,
+    location_lat    DECIMAL(9,6) NOT NULL,
+    location_lon    DECIMAL(9,6) NOT NULL,
+    location_name   VARCHAR(255) NOT NULL,
+    target_date     DATE         NOT NULL,
+    target_type     VARCHAR(10)  NOT NULL,
+    forecast_run_at TIMESTAMP    NOT NULL,
+    days_ahead      INTEGER      NOT NULL,
+    low_cloud       INTEGER,
+    mid_cloud       INTEGER,
+    high_cloud      INTEGER,
+    visibility      INTEGER,
+    wind_speed      DECIMAL(5,2),
+    wind_direction  INTEGER,
+    precipitation   DECIMAL(5,2),
+    rating          INTEGER,
+    summary         TEXT
+);
+
+CREATE INDEX idx_forecast_eval_location_date
+    ON forecast_evaluation (location_name, target_date, target_type);

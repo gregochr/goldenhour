@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter
+        xmlns="https://github.com/spotbugs/filter/3.0.0"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0
+            https://raw.githubusercontent.com/spotbugs/spotbugs/master/spotbugs/etc/findbugsfilter.xsd">
+
+    <!--
+        @ConfigurationProperties classes use Lombok @Getter / @Setter, which means
+        Spring's binding mechanism stores and returns the mutable objects directly.
+        EI_EXPOSE_REP and EI_EXPOSE_REP2 are intentional here — suppressing them
+        for the config package avoids noise without lowering the threshold elsewhere.
+    -->
+    <Match>
+        <Package name="com.gregochr.goldenhour.config"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        WindyApiResponse uses Lombok @Getter / @Setter so that Jackson can populate
+        it via setter-based deserialization. The lists are internal API response data
+        and are never exposed beyond WindyService — suppressing for this class only.
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.model.WindyApiResponse"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        WindyApiRequest is an internal API request record. The List fields (parameters
+        and levels) are created from List.of() constants in WindyService and are never
+        mutated — suppressing for this class only.
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.model.WindyApiRequest"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        Spring services store injected dependencies (Spring-managed singletons) via
+        constructor injection. EI_EXPOSE_REP2 fires because the fields are mutable
+        object references, but this is the standard and correct Spring DI pattern.
+        Suppressed for all service classes.
+    -->
+    <Match>
+        <Package name="~com\.gregochr\.goldenhour\.service.*"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        Spring controllers store injected dependencies (Spring-managed singletons) via
+        constructor injection — same pattern as services above.
+        Suppressed for all controller classes.
+    -->
+    <Match>
+        <Package name="com.gregochr.goldenhour.controller"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+</FindBugsFilter>

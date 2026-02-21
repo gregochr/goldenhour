@@ -1,0 +1,77 @@
+package com.gregochr.goldenhour.service;
+
+import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ActualOutcome;
+import com.gregochr.goldenhour.repository.ActualOutcomeRepository;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Unit tests for {@link OutcomeService}.
+ */
+@ExtendWith(MockitoExtension.class)
+class OutcomeServiceTest {
+
+    @Mock
+    private ActualOutcomeRepository repository;
+
+    @InjectMocks
+    private OutcomeService outcomeService;
+
+    @Test
+    @DisplayName("record() maps DTO fields to entity and saves")
+    void record_mapsFieldsToEntity_andSaves() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
+                true, 4, "Beautiful warm light.");
+
+        ActualOutcomeEntity savedEntity = ActualOutcomeEntity.builder()
+                .id(1L).locationName("Durham UK").build();
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ActualOutcomeEntity result = outcomeService.record(outcome);
+
+        ArgumentCaptor<ActualOutcomeEntity> captor = ArgumentCaptor.forClass(ActualOutcomeEntity.class);
+        verify(repository).save(captor.capture());
+        ActualOutcomeEntity captured = captor.getValue();
+
+        assertThat(captured.getLocationLat()).isEqualByComparingTo(BigDecimal.valueOf(54.7753));
+        assertThat(captured.getLocationLon()).isEqualByComparingTo(BigDecimal.valueOf(-1.5849));
+        assertThat(captured.getLocationName()).isEqualTo("Durham UK");
+        assertThat(captured.getOutcomeDate()).isEqualTo(date);
+        assertThat(captured.getTargetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(captured.getWentOut()).isTrue();
+        assertThat(captured.getActualRating()).isEqualTo(4);
+        assertThat(captured.getNotes()).isEqualTo("Beautiful warm light.");
+        assertThat(captured.getRecordedAt()).isNotNull();
+        assertThat(result).isSameAs(savedEntity);
+    }
+
+    @Test
+    @DisplayName("record() throws IllegalArgumentException when actualRating is out of range")
+    void record_invalidRating_throwsIllegalArgumentException() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, 6, null);
+
+        assertThatThrownBy(() -> outcomeService.record(outcome))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("actualRating");
+    }
+}

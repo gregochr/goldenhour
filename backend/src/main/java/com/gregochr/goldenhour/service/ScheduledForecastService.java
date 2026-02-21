@@ -1,0 +1,64 @@
+package com.gregochr.goldenhour.service;
+
+import com.gregochr.goldenhour.config.ForecastProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+
+/**
+ * Triggers automatic forecast runs on the configured cron schedule.
+ *
+ * <p>For each configured location, forecasts are run for today through
+ * {@link #FORECAST_HORIZON_DAYS} days ahead. This allows accuracy tracking as the
+ * forecast horizon narrows from T+{@value #FORECAST_HORIZON_DAYS} to T+0.
+ */
+@Service
+public class ScheduledForecastService {
+
+    /** Maximum number of days ahead to forecast on each scheduled run. */
+    public static final int FORECAST_HORIZON_DAYS = 7;
+
+    private static final Logger LOG = LoggerFactory.getLogger(ScheduledForecastService.class);
+
+    private final ForecastService forecastService;
+    private final ForecastProperties forecastProperties;
+
+    /**
+     * Constructs a {@code ScheduledForecastService}.
+     *
+     * @param forecastService    the service that runs individual location forecasts
+     * @param forecastProperties configured locations and cron schedule
+     */
+    public ScheduledForecastService(ForecastService forecastService,
+            ForecastProperties forecastProperties) {
+        this.forecastService = forecastService;
+        this.forecastProperties = forecastProperties;
+    }
+
+    /**
+     * Runs forecasts for all configured locations across the forecast horizon.
+     *
+     * <p>Exceptions from individual location runs are caught and logged so that a failure
+     * for one location does not prevent the remaining locations from being processed.
+     */
+    @Scheduled(cron = "${forecast.schedule.cron:0 0 6,18 * * *}")
+    public void runScheduledForecasts() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        for (ForecastProperties.Location location : forecastProperties.getLocations()) {
+            for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
+                LocalDate targetDate = today.plusDays(daysAhead);
+                try {
+                    forecastService.runForecasts(
+                            location.getName(), location.getLat(), location.getLon(), targetDate);
+                } catch (Exception e) {
+                    LOG.error("Forecast failed for {} on {}: {}",
+                            location.getName(), targetDate, e.getMessage(), e);
+                }
+            }
+        }
+    }
+}

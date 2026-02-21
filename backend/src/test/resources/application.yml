@@ -1,0 +1,45 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+  flyway:
+    enabled: false
+  mail:
+    host: localhost
+    port: 25
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+anthropic:
+  api-key: test-key
+  model: claude-haiku-4-5
+
+notifications:
+  email:
+    enabled: false
+    recipient: test@example.com
+  pushover:
+    enabled: false
+    app-token: test
+    user-key: test
+  macos-toast:
+    enabled: false
+
+forecast:
+  locations:
+    - name: Durham UK
+      lat: 54.7753
+      lon: -1.5849
+  schedule:
+    cron: "0 0 6,18 * * *"
+
+server:
+  port: 8081

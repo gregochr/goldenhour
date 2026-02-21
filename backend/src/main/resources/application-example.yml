@@ -1,0 +1,50 @@
+anthropic:
+  api-key: YOUR_ANTHROPIC_API_KEY
+  model: claude-haiku-4-5
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/goldenhour
+    username: YOUR_DB_USER
+    password: YOUR_DB_PASSWORD
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: true
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: YOUR_EMAIL
+    password: YOUR_APP_PASSWORD
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+notifications:
+  schedule:
+    cron: "0 30 7 * * *"
+  email:
+    enabled: true
+    recipient: YOUR_EMAIL
+  pushover:
+    enabled: true
+    app-token: YOUR_PUSHOVER_APP_TOKEN
+    user-key: YOUR_PUSHOVER_USER_KEY
+  macos-toast:
+    enabled: true
+
+forecast:
+  locations:
+    - name: Durham UK
+      lat: 54.7753
+      lon: -1.5849
+  schedule:
+    cron: "0 0 6,18 * * *"
+
+server:
+  port: 8081

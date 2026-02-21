@@ -1,0 +1,136 @@
+package com.gregochr.goldenhour.controller;
+
+import com.gregochr.goldenhour.config.ForecastProperties;
+import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.model.ForecastRunRequest;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.ScheduledForecastService;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.List;
+
+/**
+ * REST controller for forecast evaluation data.
+ *
+ * <p>Exposes endpoints to retrieve stored forecasts, query historical data,
+ * and trigger on-demand forecast runs.
+ */
+@RestController
+@RequestMapping("/api/forecast")
+public class ForecastController {
+
+    private final ForecastEvaluationRepository repository;
+    private final ForecastService forecastService;
+    private final ForecastProperties forecastProperties;
+
+    /**
+     * Constructs a {@code ForecastController}.
+     *
+     * @param repository         the forecast evaluation repository
+     * @param forecastService    the service for running forecasts
+     * @param forecastProperties configured locations and schedule
+     */
+    public ForecastController(ForecastEvaluationRepository repository,
+            ForecastService forecastService, ForecastProperties forecastProperties) {
+        this.repository = repository;
+        this.forecastService = forecastService;
+        this.forecastProperties = forecastProperties;
+    }
+
+    /**
+     * Returns stored forecast evaluations for all configured locations from today
+     * through T+{@value ScheduledForecastService#FORECAST_HORIZON_DAYS}.
+     *
+     * @return evaluations ordered by target date and target type
+     */
+    @GetMapping
+    public List<ForecastEvaluationEntity> getForecasts() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate horizon = today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS);
+        return forecastProperties.getLocations().stream()
+                .flatMap(loc -> repository
+                        .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                                loc.getName(), today, horizon)
+                        .stream())
+                .toList();
+    }
+
+    /**
+     * Returns stored forecast evaluations within a date range.
+     *
+     * <p>If {@code location} is supplied only that location's evaluations are returned;
+     * otherwise evaluations for all configured locations are returned.
+     *
+     * @param from     start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
+     * @param to       end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
+     * @param location optional location name filter
+     * @return evaluations ordered by target date and target type
+     * @throws IllegalArgumentException if {@code from} is after {@code to}
+     */
+    @GetMapping("/history")
+    public List<ForecastEvaluationEntity> getHistory(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String location) {
+        if (from.isAfter(to)) {
+            throw new IllegalArgumentException("'from' must not be after 'to'");
+        }
+        if (location != null) {
+            return repository
+                    .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            location, from, to);
+        }
+        return forecastProperties.getLocations().stream()
+                .flatMap(loc -> repository
+                        .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                                loc.getName(), from, to)
+                        .stream())
+                .toList();
+    }
+
+    /**
+     * Triggers an on-demand forecast run.
+     *
+     * <p>If the request body is absent or its fields are {@code null}, defaults apply:
+     * {@code date} defaults to today; {@code location} defaults to all configured locations.
+     *
+     * @param request optional run parameters (date and/or location)
+     * @return the saved evaluation entities produced by the run
+     * @throws IllegalArgumentException if the specified location name is not configured
+     */
+    @PostMapping("/run")
+    public List<ForecastEvaluationEntity> runForecast(
+            @RequestBody(required = false) ForecastRunRequest request) {
+        LocalDate date = (request != null && request.date() != null)
+                ? request.date()
+                : LocalDate.now(ZoneOffset.UTC);
+
+        List<ForecastProperties.Location> locations;
+        if (request != null && request.location() != null) {
+            locations = forecastProperties.getLocations().stream()
+                    .filter(l -> l.getName().equals(request.location()))
+                    .toList();
+            if (locations.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "No configured location named '" + request.location() + "'");
+            }
+        } else {
+            locations = forecastProperties.getLocations();
+        }
+
+        return locations.stream()
+                .flatMap(loc -> forecastService
+                        .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), date)
+                        .stream())
+                .toList();
+    }
+}
