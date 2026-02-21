@@ -7,7 +7,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.SimpleMailMessage;
@@ -16,6 +15,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -28,32 +28,28 @@ class EmailNotificationServiceTest {
     @Mock
     private JavaMailSender mailSender;
 
-    @Mock
-    private NotificationProperties properties;
-
-    @InjectMocks
-    private EmailNotificationService emailService;
-
     @Test
     @DisplayName("notify() does nothing when email notifications are disabled")
     void notify_whenDisabled_sendsNoEmail() {
-        NotificationProperties.Email email = new NotificationProperties.Email();
-        email.setEnabled(false);
-        org.mockito.Mockito.when(properties.getEmail()).thenReturn(email);
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(false);
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, mailSender);
 
         emailService.notify(new SunsetEvaluation(3, "Moderate."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
-        verify(mailSender, never()).send(org.mockito.ArgumentMatchers.any(SimpleMailMessage.class));
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
     }
 
     @Test
     @DisplayName("notify() sends email when notifications are enabled")
     void notify_whenEnabled_sendsEmail() {
-        NotificationProperties.Email email = new NotificationProperties.Email();
-        email.setEnabled(true);
-        email.setRecipient("test@example.com");
-        org.mockito.Mockito.when(properties.getEmail()).thenReturn(email);
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(true);
+        properties.getEmail().setRecipient("test@example.com");
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, mailSender);
 
         SunsetEvaluation evaluation = new SunsetEvaluation(4, "Good conditions.");
         emailService.notify(evaluation, "Durham UK", TargetType.SUNSET,

@@ -31,6 +31,12 @@ public class EvaluationService {
             + "high humidity (>80%) mutes colours; "
             + "low boundary layer traps aerosols near surface; "
             + "fully clear sky = 2-3; total overcast = 1.\n\n"
+            + "Solar/antisolar horizon model: at sunset the sun is west — the solar horizon "
+            + "(west) must be clear for light penetration, while mid/high cloud on the antisolar "
+            + "side (east) at 20-60% catches and reflects colour. Sunrise is the reverse. "
+            + "Since data is non-directional, use altitude as proxy: low cloud (0-3km) sits near "
+            + "the horizon and blocks light; mid (3-8km) and high (8+km) cloud sits above and "
+            + "catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
             + "Respond ONLY with: {\"rating\": <1-5>, \"summary\": \"<2 sentences>\"}";
 
     private final AnthropicClient client;
