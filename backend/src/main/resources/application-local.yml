@@ -68,6 +68,9 @@ forecast:
     - name: Bamburgh Castle
       lat: 55.6090
       lon: -1.7099
+    - name: Beadnell
+      lat: 55.5588
+      lon: -1.6342
     - name: Keswick
       lat: 54.6
       lon: -3.13
