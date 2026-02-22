@@ -13,6 +13,7 @@ import ForecastDateRow from './ForecastDateRow.jsx';
  * @param {number} props.locationLon - Longitude.
  * @param {string} props.locationName - Human-readable location name.
  * @param {function} props.onOutcomeSaved - Called after an outcome is saved.
+ * @param {function} props.onRerun - Called with (date, type) to trigger a re-evaluation.
  */
 export default function ForecastTimeline({
   forecastsByDate,
@@ -21,6 +22,7 @@ export default function ForecastTimeline({
   locationLon,
   locationName,
   onOutcomeSaved,
+  onRerun,
 }) {
   const dates = Array.from(forecastsByDate.keys()).sort();
 
@@ -63,6 +65,7 @@ export default function ForecastTimeline({
             locationLon={locationLon}
             locationName={locationName}
             onOutcomeSaved={onOutcomeSaved}
+            onRerun={onRerun}
           />
         );
       })}
@@ -77,4 +80,5 @@ ForecastTimeline.propTypes = {
   locationLon: PropTypes.number.isRequired,
   locationName: PropTypes.string.isRequired,
   onOutcomeSaved: PropTypes.func.isRequired,
+  onRerun: PropTypes.func.isRequired,
 };

@@ -43,6 +43,18 @@ forecast:
     - name: Durham UK
       lat: 54.7753
       lon: -1.5849
+    - name: Whitley Bay
+      lat: 55.04
+      lon: -1.44
+    - name: Keswick
+      lat: 54.6
+      lon: -3.13
+    - name: Ambleside
+      lat: 54.43
+      lon: -2.96
+    - name: Dunstanburgh
+      lat: 55.4894
+      lon: -1.5951
   schedule:
     cron: "0 0 6,18 * * *"
 

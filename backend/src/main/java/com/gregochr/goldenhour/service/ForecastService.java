@@ -71,20 +71,42 @@ public class ForecastService {
      * @param lat          latitude in decimal degrees
      * @param lon          longitude in decimal degrees
      * @param date         the calendar date to forecast
-     * @return the two saved entities (sunrise first, then sunset)
+     * @return the saved entities (sunrise first, then sunset)
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
             LocalDate date) {
+        return runForecasts(locationName, lat, lon, date, null);
+    }
+
+    /**
+     * Runs forecasts for the given location and date, optionally limited to a single target type.
+     *
+     * <p>Persists one {@link ForecastEvaluationEntity} per evaluated target type and sends
+     * notifications via all enabled channels.
+     *
+     * @param locationName human-readable location name
+     * @param lat          latitude in decimal degrees
+     * @param lon          longitude in decimal degrees
+     * @param date         the calendar date to forecast
+     * @param targetType   the target type to evaluate, or {@code null} to evaluate both
+     * @return the saved entities in evaluation order
+     */
+    public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
+            LocalDate date, TargetType targetType) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
         List<ForecastEvaluationEntity> results = new ArrayList<>();
 
-        for (TargetType targetType : TargetType.values()) {
-            LocalDateTime eventTime = targetType == TargetType.SUNRISE
+        List<TargetType> types = (targetType != null)
+                ? List.of(targetType)
+                : List.of(TargetType.values());
+
+        for (TargetType type : types) {
+            LocalDateTime eventTime = type == TargetType.SUNRISE
                     ? solarService.sunriseUtc(lat, lon, date)
                     : solarService.sunsetUtc(lat, lon, date);
 
-            ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, targetType);
+            ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
             AtmosphericData forecastData = openMeteoService.getAtmosphericData(request, eventTime);
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData);
 
@@ -93,7 +115,7 @@ public class ForecastService {
                     .locationLon(BigDecimal.valueOf(lon))
                     .locationName(locationName)
                     .targetDate(date)
-                    .targetType(targetType)
+                    .targetType(type)
                     .forecastRunAt(LocalDateTime.now(ZoneOffset.UTC))
                     .daysAhead(daysAhead)
                     .lowCloud(forecastData.lowCloudPercent())
@@ -116,9 +138,9 @@ public class ForecastService {
                     .build();
 
             results.add(repository.save(entity));
-            emailService.notify(evaluation, locationName, targetType, date);
-            pushoverService.notify(evaluation, locationName, targetType, date);
-            toastService.notify(evaluation, locationName, targetType, date);
+            emailService.notify(evaluation, locationName, type, date);
+            pushoverService.notify(evaluation, locationName, type, date);
+            toastService.notify(evaluation, locationName, type, date);
         }
         return results;
     }

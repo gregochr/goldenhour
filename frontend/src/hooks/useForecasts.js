@@ -1,27 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchForecasts, fetchOutcomes } from '../api/forecastApi.js';
-import { groupForecastsByDate } from '../utils/conversions.js';
-
-const DEFAULT_LAT = 54.7753;
-const DEFAULT_LON = -1.5849;
-const DEFAULT_LOCATION_NAME = 'Durham UK';
+import { groupForecastsByLocation } from '../utils/conversions.js';
 
 /**
- * Custom hook that fetches and groups forecast data and actual outcomes
- * for the configured default location.
+ * Custom hook that fetches forecast data and actual outcomes for all configured locations.
  *
  * @returns {{
- *   forecastsByDate: Map<string, {sunrise: object|null, sunset: object|null}>,
- *   outcomes: Array<object>,
- *   locationName: string,
+ *   locations: Array<{name: string, lat: number, lon: number, forecastsByDate: Map, outcomes: Array}>,
  *   loading: boolean,
  *   error: string|null,
  *   refresh: function
  * }}
  */
 export function useForecasts() {
-  const [forecastsByDate, setForecastsByDate] = useState(new Map());
-  const [outcomes, setOutcomes] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -35,13 +27,16 @@ export function useForecasts() {
         .toISOString()
         .slice(0, 10);
 
-      const [forecasts, outcomeData] = await Promise.all([
-        fetchForecasts(),
-        fetchOutcomes(DEFAULT_LAT, DEFAULT_LON, from, to),
-      ]);
+      const forecasts = await fetchForecasts();
+      const locationGroups = groupForecastsByLocation(forecasts);
 
-      setForecastsByDate(groupForecastsByDate(forecasts));
-      setOutcomes(outcomeData);
+      const outcomeResults = await Promise.all(
+        locationGroups.map((loc) => fetchOutcomes(loc.lat, loc.lon, from, to))
+      );
+
+      setLocations(
+        locationGroups.map((loc, i) => ({ ...loc, outcomes: outcomeResults[i] }))
+      );
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -57,12 +52,5 @@ export function useForecasts() {
     load();
   }, [load]);
 
-  return {
-    forecastsByDate,
-    outcomes,
-    locationName: DEFAULT_LOCATION_NAME,
-    loading,
-    error,
-    refresh: load,
-  };
+  return { locations, loading, error, refresh: load };
 }

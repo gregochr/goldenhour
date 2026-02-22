@@ -17,6 +17,7 @@ import { formatDateLabel } from '../utils/conversions.js';
  * @param {number} props.locationLon - Longitude.
  * @param {string} props.locationName - Human-readable location name.
  * @param {function} props.onOutcomeSaved - Called after an outcome is saved.
+ * @param {function} props.onRerun - Called with (date, type) to trigger a re-evaluation.
  */
 export default function ForecastDateRow({
   date,
@@ -28,14 +29,15 @@ export default function ForecastDateRow({
   locationLon,
   locationName,
   onOutcomeSaved,
+  onRerun,
 }) {
   const label = formatDateLabel(date);
 
   return (
     <section aria-label={`Forecast for ${label}`} className="flex flex-col gap-2">
-      <h2 className="text-base font-semibold text-gray-100">
+      <h2 className="text-2xl font-bold text-gray-100">
         {label}
-        <span className="ml-2 text-sm font-normal text-gray-500">{date}</span>
+        <span className="ml-3 text-base font-normal text-gray-500">{date}</span>
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <ForecastCard
@@ -47,6 +49,7 @@ export default function ForecastDateRow({
           locationLon={locationLon}
           locationName={locationName}
           onOutcomeSaved={onOutcomeSaved}
+          onRerun={() => onRerun(date, 'SUNRISE')}
         />
         <ForecastCard
           forecast={sunset}
@@ -57,6 +60,7 @@ export default function ForecastDateRow({
           locationLon={locationLon}
           locationName={locationName}
           onOutcomeSaved={onOutcomeSaved}
+          onRerun={() => onRerun(date, 'SUNSET')}
         />
       </div>
     </section>
@@ -73,5 +77,6 @@ ForecastDateRow.propTypes = {
   locationLon: PropTypes.number.isRequired,
   locationName: PropTypes.string.isRequired,
   onOutcomeSaved: PropTypes.func.isRequired,
+  onRerun: PropTypes.func.isRequired,
 };
 

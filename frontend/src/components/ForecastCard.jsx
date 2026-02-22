@@ -5,7 +5,7 @@ import CloudCoverBars from './CloudCoverBars.jsx';
 import WindIndicator from './WindIndicator.jsx';
 import VisibilityIndicator from './VisibilityIndicator.jsx';
 import OutcomeModal from './OutcomeModal.jsx';
-import { formatEventTimeUk } from '../utils/conversions.js';
+import { formatEventTimeUk, formatGeneratedAt, formatShiftedEventTimeUk } from '../utils/conversions.js';
 
 /**
  * Card displaying the forecast evaluation for a single sunrise or sunset event.
@@ -19,6 +19,7 @@ import { formatEventTimeUk } from '../utils/conversions.js';
  * @param {number} props.locationLon - Longitude.
  * @param {string} props.locationName - Human-readable location name.
  * @param {function} props.onOutcomeSaved - Called after an outcome is saved.
+ * @param {function} props.onRerun - Called to trigger a re-evaluation against Claude/Open-Meteo.
  */
 export default function ForecastCard({
   forecast = null,
@@ -29,8 +30,10 @@ export default function ForecastCard({
   locationLon,
   locationName,
   onOutcomeSaved,
+  onRerun,
 }) {
   const [showModal, setShowModal] = useState(false);
+  const [isRerunning, setIsRerunning] = useState(false);
 
   const isSunrise = type === 'SUNRISE';
   const accentColor = isSunrise ? 'text-orange-400' : 'text-purple-400';
@@ -51,31 +54,68 @@ export default function ForecastCard({
         data-testid="forecast-card"
         className={`card border ${borderColor} flex flex-col gap-3`}
       >
-        <div className="flex items-center justify-between">
-          <h3 className={`text-sm font-semibold ${accentColor}`}>
-            {typeLabel}
+        {/* Header: title left, hour pills stacked top-right */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1.5">
+            <h3 className={`text-3xl font-bold leading-none ${accentColor}`}>
+              {typeLabel}
+            </h3>
             {eventTimeUk && (
-              <span data-testid={`${testIdSuffix}-time`} className="ml-1 font-normal text-gray-400">
+              <span data-testid={`${testIdSuffix}-time`} className="text-sm font-medium text-gray-400 leading-none">
                 {eventTimeUk}
               </span>
             )}
-          </h3>
-          {forecast && isPastOrToday && (
-            <button
-              data-testid="record-outcome-button"
-              className="btn-secondary text-xs"
-              onClick={() => setShowModal(true)}
-            >
-              Record outcome
-            </button>
-          )}
+          </div>
+
+          {forecast?.solarEventTime && (() => {
+            const eventTime  = formatEventTimeUk(forecast.solarEventTime);
+            const hourBefore = formatShiftedEventTimeUk(forecast.solarEventTime, -60);
+            const hourAfter  = formatShiftedEventTimeUk(forecast.solarEventTime, +60);
+            const goldenPill = (start, end) => (
+              <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full
+                bg-amber-950 text-amber-300 ring-1 ring-inset ring-amber-700/40 whitespace-nowrap">
+                <span className="text-amber-500 text-[10px] uppercase tracking-wide font-semibold">Golden Hour</span>
+                <span>{start}–{end}</span>
+              </span>
+            );
+            const bluePill = (start, end) => (
+              <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full
+                bg-indigo-950 text-indigo-300 ring-1 ring-inset ring-indigo-700/40 whitespace-nowrap">
+                <span className="text-indigo-500 text-[10px] uppercase tracking-wide font-semibold">Blue Hour</span>
+                <span>{start}–{end}</span>
+              </span>
+            );
+            return (
+              <div className="flex flex-col gap-1 items-end shrink-0">
+                {isSunrise ? (
+                  <>
+                    {bluePill(hourBefore, eventTime)}
+                    {goldenPill(eventTime, hourAfter)}
+                  </>
+                ) : (
+                  <>
+                    {goldenPill(hourBefore, eventTime)}
+                    {bluePill(eventTime, hourAfter)}
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
+        {/* Body */}
         {forecast ? (
           <>
             <div className="flex items-center gap-4">
               <div>
-                <p className="text-xs text-gray-500 mb-1">Forecast</p>
+                <p className="text-xs text-gray-500 mb-1">
+                  Forecast
+                  {forecast.forecastRunAt && (
+                    <span className="ml-1 text-gray-600">
+                      · Generated @ {formatGeneratedAt(forecast.forecastRunAt)}
+                    </span>
+                  )}
+                </p>
                 <StarRating
                   rating={forecast.rating}
                   label={`${typeLabel} forecast rating`}
@@ -120,6 +160,35 @@ export default function ForecastCard({
         ) : (
           <p className="text-sm text-gray-500 italic">No forecast available.</p>
         )}
+
+        {/* Footer: action buttons bottom-right */}
+        <div className="flex justify-end items-center gap-2 pt-1 border-t border-gray-800/60">
+          <button
+            data-testid="rerun-button"
+            className="btn-secondary text-xs"
+            onClick={async () => {
+              setIsRerunning(true);
+              try {
+                await onRerun();
+              } finally {
+                setIsRerunning(false);
+              }
+            }}
+            disabled={isRerunning}
+            aria-label={`Re-run ${type.toLowerCase()} evaluation`}
+          >
+            {isRerunning ? '⟳ Running…' : '⟳ Re-run'}
+          </button>
+          {forecast && isPastOrToday && (
+            <button
+              data-testid="record-outcome-button"
+              className="btn-secondary text-xs"
+              onClick={() => setShowModal(true)}
+            >
+              Record outcome
+            </button>
+          )}
+        </div>
       </div>
 
       {showModal && (
@@ -149,5 +218,6 @@ ForecastCard.propTypes = {
   locationLon: PropTypes.number.isRequired,
   locationName: PropTypes.string.isRequired,
   onOutcomeSaved: PropTypes.func.isRequired,
+  onRerun: PropTypes.func.isRequired,
 };
 

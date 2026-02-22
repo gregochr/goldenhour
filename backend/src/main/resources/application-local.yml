@@ -38,9 +38,51 @@ notifications:
 
 forecast:
   locations:
-    - name: Durham UK
+    - name: Berwick-Upon-Tweed
+      lat: 55.7702
+      lon: -2.0054
+    - name: Spittal Beach
+      lat: 55.7592
+      lon: -1.9912
+    - name: Cocklawburn Beach
+      lat: 55.7296
+      lon: -1.9525
+    - name: Lindisfarne Castle
+      lat: 55.6991
+      lon: -1.7848
+    - name: Holy Island Harbour
+      lat: 55.6667
+      lon: -1.7833
+    - name: Lindisfarne Priory
+      lat: 55.6712
+      lon: -1.8019
+    - name: Emmanuel Head
+      lat: 55.6859
+      lon: -1.7801
+    - name: Holy Island Causeway
+      lat: 55.6780
+      lon: -1.8739
+    - name: Budle Bay
+      lat: 55.6105
+      lon: -1.7662
+    - name: Bamburgh Castle
+      lat: 55.6090
+      lon: -1.7099
+    - name: Keswick
+      lat: 54.6
+      lon: -3.13
+    - name: Ambleside
+      lat: 54.43
+      lon: -2.96
+    - name: Durham
       lat: 54.7753
       lon: -1.5849
+    - name: Whitley Bay
+      lat: 55.04
+      lon: -1.44
+    - name: Dunstanburgh
+      lat: 55.4894
+      lon: -1.5951
   schedule:
     cron: "0 0 6,18 * * *"
 
