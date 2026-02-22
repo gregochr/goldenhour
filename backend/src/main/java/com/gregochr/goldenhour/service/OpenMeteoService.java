@@ -7,7 +7,11 @@ import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+
+import java.time.Duration;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -30,6 +34,9 @@ public class OpenMeteoService {
             + "relative_humidity_2m,surface_pressure,shortwave_radiation,boundary_layer_height";
 
     private static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
+
+    private static final int MAX_RETRIES = 2;
+    private static final Duration RETRY_BACKOFF = Duration.ofSeconds(1);
 
     private static final int WIND_SPEED_SCALE = 2;
     private static final int PRECIP_SCALE = 2;
@@ -66,7 +73,8 @@ public class OpenMeteoService {
                         .queryParam("timezone", "UTC")
                         .build())
                 .retrieve()
-                .bodyToMono(OpenMeteoForecastResponse.class);
+                .bodyToMono(OpenMeteoForecastResponse.class)
+                .retryWhen(retryOn5xx());
 
         Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -78,7 +86,8 @@ public class OpenMeteoService {
                         .queryParam("timezone", "UTC")
                         .build())
                 .retrieve()
-                .bodyToMono(OpenMeteoAirQualityResponse.class);
+                .bodyToMono(OpenMeteoAirQualityResponse.class)
+                .retryWhen(retryOn5xx());
 
         AtmosphericData data = Mono.zip(forecastMono, airQualityMono)
                 .map(tuple -> extractAtmosphericData(tuple.getT1(), tuple.getT2(),
@@ -88,6 +97,18 @@ public class OpenMeteoService {
             throw new IllegalStateException("Open-Meteo API returned null response");
         }
         return data;
+    }
+
+    /**
+     * Returns a retry spec that retries up to {@value #MAX_RETRIES} times with exponential
+     * backoff, but only for 5xx server errors. 4xx client errors are not retried.
+     *
+     * @return configured {@link Retry} spec
+     */
+    private Retry retryOn5xx() {
+        return Retry.backoff(MAX_RETRIES, RETRY_BACKOFF)
+                .filter(ex -> ex instanceof WebClientResponseException wex
+                        && wex.getStatusCode().is5xxServerError());
     }
 
     /**
