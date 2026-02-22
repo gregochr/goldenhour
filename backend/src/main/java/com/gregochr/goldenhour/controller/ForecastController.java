@@ -1,11 +1,12 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.config.ForecastProperties;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,20 +32,20 @@ public class ForecastController {
 
     private final ForecastEvaluationRepository repository;
     private final ForecastService forecastService;
-    private final ForecastProperties forecastProperties;
+    private final LocationService locationService;
 
     /**
      * Constructs a {@code ForecastController}.
      *
-     * @param repository         the forecast evaluation repository
-     * @param forecastService    the service for running forecasts
-     * @param forecastProperties configured locations and schedule
+     * @param repository      the forecast evaluation repository
+     * @param forecastService the service for running forecasts
+     * @param locationService the service for persisted locations
      */
     public ForecastController(ForecastEvaluationRepository repository,
-            ForecastService forecastService, ForecastProperties forecastProperties) {
+            ForecastService forecastService, LocationService locationService) {
         this.repository = repository;
         this.forecastService = forecastService;
-        this.forecastProperties = forecastProperties;
+        this.locationService = locationService;
     }
 
     /**
@@ -57,7 +58,7 @@ public class ForecastController {
     public List<ForecastEvaluationEntity> getForecasts() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate horizon = today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS);
-        return forecastProperties.getLocations().stream()
+        return locationService.findAll().stream()
                 .flatMap(loc -> repository
                         .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                                 loc.getName(), today, horizon)
@@ -90,7 +91,7 @@ public class ForecastController {
                     .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                             location, from, to);
         }
-        return forecastProperties.getLocations().stream()
+        return locationService.findAll().stream()
                 .flatMap(loc -> repository
                         .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                                 loc.getName(), from, to)
@@ -115,9 +116,9 @@ public class ForecastController {
                 ? request.date()
                 : LocalDate.now(ZoneOffset.UTC);
 
-        List<ForecastProperties.Location> locations;
+        List<LocationEntity> locations;
         if (request != null && request.location() != null) {
-            locations = forecastProperties.getLocations().stream()
+            locations = locationService.findAll().stream()
                     .filter(l -> l.getName().equals(request.location()))
                     .toList();
             if (locations.isEmpty()) {
@@ -125,12 +126,14 @@ public class ForecastController {
                         "No configured location named '" + request.location() + "'");
             }
         } else {
-            locations = forecastProperties.getLocations();
+            locations = locationService.findAll();
         }
+
+        TargetType targetType = (request != null) ? request.targetType() : null;
 
         return locations.stream()
                 .flatMap(loc -> forecastService
-                        .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), date)
+                        .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), date, targetType)
                         .stream())
                 .toList();
     }

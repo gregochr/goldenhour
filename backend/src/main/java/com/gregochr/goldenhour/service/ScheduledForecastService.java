@@ -1,6 +1,6 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.config.ForecastProperties;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -25,18 +25,18 @@ public class ScheduledForecastService {
     private static final Logger LOG = LoggerFactory.getLogger(ScheduledForecastService.class);
 
     private final ForecastService forecastService;
-    private final ForecastProperties forecastProperties;
+    private final LocationService locationService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
      *
-     * @param forecastService    the service that runs individual location forecasts
-     * @param forecastProperties configured locations and cron schedule
+     * @param forecastService the service that runs individual location forecasts
+     * @param locationService the service providing persisted locations
      */
     public ScheduledForecastService(ForecastService forecastService,
-            ForecastProperties forecastProperties) {
+            LocationService locationService) {
         this.forecastService = forecastService;
-        this.forecastProperties = forecastProperties;
+        this.locationService = locationService;
     }
 
     /**
@@ -48,7 +48,7 @@ public class ScheduledForecastService {
     @Scheduled(cron = "${forecast.schedule.cron:0 0 6,18 * * *}")
     public void runScheduledForecasts() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        for (ForecastProperties.Location location : forecastProperties.getLocations()) {
+        for (LocationEntity location : locationService.findAll()) {
             for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
                 LocalDate targetDate = today.plusDays(daysAhead);
                 try {

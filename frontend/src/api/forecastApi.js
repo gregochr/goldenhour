@@ -29,6 +29,42 @@ export async function fetchOutcomes(lat, lon, from, to) {
 }
 
 /**
+ * Triggers an on-demand forecast re-run for a specific date, location, and target type.
+ *
+ * @param {string} date - Target date (YYYY-MM-DD).
+ * @param {string} location - Configured location name.
+ * @param {string} targetType - SUNRISE or SUNSET.
+ * @returns {Promise<Array<object>>} Saved evaluation entities.
+ */
+export async function runForecast(date, location, targetType) {
+  const response = await axios.post(`${BASE_URL}/forecast/run`, { date, location, targetType });
+  return response.data;
+}
+
+/**
+ * Fetches all persisted locations ordered alphabetically by name.
+ *
+ * @returns {Promise<Array<{id: number, name: string, lat: number, lon: number}>>} Location list.
+ */
+export async function fetchLocations() {
+  const response = await axios.get(`${BASE_URL}/locations`);
+  return response.data;
+}
+
+/**
+ * Adds a new location to the persisted set.
+ *
+ * @param {string} name - Human-readable location identifier.
+ * @param {number} lat  - Latitude in decimal degrees.
+ * @param {number} lon  - Longitude in decimal degrees.
+ * @returns {Promise<object>} The saved location entity.
+ */
+export async function addLocation(name, lat, lon) {
+  const response = await axios.post(`${BASE_URL}/locations`, { name, lat, lon });
+  return response.data;
+}
+
+/**
  * Records an actual observed outcome for a given date and type.
  *
  * @param {object} outcome - Outcome payload.

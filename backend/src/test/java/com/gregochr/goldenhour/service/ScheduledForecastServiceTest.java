@@ -1,6 +1,6 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.config.ForecastProperties;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link ScheduledForecastService}.
@@ -28,18 +29,23 @@ class ScheduledForecastServiceTest {
     @Mock
     private ForecastService forecastService;
 
-    private ForecastProperties forecastProperties;
+    @Mock
+    private LocationService locationService;
+
     private ScheduledForecastService scheduledForecastService;
+
+    private static LocationEntity durham() {
+        return LocationEntity.builder()
+                .name("Durham UK")
+                .lat(54.7753)
+                .lon(-1.5849)
+                .build();
+    }
 
     @BeforeEach
     void setUp() {
-        forecastProperties = new ForecastProperties();
-        ForecastProperties.Location durham = new ForecastProperties.Location();
-        durham.setName("Durham UK");
-        durham.setLat(54.7753);
-        durham.setLon(-1.5849);
-        forecastProperties.setLocations(List.of(durham));
-        scheduledForecastService = new ScheduledForecastService(forecastService, forecastProperties);
+        when(locationService.findAll()).thenReturn(List.of(durham()));
+        scheduledForecastService = new ScheduledForecastService(forecastService, locationService);
     }
 
     @Test
@@ -71,23 +77,17 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("runScheduledForecasts() continues after a single location failure")
     void runScheduledForecasts_continuesAfterFailure() {
-        ForecastProperties twoLocations = new ForecastProperties();
-        ForecastProperties.Location loc1 = new ForecastProperties.Location();
-        loc1.setName("Durham UK");
-        loc1.setLat(54.7753);
-        loc1.setLon(-1.5849);
-        ForecastProperties.Location loc2 = new ForecastProperties.Location();
-        loc2.setName("London UK");
-        loc2.setLat(51.5074);
-        loc2.setLon(-0.1278);
-        twoLocations.setLocations(List.of(loc1, loc2));
+        LocationEntity london = LocationEntity.builder()
+                .name("London UK")
+                .lat(51.5074)
+                .lon(-0.1278)
+                .build();
+        when(locationService.findAll()).thenReturn(List.of(durham(), london));
 
         org.mockito.Mockito.doThrow(new RuntimeException("API error"))
                 .when(forecastService).runForecasts(eq("Durham UK"), anyDouble(), anyDouble(), any());
 
-        ScheduledForecastService service =
-                new ScheduledForecastService(forecastService, twoLocations);
-        service.runScheduledForecasts();
+        scheduledForecastService.runScheduledForecasts();
 
         // London calls should still happen despite Durham failures
         verify(forecastService, times(ScheduledForecastService.FORECAST_HORIZON_DAYS + 1))

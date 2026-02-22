@@ -1,0 +1,7 @@
+CREATE TABLE locations (
+    id         BIGSERIAL PRIMARY KEY,
+    name       VARCHAR(255) NOT NULL UNIQUE,
+    lat        DOUBLE PRECISION NOT NULL,
+    lon        DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
