@@ -112,6 +112,7 @@ public class ForecastService {
                     .aerosolOpticalDepth(forecastData.aerosolOpticalDepth())
                     .rating(evaluation.rating())
                     .summary(evaluation.summary())
+                    .solarEventTime(eventTime)
                     .build();
 
             results.add(repository.save(entity));

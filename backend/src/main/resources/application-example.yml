@@ -1,6 +1,6 @@
 anthropic:
   api-key: YOUR_ANTHROPIC_API_KEY
-  model: claude-haiku-4-5
+  model: claude-sonnet-4-5-20250929
 
 spring:
   datasource:

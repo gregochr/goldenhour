@@ -64,6 +64,26 @@ export function formatDateLabel(dateStr, now = new Date()) {
 }
 
 /**
+ * Formats a UTC solar event timestamp as UK local time (HH:MM).
+ *
+ * Automatically handles GMT/BST conversion via the Europe/London timezone.
+ * Returns null for falsy input (e.g. older records without a stored time).
+ *
+ * @param {string|null} utcDateTimeStr - ISO-like datetime string without timezone suffix (e.g. "2026-02-20T07:30:00").
+ * @returns {string|null} Formatted time like "07:30", or null.
+ */
+export function formatEventTimeUk(utcDateTimeStr) {
+  if (!utcDateTimeStr) return null;
+  const utcDate = new Date(utcDateTimeStr + 'Z');
+  if (isNaN(utcDate.getTime())) return null;
+  return utcDate.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/London',
+  });
+}
+
+/**
  * Groups an array of forecast evaluations by date, keeping only the most
  * recent run for each date+type combination.
  *

@@ -5,6 +5,7 @@ import CloudCoverBars from './CloudCoverBars.jsx';
 import WindIndicator from './WindIndicator.jsx';
 import VisibilityIndicator from './VisibilityIndicator.jsx';
 import OutcomeModal from './OutcomeModal.jsx';
+import { formatEventTimeUk } from '../utils/conversions.js';
 
 /**
  * Card displaying the forecast evaluation for a single sunrise or sunset event.
@@ -34,6 +35,7 @@ export default function ForecastCard({
   const isSunrise = type === 'SUNRISE';
   const accentColor = isSunrise ? 'text-orange-400' : 'text-purple-400';
   const borderColor = isSunrise ? 'border-orange-900/40' : 'border-purple-900/40';
+  const eventTimeUk = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
   const typeLabel = isSunrise ? '🌅 Sunrise' : '🌇 Sunset';
   const testIdSuffix = isSunrise ? 'sunrise' : 'sunset';
 
@@ -50,7 +52,14 @@ export default function ForecastCard({
         className={`card border ${borderColor} flex flex-col gap-3`}
       >
         <div className="flex items-center justify-between">
-          <h3 className={`text-sm font-semibold ${accentColor}`}>{typeLabel}</h3>
+          <h3 className={`text-sm font-semibold ${accentColor}`}>
+            {typeLabel}
+            {eventTimeUk && (
+              <span data-testid={`${testIdSuffix}-time`} className="ml-1 font-normal text-gray-400">
+                {eventTimeUk}
+              </span>
+            )}
+          </h3>
           {forecast && isPastOrToday && (
             <button
               data-testid="record-outcome-button"

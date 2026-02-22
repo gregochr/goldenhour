@@ -111,6 +111,32 @@ class ForecastControllerTest {
                 .andExpect(jsonPath("$.error").exists());
     }
 
+    @Test
+    @DisplayName("GET /api/forecast/compare returns 200 with evaluations for valid params")
+    void getCompare_validParams_returnsEvaluations() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 28));
+        when(forecastEvaluationRepository
+                .findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                        eq("Durham UK"), eq(LocalDate.of(2026, 2, 28)), eq(TargetType.SUNSET)))
+                .thenReturn(List.of(entity));
+
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK")
+                        .param("date", "2026-02-28")
+                        .param("targetType", "SUNSET"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"))
+                .andExpect(jsonPath("$[0].rating").value(4));
+    }
+
+    @Test
+    @DisplayName("GET /api/forecast/compare returns 400 when required params are missing")
+    void getCompare_missingParams_returns400() throws Exception {
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK"))
+                .andExpect(status().isBadRequest());
+    }
+
     private ForecastEvaluationEntity buildEntity(String locationName, LocalDate targetDate) {
         return ForecastEvaluationEntity.builder()
                 .id(1L)
@@ -123,6 +149,7 @@ class ForecastControllerTest {
                 .daysAhead(0)
                 .rating(4)
                 .summary("Good colour potential.")
+                .solarEventTime(LocalDateTime.of(2026, 2, 20, 16, 45))
                 .build();
     }
 }

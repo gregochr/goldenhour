@@ -4,6 +4,7 @@ import {
   metresToKm,
   degreesToCompass,
   formatDateLabel,
+  formatEventTimeUk,
   groupForecastsByDate,
 } from '../utils/conversions.js';
 
@@ -76,6 +77,36 @@ describe('formatDateLabel', () => {
     const label = formatDateLabel('2026-02-25', now);
     expect(label).toContain('25');
     expect(label).toContain('Feb');
+  });
+});
+
+describe('formatEventTimeUk', () => {
+  it('returns null for null input', () => {
+    expect(formatEventTimeUk(null)).toBeNull();
+  });
+
+  it('returns null for undefined input', () => {
+    expect(formatEventTimeUk(undefined)).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(formatEventTimeUk('')).toBeNull();
+  });
+
+  it('returns null for invalid date string', () => {
+    expect(formatEventTimeUk('not-a-date')).toBeNull();
+  });
+
+  it('formats a winter UTC time as GMT (no offset)', () => {
+    // 20 Feb is GMT (UTC+0), so 07:30 UTC = 07:30 UK
+    const result = formatEventTimeUk('2026-02-20T07:30:00');
+    expect(result).toBe('07:30');
+  });
+
+  it('formats a summer UTC time as BST (UTC+1)', () => {
+    // 21 Jun is BST (UTC+1), so 03:30 UTC = 04:30 UK
+    const result = formatEventTimeUk('2026-06-21T03:30:00');
+    expect(result).toBe('04:30');
   });
 });
 

@@ -135,6 +135,10 @@ class ForecastServiceTest {
         assertThat(first.getSummary()).isEqualTo("Exceptional setup.");
         assertThat(first.getLocationName()).isEqualTo(DURHAM);
         assertThat(first.getTargetDate()).isEqualTo(date);
+        assertThat(first.getSolarEventTime()).isEqualTo(sunrise);
+
+        ForecastEvaluationEntity second = captor.getAllValues().get(1);
+        assertThat(second.getSolarEventTime()).isEqualTo(sunset);
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {

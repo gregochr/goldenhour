@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.ForecastProperties;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
@@ -132,5 +133,25 @@ public class ForecastController {
                         .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), date)
                         .stream())
                 .toList();
+    }
+
+    /**
+     * Returns all evaluation runs for a specific location, date, and target type.
+     *
+     * <p>Designed for backtesting — compare how the forecast rating changed across
+     * multiple evaluation runs as the target date approached.
+     *
+     * @param location   the configured location name
+     * @param date       the target date, ISO format {@code yyyy-MM-dd}
+     * @param targetType SUNRISE or SUNSET
+     * @return evaluations ordered by forecast_run_at ascending
+     */
+    @GetMapping("/compare")
+    public List<ForecastEvaluationEntity> getCompare(
+            @RequestParam String location,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam TargetType targetType) {
+        return repository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                location, date, targetType);
     }
 }

@@ -404,7 +404,7 @@ Air quality: PM2.5 8µg/m³, Dust 2µg/m³, AOD 0.12
 Rate 1-5 and explain in 2-3 sentences.
 ```
 
-Use `claude-haiku-4-5` model — sufficient for this task and significantly cheaper than Sonnet.
+Model selection is driven by `anthropic.model` in config — see **Evaluation Strategy Pattern** section below. Pro uses Sonnet for higher accuracy; Lite uses Haiku for lower cost.
 
 ---
 
@@ -500,6 +500,124 @@ All backend services and controllers must have comprehensive unit tests targetin
 
 ---
 
+## Evaluation Strategy Pattern
+
+The application uses a **strategy pattern** to support different Claude models for evaluation. Strategy selection is **obfuscated from end users** — there is no `evaluation.strategy` config property to override. Instead, Spring profiles control which strategy bean is registered, and `anthropic.model` is the single source of truth for which Claude model is called.
+
+### Obfuscation Design
+
+Users cannot easily switch between Haiku and Sonnet because:
+
+1. **No strategy property exists** — there's nothing to set in YAML
+2. **`@Profile` beans** — the strategy is wired at startup based on the active Spring profile
+3. **Profile is set in startup code** — for Tauri (Lite), it's hard-coded in `main.rs`; for Pro, it's set in the run command or deployment config
+4. A user exploring the config will see `spring.profiles.active: pro` but won't know what that controls without reading the source
+
+### How It Works
+
+Strategy beans are registered conditionally via `@Profile`:
+
+```java
+@Configuration
+public class EvaluationConfig {
+
+    @Bean
+    @Profile("lite")
+    public EvaluationStrategy liteStrategy(AnthropicClient client) {
+        return new HaikuEvaluationStrategy(client);
+    }
+
+    @Bean
+    @Profile("!lite")  // Pro is the default
+    public EvaluationStrategy proStrategy(AnthropicClient client) {
+        return new SonnetEvaluationStrategy(client);
+    }
+}
+```
+
+`EvaluationService` receives the injected strategy — no model-sniffing or branching:
+
+```java
+@Service
+public class EvaluationService {
+    private final EvaluationStrategy strategy;
+
+    public EvaluationService(EvaluationStrategy strategy) {
+        this.strategy = strategy;
+    }
+
+    public SunsetEvaluation evaluate(AtmosphericData data) {
+        return strategy.evaluate(data);
+    }
+}
+```
+
+Each profile's YAML sets the model string passed to the Anthropic API:
+
+```yaml
+# application.yml (Pro — default)
+anthropic:
+  model: claude-sonnet-4-5-20250929
+
+# application-lite.yml
+anthropic:
+  model: claude-haiku-4-5-20251001
+```
+
+### Strategy Differences
+
+| | HaikuEvaluationStrategy | SonnetEvaluationStrategy |
+|---|---|---|
+| Model | `claude-haiku-4-5-20251001` | `claude-sonnet-4-5-20250929` |
+| Prompt suffix | `Rate 1-5 and explain in 1-2 sentences.` | `Rate 1-5 and explain in 2-3 sentences.` |
+| Latency | ~320ms | ~1100ms |
+| Cost per eval | ~$0.0003 | ~$0.003 |
+| Accuracy | ~80% of actual | ~95% of actual |
+
+### Configuration Per Version
+
+| Version | Profile | Config File | Model |
+|---|---|---|---|
+| **Pro** (this project) | `pro` or default | `application.yml` | `claude-sonnet-4-5-20250929` |
+| **Lite** (separate project) | `lite` | `application-lite.yml` | `claude-haiku-4-5-20251001` |
+
+### Backtesting Endpoint
+
+Compare Haiku vs Sonnet evaluations on the same forecast data (development/testing only):
+
+```bash
+GET /api/forecast/compare?lat=54.7753&lon=-1.5849&date=2026-02-28
+```
+
+Returns both evaluations side by side, allowing you to:
+1. Compare accuracy against real outcomes
+2. Track latency differences
+3. Calculate cost savings/tradeoff
+4. Make a data-driven decision on which model to ship
+
+### Example Comparison Output
+
+```json
+{
+  "date": "2026-02-28",
+  "location": "Durham UK",
+  "haiku": {
+    "rating": 4,
+    "summary": "High cirrus with clear horizon — good colour potential.",
+    "latencyMs": 320,
+    "estimatedCost": "$0.0003"
+  },
+  "sonnet": {
+    "rating": 4,
+    "summary": "Extensive high cloud (70%) above a clear low horizon creates an ideal canvas. Moderate AOD and low humidity will enhance warm scattering. Expect vivid oranges and pinks.",
+    "latencyMs": 1100,
+    "estimatedCost": "$0.003"
+  }
+}
+```
+
+---
+
 ## API Keys & Configuration
 
 Never commit `application.yml`. Commit only `application-example.yml` with placeholders.
@@ -507,7 +625,7 @@ Never commit `application.yml`. Commit only `application-example.yml` with place
 ```yaml
 anthropic:
   api-key: YOUR_ANTHROPIC_API_KEY
-  model: claude-haiku-4-5
+  model: claude-sonnet-4-5-20250929  # Pro uses Sonnet for better accuracy
 
 spring:
   datasource:

@@ -99,4 +99,16 @@ describe('ForecastCard', () => {
     );
     expect(screen.getByText(/precipitation.*1\.2 mm/i)).toBeInTheDocument();
   });
+
+  it('displays solar event time when solarEventTime is present', () => {
+    const forecast = { ...baseForecast, solarEventTime: '2026-02-20T16:45:00' };
+    render(<ForecastCard {...baseProps} forecast={forecast} />);
+    expect(screen.getByTestId('sunset-time')).toBeInTheDocument();
+    expect(screen.getByTestId('sunset-time')).toHaveTextContent('16:45');
+  });
+
+  it('does not display time element when solarEventTime is absent', () => {
+    render(<ForecastCard {...baseProps} forecast={baseForecast} />);
+    expect(screen.queryByTestId('sunset-time')).not.toBeInTheDocument();
+  });
 });

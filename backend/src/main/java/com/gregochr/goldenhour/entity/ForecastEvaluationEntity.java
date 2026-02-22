@@ -130,4 +130,8 @@ public class ForecastEvaluationEntity {
     /** Claude's plain English explanation of the rating. */
     @Column(name = "summary", columnDefinition = "TEXT")
     private String summary;
+
+    /** UTC time of the solar event (sunrise or sunset). */
+    @Column(name = "solar_event_time")
+    private LocalDateTime solarEventTime;
 }
