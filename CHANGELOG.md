@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- `LocationType` enum (`LANDSCAPE`, `WILDLIFE`, `SEASCAPE`) stored as `@ElementCollection` join table (`V8` migration)
+- `tideType` converted from single value to `Set<TideType>` via `@ElementCollection` join table (`V9` migration) — supports multiple preferred tides per location (e.g. `LOW_TIDE` + `MID_TIDE`)
+- `MID_TIDE` added to `TideType` enum
+- `goldenHourType`, `tideType`, and `locationType` wired into `application.yml` location config — YAML is now the source of truth for location metadata and synced to the DB on every startup
+- `LocationRepository.findByName()` used by seeder to detect and apply metadata changes for existing locations
+- `LocationService.isSeascape()` helper
+- `LocationTypeBadges` component — pill badges for golden hour preference (amber), location type (grey), and tide preference (cyan) shown on compact cards, by-location header, and map popups
+- Map popup redesigned: prominent title, event time pill inline with title, location type / golden hour type / tide rows, golden & blue hour row; azimuth direction pills removed (lines on map convey this better)
+- All popup pills standardised to 11 px / 2 px 8 px padding
+
 ## [0.3.0] - 2026-02-22
 
 ### Added
