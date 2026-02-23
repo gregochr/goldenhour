@@ -36,7 +36,7 @@ public class OpenMeteoService {
     private static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
     private static final int MAX_RETRIES = 2;
-    private static final Duration RETRY_BACKOFF = Duration.ofSeconds(1);
+    private static final Duration RETRY_BACKOFF = Duration.ofSeconds(5);
 
     private static final int WIND_SPEED_SCALE = 2;
     private static final int PRECIP_SCALE = 2;
@@ -74,7 +74,7 @@ public class OpenMeteoService {
                         .build())
                 .retrieve()
                 .bodyToMono(OpenMeteoForecastResponse.class)
-                .retryWhen(retryOn5xx());
+                .retryWhen(retryOnTransient());
 
         Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -87,7 +87,7 @@ public class OpenMeteoService {
                         .build())
                 .retrieve()
                 .bodyToMono(OpenMeteoAirQualityResponse.class)
-                .retryWhen(retryOn5xx());
+                .retryWhen(retryOnTransient());
 
         AtmosphericData data = Mono.zip(forecastMono, airQualityMono)
                 .map(tuple -> extractAtmosphericData(tuple.getT1(), tuple.getT2(),
@@ -101,14 +101,16 @@ public class OpenMeteoService {
 
     /**
      * Returns a retry spec that retries up to {@value #MAX_RETRIES} times with exponential
-     * backoff, but only for 5xx server errors. 4xx client errors are not retried.
+     * backoff for transient errors: 5xx server errors and 429 Too Many Requests.
+     * Other 4xx client errors are not retried.
      *
      * @return configured {@link Retry} spec
      */
-    private Retry retryOn5xx() {
+    private Retry retryOnTransient() {
         return Retry.backoff(MAX_RETRIES, RETRY_BACKOFF)
                 .filter(ex -> ex instanceof WebClientResponseException wex
-                        && wex.getStatusCode().is5xxServerError());
+                        && (wex.getStatusCode().is5xxServerError()
+                            || wex.getStatusCode().value() == 429));
     }
 
     /**
