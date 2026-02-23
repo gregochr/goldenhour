@@ -311,7 +311,7 @@ export default function MapView({ locations, date }) {
                 <Popup>
                   <div style={{ minWidth: '230px', fontFamily: 'system-ui, sans-serif' }}>
                     {/* Title */}
-                    <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '6px', color: '#f1f5f9' }}>
+                    <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '6px', color: '#0f172a' }}>
                       {loc.name}
                     </div>
 
