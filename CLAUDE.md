@@ -1805,3 +1805,12 @@ management:
 ```
 
 Cloudflare Tunnel health probe: `GET /actuator/health`
+
+### Backend Health Status Indicator
+
+- React component in top right corner
+- Only visible to ADMIN users
+- Fetches `/actuator/health` endpoint every 30 seconds
+- Displays: UP (green dot) or DOWN (red dot)
+- Shows status only, no auto-reconnect logic
+- Useful for troubleshooting from girlfriend's place
