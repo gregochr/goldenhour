@@ -1,6 +1,52 @@
 import axios from 'axios';
+import { refreshAccessToken } from './authApi.js';
 
 const BASE_URL = '/api';
+
+const TOKEN_KEY = 'goldenhour_token';
+const REFRESH_KEY = 'goldenhour_refresh';
+
+// Attach the JWT access token to every outgoing request.
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) {
+    config.headers = config.headers ?? {};
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// On 401, attempt a single token refresh before clearing session.
+let isRefreshing = false;
+
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config;
+    const storedRefresh = localStorage.getItem(REFRESH_KEY);
+
+    // Only attempt refresh if we have a refresh token and haven't already tried.
+    if (error.response?.status === 401 && !original._retried && !isRefreshing && storedRefresh) {
+      original._retried = true;
+      isRefreshing = true;
+      try {
+        const data = await refreshAccessToken(storedRefresh);
+        localStorage.setItem(TOKEN_KEY, data.accessToken);
+        original.headers['Authorization'] = `Bearer ${data.accessToken}`;
+        isRefreshing = false;
+        return axios(original);
+      } catch {
+        // Refresh failed — clear session so AuthGate shows LoginPage.
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(REFRESH_KEY);
+        localStorage.removeItem('goldenhour_role');
+        isRefreshing = false;
+        window.location.href = '/';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 /**
  * Fetches the T through T+7 forecast week for all configured locations.

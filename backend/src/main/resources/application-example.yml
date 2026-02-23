@@ -58,5 +58,10 @@ forecast:
   schedule:
     cron: "0 0 6,18 * * *"
 
+jwt:
+  secret: YOUR_JWT_SECRET_BASE64   # generate with: openssl rand -base64 32
+  access-token-expiry-hours: 24
+  refresh-token-expiry-days: 30
+
 server:
   port: 8081

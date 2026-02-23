@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -43,6 +44,7 @@ class OutcomeControllerTest {
     private OutcomeService outcomeService;
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/outcome returns outcomes for a location and date range")
     void getOutcomes_validRequest_returnsOutcomes() throws Exception {
         when(outcomeService.query(eq(54.7753), eq(-1.5849), any(), any()))
@@ -58,6 +60,7 @@ class OutcomeControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/outcome returns 400 when from is after to")
     void getOutcomes_fromAfterTo_returns400() throws Exception {
         when(outcomeService.query(any(Double.class), any(Double.class), any(), any()))
@@ -73,6 +76,7 @@ class OutcomeControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/outcome returns 201 with the saved entity")
     void recordOutcome_validRequest_returns201() throws Exception {
         ActualOutcomeEntity saved = buildOutcomeEntity();
@@ -86,6 +90,7 @@ class OutcomeControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/outcome returns 400 when the service rejects an invalid rating")
     void recordOutcome_serviceRejectsRating_returns400() throws Exception {
         when(outcomeService.record(any()))

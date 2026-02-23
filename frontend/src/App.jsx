@@ -7,13 +7,32 @@ import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
 import ManageView from './components/ManageView.jsx';
+import LoginPage from './components/LoginPage.jsx';
+import ChangePasswordPage from './components/ChangePasswordPage.jsx';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
 import { runForecast } from './api/forecastApi.js';
 
 /**
- * Root application component. Fetches forecast data and renders the timeline.
+ * Auth gate — renders {@link LoginPage} when no token is present,
+ * or the main app otherwise. This keeps hooks out of the unauthenticated path.
  */
-export default function App() {
+function AuthGate() {
+  const { token, mustChangePassword } = useAuth();
+  if (!token) {
+    return <LoginPage />;
+  }
+  if (mustChangePassword) {
+    return <ChangePasswordPage />;
+  }
+  return <AppInner />;
+}
+
+/**
+ * Inner app component — only rendered when the user is authenticated.
+ */
+function AppInner() {
+  const { isAdmin, logout } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const [selectedTab, setSelectedTab] = useState(0);
   const [viewMode, setViewMode] = useState('map');
@@ -49,14 +68,23 @@ export default function App() {
               Sunrise &amp; Sunset Colour Forecast
             </p>
           </div>
-          <button
-            className="btn-secondary text-xs"
-            onClick={refresh}
-            disabled={loading}
-            aria-label="Refresh forecast"
-          >
-            {loading ? 'Loading…' : '↻ Refresh'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="btn-secondary text-xs"
+              onClick={refresh}
+              disabled={loading}
+              aria-label="Refresh forecast"
+            >
+              {loading ? 'Loading…' : '↻ Refresh'}
+            </button>
+            <button
+              className="btn-secondary text-xs"
+              onClick={logout}
+              aria-label="Sign out"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
@@ -84,7 +112,7 @@ export default function App() {
         {!loading && !error && sortedLocations.length > 0 && (
           <>
             <div className="mb-6">
-              <ViewToggle value={viewMode} onChange={setViewMode} />
+              <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
             </div>
 
             {viewMode === 'location' && location && (
@@ -169,5 +197,16 @@ export default function App() {
         </div>
       </footer>
     </div>
+  );
+}
+
+/**
+ * Root application component. Wraps the app in the authentication provider.
+ */
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
   );
 }

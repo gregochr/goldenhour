@@ -137,12 +137,50 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
+        <!-- ==================== Security ==================== -->
+
+        <!-- Spring Security - JWT authentication -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- JJWT API - JWT generation and validation -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.6</version>
+        </dependency>
+
+        <!-- JJWT implementation - runtime only -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.6</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- JJWT Jackson integration - runtime only -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.6</version>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- ==================== Testing ==================== -->
 
         <!-- Spring Boot Test - JUnit 5, Mockito, AssertJ, MockMvc -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Security Test - @WithMockUser and MockMvc security support -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -296,6 +334,7 @@
                             <!-- Exclude Spring Boot entry point — main() is never called in unit tests -->
                             <excludes>
                                 <exclude>com/gregochr/goldenhour/GoldenHourApplication.class</exclude>
+                                <exclude>com/gregochr/goldenhour/entity/AppUserEntity.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
+import axios from 'axios';
 import { runForecast, fetchLocations, addLocation } from '../api/forecastApi.js';
 import { formatDateLabel } from '../utils/conversions.js';
 
@@ -48,6 +49,20 @@ export default function ManageView({ onComplete }) {
   const [addError, setAddError] = useState('');
   const [addSaving, setAddSaving] = useState(false);
 
+  // Sub-tab
+  const [manageTab, setManageTab] = useState('users');
+
+  // User management state
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [showAddUserForm, setShowAddUserForm] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState('LITE_USER');
+  const [addUserError, setAddUserError] = useState('');
+  const [addUserSaving, setAddUserSaving] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
   async function refreshLocations() {
     try {
       const data = await fetchLocations();
@@ -57,10 +72,22 @@ export default function ManageView({ onComplete }) {
     }
   }
 
+  async function fetchUsers() {
+    try {
+      const res = await axios.get('/api/users');
+      setUsers(res.data);
+    } catch {
+      // Silently keep existing list on failure
+    }
+  }
+
   useEffect(() => {
     fetchLocations()
       .then(setManageLocations)
       .finally(() => setLocationsLoading(false));
+    axios.get('/api/users')
+      .then((res) => setUsers(res.data))
+      .finally(() => setUsersLoading(false));
   }, []);
 
   function getStatus(locationName, date) {
@@ -145,8 +172,211 @@ export default function ManageView({ onComplete }) {
     }
   }
 
+  async function handleAddUser() {
+    const trimmedUsername = newUsername.trim();
+    if (!trimmedUsername || !newPassword.trim()) {
+      setAddUserError('Username and password are required.');
+      return;
+    }
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedUsername);
+    if (trimmedUsername !== 'admin' && !isEmail) {
+      setAddUserError('Username must be "admin" or a valid email address.');
+      return;
+    }
+    setAddUserError('');
+    setAddUserSaving(true);
+    try {
+      await axios.post('/api/users', {
+        username: trimmedUsername,
+        password: newPassword,
+        role: newRole,
+      });
+      setNewUsername('');
+      setNewPassword('');
+      setNewRole('LITE_USER');
+      setShowNewPassword(false);
+      setShowAddUserForm(false);
+      await fetchUsers();
+    } catch (err) {
+      setAddUserError(err?.response?.data?.error ?? 'Failed to create user.');
+    } finally {
+      setAddUserSaving(false);
+    }
+  }
+
+  async function handleToggleEnabled(userId, currentEnabled) {
+    try {
+      await axios.put(`/api/users/${userId}/enabled`, { enabled: !currentEnabled });
+      await fetchUsers();
+    } catch {
+      // Silently ignore
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
+
+      {/* Sub-tabs */}
+      <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-0.5 gap-0.5 self-start">
+        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }].map((tab) => (
+          <button
+            key={tab.value}
+            onClick={() => setManageTab(tab.value)}
+            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              manageTab === tab.value
+                ? 'bg-gray-700 text-gray-100'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Users tab ── */}
+      {manageTab === 'users' && (
+        <div className="card border border-gray-800 flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm font-semibold text-gray-100">User Management</p>
+            <button
+              className="btn-secondary text-xs shrink-0"
+              onClick={() => setShowAddUserForm((v) => !v)}
+            >
+              {showAddUserForm ? '✕ Cancel' : '+ Add user'}
+            </button>
+          </div>
+
+          {showAddUserForm && (
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Username</label>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    placeholder="e.g. jane"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 pr-10 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      placeholder="Temporary password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                      onClick={() => setShowNewPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-200"
+                    >
+                      {showNewPassword ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 3C5 3 1.73 7.11 1.05 8.87a1 1 0 000 .26C1.73 10.89 5 15 10 15s8.27-4.11 8.95-5.87a1 1 0 000-.26C18.27 7.11 15 3 10 3zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z" />
+                          <path d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06L3.28 2.22z" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M10 3C5 3 1.73 7.11 1.05 8.27a1 1 0 000 .26C1.73 10.89 5 15 10 15s8.27-4.11 8.95-5.87a1 1 0 000-.26C18.27 7.11 15 3 10 3zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Role</label>
+                  <select
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    value={newRole}
+                    onChange={(e) => setNewRole(e.target.value)}
+                  >
+                    <option value="LITE_USER">LITE_USER</option>
+                    <option value="PRO_USER">PRO_USER</option>
+                    <option value="ADMIN">ADMIN</option>
+                  </select>
+                </div>
+              </div>
+              {addUserError && (
+                <p className="text-xs text-red-400">{addUserError}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  className="btn-primary text-sm"
+                  onClick={handleAddUser}
+                  disabled={addUserSaving}
+                >
+                  {addUserSaving ? 'Saving…' : 'Create user'}
+                </button>
+                <button
+                  className="btn-secondary text-sm"
+                  onClick={() => { setShowAddUserForm(false); setAddUserError(''); }}
+                  disabled={addUserSaving}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {usersLoading && (
+            <p className="text-sm text-gray-500 animate-pulse">Loading users…</p>
+          )}
+
+          {!usersLoading && users.length > 0 && (
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="text-xs text-gray-500 border-b border-gray-800">
+                  <th className="pb-2 font-medium">Username</th>
+                  <th className="pb-2 font-medium">Role</th>
+                  <th className="pb-2 font-medium">Created</th>
+                  <th className="pb-2 font-medium">Enabled</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id} className="border-b border-gray-900 last:border-0">
+                    <td className="py-2 text-gray-200">{user.username}</td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        user.role === 'ADMIN'
+                          ? 'bg-amber-900/50 text-amber-400'
+                          : 'bg-gray-800 text-gray-400'
+                      }`}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td className="py-2 text-gray-500 text-xs">
+                      {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
+                    </td>
+                    <td className="py-2">
+                      <button
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          user.enabled
+                            ? 'bg-green-900/40 text-green-400 hover:bg-green-900/70'
+                            : 'bg-red-900/40 text-red-400 hover:bg-red-900/70'
+                        }`}
+                        onClick={() => handleToggleEnabled(user.id, user.enabled)}
+                      >
+                        {user.enabled ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── Locations tab ── */}
+      {manageTab === 'locations' && <>
 
       {/* Global re-run */}
       <div className="card border border-gray-800 flex items-center justify-between gap-4">
@@ -298,6 +528,8 @@ export default function ManageView({ onComplete }) {
           </div>
         );
       })}
+      </>}
+
     </div>
   );
 }

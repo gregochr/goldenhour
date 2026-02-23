@@ -1,0 +1,17 @@
+CREATE TABLE app_user (
+    id         BIGSERIAL PRIMARY KEY,
+    username   VARCHAR(50)  UNIQUE NOT NULL,
+    password   VARCHAR(255) NOT NULL,
+    role       VARCHAR(10)  NOT NULL,
+    enabled    BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+-- Default admin account: admin / golden2026
+-- bcrypt hash generated with: htpasswd -nbB -C 10 admin golden2026
+-- Spring Security BCryptPasswordEncoder accepts both $2y$ and $2a$ prefixes.
+INSERT INTO app_user (username, password, role, enabled)
+VALUES ('admin',
+        '$2y$10$hk2cNYpBNVEynt.1Ee4bjOwepblsGi0VRYrFVpDm0S5tXh1GfvrYy',
+        'ADMIN',
+        TRUE);

@@ -46,6 +46,45 @@
     </Match>
 
     <!--
+        OpenMeteoForecastResponse and its inner Hourly class use Lombok @Getter / @Setter
+        for Jackson deserialization. The List fields are internal API response data
+        only consumed within OpenMeteoService.
+    -->
+    <Match>
+        <Class name="~com\.gregochr\.goldenhour\.model\.OpenMeteoForecastResponse.*"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        OpenMeteoAirQualityResponse and its inner Hourly class use Lombok @Getter / @Setter
+        for Jackson deserialization. The List fields are internal API response data
+        only consumed within OpenMeteoService.
+    -->
+    <Match>
+        <Class name="~com\.gregochr\.goldenhour\.model\.OpenMeteoAirQualityResponse.*"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        LocationEntity uses Lombok @Getter / @Setter / @Builder with @ElementCollection Set
+        fields for locationType and tideType. JPA requires mutable sets for lazy-loading;
+        these are internal persistence fields not exposed beyond the repository layer.
+    -->
+    <Match>
+        <Class name="~com\.gregochr\.goldenhour\.entity\.LocationEntity.*"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
         Spring services store injected dependencies (Spring-managed singletons) via
         constructor injection. EI_EXPOSE_REP2 fires because the fields are mutable
         object references, but this is the standard and correct Spring DI pattern.

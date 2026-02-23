@@ -41,5 +41,10 @@ forecast:
   schedule:
     cron: "0 0 6,18 * * *"
 
+jwt:
+  secret: dGVzdC1zZWNyZXQta2V5LWZvci10ZXN0aW5nLW9ubHktMzI=
+  access-token-expiry-hours: 24
+  refresh-token-expiry-days: 30
+
 server:
   port: 8081

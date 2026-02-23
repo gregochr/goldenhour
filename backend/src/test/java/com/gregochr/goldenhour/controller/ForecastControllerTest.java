@@ -11,6 +11,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
@@ -48,6 +49,7 @@ class ForecastControllerTest {
     private ForecastService forecastService;
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast returns 200 with evaluations for all configured locations")
     void getForecasts_returnsEvaluationsForConfiguredLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 20));
@@ -62,6 +64,7 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast/history returns 200 for a valid date range with location filter")
     void getHistory_validRange_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 1, 15));
@@ -79,6 +82,7 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast/history returns 400 when 'from' is after 'to'")
     void getHistory_fromAfterTo_returns400() throws Exception {
         mockMvc.perform(get("/api/forecast/history")
@@ -89,6 +93,7 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/forecast/run with no body runs forecasts for all configured locations")
     void runForecast_noBody_runsForAllLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 20));
@@ -102,6 +107,7 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/forecast/run returns 400 when the specified location is not configured")
     void runForecast_unknownLocation_returns400() throws Exception {
         mockMvc.perform(post("/api/forecast/run")
@@ -112,6 +118,7 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast/compare returns 200 with evaluations for valid params")
     void getCompare_validParams_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 28));
@@ -130,6 +137,7 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast/compare returns 400 when required params are missing")
     void getCompare_missingParams_returns400() throws Exception {
         mockMvc.perform(get("/api/forecast/compare")

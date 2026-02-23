@@ -9,6 +9,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
@@ -39,6 +40,7 @@ class LocationControllerTest {
     private LocationService locationService;
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/locations returns 200 with all locations")
     void getLocations_returnsAllLocations() throws Exception {
         when(locationService.findAll()).thenReturn(List.of(
@@ -53,6 +55,7 @@ class LocationControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("GET /api/locations returns 200 with empty list when no locations exist")
     void getLocations_noLocations_returnsEmptyList() throws Exception {
         when(locationService.findAll()).thenReturn(List.of());
@@ -63,6 +66,7 @@ class LocationControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/locations returns 200 with the saved entity for valid input")
     void addLocation_validRequest_returnsSavedEntity() throws Exception {
         LocationEntity saved = buildEntity(3L, "Bamburgh Castle", 55.6090, -1.7099);
@@ -80,6 +84,7 @@ class LocationControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/locations returns 400 when the service rejects a duplicate name")
     void addLocation_duplicateName_returns400() throws Exception {
         when(locationService.add(anyString(), anyDouble(), anyDouble()))
@@ -93,6 +98,7 @@ class LocationControllerTest {
     }
 
     @Test
+    @WithMockUser
     @DisplayName("POST /api/locations returns 400 when the service rejects an invalid latitude")
     void addLocation_invalidLatitude_returns400() throws Exception {
         when(locationService.add(anyString(), anyDouble(), anyDouble()))

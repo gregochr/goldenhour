@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- JWT authentication — stateless Spring Security with ADMIN and USER roles
+- `app_user` table (V10 migration) with default `admin` / `golden2026` account
+- `refresh_token` table (V11 migration) for refresh token persistence
+- `AppUserEntity`, `RefreshTokenEntity`, `UserRole` — user and token JPA entities
+- `JwtService` — access token generation/validation, refresh token hashing (SHA-256)
+- `UserService` — implements `UserDetailsService`, user CRUD operations
+- `SecurityConfig` — stateless filter chain, disables anonymous auth (unauthenticated → 401)
+- `JwtAuthenticationFilter` — extracts and validates JWT on every request
+- `JwtProperties` — typed config binding for `jwt.*` in `application.yml`
+- `AuthController` — `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`
+- `UserController` — `GET/POST /api/users`, `PUT /api/users/{id}/enabled`, `PUT /api/users/{id}/role` (ADMIN-only)
+- `AuthContext` + `AuthProvider` React context for token/role state
+- `LoginPage` component — dark-theme login form with `data-testid` attributes
+- `authApi.js` — `login()`, `refreshAccessToken()`, `logout()` API calls
+- Axios request/response interceptors in `forecastApi.js` — auto-attaches JWT, retries once on 401 with refresh token
+- `App.jsx` auth gate — renders `LoginPage` when unauthenticated; logout button in header
+- `ViewToggle` hides Manage tab from non-ADMIN users
+- User Management section in `ManageView` — table of users with enable/disable toggles and add-user form
+- `JwtServiceTest`, `AuthControllerTest`, `UserControllerTest`, `UserServiceTest`, `JwtAuthenticationFilterTest` — new test classes (145 total tests, 0 failures)
+- `spring-security-test` added as explicit test dependency for `@WithMockUser`
+- `jwt.*` config block added to `application-example.yml`, `application-local.yml`, and test `application.yml`
+- SpotBugs exclusions for pre-existing `EI_EXPOSE_REP` issues in `OpenMeteoForecastResponse`, `OpenMeteoAirQualityResponse`, and `LocationEntity`
+
 - `LocationType` enum (`LANDSCAPE`, `WILDLIFE`, `SEASCAPE`) stored as `@ElementCollection` join table (`V8` migration)
 - `tideType` converted from single value to `Set<TideType>` via `@ElementCollection` join table (`V9` migration) — supports multiple preferred tides per location (e.g. `LOW_TIDE` + `MID_TIDE`)
 - `MID_TIDE` added to `TideType` enum
