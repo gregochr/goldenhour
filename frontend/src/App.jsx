@@ -119,7 +119,7 @@ function AppInner() {
                 disabled={loading}
                 aria-label="Refresh forecast"
               >
-                {loading ? 'Loading…' : '↻ Refresh'}
+                {loading ? 'Loading…' : '↻ Reload data'}
               </button>
             </div>
 
