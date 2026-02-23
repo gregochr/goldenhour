@@ -1,12 +1,17 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.entity.GoldenHourType;
+import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.TideType;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Bound to the {@code forecast} section of {@code application.yml}.
@@ -40,6 +45,24 @@ public class ForecastProperties {
 
         /** Longitude in decimal degrees. */
         private double lon;
+
+        /**
+         * Which solar events are worth photographing here.
+         * Defaults to {@code BOTH_TIMES} if not specified.
+         */
+        private GoldenHourType goldenHourType = GoldenHourType.BOTH_TIMES;
+
+        /**
+         * The photographer's tide preference for this location.
+         * Defaults to {@code NOT_COASTAL} if not specified.
+         */
+        private TideType tideType = TideType.NOT_COASTAL;
+
+        /**
+         * Photography type tags (e.g. {@code LANDSCAPE}, {@code SEASCAPE}, {@code WILDLIFE}).
+         * A location may have multiple types. Leave empty for untagged.
+         */
+        private Set<LocationType> locationType = new HashSet<>();
     }
 
     /**

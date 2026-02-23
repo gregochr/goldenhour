@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Spring Data repository for {@link LocationEntity}.
@@ -17,6 +18,14 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * @return {@code true} if a matching row exists
      */
     boolean existsByName(String name);
+
+    /**
+     * Finds a location by its exact name.
+     *
+     * @param name the location name to look up
+     * @return an {@link Optional} containing the entity if found
+     */
+    Optional<LocationEntity> findByName(String name);
 
     /**
      * Returns all locations ordered alphabetically by name.

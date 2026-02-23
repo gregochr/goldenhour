@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Manages the persisted set of forecast locations.
@@ -48,26 +49,45 @@ public class LocationService {
     }
 
     /**
-     * Seeds the {@code locations} table from {@code application.yml} on startup.
+     * Seeds and synchronises the {@code locations} table from {@code application.yml} on startup.
      *
-     * <p>Any location already present (matched by name) is skipped. New locations are
-     * inserted with the current UTC timestamp as {@code created_at}.
+     * <p>New locations are inserted. Existing locations (matched by name) have their
+     * {@code goldenHourType}, {@code tideType}, and {@code locationType} updated to
+     * match the current YAML config — so the YAML remains the source of truth for metadata.
+     * Coordinates are not updated for existing rows to preserve any manual corrections.
      */
     @PostConstruct
     public void seedFromProperties() {
         int seeded = 0;
+        int updated = 0;
         for (ForecastProperties.Location loc : forecastProperties.getLocations()) {
-            if (!locationRepository.existsByName(loc.getName())) {
+            Optional<LocationEntity> existing = locationRepository.findByName(loc.getName());
+            if (existing.isEmpty()) {
                 locationRepository.save(LocationEntity.builder()
                         .name(loc.getName())
                         .lat(loc.getLat())
                         .lon(loc.getLon())
+                        .goldenHourType(loc.getGoldenHourType())
+                        .tideType(loc.getTideType())
+                        .locationType(loc.getLocationType())
                         .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build());
                 seeded++;
+            } else {
+                LocationEntity entity = existing.get();
+                boolean changed = !entity.getGoldenHourType().equals(loc.getGoldenHourType())
+                        || !entity.getTideType().equals(loc.getTideType())
+                        || !entity.getLocationType().equals(loc.getLocationType());
+                if (changed) {
+                    entity.setGoldenHourType(loc.getGoldenHourType());
+                    entity.setTideType(loc.getTideType());
+                    entity.setLocationType(loc.getLocationType());
+                    locationRepository.save(entity);
+                    updated++;
+                }
             }
         }
-        LOG.info("Seeded {} location(s) from config", seeded);
+        LOG.info("Seeded {} location(s), updated metadata for {} location(s) from config", seeded, updated);
     }
 
     /**

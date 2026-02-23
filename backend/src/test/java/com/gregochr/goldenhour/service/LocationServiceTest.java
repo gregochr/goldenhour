@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,7 +55,7 @@ class LocationServiceTest {
         durham.setLon(-1.5849);
         forecastProperties.setLocations(List.of(durham));
 
-        when(locationRepository.existsByName("Durham UK")).thenReturn(false);
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.empty());
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         locationService.seedFromProperties();
@@ -69,19 +70,42 @@ class LocationServiceTest {
     }
 
     @Test
-    @DisplayName("seedFromProperties() skips locations already present in the database")
-    void seedFromProperties_existingLocations_areSkipped() {
+    @DisplayName("seedFromProperties() does not save when existing location metadata is unchanged")
+    void seedFromProperties_existingLocationUnchanged_doesNotSave() {
         ForecastProperties.Location durham = new ForecastProperties.Location();
         durham.setName("Durham UK");
         durham.setLat(54.7753);
         durham.setLon(-1.5849);
+        // Defaults: BOTH_TIMES, NOT_COASTAL, empty locationType
         forecastProperties.setLocations(List.of(durham));
 
-        when(locationRepository.existsByName("Durham UK")).thenReturn(true);
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existing));
 
         locationService.seedFromProperties();
 
         verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("seedFromProperties() saves when existing location metadata differs from config")
+    void seedFromProperties_existingLocationMetadataChanged_savesUpdate() {
+        ForecastProperties.Location durham = new ForecastProperties.Location();
+        durham.setName("Durham UK");
+        durham.setLat(54.7753);
+        durham.setLon(-1.5849);
+        durham.setLocationType(Set.of(LocationType.LANDSCAPE));
+        forecastProperties.setLocations(List.of(durham));
+
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        // existing has empty locationType — differs from config
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.seedFromProperties();
+
+        verify(locationRepository, times(1)).save(any());
+        assertThat(existing.getLocationType()).containsExactly(LocationType.LANDSCAPE);
     }
 
     @Test
@@ -97,12 +121,14 @@ class LocationServiceTest {
         keswick.setLon(-3.13);
         forecastProperties.setLocations(List.of(durham, keswick));
 
-        when(locationRepository.existsByName("Durham UK")).thenReturn(true);
-        when(locationRepository.existsByName("Keswick")).thenReturn(false);
+        LocationEntity existingDurham = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existingDurham));
+        when(locationRepository.findByName("Keswick")).thenReturn(Optional.empty());
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         locationService.seedFromProperties();
 
+        // Only Keswick inserted (Durham unchanged → no save)
         verify(locationRepository, times(1)).save(any());
     }
 
