@@ -6,9 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   formatEventTimeUk,
   formatShiftedEventTimeUk,
-  degreesToCompassFine,
 } from '../utils/conversions.js';
-import LocationTypeBadges from './LocationTypeBadges.jsx';
 
 const RATING_COLOURS = {
   1: '#6b7280',
@@ -20,6 +18,26 @@ const RATING_COLOURS = {
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
+
+/** Base style shared by all popup pills. */
+const POPUP_PILL = {
+  display: 'inline-flex', alignItems: 'center', gap: '4px',
+  fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
+  fontWeight: '600',
+};
+
+const POPUP_LOC_TYPE_META = {
+  LANDSCAPE: { emoji: '🏔️', label: 'Landscape' },
+  WILDLIFE:  { emoji: '🦅', label: 'Wildlife' },
+  SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
+};
+
+const POPUP_TIDE_META = {
+  HIGH_TIDE: 'High tide',
+  LOW_TIDE:  'Low tide',
+  MID_TIDE:  'Mid tide',
+  ANY_TIDE:  'Any tide',
+};
 
 /**
  * Maps Leaflet zoom level to azimuth line length in km.
@@ -287,16 +305,11 @@ export default function MapView({ locations, date }) {
             const blueStart   = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? -60 : 0) : null;
             const blueEnd     = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 0 : 60) : null;
 
-            const locSunriseAzimuth = dayData?.sunrise?.azimuthDeg ?? null;
-            const locSunsetAzimuth  = dayData?.sunset?.azimuthDeg  ?? null;
+            const goldenPillStyle = { ...POPUP_PILL, background: '#451a03', color: '#fcd34d', border: '1px solid rgba(217,119,6,0.4)' };
+            const bluePillStyle   = { ...POPUP_PILL, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
 
-            const pillBase = {
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
-              marginRight: '4px', fontWeight: '600',
-            };
-            const goldenPillStyle = { ...pillBase, background: '#451a03', color: '#fcd34d', border: '1px solid rgba(217,119,6,0.4)' };
-            const bluePillStyle   = { ...pillBase, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
+            const locTypes    = (loc.locationType ?? []).filter((t) => POPUP_LOC_TYPE_META[t]);
+            const coastalTides = (loc.tideType ?? []).filter((t) => t !== 'NOT_COASTAL' && POPUP_TIDE_META[t]);
 
             return (
               <Marker
@@ -310,56 +323,50 @@ export default function MapView({ locations, date }) {
               >
                 <Popup>
                   <div style={{ minWidth: '230px', fontFamily: 'system-ui, sans-serif' }}>
-                    {/* Title */}
-                    <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '6px', color: '#0f172a' }}>
-                      {loc.name}
+
+                    {/* Row 1: Title + event time pill */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '8px' }}>
+                      <div style={{ fontWeight: '800', fontSize: '17px', color: '#0f172a' }}>
+                        {loc.name}
+                      </div>
+                      {eventTime && (
+                        <span style={{
+                          ...POPUP_PILL,
+                          background: isSunrise ? 'rgba(249,115,22,0.15)' : 'rgba(168,85,247,0.15)',
+                          color:      isSunrise ? '#fb923c'                : '#c084fc',
+                          border:     `1px solid ${isSunrise ? 'rgba(249,115,22,0.35)' : 'rgba(168,85,247,0.35)'}`,
+                        }}>
+                          {isSunrise ? '🌅' : '🌇'} {isSunrise ? 'Sunrise' : 'Sunset'} · {eventTime}
+                        </span>
+                      )}
                     </div>
 
-                    {/* Location type badges */}
-                    <div style={{ marginBottom: '8px' }}>
-                      <LocationTypeBadges goldenHourType={loc.goldenHourType} locationType={loc.locationType} tideType={loc.tideType} />
-                    </div>
+                    {/* Row 2: Location type pills */}
+                    {locTypes.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                        {locTypes.map((t) => {
+                          const m = POPUP_LOC_TYPE_META[t];
+                          return (
+                            <span key={t} style={{ ...POPUP_PILL, background: '#1f2937', color: '#d1d5db', border: '1px solid #374151' }}>
+                              {m.emoji} {m.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
 
-                    {/* Event time + azimuth pills */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
-                      {eventTime && (() => {
-                        const bg     = isSunrise ? 'rgba(249,115,22,0.15)' : 'rgba(168,85,247,0.15)';
-                        const colour = isSunrise ? '#fb923c'                : '#c084fc';
-                        const border = isSunrise ? 'rgba(249,115,22,0.35)' : 'rgba(168,85,247,0.35)';
-                        return (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                            fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
-                            background: bg, color: colour,
-                            border: `1px solid ${border}`, fontWeight: '600',
-                          }}>
-                            {isSunrise ? '🌅' : '🌇'} {isSunrise ? 'Sunrise' : 'Sunset'} · {eventTime}
+                    {/* Row 3: Tide pills — hidden if none */}
+                    {coastalTides.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                        {coastalTides.map((t) => (
+                          <span key={t} style={{ ...POPUP_PILL, background: '#083344', color: '#67e8f9', border: '1px solid rgba(22,163,190,0.4)' }}>
+                            🌊 {POPUP_TIDE_META[t]}
                           </span>
-                        );
-                      })()}
-                      {locSunriseAzimuth != null && (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
-                          background: 'rgba(249,115,22,0.1)', color: SUNRISE_LINE_COLOUR,
-                          border: '1px solid rgba(249,115,22,0.3)', fontWeight: '600',
-                        }}>
-                          ↑ {degreesToCompassFine(locSunriseAzimuth)} ({locSunriseAzimuth}°)
-                        </span>
-                      )}
-                      {locSunsetAzimuth != null && (
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
-                          background: 'rgba(168,85,247,0.1)', color: SUNSET_LINE_COLOUR,
-                          border: '1px solid rgba(168,85,247,0.3)', fontWeight: '600',
-                        }}>
-                          ↓ {degreesToCompassFine(locSunsetAzimuth)} ({locSunsetAzimuth}°)
-                        </span>
-                      )}
-                    </div>
+                        ))}
+                      </div>
+                    )}
 
-                    {/* Golden / Blue hour pills */}
+                    {/* Row 4: Golden / Blue hour pills */}
                     {forecast && goldenStart && blueStart && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
                         {isSunrise ? (
