@@ -98,7 +98,7 @@ export function AuthProvider({ children }) {
     if (!refreshExpiresAt) return null;
     const diff = new Date(refreshExpiresAt) - Date.now();
     if (diff <= 0) return 0;
-    return Math.floor(diff / (1000 * 60 * 60 * 24));
+    return Math.round(diff / (1000 * 60 * 60 * 24));
   }, [refreshExpiresAt]);
 
   const value = useMemo(() => ({
