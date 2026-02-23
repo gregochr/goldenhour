@@ -32,6 +32,13 @@ const POPUP_LOC_TYPE_META = {
   SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
 };
 
+const POPUP_GOLDEN_HOUR_META = {
+  SUNRISE:    { emoji: '🌅', label: 'Sunrise' },
+  SUNSET:     { emoji: '🌇', label: 'Sunset' },
+  BOTH_TIMES: { emoji: '🌅🌇', label: 'Sunrise & Sunset' },
+  ANYTIME:    { emoji: '☀️',  label: 'Anytime' },
+};
+
 const POPUP_TIDE_META = {
   HIGH_TIDE: 'High tide',
   LOW_TIDE:  'Low tide',
@@ -354,6 +361,18 @@ export default function MapView({ locations, date }) {
                         })}
                       </div>
                     )}
+
+                    {/* Row 2.5: Golden hour type */}
+                    {loc.goldenHourType && POPUP_GOLDEN_HOUR_META[loc.goldenHourType] && (() => {
+                      const m = POPUP_GOLDEN_HOUR_META[loc.goldenHourType];
+                      return (
+                        <div style={{ marginBottom: '6px' }}>
+                          <span style={{ ...POPUP_PILL, background: '#431407', color: '#fcd34d', border: '1px solid rgba(146,64,14,0.5)' }}>
+                            {m.emoji} {m.label}
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {/* Row 3: Tide pills — hidden if none */}
                     {coastalTides.length > 0 && (
