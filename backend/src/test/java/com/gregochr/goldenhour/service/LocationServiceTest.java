@@ -292,33 +292,45 @@ class LocationServiceTest {
     // --- isCoastal ---
 
     @Test
-    @DisplayName("isCoastal() returns false for NOT_COASTAL")
-    void isCoastal_notCoastal_returnsFalse() {
-        assertThat(locationService.isCoastal(entityWithTideType(TideType.NOT_COASTAL))).isFalse();
+    @DisplayName("isCoastal() returns false for empty tideType set")
+    void isCoastal_emptySet_returnsFalse() {
+        assertThat(locationService.isCoastal(entityWithTideTypes())).isFalse();
+    }
+
+    @Test
+    @DisplayName("isCoastal() returns false when set contains only NOT_COASTAL")
+    void isCoastal_onlyNotCoastal_returnsFalse() {
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.NOT_COASTAL))).isFalse();
     }
 
     @Test
     @DisplayName("isCoastal() returns true for HIGH_TIDE")
     void isCoastal_highTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideType(TideType.HIGH_TIDE))).isTrue();
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.HIGH_TIDE))).isTrue();
     }
 
     @Test
     @DisplayName("isCoastal() returns true for LOW_TIDE")
     void isCoastal_lowTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideType(TideType.LOW_TIDE))).isTrue();
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW_TIDE))).isTrue();
     }
 
     @Test
     @DisplayName("isCoastal() returns true for MID_TIDE")
     void isCoastal_midTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideType(TideType.MID_TIDE))).isTrue();
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.MID_TIDE))).isTrue();
     }
 
     @Test
     @DisplayName("isCoastal() returns true for ANY_TIDE")
     void isCoastal_anyTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideType(TideType.ANY_TIDE))).isTrue();
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.ANY_TIDE))).isTrue();
+    }
+
+    @Test
+    @DisplayName("isCoastal() returns true for multiple tide types")
+    void isCoastal_multipleTideTypes_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW_TIDE, TideType.MID_TIDE))).isTrue();
     }
 
     // --- isSeascape ---
@@ -373,7 +385,7 @@ class LocationServiceTest {
                 .lon(-1.0)
                 .build();
         assertThat(entity.getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
-        assertThat(entity.getTideType()).isEqualTo(TideType.NOT_COASTAL);
+        assertThat(entity.getTideType()).isEmpty();
         assertThat(entity.getLocationType()).isEmpty();
     }
 
@@ -390,7 +402,8 @@ class LocationServiceTest {
         return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0).goldenHourType(type).build();
     }
 
-    private LocationEntity entityWithTideType(TideType type) {
-        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0).tideType(type).build();
+    private LocationEntity entityWithTideTypes(TideType... types) {
+        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0)
+                .tideType(new java.util.HashSet<>(java.util.Arrays.asList(types))).build();
     }
 }

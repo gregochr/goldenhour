@@ -160,11 +160,14 @@ public class LocationService {
     /**
      * Returns {@code true} if this location is coastal and tide data should be fetched.
      *
+     * <p>A location is coastal when its tide type set contains at least one value other
+     * than {@link TideType#NOT_COASTAL}. An empty set means the location is inland.
+     *
      * @param location the location to check
-     * @return {@code true} for any {@code TideType} other than {@code NOT_COASTAL}
+     * @return {@code true} if the tide type set contains any coastal preference
      */
     public boolean isCoastal(LocationEntity location) {
-        return location.getTideType() != TideType.NOT_COASTAL;
+        return location.getTideType().stream().anyMatch(t -> t != TideType.NOT_COASTAL);
     }
 
     /**

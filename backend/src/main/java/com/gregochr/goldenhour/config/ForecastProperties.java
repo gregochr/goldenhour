@@ -53,10 +53,11 @@ public class ForecastProperties {
         private GoldenHourType goldenHourType = GoldenHourType.BOTH_TIMES;
 
         /**
-         * The photographer's tide preference for this location.
-         * Defaults to {@code NOT_COASTAL} if not specified.
+         * The photographer's tide preferences for this location.
+         * Multiple values supported (e.g. LOW_TIDE and MID_TIDE).
+         * Empty set means not coastal (default).
          */
-        private TideType tideType = TideType.NOT_COASTAL;
+        private Set<TideType> tideType = new HashSet<>();
 
         /**
          * Photography type tags (e.g. {@code LANDSCAPE}, {@code SEASCAPE}, {@code WILDLIFE}).
