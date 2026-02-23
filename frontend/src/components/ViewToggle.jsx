@@ -2,9 +2,9 @@ import React from 'react';
 import PropTypes from 'prop-types';
 
 const OPTIONS = [
+  { value: 'map', label: 'Map' },
   { value: 'location', label: 'By Location' },
   { value: 'date', label: 'By Date' },
-  { value: 'map', label: 'Map' },
   { value: 'manage', label: 'Manage' },
 ];
 

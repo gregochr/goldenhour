@@ -15,7 +15,7 @@ import { runForecast } from './api/forecastApi.js';
 export default function App() {
   const { locations, loading, error, refresh } = useForecasts();
   const [selectedTab, setSelectedTab] = useState(0);
-  const [viewMode, setViewMode] = useState('location');
+  const [viewMode, setViewMode] = useState('map');
   const [selectedDate, setSelectedDate] = useState(null);
 
   const sortedLocations = [...locations].sort((a, b) => a.name.localeCompare(b.name));
