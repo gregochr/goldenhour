@@ -64,4 +64,54 @@ public class SolarService {
     public int sunsetAzimuthDeg(double lat, double lon, LocalDate date) {
         return calculator.sunsetAzimuth(lat, lon, date);
     }
+
+    /**
+     * Returns the start of civil dawn — when the sun reaches −6° before sunrise.
+     * Marks the beginning of the golden/blue hour window in the morning.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate civil dawn for
+     * @return UTC time of civil dawn
+     */
+    public LocalDateTime civilDawnUtc(double lat, double lon, LocalDate date) {
+        return calculator.civilDawn(lat, lon, date, ZoneOffset.UTC);
+    }
+
+    /**
+     * Returns the end of civil dusk — when the sun reaches −6° after sunset.
+     * Marks the end of the golden/blue hour window in the evening.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate civil dusk for
+     * @return UTC time of civil dusk
+     */
+    public LocalDateTime civilDuskUtc(double lat, double lon, LocalDate date) {
+        return calculator.civilDusk(lat, lon, date, ZoneOffset.UTC);
+    }
+
+    /**
+     * Returns the time of solar noon — when the sun is at its highest point.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate solar noon for
+     * @return UTC time of solar noon
+     */
+    public LocalDateTime solarNoonUtc(double lat, double lon, LocalDate date) {
+        return calculator.solarNoon(lat, lon, date, ZoneOffset.UTC);
+    }
+
+    /**
+     * Returns the day length in minutes from sunrise to sunset.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate day length for
+     * @return day length in minutes
+     */
+    public long dayLengthMinutes(double lat, double lon, LocalDate date) {
+        return calculator.dayLengthMinutes(lat, lon, date);
+    }
 }
