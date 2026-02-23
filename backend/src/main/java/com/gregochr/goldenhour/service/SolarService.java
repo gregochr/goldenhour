@@ -40,4 +40,28 @@ public class SolarService {
     public LocalDateTime sunsetUtc(double lat, double lon, LocalDate date) {
         return calculator.sunset(lat, lon, date, ZoneOffset.UTC);
     }
+
+    /**
+     * Returns the compass azimuth (degrees clockwise from North) at which the sun rises.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate the sunrise azimuth for
+     * @return sunrise azimuth in whole degrees (0–359)
+     */
+    public int sunriseAzimuthDeg(double lat, double lon, LocalDate date) {
+        return calculator.sunriseAzimuth(lat, lon, date);
+    }
+
+    /**
+     * Returns the compass azimuth (degrees clockwise from North) at which the sun sets.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate the sunset azimuth for
+     * @return sunset azimuth in whole degrees (0–359)
+     */
+    public int sunsetAzimuthDeg(double lat, double lon, LocalDate date) {
+        return calculator.sunsetAzimuth(lat, lon, date);
+    }
 }

@@ -72,4 +72,30 @@ class SolarServiceTest {
 
         assertThat(sunrise.getHour()).isLessThan(9);
     }
+
+    @Test
+    @DisplayName("Sunrise azimuth on the equinox is approximately due East (90°)")
+    void sunriseAzimuthDeg_equinox_isDueEast() {
+        int azimuth = solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, LocalDate.of(2026, 3, 20));
+
+        assertThat(azimuth).isCloseTo(90, org.assertj.core.data.Offset.offset(5));
+    }
+
+    @Test
+    @DisplayName("Sunset azimuth on the equinox is approximately due West (270°)")
+    void sunsetAzimuthDeg_equinox_isDueWest() {
+        int azimuth = solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, LocalDate.of(2026, 3, 20));
+
+        assertThat(azimuth).isCloseTo(270, org.assertj.core.data.Offset.offset(5));
+    }
+
+    @Test
+    @DisplayName("Sunrise azimuth is north of East in summer and south of East in winter")
+    void sunriseAzimuthDeg_isNorthOfEastInSummer_southOfEastInWinter() {
+        int summer = solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, LocalDate.of(2026, 6, 21));
+        int winter = solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, LocalDate.of(2026, 12, 21));
+
+        assertThat(summer).isLessThan(90);
+        assertThat(winter).isGreaterThan(90);
+    }
 }

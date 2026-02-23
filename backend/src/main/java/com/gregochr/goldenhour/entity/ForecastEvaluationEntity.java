@@ -134,4 +134,8 @@ public class ForecastEvaluationEntity {
     /** UTC time of the solar event (sunrise or sunset). */
     @Column(name = "solar_event_time")
     private LocalDateTime solarEventTime;
+
+    /** Compass azimuth in degrees (clockwise from North) of the solar event. */
+    @Column(name = "azimuth_deg")
+    private Integer azimuthDeg;
 }

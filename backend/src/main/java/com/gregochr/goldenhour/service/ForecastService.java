@@ -110,6 +110,10 @@ public class ForecastService {
             AtmosphericData forecastData = openMeteoService.getAtmosphericData(request, eventTime);
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData);
 
+            int azimuth = type == TargetType.SUNRISE
+                    ? solarService.sunriseAzimuthDeg(lat, lon, date)
+                    : solarService.sunsetAzimuthDeg(lat, lon, date);
+
             ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()
                     .locationLat(BigDecimal.valueOf(lat))
                     .locationLon(BigDecimal.valueOf(lon))
@@ -135,6 +139,7 @@ public class ForecastService {
                     .rating(evaluation.rating())
                     .summary(evaluation.summary())
                     .solarEventTime(eventTime)
+                    .azimuthDeg(azimuth)
                     .build();
 
             results.add(repository.save(entity));
