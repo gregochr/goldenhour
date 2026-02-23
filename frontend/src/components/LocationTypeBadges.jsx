@@ -37,10 +37,10 @@ export default function LocationTypeBadges({ locationType = [], tideType = [] })
           <span
             key={type}
             title={meta.label}
-            className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded
-              bg-gray-800 text-gray-400 border border-gray-700"
+            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded
+              bg-gray-800 text-gray-300 border border-gray-700"
           >
-            {meta.emoji}
+            {meta.emoji} <span className="font-medium">{meta.label}</span>
           </span>
         );
       })}
