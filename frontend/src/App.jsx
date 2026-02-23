@@ -70,23 +70,13 @@ function AppInner() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center gap-2">
-              <button
-                className="btn-secondary text-xs"
-                onClick={refresh}
-                disabled={loading}
-                aria-label="Refresh forecast"
-              >
-                {loading ? 'Loading…' : '↻ Refresh'}
-              </button>
-              <button
-                className="btn-secondary text-xs"
-                onClick={logout}
-                aria-label="Sign out"
-              >
-                Sign out
-              </button>
-            </div>
+            <button
+              className="btn-secondary text-xs"
+              onClick={logout}
+              aria-label="Sign out"
+            >
+              Sign out
+            </button>
             {isAdmin && sessionDaysRemaining !== null && (
               <p className="text-xs text-gray-600">
                 Session: {sessionDaysRemaining}d
@@ -121,8 +111,16 @@ function AppInner() {
 
         {!loading && !error && sortedLocations.length > 0 && (
           <>
-            <div className="mb-6">
+            <div className="mb-6 flex items-center justify-between">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
+              <button
+                className="btn-secondary text-xs"
+                onClick={refresh}
+                disabled={loading}
+                aria-label="Refresh forecast"
+              >
+                {loading ? 'Loading…' : '↻ Refresh'}
+              </button>
             </div>
 
             {viewMode === 'location' && location && (
