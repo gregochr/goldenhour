@@ -66,7 +66,7 @@ public class AppUserEntity implements UserDetails {
     private LocalDateTime createdAt;
 
     /** Whether the user must change their password before accessing the app. */
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "BOOLEAN NOT NULL DEFAULT FALSE")
     private boolean passwordChangeRequired;
 
     /**
