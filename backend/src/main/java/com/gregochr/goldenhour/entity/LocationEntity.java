@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -45,6 +47,25 @@ public class LocationEntity {
     /** Longitude in decimal degrees. */
     @Column(nullable = false)
     private double lon;
+
+    /**
+     * Which solar events are worth photographing here.
+     * Defaults to {@link GoldenHourType#BOTH_TIMES} so all locations are evaluated for
+     * both sunrise and sunset unless explicitly configured otherwise.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "golden_hour_type", nullable = false)
+    @Builder.Default
+    private GoldenHourType goldenHourType = GoldenHourType.BOTH_TIMES;
+
+    /**
+     * The photographer's tide preference for this location.
+     * Defaults to {@link TideType#NOT_COASTAL} — tide data is not fetched for inland locations.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tide_type", nullable = false)
+    @Builder.Default
+    private TideType tideType = TideType.NOT_COASTAL;
 
     /** UTC timestamp when this location was created. */
     @Column(name = "created_at", nullable = false)

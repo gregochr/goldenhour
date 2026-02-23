@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -51,14 +52,31 @@ public class ScheduledForecastService {
         for (LocationEntity location : locationService.findAll()) {
             for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
                 LocalDate targetDate = today.plusDays(daysAhead);
-                try {
-                    forecastService.runForecasts(
-                            location.getName(), location.getLat(), location.getLon(), targetDate);
-                } catch (Exception e) {
-                    LOG.error("Forecast failed for {} on {}: {}",
-                            location.getName(), targetDate, e.getMessage(), e);
+                if (locationService.shouldEvaluateSunrise(location)) {
+                    runForecast(location, targetDate, TargetType.SUNRISE);
+                }
+                if (locationService.shouldEvaluateSunset(location)) {
+                    runForecast(location, targetDate, TargetType.SUNSET);
                 }
             }
+        }
+    }
+
+    /**
+     * Runs a single forecast for a location, date, and target type, logging any failure.
+     *
+     * @param location   the location to forecast
+     * @param targetDate the calendar date to forecast
+     * @param targetType {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}
+     */
+    private void runForecast(LocationEntity location, LocalDate targetDate, TargetType targetType) {
+        try {
+            forecastService.runForecasts(
+                    location.getName(), location.getLat(), location.getLon(),
+                    targetDate, targetType);
+        } catch (Exception e) {
+            LOG.error("Forecast failed for {} {} on {}: {}",
+                    location.getName(), targetType, targetDate, e.getMessage(), e);
         }
     }
 }

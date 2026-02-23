@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.ForecastProperties;
+import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -106,5 +108,41 @@ public class LocationService {
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
         return locationRepository.save(entity);
+    }
+
+    /**
+     * Returns {@code true} if a sunrise evaluation should be run for this location.
+     *
+     * @param location the location to check
+     * @return {@code true} for {@code SUNRISE}, {@code BOTH_TIMES}, and {@code ANYTIME}
+     */
+    public boolean shouldEvaluateSunrise(LocationEntity location) {
+        GoldenHourType type = location.getGoldenHourType();
+        return type == GoldenHourType.SUNRISE
+                || type == GoldenHourType.BOTH_TIMES
+                || type == GoldenHourType.ANYTIME;
+    }
+
+    /**
+     * Returns {@code true} if a sunset evaluation should be run for this location.
+     *
+     * @param location the location to check
+     * @return {@code true} for {@code SUNSET}, {@code BOTH_TIMES}, and {@code ANYTIME}
+     */
+    public boolean shouldEvaluateSunset(LocationEntity location) {
+        GoldenHourType type = location.getGoldenHourType();
+        return type == GoldenHourType.SUNSET
+                || type == GoldenHourType.BOTH_TIMES
+                || type == GoldenHourType.ANYTIME;
+    }
+
+    /**
+     * Returns {@code true} if this location is coastal and tide data should be fetched.
+     *
+     * @param location the location to check
+     * @return {@code true} for any {@code TideType} other than {@code NOT_COASTAL}
+     */
+    public boolean isCoastal(LocationEntity location) {
+        return location.getTideType() != TideType.NOT_COASTAL;
     }
 }

@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.ForecastProperties;
+import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -207,6 +209,98 @@ class LocationServiceTest {
         verify(locationRepository, times(2)).save(any());
     }
 
+    // --- shouldEvaluateSunrise ---
+
+    @Test
+    @DisplayName("shouldEvaluateSunrise() returns true for SUNRISE")
+    void shouldEvaluateSunrise_sunrise_returnsTrue() {
+        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.SUNRISE))).isTrue();
+    }
+
+    @Test
+    @DisplayName("shouldEvaluateSunrise() returns false for SUNSET")
+    void shouldEvaluateSunrise_sunset_returnsFalse() {
+        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.SUNSET))).isFalse();
+    }
+
+    @Test
+    @DisplayName("shouldEvaluateSunrise() returns true for BOTH_TIMES")
+    void shouldEvaluateSunrise_bothTimes_returnsTrue() {
+        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.BOTH_TIMES))).isTrue();
+    }
+
+    @Test
+    @DisplayName("shouldEvaluateSunrise() returns true for ANYTIME")
+    void shouldEvaluateSunrise_anytime_returnsTrue() {
+        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.ANYTIME))).isTrue();
+    }
+
+    // --- shouldEvaluateSunset ---
+
+    @Test
+    @DisplayName("shouldEvaluateSunset() returns false for SUNRISE")
+    void shouldEvaluateSunset_sunrise_returnsFalse() {
+        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.SUNRISE))).isFalse();
+    }
+
+    @Test
+    @DisplayName("shouldEvaluateSunset() returns true for SUNSET")
+    void shouldEvaluateSunset_sunset_returnsTrue() {
+        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.SUNSET))).isTrue();
+    }
+
+    @Test
+    @DisplayName("shouldEvaluateSunset() returns true for BOTH_TIMES")
+    void shouldEvaluateSunset_bothTimes_returnsTrue() {
+        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.BOTH_TIMES))).isTrue();
+    }
+
+    @Test
+    @DisplayName("shouldEvaluateSunset() returns true for ANYTIME")
+    void shouldEvaluateSunset_anytime_returnsTrue() {
+        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.ANYTIME))).isTrue();
+    }
+
+    // --- isCoastal ---
+
+    @Test
+    @DisplayName("isCoastal() returns false for NOT_COASTAL")
+    void isCoastal_notCoastal_returnsFalse() {
+        assertThat(locationService.isCoastal(entityWithTideType(TideType.NOT_COASTAL))).isFalse();
+    }
+
+    @Test
+    @DisplayName("isCoastal() returns true for HIGH_TIDE")
+    void isCoastal_highTide_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideType(TideType.HIGH_TIDE))).isTrue();
+    }
+
+    @Test
+    @DisplayName("isCoastal() returns true for LOW_TIDE")
+    void isCoastal_lowTide_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideType(TideType.LOW_TIDE))).isTrue();
+    }
+
+    @Test
+    @DisplayName("isCoastal() returns true for ANY_TIDE")
+    void isCoastal_anyTide_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideType(TideType.ANY_TIDE))).isTrue();
+    }
+
+    // --- defaults ---
+
+    @Test
+    @DisplayName("new location entity defaults to BOTH_TIMES and NOT_COASTAL")
+    void locationEntity_defaults_areBothTimesAndNotCoastal() {
+        LocationEntity entity = LocationEntity.builder()
+                .name("Test")
+                .lat(54.0)
+                .lon(-1.0)
+                .build();
+        assertThat(entity.getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
+        assertThat(entity.getTideType()).isEqualTo(TideType.NOT_COASTAL);
+    }
+
     private LocationEntity buildEntity(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(1L)
@@ -214,5 +308,13 @@ class LocationServiceTest {
                 .lat(lat)
                 .lon(lon)
                 .build();
+    }
+
+    private LocationEntity entityWithType(GoldenHourType type) {
+        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0).goldenHourType(type).build();
+    }
+
+    private LocationEntity entityWithTideType(TideType type) {
+        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0).tideType(type).build();
     }
 }
