@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import StarRating from './StarRating.jsx';
 import ForecastDetailModal from './ForecastDetailModal.jsx';
+import LocationTypeBadges from './LocationTypeBadges.jsx';
 import { formatEventTimeUk } from '../utils/conversions.js';
 
 /**
@@ -13,15 +14,18 @@ import { formatEventTimeUk } from '../utils/conversions.js';
  * @param {object|null} props.sunrise - Sunrise forecast evaluation.
  * @param {object|null} props.sunset - Sunset forecast evaluation.
  */
-export default function LocationCompactCard({ locationName, sunrise, sunset }) {
+export default function LocationCompactCard({ locationName, sunrise, sunset, locationType = [], tideType = [] }) {
   const [modal, setModal] = useState(null); // { forecast, type } or null
 
   return (
     <>
       <div className="card border border-gray-800 flex flex-col">
-        <h3 className="text-base font-semibold text-gray-100 pb-3 border-b border-gray-800">
-          {locationName}
-        </h3>
+        <div className="pb-3 border-b border-gray-800 flex flex-col gap-1">
+          <h3 className="text-base font-semibold text-gray-100">
+            {locationName}
+          </h3>
+          <LocationTypeBadges locationType={locationType} tideType={tideType} />
+        </div>
         <div className="py-3 border-b border-gray-800">
           <EventSection
             forecast={sunrise}
@@ -110,4 +114,6 @@ LocationCompactCard.propTypes = {
   locationName: PropTypes.string.isRequired,
   sunrise: PropTypes.object,
   sunset: PropTypes.object,
+  locationType: PropTypes.arrayOf(PropTypes.string),
+  tideType: PropTypes.arrayOf(PropTypes.string),
 };

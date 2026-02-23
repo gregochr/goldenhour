@@ -30,9 +30,12 @@ export function useForecasts() {
       const [forecasts, locationMeta] = await Promise.all([fetchForecasts(), fetchLocations()]);
       const locationGroups = groupForecastsByLocation(forecasts);
 
-      // Build a lookup from name → locationType array for O(1) merging.
-      const typeByName = Object.fromEntries(
-        locationMeta.map((l) => [l.name, l.locationType ?? []])
+      // Build a lookup from name → metadata for O(1) merging.
+      const metaByName = Object.fromEntries(
+        locationMeta.map((l) => [l.name, {
+          locationType: l.locationType ?? [],
+          tideType: l.tideType ?? [],
+        }])
       );
 
       const outcomeResults = await Promise.all(
@@ -42,7 +45,8 @@ export function useForecasts() {
       setLocations(
         locationGroups.map((loc, i) => ({
           ...loc,
-          locationType: typeByName[loc.name] ?? [],
+          locationType: metaByName[loc.name]?.locationType ?? [],
+          tideType: metaByName[loc.name]?.tideType ?? [],
           outcomes: outcomeResults[i],
         }))
       );

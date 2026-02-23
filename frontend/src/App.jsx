@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import ForecastTimeline from './components/ForecastTimeline.jsx';
 import LocationTabs from './components/LocationTabs.jsx';
 import LocationCompactCard from './components/LocationCompactCard.jsx';
+import LocationTypeBadges from './components/LocationTypeBadges.jsx';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
@@ -93,6 +94,14 @@ export default function App() {
                   selectedIndex={selectedTab}
                   onSelect={setSelectedTab}
                 />
+                {(location.locationType?.length > 0 || location.tideType?.length > 0) && (
+                  <div className="mb-4">
+                    <LocationTypeBadges
+                      locationType={location.locationType}
+                      tideType={location.tideType}
+                    />
+                  </div>
+                )}
                 <ForecastTimeline
                   forecastsByDate={location.forecastsByDate}
                   outcomes={location.outcomes}
@@ -123,6 +132,8 @@ export default function App() {
                       locationName={loc.name}
                       sunrise={dayData?.sunrise ?? null}
                       sunset={dayData?.sunset ?? null}
+                      locationType={loc.locationType}
+                      tideType={loc.tideType}
                     />
                   );
                 })}
