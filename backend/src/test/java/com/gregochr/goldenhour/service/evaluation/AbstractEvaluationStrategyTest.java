@@ -95,6 +95,17 @@ class AbstractEvaluationStrategyTest {
     }
 
     @Test
+    @DisplayName("parseEvaluation() falls back to regex when summary contains unescaped quotes")
+    void parseEvaluation_unescapedQuotesInSummary_returnsEvaluation() {
+        // Claude sometimes returns unescaped " inside the summary value, breaking strict JSON
+        SunsetEvaluation result = strategy.parseEvaluation(
+                "```json\n{\"rating\": 2, \"summary\": \"A \"blank canvas\" scenario with pale tones.\"}\n```");
+
+        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.summary()).isEqualTo("A \"blank canvas\" scenario with pale tones.");
+    }
+
+    @Test
     @DisplayName("evaluate() calls Claude and returns parsed evaluation")
     void evaluate_callsClaude_returnsParsedEvaluation() {
         AtmosphericData data = buildAtmosphericData();

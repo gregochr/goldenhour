@@ -1157,6 +1157,51 @@ Add directional analysis:
 
 ---
 
+## Planned Feature: Location Type
+
+### Overview
+
+Each location can be tagged with one or more photography types, enabling map filtering and type-specific UI behaviour.
+
+### Location Types
+
+| Value | Meaning |
+|---|---|
+| `LANDSCAPE` | Good for landscape/scenic photography |
+| `WILDLIFE` | Good for wildlife/animal photography |
+| `SEASCAPE` | Good for seascape/coastal photography |
+
+A location can be multiple types simultaneously (e.g. a coastal cliff that is both SEASCAPE and LANDSCAPE).
+
+### Implementation
+
+Uses JPA `@ElementCollection` — Spring handles the join table for both H2 and PostgreSQL automatically, with no manual migration needed for the collection table:
+
+```java
+@ElementCollection
+@Enumerated(EnumType.STRING)
+private Set<LocationType> locationType;
+```
+
+The `LocationType` enum lives alongside `GoldenHourType` and `TideType` in the entity package.
+
+### Map View Filtering
+
+Filter toggles in the map view header for LANDSCAPE, WILDLIFE, and SEASCAPE:
+
+- **OR logic**: show locations matching ANY selected type
+- If all selected: show all locations
+- If LANDSCAPE only selected: show locations that include LANDSCAPE (even if they are also tagged as SEASCAPE or WILDLIFE)
+- Filters compose with other map filters (golden hour type, tide type, accessibility) using AND logic between filter groups
+
+### Seascape-Specific UI
+
+Any location tagged as SEASCAPE displays tide information prominently in the detail view alongside sunrise/sunset predictions. This helps photographers plan around tidal access — low tide exposing rock pools, high tide giving clean reflections.
+
+Tide data is only fetched when `tideType != NOT_COASTAL` (existing behaviour). The SEASCAPE type tag controls UI presentation; the `tideType` field controls whether tide data is requested.
+
+---
+
 ## Planned Feature: Authentication & JWT
 
 ### Overview

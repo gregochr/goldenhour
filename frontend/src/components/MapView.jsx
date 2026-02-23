@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { formatEventTimeUk, formatShiftedEventTimeUk } from '../utils/conversions.js';
+import {
+  formatEventTimeUk,
+  formatShiftedEventTimeUk,
+  degreesToCompassFine,
+} from '../utils/conversions.js';
 
 const RATING_COLOURS = {
   1: '#6b7280',
@@ -12,6 +16,64 @@ const RATING_COLOURS = {
   4: '#f59e0b',
   5: '#fbbf24',
 };
+
+const SUNRISE_LINE_COLOUR = '#f97316';
+const SUNSET_LINE_COLOUR  = '#a855f7';
+
+/**
+ * Maps Leaflet zoom level to azimuth line length in km.
+ * Zoomed out (zoom 7-8) → long lines; zoomed in (zoom 13+) → short lines.
+ */
+const ZOOM_TO_LINE_KM = {
+  7: 200, 8: 150, 9: 100, 10: 70, 11: 40, 12: 20, 13: 10, 14: 5,
+};
+
+function lineKmForZoom(zoom) {
+  const z = Math.round(zoom);
+  const keys = Object.keys(ZOOM_TO_LINE_KM).map(Number).sort((a, b) => a - b);
+  if (z <= keys[0]) return ZOOM_TO_LINE_KM[keys[0]];
+  if (z >= keys[keys.length - 1]) return ZOOM_TO_LINE_KM[keys[keys.length - 1]];
+  return ZOOM_TO_LINE_KM[z] ?? 50;
+}
+
+/**
+ * Invisible component that tracks map zoom and calls onZoom when it changes.
+ */
+function ZoomTracker({ onZoom }) {
+  useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
+  return null;
+}
+
+/**
+ * Calculates a destination lat/lon given a start point, bearing and distance.
+ * Uses the spherical law of cosines (accurate enough for distances under 500km).
+ *
+ * @param {number} lat - Start latitude in decimal degrees.
+ * @param {number} lon - Start longitude in decimal degrees.
+ * @param {number} bearingDeg - Bearing in degrees clockwise from North.
+ * @param {number} distanceKm - Distance in kilometres.
+ * @returns {[number, number]} [lat, lon] of the destination point.
+ */
+function destinationPoint(lat, lon, bearingDeg, distanceKm) {
+  const R = 6371;
+  const d = distanceKm / R;
+  const bearing = (bearingDeg * Math.PI) / 180;
+  const lat1 = (lat * Math.PI) / 180;
+  const lon1 = (lon * Math.PI) / 180;
+
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(d) +
+    Math.cos(lat1) * Math.sin(d) * Math.cos(bearing),
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(d) * Math.cos(lat1),
+      Math.cos(d) - Math.sin(lat1) * Math.sin(lat2),
+    );
+
+  return [lat2 * (180 / Math.PI), lon2 * (180 / Math.PI)];
+}
 
 /**
  * Creates a custom Leaflet DivIcon for a location marker.
@@ -58,7 +120,7 @@ function makeMarkerIcon(rating, locationName) {
 
 /**
  * Map view showing all locations as rating markers for a given date.
- * Includes a Sunrise / Sunset toggle to switch which event type is displayed.
+ * Selecting a marker draws orange (sunrise) and purple (sunset) azimuth lines.
  *
  * @param {object} props
  * @param {Array<{name: string, lat: number, lon: number, forecastsByDate: Map}>} props.locations
@@ -66,6 +128,10 @@ function makeMarkerIcon(rating, locationName) {
  */
 export default function MapView({ locations, date }) {
   const [eventType, setEventType] = useState('SUNSET');
+  const [selectedLocationName, setSelectedLocationName] = useState(null);
+  const [zoom, setZoom] = useState(9);
+
+  const lineKm = lineKmForZoom(zoom);
 
   if (!date || locations.length === 0) {
     return (
@@ -76,6 +142,11 @@ export default function MapView({ locations, date }) {
   }
 
   const bounds = locations.map((loc) => [loc.lat, loc.lon]);
+
+  const selectedLoc = locations.find((l) => l.name === selectedLocationName) ?? null;
+  const selectedDayData = selectedLoc?.forecastsByDate.get(date);
+  const sunriseAzimuth = selectedDayData?.sunrise?.azimuthDeg ?? null;
+  const sunsetAzimuth  = selectedDayData?.sunset?.azimuthDeg  ?? null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -121,6 +192,33 @@ export default function MapView({ locations, date }) {
             attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
             maxZoom={19}
           />
+          <ZoomTracker onZoom={setZoom} />
+
+          {/* Azimuth lines for the selected location */}
+          {selectedLoc && sunriseAzimuth != null && (
+            <Polyline
+              positions={[
+                [selectedLoc.lat, selectedLoc.lon],
+                destinationPoint(selectedLoc.lat, selectedLoc.lon, sunriseAzimuth, lineKm),
+              ]}
+              color={SUNRISE_LINE_COLOUR}
+              weight={3}
+              opacity={1}
+              dashArray="10 6"
+            />
+          )}
+          {selectedLoc && sunsetAzimuth != null && (
+            <Polyline
+              positions={[
+                [selectedLoc.lat, selectedLoc.lon],
+                destinationPoint(selectedLoc.lat, selectedLoc.lon, sunsetAzimuth, lineKm),
+              ]}
+              color={SUNSET_LINE_COLOUR}
+              weight={3}
+              opacity={1}
+              dashArray="10 6"
+            />
+          )}
 
           {locations.map((loc) => {
             const dayData = loc.forecastsByDate.get(date);
@@ -128,11 +226,14 @@ export default function MapView({ locations, date }) {
             const icon = makeMarkerIcon(forecast?.rating ?? null, loc.name);
             const isSunrise = eventType === 'SUNRISE';
 
-            const eventTime = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
+            const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
             const goldenStart = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 0 : -60) : null;
             const goldenEnd   = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 60 : 0) : null;
             const blueStart   = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? -60 : 0) : null;
             const blueEnd     = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 0 : 60) : null;
+
+            const locSunriseAzimuth = dayData?.sunrise?.azimuthDeg ?? null;
+            const locSunsetAzimuth  = dayData?.sunset?.azimuthDeg  ?? null;
 
             const pillBase = {
               display: 'inline-flex', alignItems: 'center', gap: '4px',
@@ -143,7 +244,15 @@ export default function MapView({ locations, date }) {
             const bluePillStyle   = { ...pillBase, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
 
             return (
-              <Marker key={loc.name} position={[loc.lat, loc.lon]} icon={icon}>
+              <Marker
+                key={loc.name}
+                position={[loc.lat, loc.lon]}
+                icon={icon}
+                eventHandlers={{
+                  click:      () => setSelectedLocationName(loc.name),
+                  popupclose: () => setSelectedLocationName(null),
+                }}
+              >
                 <Popup>
                   <div style={{ minWidth: '220px', fontFamily: 'system-ui, sans-serif' }}>
                     {/* Header */}
@@ -156,6 +265,22 @@ export default function MapView({ locations, date }) {
                         <span style={{ marginLeft: '6px', color: '#9ca3af' }}>{eventTime}</span>
                       )}
                     </div>
+
+                    {/* Azimuth directions */}
+                    {(locSunriseAzimuth != null || locSunsetAzimuth != null) && (
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', fontSize: '11px' }}>
+                        {locSunriseAzimuth != null && (
+                          <span style={{ color: SUNRISE_LINE_COLOUR }}>
+                            ↑ Rises {degreesToCompassFine(locSunriseAzimuth)} ({locSunriseAzimuth}°)
+                          </span>
+                        )}
+                        {locSunsetAzimuth != null && (
+                          <span style={{ color: SUNSET_LINE_COLOUR }}>
+                            ↓ Sets {degreesToCompassFine(locSunsetAzimuth)} ({locSunsetAzimuth}°)
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {/* Golden / Blue hour pills */}
                     {forecast && goldenStart && blueStart && (

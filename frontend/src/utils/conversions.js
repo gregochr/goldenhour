@@ -3,6 +3,10 @@
  */
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const COMPASS_POINTS_FINE = [
+  'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+  'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW',
+];
 const MS_TO_MPH = 2.23694;
 
 /**
@@ -34,6 +38,19 @@ export function metresToKm(metres) {
 export function degreesToCompass(degrees) {
   const index = Math.round(parseFloat(degrees) / 45) % 8;
   return COMPASS_POINTS[(index + 8) % 8];
+}
+
+/**
+ * Converts a compass bearing in degrees to a 16-point compass abbreviation.
+ *
+ * Suitable for solar azimuth where finer granularity is meaningful (ENE vs NE).
+ *
+ * @param {number} degrees - Bearing in degrees (0–360).
+ * @returns {string} 16-point compass abbreviation (e.g. "ENE", "SSW").
+ */
+export function degreesToCompassFine(degrees) {
+  const index = Math.round(parseFloat(degrees) / 22.5) % 16;
+  return COMPASS_POINTS_FINE[(index + 16) % 16];
 }
 
 /**

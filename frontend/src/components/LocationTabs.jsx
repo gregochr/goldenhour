@@ -11,7 +11,7 @@ import PropTypes from 'prop-types';
  */
 export default function LocationTabs({ locations, selectedIndex, onSelect }) {
   return (
-    <div className="flex gap-1 border-b border-gray-800 mb-6">
+    <div className="flex flex-wrap gap-1 border-b border-gray-800 mb-6">
       {locations.map((loc, i) => (
         <button
           key={loc.name}

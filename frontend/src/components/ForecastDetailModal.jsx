@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import StarRating from './StarRating.jsx';
+import AzimuthIndicator from './AzimuthIndicator.jsx';
 import { formatEventTimeUk, formatGeneratedAt } from '../utils/conversions.js';
 
 /**
@@ -43,6 +44,14 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
             </h2>
             {eventTimeUk && (
               <p className="text-sm text-gray-400 mt-1">{eventTimeUk}</p>
+            )}
+            {forecast.azimuthDeg != null && (
+              <div className="mt-2">
+                <AzimuthIndicator
+                  azimuthDeg={forecast.azimuthDeg}
+                  isSunrise={isSunrise}
+                />
+              </div>
             )}
           </div>
           <button

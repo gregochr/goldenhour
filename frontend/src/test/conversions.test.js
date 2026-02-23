@@ -3,6 +3,7 @@ import {
   mpsToMph,
   metresToKm,
   degreesToCompass,
+  degreesToCompassFine,
   formatDateLabel,
   formatEventTimeUk,
   groupForecastsByDate,
@@ -59,6 +60,40 @@ describe('degreesToCompass', () => {
 
   it('converts 360° back to N', () => {
     expect(degreesToCompass(360)).toBe('N');
+  });
+});
+
+describe('degreesToCompassFine', () => {
+  it('converts 0° to N', () => {
+    expect(degreesToCompassFine(0)).toBe('N');
+  });
+
+  it('converts 22.5° to NNE', () => {
+    expect(degreesToCompassFine(22.5)).toBe('NNE');
+  });
+
+  it('converts 45° to NE', () => {
+    expect(degreesToCompassFine(45)).toBe('NE');
+  });
+
+  it('converts 67.5° to ENE', () => {
+    expect(degreesToCompassFine(67.5)).toBe('ENE');
+  });
+
+  it('converts 90° to E', () => {
+    expect(degreesToCompassFine(90)).toBe('E');
+  });
+
+  it('converts 270° to W', () => {
+    expect(degreesToCompassFine(270)).toBe('W');
+  });
+
+  it('converts 315° to NW', () => {
+    expect(degreesToCompassFine(315)).toBe('NW');
+  });
+
+  it('converts 360° back to N', () => {
+    expect(degreesToCompassFine(360)).toBe('N');
   });
 });
 
