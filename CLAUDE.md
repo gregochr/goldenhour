@@ -1154,3 +1154,654 @@ Add directional analysis:
 - Cloud coverage by azimuth direction
 - Multi-location user preferences
 - Database persistence
+
+---
+
+## Planned Feature: Authentication & JWT
+
+### Overview
+
+Spring Security with stateless JWT authentication. The app is home-hosted and shared with a small number of trusted users (family/friends). No public self-registration — users are created by the admin only.
+
+### Roles
+
+| Role | Permissions |
+|---|---|
+| `ADMIN` | All endpoints, plus Manage tab (user management) |
+| `USER` | Forecast view, outcome recording, prediction feedback |
+
+### Data Model — `app_user` table
+
+```sql
+CREATE TABLE app_user (
+    id           BIGSERIAL PRIMARY KEY,
+    username     VARCHAR(50) UNIQUE NOT NULL,
+    password     VARCHAR(255) NOT NULL,   -- BCrypt hash
+    role         VARCHAR(10) NOT NULL,    -- ADMIN or USER
+    enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+Flyway migration: `V4__create_app_user.sql`
+
+### JWT Design
+
+- **Access token** — short-lived (24 hours)
+- **Refresh token** — longer-lived (30 days), stored in `refresh_token` table
+- Token signed with HMAC-SHA256 using a secret from `application.yml` (`jwt.secret`)
+- Standard claims: `sub` (username), `roles`, `iat`, `exp`
+
+### Token Expiry Warnings
+
+- At 7 days remaining: show a subtle amber banner ("Your session expires in 7 days — click to refresh")
+- At 1 day remaining: show a more prominent warning
+- "Refresh session" button — exchanges refresh token for a new access token without re-login
+- Frontend checks token `exp` on mount and after each API call
+
+### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/login` | None | Exchange credentials for JWT |
+| `POST` | `/api/auth/refresh` | Refresh token | Issue new access token |
+| `POST` | `/api/auth/logout` | Bearer | Invalidate refresh token |
+| `GET` | `/api/users` | ADMIN | List all users |
+| `POST` | `/api/users` | ADMIN | Create a user |
+| `PUT` | `/api/users/{id}/enabled` | ADMIN | Enable or disable a user |
+| `PUT` | `/api/users/{id}/role` | ADMIN | Change a user's role |
+
+### Security Configuration
+
+- `SecurityFilterChain` bean in `SecurityConfig.java`
+- `JwtAuthenticationFilter` — validates token on every request, populates `SecurityContext`
+- `/api/auth/**` — public (no authentication required)
+- All other `/api/**` — requires authentication
+- CSRF disabled (stateless JWT API)
+- CORS configured to allow frontend origin
+
+### Frontend Login Flow
+
+1. App loads → checks for stored JWT in `localStorage`
+2. If no token or expired → redirect to `/login`
+3. Login form POSTs to `/api/auth/login` → stores JWT
+4. All subsequent API requests include `Authorization: Bearer <token>` header
+5. On 401 response → attempt refresh; if refresh fails → redirect to `/login`
+
+### Backend Dependencies to Add
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-security</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-api</artifactId>
+    <version>0.12.6</version>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-impl</artifactId>
+    <version>0.12.6</version>
+    <scope>runtime</scope>
+</dependency>
+<dependency>
+    <groupId>io.jsonwebtoken</groupId>
+    <artifactId>jjwt-jackson</artifactId>
+    <version>0.12.6</version>
+    <scope>runtime</scope>
+</dependency>
+```
+
+### Configuration
+
+```yaml
+jwt:
+  secret: YOUR_JWT_SECRET_BASE64   # min 256-bit, generate with: openssl rand -base64 32
+  access-token-expiry-hours: 24
+  refresh-token-expiry-days: 30
+```
+
+### Unit Testing
+
+- `JwtServiceTest` — token generation, validation, expiry, claims extraction
+- `AuthControllerTest` — login happy path, bad credentials (401), disabled user (401), refresh flow
+- `UserControllerTest` — ADMIN can create/list/toggle; USER gets 403
+- `JwtAuthenticationFilterTest` — valid token passes, expired token 401, malformed token 401
+
+---
+
+## Planned Feature: Admin Manage Tab
+
+### Overview
+
+Admin-only section in the frontend. Accessible via a "Manage" tab in the navigation. Hidden entirely from `USER` role accounts.
+
+### User Management UI
+
+- Table of all users: username, role, enabled/disabled, created date
+- Toggle enabled/disabled per user (calls `PUT /api/users/{id}/enabled`)
+- Change role per user (ADMIN/USER dropdown)
+- "Add User" button — simple form: username + temporary password + role
+
+### Privacy Notice
+
+A visible notice in the Manage tab explains that feedback (prediction accuracy) is attributed to the logged-in user and is visible to admins. This is shown once on first use of the feedback feature and stored in `localStorage` so it doesn't reappear.
+
+---
+
+## Planned Feature: Cloudflare Tunnel
+
+### Purpose
+
+Allow the home-hosted Spring Boot backend (running on Mac Mini) to be securely accessible from the iPhone via Pushover deep links and from anywhere via the web UI — without opening router ports.
+
+### Architecture
+
+```
+iPhone / Browser
+      │
+      ▼
+Cloudflare Edge (HTTPS)
+      │
+      ▼
+cloudflared daemon (running on Mac Mini)
+      │
+      ▼
+Spring Boot on localhost:8081
+```
+
+### Setup Steps
+
+1. Install `cloudflared` on Mac Mini: `brew install cloudflared`
+2. Authenticate: `cloudflared tunnel login`
+3. Create tunnel: `cloudflared tunnel create goldenhour`
+4. Configure `~/.cloudflared/config.yml`:
+   ```yaml
+   tunnel: <tunnel-id>
+   credentials-file: ~/.cloudflared/<tunnel-id>.json
+   ingress:
+     - hostname: api.goldenhour.example.com
+       service: http://localhost:8081
+     - service: http_status:404
+   ```
+5. Add DNS record: `cloudflared tunnel route dns goldenhour api.goldenhour.example.com`
+6. Run: `cloudflared tunnel run goldenhour`
+
+### Proof of Concept First
+
+Before full production setup, validate the concept:
+1. Run a temporary tunnel (`cloudflared tunnel --url http://localhost:8081`)
+2. Access from iPhone and confirm forecast data loads
+3. Confirm HTTPS works end-to-end
+4. Only then configure named tunnel with custom domain
+
+### Launchd (macOS service)
+
+Run `cloudflared` as a background service on Mac Mini startup:
+
+```bash
+cloudflared service install
+```
+
+This installs a launchd plist. Verify with: `sudo launchctl list | grep cloudflared`
+
+### Security Considerations
+
+- Cloudflare Tunnel provides authenticated HTTPS automatically
+- JWT authentication on the Spring Boot side provides application-level security
+- No ports opened on home router
+- Traffic to `/api/**` requires valid JWT (only `/api/auth/login` is public)
+- Consider adding Cloudflare Access policy for an extra layer of protection
+
+---
+
+## Planned Feature: Tide Data
+
+### Overview
+
+For coastal photography locations, tide state is a critical factor in composition. Low tide exposes rock pools and foreshore textures; high tide gives clean reflections. The Open-Meteo Marine API provides free tide height data.
+
+### Open-Meteo Marine API
+
+```
+GET https://marine-api.open-meteo.com/v1/marine
+  ?latitude=55.7702
+  &longitude=-2.0054
+  &hourly=ocean_wave_height,wave_period,ocean_current_velocity
+  &daily=wave_height_max,wave_period_max
+  &timezone=UTC
+```
+
+Note: Tide height (sea level) is not in the Marine API. Use the WMO standard `hourly=sea_surface_height` if available, or fall back to the **NOAA CO-OPS API** for UK tidal predictions.
+
+**Alternative — UK Tidal API (ADMIRALTY)**:
+- `https://admiraltyapi.azure-api.net/uktidalapi/` — UK-specific tidal predictions
+- Requires a free API key
+- Returns predicted high/low tide times and heights for named stations
+
+**Recommended approach**: Use NOAA or Admiralty for tide times; use Open-Meteo Marine for wave height/period.
+
+### Location Metadata — `tideType`
+
+Each location has an optional `tideType` field indicating the photographer's preference:
+
+| Value | Meaning |
+|---|---|
+| `HIGH_TIDE` | Photographer prefers to shoot at high tide |
+| `LOW_TIDE` | Photographer prefers to shoot at low tide |
+| `ANY_TIDE` | Both tides are suitable |
+| `NOT_COASTAL` | Inland location — no tide data fetched |
+
+Tide data is only fetched for locations where `tideType != NOT_COASTAL`.
+
+### Location Metadata — `goldenHourType`
+
+Each location has a `goldenHourType` indicating which solar events are worth photographing there:
+
+| Value | Meaning |
+|---|---|
+| `SUNRISE` | East-facing — sunrise only |
+| `SUNSET` | West-facing — sunset only |
+| `BOTH_TIMES` | Good for both sunrise and sunset |
+| `ANYTIME` | Interesting light at any time (e.g. diffuse cloud conditions) |
+
+`ForecastService` uses `goldenHourType` to skip evaluations for irrelevant solar events (e.g. don't evaluate SUNRISE for a west-facing location).
+
+### Data Model — `Location` entity
+
+```sql
+CREATE TABLE location (
+    id               BIGSERIAL PRIMARY KEY,
+    name             VARCHAR(100) NOT NULL,
+    lat              DECIMAL(8,4) NOT NULL,
+    lon              DECIMAL(8,4) NOT NULL,
+    golden_hour_type VARCHAR(20) NOT NULL DEFAULT 'BOTH_TIMES',
+    tide_type        VARCHAR(20) NOT NULL DEFAULT 'NOT_COASTAL',
+    description      TEXT,
+    active           BOOLEAN NOT NULL DEFAULT TRUE
+);
+```
+
+Flyway migration: `V5__create_location.sql`
+
+Locations are migrated from `application.yml` config to the database at startup if the table is empty.
+
+### `LocationService`
+
+- `findAllActive()` — returns all active locations
+- `findByName(String name)` — lookup by name
+- `shouldEvaluateSunrise(Location)` — returns true if `goldenHourType` includes sunrise
+- `shouldEvaluateSunset(Location)` — returns true if `goldenHourType` includes sunset
+- `isCoastal(Location)` — returns true if `tideType != NOT_COASTAL`
+
+### `TideService`
+
+- `getTideState(Location, LocalDateTime)` — returns current tide state (RISING / FALLING / HIGH / LOW)
+- `getNextHighTide(Location, LocalDate)` — returns time of next high tide
+- `getNextLowTide(Location, LocalDate)` — returns time of next low tide
+- Result included in forecast evaluation if location is coastal
+
+### Forecast Response — Tide Data
+
+When the location is coastal, include in the evaluation response:
+
+```json
+{
+  "tideState": "FALLING",
+  "nextLowTideTime": "2026-02-23T14:22:00Z",
+  "nextLowTideHeightMetres": 0.4,
+  "tidePreference": "LOW_TIDE",
+  "tideAligned": true
+}
+```
+
+`tideAligned = true` when the tide state at solar event time matches the photographer's `tideType` preference.
+
+---
+
+## Planned Feature: Backend-Heavy / Thin UI Architecture
+
+### Principle
+
+All calculations, scoring, and data enrichment happen on the backend. The frontend is a pure render layer — it receives fully processed data and displays it. No business logic in the frontend.
+
+### API Response Shape (Target)
+
+`GET /api/forecast` returns fully enriched data per location per day:
+
+```json
+{
+  "location": {
+    "name": "Bamburgh Castle",
+    "lat": 55.6090,
+    "lon": -1.7099,
+    "goldenHourType": "SUNSET",
+    "tideType": "LOW_TIDE"
+  },
+  "forecasts": [
+    {
+      "date": "2026-02-23",
+      "dayLabel": "Today",
+      "sunrise": {
+        "time": "07:12 UTC",
+        "rating": 3,
+        "summary": "Moderate mid-level cloud, reasonable chance of colour.",
+        "cloudLow": 10,
+        "cloudMid": 45,
+        "cloudHigh": 60,
+        "visibilityKm": 18,
+        "windSpeedMs": 6.2,
+        "windDirectionDeg": 225,
+        "windCardinal": "SW",
+        "precipitationMm": 0.0,
+        "humidity": 68,
+        "pm25": 6.2,
+        "aerosolOpticalDepth": 0.09,
+        "azimuthDeg": 121
+      },
+      "sunset": {
+        "time": "17:34 UTC",
+        "rating": 5,
+        "summary": "Exceptional — high cirrus above clear horizon, moderate AOD, low humidity.",
+        "cloudLow": 5,
+        "cloudMid": 20,
+        "cloudHigh": 75,
+        "visibilityKm": 24,
+        "windSpeedMs": 4.1,
+        "windDirectionDeg": 200,
+        "windCardinal": "SSW",
+        "precipitationMm": 0.0,
+        "humidity": 52,
+        "pm25": 8.1,
+        "aerosolOpticalDepth": 0.14,
+        "azimuthDeg": 248
+      },
+      "tide": {
+        "tideState": "FALLING",
+        "nextLowTideTime": "2026-02-23T18:12:00Z",
+        "nextLowTideHeightMetres": 0.3,
+        "tideAligned": true
+      },
+      "actualOutcome": null
+    }
+  ]
+}
+```
+
+### Backend Enrichment Responsibilities
+
+The backend computes and includes:
+- `dayLabel` ("Today", "Tomorrow", "Mon 24 Feb")
+- `windCardinal` (N, NE, E … from degrees)
+- `visibilityKm` (converted from metres)
+- `azimuthDeg` (sunrise/sunset azimuth from `solar-utils`)
+- `tideAligned` (computed from tide state + location preference)
+- `actualOutcome` (joined from `actual_outcome` table if it exists)
+
+The frontend never re-derives these values — it renders exactly what the backend sends.
+
+---
+
+## Planned Feature: Sunrise/Sunset Azimuth on Map
+
+### Overview
+
+Show the direction the sun rises or sets from a given location. This helps the photographer understand which direction to face and what background to compose against.
+
+### Implementation
+
+- `SolarService` already wraps `solar-utils` for sunrise/sunset times
+- `solar-utils` also provides `solarAzimuth(lat, lon, dateTime)` — add this to `SolarService`
+- Include `azimuthDeg` in the forecast response (see API response shape above)
+
+### Frontend Display — Detail View Only
+
+Azimuth is shown only in the **location detail view** (single location, expanded), not on the main forecast timeline cards. This avoids cluttering the summary view.
+
+In the detail view:
+- A compass rose or simple arrow indicating the direction of sunrise/sunset
+- A short label: "Sunrise direction: ENE (72°)"
+
+### Map View
+
+When the map tab is the default view:
+- Markers for each location
+- Clicking a marker opens the location detail panel on the right
+- Detail panel includes azimuth compass indicator
+- The azimuth is visualised as a line radiating from the location pin in the direction of the solar event
+
+---
+
+## Planned Feature: Prediction Accuracy Feedback
+
+### Overview
+
+After a solar event has passed, users can provide structured feedback on whether Claude's prediction was accurate. This builds a ground truth dataset for evaluating model performance over time.
+
+### Feedback Values
+
+| Value | Meaning |
+|---|---|
+| `ACCURATE` | Prediction matched reality closely |
+| `SLIGHTLY_OFF` | Was in the right ballpark but misjudged intensity |
+| `VERY_INACCURATE` | Prediction was significantly wrong |
+
+### Data Model — `prediction_feedback` table
+
+```sql
+CREATE TABLE prediction_feedback (
+    id                    BIGSERIAL PRIMARY KEY,
+    forecast_evaluation_id BIGINT NOT NULL REFERENCES forecast_evaluation(id),
+    user_id               BIGINT NOT NULL REFERENCES app_user(id),
+    accuracy              VARCHAR(20) NOT NULL,  -- ACCURATE / SLIGHTLY_OFF / VERY_INACCURATE
+    notes                 TEXT,
+    recorded_at           TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+Flyway migration: `V6__create_prediction_feedback.sql`
+
+### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/feedback` | USER | Submit feedback for a forecast evaluation |
+| `GET` | `/api/feedback?evaluationId=` | USER | Get feedback for an evaluation |
+| `GET` | `/api/feedback/summary` | ADMIN | Aggregate accuracy stats (admin dashboard) |
+
+### Attribution
+
+Feedback is attributed to the logged-in user (`user_id` FK). Only one feedback record per user per forecast evaluation. A second submission replaces the first (upsert).
+
+### Privacy Notice
+
+The first time a user submits feedback, show a notice: "Your feedback is attributed to your account and is visible to the app admin. It is used only to improve forecast accuracy."
+
+Store acknowledgement in `localStorage` so the notice doesn't appear on every submission.
+
+### Admin Dashboard — Accuracy Stats
+
+The admin Manage tab includes a simple accuracy summary:
+
+```
+ACCURATE:          42 (68%)
+SLIGHTLY_OFF:      13 (21%)
+VERY_INACCURATE:    7 (11%)
+
+By model:
+  Sonnet:  ACCURATE 71%, SLIGHTLY_OFF 21%, VERY_INACCURATE 8%
+  Haiku:   ACCURATE 64%, SLIGHTLY_OFF 23%, VERY_INACCURATE 13%
+
+By days_ahead:
+  0-1 days:  ACCURATE 80%
+  2-3 days:  ACCURATE 70%
+  4-7 days:  ACCURATE 58%
+```
+
+---
+
+## Planned Feature: Map as Default View
+
+### Overview
+
+The default tab when the app loads is a **map view** showing all configured locations as pins. The forecast timeline (list view) is a secondary tab. This makes the geographic relationship between locations clear and helps the user plan a shoot route.
+
+### Map Implementation
+
+- **Leaflet.js** with OpenStreetMap tiles (free, no API key) as the map library
+- Each location is a pin with a colour-coded marker: red (1-2), amber (3), green (4-5), grey (no data)
+- Marker colour reflects today's best rating (max of sunrise and sunset)
+- Clicking a pin opens a popup with:
+  - Location name
+  - Today's sunrise rating + time
+  - Today's sunset rating + time
+  - "View details" link → opens location detail panel
+- A "List view" tab switches to the existing `ForecastTimeline` component
+
+### Navigation Tabs
+
+```
+[ Map (default) ]  [ List ]  [ History ]  [ Manage (admin only) ]
+```
+
+### Frontend Dependencies to Add
+
+```bash
+npm install leaflet react-leaflet
+```
+
+---
+
+## Planned Feature: Canary Validation Before Wider Rollout
+
+### Validation Plan
+
+Before sharing with trusted users (family/friends), validate that predictions are meaningfully accurate:
+
+1. **Self-test period (2 weeks minimum)**:
+   - Run forecasts daily for all configured locations
+   - Go out or observe locally on days with rating ≥ 4
+   - Record actual outcomes via the UI
+   - After 2 weeks, check Grafana scatter plot: predicted vs actual
+
+2. **Acceptance criteria**:
+   - At least 10 evaluation/outcome pairs collected
+   - `ACCURATE` rate ≥ 60% on ratings 4-5 (high confidence predictions)
+   - No systematic bias (e.g. always over-predicting on cloudy days)
+
+3. **Canary user**:
+   - Add one trusted user (admin creates account)
+   - Monitor their feedback via admin dashboard
+   - Tweak prompt wording or criteria if feedback shows a pattern
+
+4. **Wider rollout**:
+   - Only after canary user confirms predictions feel reliable
+   - Add remaining trusted users (up to ~5)
+   - Keep `enabled` flag so individual accounts can be paused
+
+---
+
+## Planned Feature: Docker Production Deployment
+
+### Architecture
+
+Spring Boot backend runs as a Docker container on a Mac Mini. Cloudflare Tunnel exposes it to the internet without opening router ports.
+
+### Dockerfile
+
+```dockerfile
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY target/goldenhour-*.jar app.jar
+EXPOSE 8081
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+### docker-compose.prod.yml
+
+```yaml
+version: '3.8'
+services:
+  backend:
+    image: goldenhour-backend:latest
+    build: ./backend
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/goldenhour
+      SPRING_DATASOURCE_USERNAME: ${DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: goldenhour
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  grafana_data:
+```
+
+### Deployment Workflow
+
+```bash
+# On development machine — build and push image to local registry or save as tar
+cd backend && ./mvnw clean package -DskipTests
+docker build -t goldenhour-backend:latest .
+
+# On Mac Mini — pull or load image, then:
+docker-compose -f docker-compose.prod.yml up -d
+
+# Cloudflare Tunnel runs as a launchd service (separate from Docker)
+```
+
+### Environment Variables on Mac Mini
+
+Store secrets in a `.env` file (gitignored) in the deployment directory:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+DB_USER=sunset
+DB_PASSWORD=your-secure-password
+JWT_SECRET=base64-encoded-256-bit-secret
+```
+
+### Health Check
+
+Spring Boot Actuator provides a health endpoint:
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized
+```
+
+Cloudflare Tunnel health probe: `GET /actuator/health`
