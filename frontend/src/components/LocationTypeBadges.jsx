@@ -41,7 +41,7 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
       {goldenMeta && (
         <span
           title={goldenMeta.label}
-          className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
             bg-amber-950 text-amber-300 border border-amber-800/60"
         >
           {goldenMeta.emoji} <span className="font-medium">{goldenMeta.label}</span>
@@ -54,7 +54,7 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
           <span
             key={type}
             title={meta.label}
-            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
               bg-gray-800 text-gray-300 border border-gray-700"
           >
             {meta.emoji} <span className="font-medium">{meta.label}</span>
@@ -68,7 +68,7 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
           <span
             key={type}
             title={meta.short}
-            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
               bg-cyan-950 text-cyan-300 border border-cyan-800/60"
           >
             🌊 <span className="font-medium">{meta.short}</span>

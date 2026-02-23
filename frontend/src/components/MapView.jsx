@@ -292,7 +292,7 @@ export default function MapView({ locations, date }) {
 
             const pillBase = {
               display: 'inline-flex', alignItems: 'center', gap: '4px',
-              fontSize: '10px', padding: '2px 7px', borderRadius: '999px',
+              fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
               marginRight: '4px', fontWeight: '600',
             };
             const goldenPillStyle = { ...pillBase, background: '#451a03', color: '#fcd34d', border: '1px solid rgba(217,119,6,0.4)' };
@@ -329,7 +329,7 @@ export default function MapView({ locations, date }) {
                         return (
                           <span style={{
                             display: 'inline-flex', alignItems: 'center', gap: '4px',
-                            fontSize: '11px', padding: '3px 9px', borderRadius: '999px',
+                            fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
                             background: bg, color: colour,
                             border: `1px solid ${border}`, fontWeight: '600',
                           }}>
@@ -340,7 +340,7 @@ export default function MapView({ locations, date }) {
                       {locSunriseAzimuth != null && (
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          fontSize: '11px', padding: '3px 9px', borderRadius: '999px',
+                          fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
                           background: 'rgba(249,115,22,0.1)', color: SUNRISE_LINE_COLOUR,
                           border: '1px solid rgba(249,115,22,0.3)', fontWeight: '600',
                         }}>
@@ -350,7 +350,7 @@ export default function MapView({ locations, date }) {
                       {locSunsetAzimuth != null && (
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          fontSize: '11px', padding: '3px 9px', borderRadius: '999px',
+                          fontSize: '11px', padding: '2px 8px', borderRadius: '999px',
                           background: 'rgba(168,85,247,0.1)', color: SUNSET_LINE_COLOUR,
                           border: '1px solid rgba(168,85,247,0.3)', fontWeight: '600',
                         }}>
