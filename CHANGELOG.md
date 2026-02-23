@@ -24,7 +24,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `App.jsx` auth gate — renders `LoginPage` when unauthenticated; logout button in header
 - `ViewToggle` hides Manage tab from non-ADMIN users
 - User Management section in `ManageView` — table of users with enable/disable toggles and add-user form
-- `JwtServiceTest`, `AuthControllerTest`, `UserControllerTest`, `UserServiceTest`, `JwtAuthenticationFilterTest` — new test classes (145 total tests, 0 failures)
+- `UserRole` enum: renamed `USER` to `LITE_USER`; added `PRO_USER`
+- `POST /api/auth/change-password` endpoint — validates complexity (min 8 chars, upper, lower, digit, special character)
+- `V12` migration: `password_change_required` column on `app_user`
+- First-login password change gate — `ChangePasswordPage` with live complexity checklist; shown after login when `passwordChangeRequired` flag is set
+- ManageView split into Users / Locations sub-tabs
+- Add-user form: username must be `"admin"` or a valid email address; show/hide password eye toggle
+- CORS moved from deleted `CorsConfig.java` to `SecurityConfig` (`CorsConfigurationSource` bean at filter level)
+- Show/hide password toggle on `LoginPage`
+- `JwtServiceTest`, `AuthControllerTest`, `UserControllerTest`, `UserServiceTest`, `JwtAuthenticationFilterTest` — new test classes (148 total tests, 0 failures)
 - `spring-security-test` added as explicit test dependency for `@WithMockUser`
 - `jwt.*` config block added to `application-example.yml`, `application-local.yml`, and test `application.yml`
 - SpotBugs exclusions for pre-existing `EI_EXPOSE_REP` issues in `OpenMeteoForecastResponse`, `OpenMeteoAirQualityResponse`, and `LocationEntity`
