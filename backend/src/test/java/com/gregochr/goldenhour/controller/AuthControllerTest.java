@@ -75,7 +75,8 @@ class AuthControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessToken").exists())
                 .andExpect(jsonPath("$.refreshToken").exists())
-                .andExpect(jsonPath("$.role").value("ADMIN"));
+                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.refreshExpiresAt").exists());
     }
 
     @Test
@@ -123,7 +124,7 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/refresh returns 200 with new access token for valid refresh token")
+    @DisplayName("POST /api/auth/refresh returns 200 with new access and refresh tokens")
     void refresh_validToken_returns200() throws Exception {
         String rawRefresh = jwtService.generateRefreshToken();
         String hash = jwtService.hashToken(rawRefresh);
@@ -141,7 +142,33 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accessToken").exists());
+                .andExpect(jsonPath("$.accessToken").exists())
+                .andExpect(jsonPath("$.refreshToken").exists())
+                .andExpect(jsonPath("$.refreshExpiresAt").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/refresh rotates token — old token is revoked")
+    void refresh_validToken_revokesOldToken() throws Exception {
+        String rawRefresh = jwtService.generateRefreshToken();
+        String hash = jwtService.hashToken(rawRefresh);
+        RefreshTokenEntity stored = RefreshTokenEntity.builder()
+                .id(1L)
+                .tokenHash(hash)
+                .userId(1L)
+                .expiresAt(LocalDateTime.now().plusDays(30))
+                .revoked(false)
+                .build();
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(refreshTokenRepository, org.mockito.Mockito.atLeastOnce())
+                .save(org.mockito.ArgumentMatchers.argThat(RefreshTokenEntity::isRevoked));
     }
 
     @Test

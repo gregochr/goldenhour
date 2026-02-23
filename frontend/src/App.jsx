@@ -9,6 +9,7 @@ import MapView from './components/MapView.jsx';
 import ManageView from './components/ManageView.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
+import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
 import { runForecast } from './api/forecastApi.js';
@@ -87,6 +88,8 @@ function AppInner() {
           </div>
         </div>
       </header>
+
+      <SessionExpiryBanner />
 
       <main className="max-w-4xl mx-auto px-4 py-6">
         {loading && (

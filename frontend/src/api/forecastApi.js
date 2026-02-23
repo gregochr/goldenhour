@@ -32,6 +32,7 @@ axios.interceptors.response.use(
       try {
         const data = await refreshAccessToken(storedRefresh);
         localStorage.setItem(TOKEN_KEY, data.accessToken);
+        if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
         original.headers['Authorization'] = `Bearer ${data.accessToken}`;
         isRefreshing = false;
         return axios(original);

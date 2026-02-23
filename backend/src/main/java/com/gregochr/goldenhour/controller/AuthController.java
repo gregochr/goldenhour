@@ -66,11 +66,12 @@ public class AuthController {
         String refreshHash = jwtService.hashToken(rawRefresh);
         Date expiresAt = jwtService.extractExpiry(accessToken);
 
+        LocalDateTime refreshExpiresAt = LocalDateTime.now()
+                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
         RefreshTokenEntity tokenEntity = RefreshTokenEntity.builder()
                 .tokenHash(refreshHash)
                 .userId(user.getId())
-                .expiresAt(LocalDateTime.now()
-                        .plusDays(jwtProperties.getRefreshTokenExpiryDays()))
+                .expiresAt(refreshExpiresAt)
                 .revoked(false)
                 .build();
         refreshTokenRepository.save(tokenEntity);
@@ -80,6 +81,7 @@ public class AuthController {
                 "refreshToken", rawRefresh,
                 "role", user.getRole().name(),
                 "expiresAt", expiresAt.toInstant().toString(),
+                "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
                 "passwordChangeRequired", user.isPasswordChangeRequired()));
     }
 
@@ -146,10 +148,13 @@ public class AuthController {
     }
 
     /**
-     * Issues a new access token using a valid, non-revoked refresh token.
+     * Issues a new access token and rotates the refresh token.
+     *
+     * <p>The supplied refresh token is revoked and a fresh one is issued, extending
+     * the session by another {@code jwt.refresh-token-expiry-days} days.
      *
      * @param body map containing {@code refreshToken}
-     * @return 200 with a new access token, or 401 if the refresh token is invalid
+     * @return 200 with new access and refresh tokens, or 401 if the token is invalid
      */
     @PostMapping("/refresh")
     public ResponseEntity<Map<String, Object>> refresh(@RequestBody Map<String, String> body) {
@@ -174,12 +179,32 @@ public class AuthController {
                     .body(Map.of("error", "User not found or disabled"));
         }
 
+        // Revoke old token (rotation — prevents reuse)
+        stored.setRevoked(true);
+        refreshTokenRepository.save(stored);
+
+        // Issue new access token
         String newAccessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());
-        Date expiresAt = jwtService.extractExpiry(newAccessToken);
+        Date accessExpiresAt = jwtService.extractExpiry(newAccessToken);
+
+        // Issue new refresh token
+        String newRawRefresh = jwtService.generateRefreshToken();
+        String newRefreshHash = jwtService.hashToken(newRawRefresh);
+        LocalDateTime refreshExpiresAt = LocalDateTime.now()
+                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
+        RefreshTokenEntity newToken = RefreshTokenEntity.builder()
+                .tokenHash(newRefreshHash)
+                .userId(user.getId())
+                .expiresAt(refreshExpiresAt)
+                .revoked(false)
+                .build();
+        refreshTokenRepository.save(newToken);
 
         return ResponseEntity.ok(Map.of(
                 "accessToken", newAccessToken,
-                "expiresAt", expiresAt.toInstant().toString()));
+                "refreshToken", newRawRefresh,
+                "expiresAt", accessExpiresAt.toInstant().toString(),
+                "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString()));
     }
 
     /**

@@ -1,11 +1,12 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { login as apiLogin, logout as apiLogout, changePassword as apiChangePassword } from '../api/authApi.js';
+import { login as apiLogin, logout as apiLogout, changePassword as apiChangePassword, refreshAccessToken as apiRefresh } from '../api/authApi.js';
 
 const TOKEN_KEY = 'goldenhour_token';
 const REFRESH_KEY = 'goldenhour_refresh';
 const ROLE_KEY = 'goldenhour_role';
 const MUST_CHANGE_KEY = 'goldenhour_must_change';
+const REFRESH_EXPIRES_KEY = 'goldenhour_refresh_expires';
 
 const AuthContext = createContext(null);
 
@@ -36,6 +37,7 @@ export function AuthProvider({ children }) {
   const [mustChangePassword, setMustChangePassword] = useState(
     () => readStorage(MUST_CHANGE_KEY) === 'true'
   );
+  const [refreshExpiresAt, setRefreshExpiresAt] = useState(() => readStorage(REFRESH_EXPIRES_KEY));
 
   const login = useCallback(async (username, password) => {
     const data = await apiLogin(username, password);
@@ -43,10 +45,12 @@ export function AuthProvider({ children }) {
     localStorage.setItem(REFRESH_KEY, data.refreshToken);
     localStorage.setItem(ROLE_KEY, data.role);
     localStorage.setItem(MUST_CHANGE_KEY, String(data.passwordChangeRequired ?? false));
+    if (data.refreshExpiresAt) localStorage.setItem(REFRESH_EXPIRES_KEY, data.refreshExpiresAt);
     setToken(data.accessToken);
     setRefreshToken(data.refreshToken);
     setRole(data.role);
     setMustChangePassword(data.passwordChangeRequired ?? false);
+    if (data.refreshExpiresAt) setRefreshExpiresAt(data.refreshExpiresAt);
   }, []);
 
   const logout = useCallback(async () => {
@@ -62,10 +66,12 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(REFRESH_KEY);
     localStorage.removeItem(ROLE_KEY);
     localStorage.removeItem(MUST_CHANGE_KEY);
+    localStorage.removeItem(REFRESH_EXPIRES_KEY);
     setToken(null);
     setRefreshToken(null);
     setRole(null);
     setMustChangePassword(false);
+    setRefreshExpiresAt(null);
   }, []);
 
   const changePassword = useCallback(async (newPassword) => {
@@ -74,16 +80,39 @@ export function AuthProvider({ children }) {
     setMustChangePassword(false);
   }, []);
 
+  const refreshSession = useCallback(async () => {
+    const stored = readStorage(REFRESH_KEY);
+    if (!stored) return;
+    const data = await apiRefresh(stored);
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
+    if (data.refreshExpiresAt) {
+      localStorage.setItem(REFRESH_EXPIRES_KEY, data.refreshExpiresAt);
+      setRefreshExpiresAt(data.refreshExpiresAt);
+    }
+    setToken(data.accessToken);
+    if (data.refreshToken) setRefreshToken(data.refreshToken);
+  }, []);
+
+  const sessionDaysRemaining = useMemo(() => {
+    if (!refreshExpiresAt) return null;
+    const diff = new Date(refreshExpiresAt) - Date.now();
+    if (diff <= 0) return 0;
+    return Math.floor(diff / (1000 * 60 * 60 * 24));
+  }, [refreshExpiresAt]);
+
   const value = useMemo(() => ({
     token,
     refreshToken,
     role,
     mustChangePassword,
+    sessionDaysRemaining,
     login,
     logout,
     changePassword,
+    refreshSession,
     isAdmin: role === 'ADMIN',
-  }), [token, refreshToken, role, mustChangePassword, login, logout, changePassword]);
+  }), [token, refreshToken, role, mustChangePassword, sessionDaysRemaining, login, logout, changePassword, refreshSession]);
 
   return (
     <AuthContext.Provider value={value}>
