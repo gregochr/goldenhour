@@ -35,6 +35,7 @@ export function useForecasts() {
         locationMeta.map((l) => [l.name, {
           locationType: l.locationType ?? [],
           tideType: l.tideType ?? [],
+          goldenHourType: l.goldenHourType ?? 'BOTH_TIMES',
         }])
       );
 
@@ -47,6 +48,7 @@ export function useForecasts() {
           ...loc,
           locationType: metaByName[loc.name]?.locationType ?? [],
           tideType: metaByName[loc.name]?.tideType ?? [],
+          goldenHourType: metaByName[loc.name]?.goldenHourType ?? 'BOTH_TIMES',
           outcomes: outcomeResults[i],
         }))
       );

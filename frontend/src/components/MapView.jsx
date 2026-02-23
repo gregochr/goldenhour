@@ -314,7 +314,7 @@ export default function MapView({ locations, date }) {
                     <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '4px' }}>
                       {loc.name}
                     </div>
-                    <LocationTypeBadges locationType={loc.locationType} tideType={loc.tideType} />
+                    <LocationTypeBadges goldenHourType={loc.goldenHourType} locationType={loc.locationType} tideType={loc.tideType} />
                     <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: eventTime ? '2px' : '8px' }}>
                       {isSunrise ? '🌅 Sunrise' : '🌇 Sunset'}
                       {eventTime && (

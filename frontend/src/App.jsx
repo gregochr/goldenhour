@@ -94,9 +94,10 @@ export default function App() {
                   selectedIndex={selectedTab}
                   onSelect={setSelectedTab}
                 />
-                {(location.locationType?.length > 0 || location.tideType?.length > 0) && (
+                {(location.goldenHourType || location.locationType?.length > 0 || location.tideType?.length > 0) && (
                   <div className="mb-4">
                     <LocationTypeBadges
+                      goldenHourType={location.goldenHourType}
                       locationType={location.locationType}
                       tideType={location.tideType}
                     />
@@ -132,6 +133,7 @@ export default function App() {
                       locationName={loc.name}
                       sunrise={dayData?.sunrise ?? null}
                       sunset={dayData?.sunset ?? null}
+                      goldenHourType={loc.goldenHourType}
                       locationType={loc.locationType}
                       tideType={loc.tideType}
                     />

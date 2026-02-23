@@ -14,7 +14,7 @@ import { formatEventTimeUk } from '../utils/conversions.js';
  * @param {object|null} props.sunrise - Sunrise forecast evaluation.
  * @param {object|null} props.sunset - Sunset forecast evaluation.
  */
-export default function LocationCompactCard({ locationName, sunrise, sunset, locationType = [], tideType = [] }) {
+export default function LocationCompactCard({ locationName, sunrise, sunset, goldenHourType, locationType = [], tideType = [] }) {
   const [modal, setModal] = useState(null); // { forecast, type } or null
 
   return (
@@ -24,7 +24,7 @@ export default function LocationCompactCard({ locationName, sunrise, sunset, loc
           <h3 className="text-base font-semibold text-gray-100">
             {locationName}
           </h3>
-          <LocationTypeBadges locationType={locationType} tideType={tideType} />
+          <LocationTypeBadges goldenHourType={goldenHourType} locationType={locationType} tideType={tideType} />
         </div>
         <div className="py-3 border-b border-gray-800">
           <EventSection
@@ -114,6 +114,7 @@ LocationCompactCard.propTypes = {
   locationName: PropTypes.string.isRequired,
   sunrise: PropTypes.object,
   sunset: PropTypes.object,
+  goldenHourType: PropTypes.string,
   locationType: PropTypes.arrayOf(PropTypes.string),
   tideType: PropTypes.arrayOf(PropTypes.string),
 };
