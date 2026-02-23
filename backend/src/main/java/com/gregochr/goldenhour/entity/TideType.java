@@ -12,6 +12,9 @@ public enum TideType {
     /** Photographer prefers to shoot at low tide. */
     LOW_TIDE,
 
+    /** Photographer prefers to shoot at mid tide (between high and low). */
+    MID_TIDE,
+
     /** Both tides are suitable — evaluate regardless of tide state. */
     ANY_TIDE,
 

@@ -310,6 +310,12 @@ class LocationServiceTest {
     }
 
     @Test
+    @DisplayName("isCoastal() returns true for MID_TIDE")
+    void isCoastal_midTide_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideType(TideType.MID_TIDE))).isTrue();
+    }
+
+    @Test
     @DisplayName("isCoastal() returns true for ANY_TIDE")
     void isCoastal_anyTide_returnsTrue() {
         assertThat(locationService.isCoastal(entityWithTideType(TideType.ANY_TIDE))).isTrue();
