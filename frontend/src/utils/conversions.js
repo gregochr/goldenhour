@@ -148,6 +148,33 @@ export function formatGeneratedAt(utcDateTimeStr) {
 }
 
 /**
+ * Formats a UTC forecast run timestamp as a full UK local datetime string including year.
+ *
+ * Returns a string like "23 Feb 2026 13:25" for display in map popups and detail views.
+ * Returns null for falsy input.
+ *
+ * @param {string|null} utcDateTimeStr - ISO-like datetime string without timezone suffix.
+ * @returns {string|null} Formatted string like "23 Feb 2026 13:25", or null.
+ */
+export function formatGeneratedAtFull(utcDateTimeStr) {
+  if (!utcDateTimeStr) return null;
+  const utcDate = new Date(utcDateTimeStr + 'Z');
+  if (isNaN(utcDate.getTime())) return null;
+  const date = utcDate.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Europe/London',
+  });
+  const time = utcDate.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Europe/London',
+  });
+  return `${date} ${time}`;
+}
+
+/**
  * Groups an array of forecast evaluations by location, then by date within each location.
  *
  * Locations are returned in the order they first appear in the array (i.e. the order

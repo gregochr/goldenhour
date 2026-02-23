@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import {
   formatEventTimeUk,
   formatShiftedEventTimeUk,
+  formatGeneratedAtFull,
 } from '../utils/conversions.js';
 
 const RATING_COLOURS = {
@@ -427,6 +428,13 @@ export default function MapView({ locations, date }) {
                     ) : (
                       <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
                         No forecast available
+                      </div>
+                    )}
+
+                    {/* Footer: generated at */}
+                    {forecast?.forecastRunAt && (
+                      <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
+                        Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}
                       </div>
                     )}
                   </div>
