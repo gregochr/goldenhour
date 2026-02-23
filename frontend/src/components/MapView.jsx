@@ -8,6 +8,7 @@ import {
   formatShiftedEventTimeUk,
   degreesToCompassFine,
 } from '../utils/conversions.js';
+import LocationTypeBadges from './LocationTypeBadges.jsx';
 
 const RATING_COLOURS = {
   1: '#6b7280',
@@ -310,9 +311,10 @@ export default function MapView({ locations, date }) {
                 <Popup>
                   <div style={{ minWidth: '220px', fontFamily: 'system-ui, sans-serif' }}>
                     {/* Header */}
-                    <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '2px' }}>
+                    <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '4px' }}>
                       {loc.name}
                     </div>
+                    <LocationTypeBadges locationType={loc.locationType} tideType={loc.tideType} />
                     <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: eventTime ? '2px' : '8px' }}>
                       {isSunrise ? '🌅 Sunrise' : '🌇 Sunset'}
                       {eventTime && (
