@@ -33,7 +33,7 @@ function AuthGate() {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout } = useAuth();
+  const { isAdmin, logout, sessionDaysRemaining } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const [selectedTab, setSelectedTab] = useState(0);
   const [viewMode, setViewMode] = useState('map');
@@ -69,22 +69,29 @@ function AppInner() {
               Sunrise &amp; Sunset Colour Forecast
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="btn-secondary text-xs"
-              onClick={refresh}
-              disabled={loading}
-              aria-label="Refresh forecast"
-            >
-              {loading ? 'Loading…' : '↻ Refresh'}
-            </button>
-            <button
-              className="btn-secondary text-xs"
-              onClick={logout}
-              aria-label="Sign out"
-            >
-              Sign out
-            </button>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-secondary text-xs"
+                onClick={refresh}
+                disabled={loading}
+                aria-label="Refresh forecast"
+              >
+                {loading ? 'Loading…' : '↻ Refresh'}
+              </button>
+              <button
+                className="btn-secondary text-xs"
+                onClick={logout}
+                aria-label="Sign out"
+              >
+                Sign out
+              </button>
+            </div>
+            {isAdmin && sessionDaysRemaining !== null && (
+              <p className="text-xs text-gray-600">
+                Session: {sessionDaysRemaining}d
+              </p>
+            )}
           </div>
         </div>
       </header>
