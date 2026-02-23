@@ -8,10 +8,10 @@ const LOCATION_TYPE_META = {
 };
 
 const TIDE_TYPE_META = {
-  HIGH_TIDE: { symbol: '↑', label: 'High tide' },
-  LOW_TIDE:  { symbol: '↓', label: 'Low tide' },
-  MID_TIDE:  { symbol: '~', label: 'Mid tide' },
-  ANY_TIDE:  { symbol: '≈', label: 'Any tide' },
+  HIGH_TIDE: { short: 'High tide' },
+  LOW_TIDE:  { short: 'Low tide' },
+  MID_TIDE:  { short: 'Mid tide' },
+  ANY_TIDE:  { short: 'Any tide' },
 };
 
 /**
@@ -50,11 +50,11 @@ export default function LocationTypeBadges({ locationType = [], tideType = [] })
         return (
           <span
             key={type}
-            title={meta.label}
-            className="inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded
-              bg-gray-800 text-cyan-600 border border-gray-700 font-mono"
+            title={meta.short}
+            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded
+              bg-cyan-950 text-cyan-300 border border-cyan-800/60"
           >
-            🌊{meta.symbol}
+            🌊 <span className="font-medium">{meta.short}</span>
           </span>
         );
       })}
