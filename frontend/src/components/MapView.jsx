@@ -309,34 +309,55 @@ export default function MapView({ locations, date }) {
                 }}
               >
                 <Popup>
-                  <div style={{ minWidth: '220px', fontFamily: 'system-ui, sans-serif' }}>
-                    {/* Header */}
-                    <div style={{ fontWeight: '700', fontSize: '14px', marginBottom: '4px' }}>
+                  <div style={{ minWidth: '230px', fontFamily: 'system-ui, sans-serif' }}>
+                    {/* Title */}
+                    <div style={{ fontWeight: '800', fontSize: '17px', marginBottom: '6px', color: '#f1f5f9' }}>
                       {loc.name}
                     </div>
-                    <LocationTypeBadges goldenHourType={loc.goldenHourType} locationType={loc.locationType} tideType={loc.tideType} />
-                    <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: eventTime ? '2px' : '8px' }}>
-                      {isSunrise ? '🌅 Sunrise' : '🌇 Sunset'}
-                      {eventTime && (
-                        <span style={{ marginLeft: '6px', color: '#9ca3af' }}>{eventTime}</span>
-                      )}
+
+                    {/* Location type badges */}
+                    <div style={{ marginBottom: '8px' }}>
+                      <LocationTypeBadges goldenHourType={loc.goldenHourType} locationType={loc.locationType} tideType={loc.tideType} />
                     </div>
 
-                    {/* Azimuth directions */}
-                    {(locSunriseAzimuth != null || locSunsetAzimuth != null) && (
-                      <div style={{ display: 'flex', gap: '10px', marginBottom: '8px', fontSize: '11px' }}>
-                        {locSunriseAzimuth != null && (
-                          <span style={{ color: SUNRISE_LINE_COLOUR }}>
-                            ↑ Rises {degreesToCompassFine(locSunriseAzimuth)} ({locSunriseAzimuth}°)
+                    {/* Event time + azimuth pills */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                      {eventTime && (() => {
+                        const bg     = isSunrise ? 'rgba(249,115,22,0.15)' : 'rgba(168,85,247,0.15)';
+                        const colour = isSunrise ? '#fb923c'                : '#c084fc';
+                        const border = isSunrise ? 'rgba(249,115,22,0.35)' : 'rgba(168,85,247,0.35)';
+                        return (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            fontSize: '11px', padding: '3px 9px', borderRadius: '999px',
+                            background: bg, color: colour,
+                            border: `1px solid ${border}`, fontWeight: '600',
+                          }}>
+                            {isSunrise ? '🌅' : '🌇'} {isSunrise ? 'Sunrise' : 'Sunset'} · {eventTime}
                           </span>
-                        )}
-                        {locSunsetAzimuth != null && (
-                          <span style={{ color: SUNSET_LINE_COLOUR }}>
-                            ↓ Sets {degreesToCompassFine(locSunsetAzimuth)} ({locSunsetAzimuth}°)
-                          </span>
-                        )}
-                      </div>
-                    )}
+                        );
+                      })()}
+                      {locSunriseAzimuth != null && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          fontSize: '11px', padding: '3px 9px', borderRadius: '999px',
+                          background: 'rgba(249,115,22,0.1)', color: SUNRISE_LINE_COLOUR,
+                          border: '1px solid rgba(249,115,22,0.3)', fontWeight: '600',
+                        }}>
+                          ↑ {degreesToCompassFine(locSunriseAzimuth)} ({locSunriseAzimuth}°)
+                        </span>
+                      )}
+                      {locSunsetAzimuth != null && (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          fontSize: '11px', padding: '3px 9px', borderRadius: '999px',
+                          background: 'rgba(168,85,247,0.1)', color: SUNSET_LINE_COLOUR,
+                          border: '1px solid rgba(168,85,247,0.3)', fontWeight: '600',
+                        }}>
+                          ↓ {degreesToCompassFine(locSunsetAzimuth)} ({locSunsetAzimuth}°)
+                        </span>
+                      )}
+                    </div>
 
                     {/* Golden / Blue hour pills */}
                     {forecast && goldenStart && blueStart && (
