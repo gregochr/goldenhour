@@ -11,7 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `refreshExpiresAt` included in login and refresh responses; stored in localStorage
 - `SessionExpiryBanner` component — renders between header and main content when session is close to expiry
 - Session countdown (`Session: 30d`) displayed in header below Sign out button for ADMIN users
-- "↻ Reload data" button moved to ViewToggle row (top-right) and renamed to avoid ambiguity with token refresh
+- "↻ Reload data" button removed — F5 has the same effect and the data auto-reloads after any re-run
 
 ### Fixed
 - `password_change_required` column add fails on H2 (`ddl-auto: update`) — added `DEFAULT FALSE` to `columnDefinition`
