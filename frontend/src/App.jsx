@@ -111,16 +111,8 @@ function AppInner() {
 
         {!loading && !error && sortedLocations.length > 0 && (
           <>
-            <div className="mb-6 flex items-center justify-between">
+            <div className="mb-6">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
-              <button
-                className="btn-secondary text-xs"
-                onClick={refresh}
-                disabled={loading}
-                aria-label="Refresh forecast"
-              >
-                {loading ? 'Loading…' : '↻ Reload data'}
-              </button>
             </div>
 
             {viewMode === 'location' && location && (
