@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `LocationTypeBadges` component — pill badges for golden hour preference (amber), location type (grey), and tide preference (cyan) shown on compact cards, by-location header, and map popups
 - Map popup redesigned: prominent title, event time pill inline with title, location type / golden hour type / tide rows, golden & blue hour row; azimuth direction pills removed (lines on map convey this better)
 - All popup pills standardised to 11 px / 2 px 8 px padding
+- Map popup footer shows "Forecast generated: 23 Feb 2026 13:25" (full date including year) separated by a hairline; `formatGeneratedAtFull()` added to conversions.js
 
 ## [0.3.0] - 2026-02-22
 
