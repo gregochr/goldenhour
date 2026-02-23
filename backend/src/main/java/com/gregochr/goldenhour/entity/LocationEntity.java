@@ -1,12 +1,16 @@
 package com.gregochr.goldenhour.entity;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -15,6 +19,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * JPA entity representing a location for which forecasts are evaluated.
@@ -66,6 +72,20 @@ public class LocationEntity {
     @Column(name = "tide_type", nullable = false)
     @Builder.Default
     private TideType tideType = TideType.NOT_COASTAL;
+
+    /**
+     * Photography type tags for this location (e.g. SEASCAPE, LANDSCAPE).
+     *
+     * <p>A location may have multiple types simultaneously. Stored in the
+     * {@code location_location_type} join table. Loaded eagerly to avoid
+     * lazy-initialisation issues during JSON serialisation.
+     */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @Enumerated(EnumType.STRING)
+    @CollectionTable(name = "location_location_type", joinColumns = @JoinColumn(name = "location_id"))
+    @Column(name = "location_type")
+    @Builder.Default
+    private Set<LocationType> locationType = new HashSet<>();
 
     /** UTC timestamp when this location was created. */
     @Column(name = "created_at", nullable = false)

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.config.ForecastProperties;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import jakarta.annotation.PostConstruct;
@@ -144,5 +145,18 @@ public class LocationService {
      */
     public boolean isCoastal(LocationEntity location) {
         return location.getTideType() != TideType.NOT_COASTAL;
+    }
+
+    /**
+     * Returns {@code true} if this location has the {@link LocationType#SEASCAPE} tag.
+     *
+     * <p>Seascape locations are coastal spots where tide state is directly relevant to
+     * photographic composition — rock pools, foreshore textures, reflections, etc.
+     *
+     * @param location the location to check
+     * @return {@code true} if the location's type set contains {@code SEASCAPE}
+     */
+    public boolean isSeascape(LocationEntity location) {
+        return location.getLocationType().contains(LocationType.SEASCAPE);
     }
 }

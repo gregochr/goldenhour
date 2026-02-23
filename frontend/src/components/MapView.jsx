@@ -126,12 +126,40 @@ function makeMarkerIcon(rating, locationName) {
  * @param {Array<{name: string, lat: number, lon: number, forecastsByDate: Map}>} props.locations
  * @param {string|null} props.date - The target date (YYYY-MM-DD) to display ratings for.
  */
+const LOCATION_TYPE_LABELS = {
+  LANDSCAPE: { label: 'Landscape', emoji: '🏔️' },
+  WILDLIFE:  { label: 'Wildlife',  emoji: '🦅' },
+  SEASCAPE:  { label: 'Seascape',  emoji: '🌊' },
+};
+
 export default function MapView({ locations, date }) {
   const [eventType, setEventType] = useState('SUNSET');
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
+  const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
 
   const lineKm = lineKmForZoom(zoom);
+
+  function toggleTypeFilter(type) {
+    setActiveTypeFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  }
+
+  // Filter logic: if no filters active → show all.
+  // If filters active → show untagged locations plus those matching any active filter.
+  const visibleLocations = activeTypeFilters.size === 0
+    ? locations
+    : locations.filter((loc) => {
+        const types = loc.locationType ?? [];
+        return types.length === 0 || types.some((t) => activeTypeFilters.has(t));
+      });
 
   if (!date || locations.length === 0) {
     return (
@@ -143,13 +171,39 @@ export default function MapView({ locations, date }) {
 
   const bounds = locations.map((loc) => [loc.lat, loc.lon]);
 
-  const selectedLoc = locations.find((l) => l.name === selectedLocationName) ?? null;
+  const selectedLoc = visibleLocations.find((l) => l.name === selectedLocationName) ?? null;
   const selectedDayData = selectedLoc?.forecastsByDate.get(date);
   const sunriseAzimuth = selectedDayData?.sunrise?.azimuthDeg ?? null;
   const sunsetAzimuth  = selectedDayData?.sunset?.azimuthDeg  ?? null;
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Location type filter toggles */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-gray-500 mr-1">Filter:</span>
+        {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
+          <button
+            key={type}
+            onClick={() => toggleTypeFilter(type)}
+            className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+              activeTypeFilters.has(type)
+                ? 'bg-gray-600 border-gray-500 text-gray-100'
+                : 'bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            {emoji} {label}
+          </button>
+        ))}
+        {activeTypeFilters.size > 0 && (
+          <button
+            onClick={() => setActiveTypeFilters(new Set())}
+            className="px-3 py-1 text-xs font-medium rounded-full border border-gray-700 text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       {/* Sunrise / Sunset radio toggle */}
       <div className="flex items-center gap-6">
         <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
@@ -220,7 +274,7 @@ export default function MapView({ locations, date }) {
             />
           )}
 
-          {locations.map((loc) => {
+          {visibleLocations.map((loc) => {
             const dayData = loc.forecastsByDate.get(date);
             const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
             const icon = makeMarkerIcon(forecast?.rating ?? null, loc.name);
@@ -344,6 +398,7 @@ MapView.propTypes = {
       lat: PropTypes.number.isRequired,
       lon: PropTypes.number.isRequired,
       forecastsByDate: PropTypes.instanceOf(Map).isRequired,
+      locationType: PropTypes.arrayOf(PropTypes.string),
     })
   ).isRequired,
   date: PropTypes.string,

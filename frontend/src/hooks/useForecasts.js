@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchForecasts, fetchOutcomes } from '../api/forecastApi.js';
+import { fetchForecasts, fetchLocations, fetchOutcomes } from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
 
 /**
@@ -27,15 +27,24 @@ export function useForecasts() {
         .toISOString()
         .slice(0, 10);
 
-      const forecasts = await fetchForecasts();
+      const [forecasts, locationMeta] = await Promise.all([fetchForecasts(), fetchLocations()]);
       const locationGroups = groupForecastsByLocation(forecasts);
+
+      // Build a lookup from name → locationType array for O(1) merging.
+      const typeByName = Object.fromEntries(
+        locationMeta.map((l) => [l.name, l.locationType ?? []])
+      );
 
       const outcomeResults = await Promise.all(
         locationGroups.map((loc) => fetchOutcomes(loc.lat, loc.lon, from, to))
       );
 
       setLocations(
-        locationGroups.map((loc, i) => ({ ...loc, outcomes: outcomeResults[i] }))
+        locationGroups.map((loc, i) => ({
+          ...loc,
+          locationType: typeByName[loc.name] ?? [],
+          outcomes: outcomeResults[i],
+        }))
       );
     } catch (err) {
       setError(

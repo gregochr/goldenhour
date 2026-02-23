@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.config.ForecastProperties;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -287,10 +289,51 @@ class LocationServiceTest {
         assertThat(locationService.isCoastal(entityWithTideType(TideType.ANY_TIDE))).isTrue();
     }
 
+    // --- isSeascape ---
+
+    @Test
+    @DisplayName("isSeascape() returns true when locationType contains SEASCAPE")
+    void isSeascape_withSeascape_returnsTrue() {
+        LocationEntity entity = LocationEntity.builder()
+                .name("Bamburgh").lat(55.6).lon(-1.7)
+                .locationType(Set.of(LocationType.SEASCAPE))
+                .build();
+        assertThat(locationService.isSeascape(entity)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isSeascape() returns false when locationType contains only other types")
+    void isSeascape_withoutSeascape_returnsFalse() {
+        LocationEntity entity = LocationEntity.builder()
+                .name("Durham").lat(54.7).lon(-1.5)
+                .locationType(Set.of(LocationType.LANDSCAPE))
+                .build();
+        assertThat(locationService.isSeascape(entity)).isFalse();
+    }
+
+    @Test
+    @DisplayName("isSeascape() returns false when locationType is empty")
+    void isSeascape_emptyTypes_returnsFalse() {
+        LocationEntity entity = LocationEntity.builder()
+                .name("Durham").lat(54.7).lon(-1.5)
+                .build();
+        assertThat(locationService.isSeascape(entity)).isFalse();
+    }
+
+    @Test
+    @DisplayName("isSeascape() returns true when locationType contains SEASCAPE alongside other types")
+    void isSeascape_withSeascapeAndOtherTypes_returnsTrue() {
+        LocationEntity entity = LocationEntity.builder()
+                .name("Holy Island").lat(55.67).lon(-1.8)
+                .locationType(Set.of(LocationType.SEASCAPE, LocationType.LANDSCAPE))
+                .build();
+        assertThat(locationService.isSeascape(entity)).isTrue();
+    }
+
     // --- defaults ---
 
     @Test
-    @DisplayName("new location entity defaults to BOTH_TIMES and NOT_COASTAL")
+    @DisplayName("new location entity defaults to BOTH_TIMES, NOT_COASTAL, and empty locationType")
     void locationEntity_defaults_areBothTimesAndNotCoastal() {
         LocationEntity entity = LocationEntity.builder()
                 .name("Test")
@@ -299,6 +342,7 @@ class LocationServiceTest {
                 .build();
         assertThat(entity.getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
         assertThat(entity.getTideType()).isEqualTo(TideType.NOT_COASTAL);
+        assertThat(entity.getLocationType()).isEmpty();
     }
 
     private LocationEntity buildEntity(String name, double lat, double lon) {
