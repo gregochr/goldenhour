@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- Session expiry warnings — amber banner at ≤7 days, red at ≤1 day; "Refresh session" button extends by 30 days
+- Refresh token rotation — `/api/auth/refresh` revokes the old token and issues a new 30-day one on every call
+- `refreshExpiresAt` included in login and refresh responses; stored in localStorage
+- `SessionExpiryBanner` component — renders between header and main content when session is close to expiry
+- Session countdown (`Session: 30d`) displayed in header below Sign out button for ADMIN users
+- "↻ Reload data" button moved to ViewToggle row (top-right) and renamed to avoid ambiguity with token refresh
+
+### Fixed
+- `password_change_required` column add fails on H2 (`ddl-auto: update`) — added `DEFAULT FALSE` to `columnDefinition`
+- Session days display shows 30d on fresh login (was 29d due to `Math.floor` rounding)
+
+
 - JWT authentication — stateless Spring Security with ADMIN and USER roles
 - `app_user` table (V10 migration) with default `admin` / `golden2026` account
 - `refresh_token` table (V11 migration) for refresh token persistence
