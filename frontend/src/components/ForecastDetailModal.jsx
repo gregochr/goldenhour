@@ -22,16 +22,19 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="forecast-detail-title"
-      onClick={onClose}
     >
-      <div
-        className="card w-full max-w-md flex flex-col gap-4"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* Backdrop — button is the correct interactive element for a click-to-close overlay */}
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/70"
+        aria-label="Close"
+        onClick={onClose}
+      />
+      <div className="card relative z-10 w-full max-w-md flex flex-col gap-4">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>

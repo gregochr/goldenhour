@@ -250,8 +250,9 @@ export default function ManageView({ onComplete }) {
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Username</label>
+                  <label htmlFor="add-user-username" className="block text-xs text-gray-400 mb-1">Username</label>
                   <input
+                    id="add-user-username"
                     type="text"
                     autoComplete="off"
                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
@@ -261,9 +262,10 @@ export default function ManageView({ onComplete }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Password</label>
+                  <label htmlFor="add-user-password" className="block text-xs text-gray-400 mb-1">Password</label>
                   <div className="relative">
                     <input
+                      id="add-user-password"
                       type={showNewPassword ? 'text' : 'password'}
                       autoComplete="new-password"
                       className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 pr-10 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
@@ -291,8 +293,9 @@ export default function ManageView({ onComplete }) {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Role</label>
+                  <label htmlFor="add-user-role" className="block text-xs text-gray-400 mb-1">Role</label>
                   <select
+                    id="add-user-role"
                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     value={newRole}
                     onChange={(e) => setNewRole(e.target.value)}
@@ -415,8 +418,9 @@ export default function ManageView({ onComplete }) {
           <p className="text-sm font-semibold text-gray-100">Add location</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-1">
-              <label className="block text-xs text-gray-400 mb-1">Location name</label>
+              <label htmlFor="add-location-name" className="block text-xs text-gray-400 mb-1">Location name</label>
               <input
+                id="add-location-name"
                 type="text"
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 placeholder="e.g. Durham UK"
@@ -425,8 +429,9 @@ export default function ManageView({ onComplete }) {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Latitude</label>
+              <label htmlFor="add-location-lat" className="block text-xs text-gray-400 mb-1">Latitude</label>
               <input
+                id="add-location-lat"
                 type="number"
                 step="any"
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
@@ -436,8 +441,9 @@ export default function ManageView({ onComplete }) {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Longitude</label>
+              <label htmlFor="add-location-lon" className="block text-xs text-gray-400 mb-1">Longitude</label>
               <input
+                id="add-location-lon"
                 type="number"
                 step="any"
                 className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
