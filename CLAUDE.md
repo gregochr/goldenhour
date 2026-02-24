@@ -156,6 +156,64 @@ jwt:
 
 ---
 
+## Product Strategy
+
+See `docs/product/` for detailed reference documents.
+
+### Competitive Landscape
+
+Main competitors: Alpenglow, SkyCandy, PhotoWeather, Sunsethue, Burning Sky. Key gaps
+in the market: no competitor explains *why* in plain English, aerosol data is rarely
+surfaced, and none segment by location type (landscape vs wildlife vs coastal).
+
+**Golden Hour differentiators:**
+- Claude-generated explanation (the biggest one — no competitor does this)
+- Aerosol optical depth surfaced to users (dust enhances warm tones; smoke muddies them)
+- Location types with type-specific UI (landscape scores vs wildlife comfort forecast)
+- Outcome recording + accuracy feedback loop
+
+### Two Scores (Planned)
+
+PhotoWeather distinguishes between two things that are genuinely different:
+- **Fiery Sky Potential** — dramatic colour (requires clouds to catch light)
+- **Golden Hour Potential** — overall light quality (can score high with clear sky)
+
+These require different parameter weighting. Planned for a future evaluation update.
+
+### Aerosol Differentiation
+
+Open-Meteo CAMS provides AOD + PM2.5. Use as a proxy:
+- High AOD + low PM2.5 = probably dust → enhances warm reds ✓
+- High AOD + high PM2.5 = probably smoke → grey/brown haze ✗
+
+This is a competitive advantage. Most competitors don't touch aerosols at all.
+
+### Forecast Refresh Cadence
+
+- ECMWF/GFS/ICON models refresh every 6 hours (0z, 6z, 12z, 18z UTC)
+- CAMS aerosols refresh every 24h (Europe) / 12h (global)
+- Current schedule (06:00 + 18:00 UTC) is sensible; consider adding 12:00 to catch midday update
+- Always show "Updated at HH:MM" timestamp in the UI
+- Notify users only on material score changes (±15pp or one full star) to avoid alert fatigue
+
+### Freemium Tier Split
+
+| Feature | LITE_USER | PRO_USER | ADMIN |
+|---------|-----------|----------|-------|
+| Score + one-line summary | ✓ | ✓ | ✓ |
+| "Why" explanation (3 key factors) | ✓ | ✓ | ✓ |
+| Forecast horizon | 3 days | 7 days | 7 days |
+| Locations | 1 | Unlimited | Unlimited |
+| Cloud layer breakdown | Blurred/teased | ✓ | ✓ |
+| Aerosol metrics | Blurred/teased | ✓ | ✓ |
+| Full technical metrics | Blurred/teased | ✓ | ✓ |
+| Directional map hint | — | ✓ | ✓ |
+
+Use breadcrumbs (blur/lock/soft limits) not hard paywalls. Show features exist,
+then gate them. See `docs/product/freemium_ui_strategy.md`.
+
+---
+
 ## Planned Features
 
 ### 1. Cloudflare Tunnel
