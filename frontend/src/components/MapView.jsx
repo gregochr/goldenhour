@@ -263,6 +263,7 @@ export default function MapView({ locations, date }) {
 
       {/* Map */}
       <div
+        data-testid="map-container"
         className="rounded-lg overflow-hidden ring-1 ring-gray-700"
         style={{ height: '500px' }}
       >

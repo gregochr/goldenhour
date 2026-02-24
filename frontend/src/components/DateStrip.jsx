@@ -12,7 +12,7 @@ import { formatDateLabel } from '../utils/conversions.js';
  */
 export default function DateStrip({ dates, selectedDate, onSelect }) {
   return (
-    <div className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
+    <div data-testid="date-strip" className="flex gap-2 overflow-x-auto pb-2 mb-6 scrollbar-none">
       {dates.map((date) => (
         <button
           key={date}

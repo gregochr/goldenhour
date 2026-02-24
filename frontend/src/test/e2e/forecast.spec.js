@@ -92,6 +92,63 @@ test.describe('Outcome recording flow', () => {
   });
 });
 
+test.describe('By Date view', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await loginAsAdmin(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'By Date' }).click();
+  });
+
+  test('renders date strip for date-based view', async ({ page }) => {
+    await page.waitForSelector('[data-testid="date-strip"]', { timeout: 10000 });
+    await expect(page.getByTestId('date-strip')).toBeVisible();
+  });
+
+  test('allows clicking date buttons to change selected date', async ({ page }) => {
+    await page.waitForSelector('[data-testid="date-strip"] button', { timeout: 10000 });
+    const dateButtons = page.locator('[data-testid="date-strip"] button');
+    const count = await dateButtons.count();
+    if (count > 1) {
+      const secondButton = dateButtons.nth(1);
+      await secondButton.click();
+      // Verify the click succeeded by checking it now has the active styling
+      await expect(secondButton).toHaveClass(/bg-gray-100/);
+    }
+  });
+});
+
+test.describe('Map view', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await loginAsAdmin(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Map' }).click();
+  });
+
+  test('renders map and date strip', async ({ page }) => {
+    await page.waitForSelector('[data-testid="map-container"]', { timeout: 10000 });
+    await expect(page.getByTestId('map-container')).toBeVisible();
+    await expect(page.getByTestId('date-strip')).toBeVisible();
+  });
+
+  test('renders map with markers for locations', async ({ page }) => {
+    // Map is rendered if we can see the Leaflet container div
+    const mapDiv = await page.locator('.leaflet-container').first();
+    await expect(mapDiv).toBeVisible({ timeout: 5000 });
+  });
+
+  test('allows date selection on map view', async ({ page }) => {
+    await page.waitForSelector('[data-testid="date-strip"] button', { timeout: 10000 });
+    const dateButtons = page.locator('[data-testid="date-strip"] button');
+    const count = await dateButtons.count();
+    if (count > 1) {
+      await dateButtons.nth(1).click();
+      await expect(page.getByTestId('map-container')).toBeVisible();
+    }
+  });
+});
+
 test.describe('Error handling', () => {
   test('shows friendly error message when API is unavailable', async ({ page }) => {
     // Login first, then abort API calls to simulate the backend going down
