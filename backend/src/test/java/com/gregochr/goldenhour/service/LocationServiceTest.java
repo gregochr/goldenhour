@@ -112,6 +112,73 @@ class LocationServiceTest {
     }
 
     @Test
+    @DisplayName("seedFromProperties() fetches tide extremes for a new coastal location with no stored data")
+    void seedFromProperties_newCoastalLocation_fetchesTideExtremes() {
+        ForecastProperties.Location spittal = new ForecastProperties.Location();
+        spittal.setName("Spittal Beach");
+        spittal.setLat(55.7592);
+        spittal.setLon(-1.9912);
+        spittal.setTideType(Set.of(TideType.HIGH_TIDE));
+        forecastProperties.setLocations(List.of(spittal));
+
+        LocationEntity saved = LocationEntity.builder()
+                .id(1L).name("Spittal Beach").lat(55.7592).lon(-1.9912)
+                .tideType(Set.of(TideType.HIGH_TIDE))
+                .build();
+        when(locationRepository.findByName("Spittal Beach")).thenReturn(Optional.empty());
+        when(locationRepository.save(any())).thenReturn(saved);
+        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
+
+        locationService.seedFromProperties();
+
+        verify(tideService).fetchAndStoreTideExtremes(saved);
+    }
+
+    @Test
+    @DisplayName("seedFromProperties() fetches tide extremes for an existing coastal location with no stored data")
+    void seedFromProperties_existingCoastalLocationNoExtremes_fetchesTideExtremes() {
+        ForecastProperties.Location spittal = new ForecastProperties.Location();
+        spittal.setName("Spittal Beach");
+        spittal.setLat(55.7592);
+        spittal.setLon(-1.9912);
+        spittal.setTideType(Set.of(TideType.HIGH_TIDE));
+        forecastProperties.setLocations(List.of(spittal));
+
+        LocationEntity existing = LocationEntity.builder()
+                .id(1L).name("Spittal Beach").lat(55.7592).lon(-1.9912)
+                .tideType(Set.of(TideType.HIGH_TIDE))
+                .build();
+        when(locationRepository.findByName("Spittal Beach")).thenReturn(Optional.of(existing));
+        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
+
+        locationService.seedFromProperties();
+
+        verify(tideService).fetchAndStoreTideExtremes(existing);
+    }
+
+    @Test
+    @DisplayName("seedFromProperties() skips tide fetch when existing coastal location already has stored data")
+    void seedFromProperties_existingCoastalLocationWithExtremes_skipsFetch() {
+        ForecastProperties.Location spittal = new ForecastProperties.Location();
+        spittal.setName("Spittal Beach");
+        spittal.setLat(55.7592);
+        spittal.setLon(-1.9912);
+        spittal.setTideType(Set.of(TideType.HIGH_TIDE));
+        forecastProperties.setLocations(List.of(spittal));
+
+        LocationEntity existing = LocationEntity.builder()
+                .id(1L).name("Spittal Beach").lat(55.7592).lon(-1.9912)
+                .tideType(Set.of(TideType.HIGH_TIDE))
+                .build();
+        when(locationRepository.findByName("Spittal Beach")).thenReturn(Optional.of(existing));
+        when(tideService.hasStoredExtremes(1L)).thenReturn(true);
+
+        locationService.seedFromProperties();
+
+        verify(tideService, never()).fetchAndStoreTideExtremes(any());
+    }
+
+    @Test
     @DisplayName("seedFromProperties() inserts only locations not yet in the database")
     void seedFromProperties_mixedLocations_insertsOnlyNew() {
         ForecastProperties.Location durham = new ForecastProperties.Location();

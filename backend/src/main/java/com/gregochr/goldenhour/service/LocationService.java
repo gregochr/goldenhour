@@ -65,8 +65,9 @@ public class LocationService {
         int updated = 0;
         for (ForecastProperties.Location loc : forecastProperties.getLocations()) {
             Optional<LocationEntity> existing = locationRepository.findByName(loc.getName());
+            LocationEntity entity;
             if (existing.isEmpty()) {
-                LocationEntity saved = locationRepository.save(LocationEntity.builder()
+                entity = locationRepository.save(LocationEntity.builder()
                         .name(loc.getName())
                         .lat(loc.getLat())
                         .lon(loc.getLon())
@@ -76,11 +77,8 @@ public class LocationService {
                         .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build());
                 seeded++;
-                if (isCoastal(saved)) {
-                    tideService.fetchAndStoreTideExtremes(saved);
-                }
             } else {
-                LocationEntity entity = existing.get();
+                entity = existing.get();
                 boolean changed = !entity.getGoldenHourType().equals(loc.getGoldenHourType())
                         || !entity.getTideType().equals(loc.getTideType())
                         || !entity.getLocationType().equals(loc.getLocationType());
@@ -91,6 +89,9 @@ public class LocationService {
                     locationRepository.save(entity);
                     updated++;
                 }
+            }
+            if (isCoastal(entity) && !tideService.hasStoredExtremes(entity.getId())) {
+                tideService.fetchAndStoreTideExtremes(entity);
             }
         }
         LOG.info("Seeded {} location(s), updated metadata for {} location(s) from config", seeded, updated);

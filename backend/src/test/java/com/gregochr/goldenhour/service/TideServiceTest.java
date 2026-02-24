@@ -270,6 +270,24 @@ class TideServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // hasStoredExtremes
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("hasStoredExtremes() returns true when repository has data for location")
+    void hasStoredExtremes_whenExists_returnsTrue() {
+        when(tideExtremeRepository.existsByLocationId(1L)).thenReturn(true);
+        assertThat(tideService.hasStoredExtremes(1L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("hasStoredExtremes() returns false when repository has no data for location")
+    void hasStoredExtremes_whenAbsent_returnsFalse() {
+        when(tideExtremeRepository.existsByLocationId(1L)).thenReturn(false);
+        assertThat(tideService.hasStoredExtremes(1L)).isFalse();
+    }
+
+    // -------------------------------------------------------------------------
     // calculateTideAligned — single preferences
     // -------------------------------------------------------------------------
 
