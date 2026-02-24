@@ -94,7 +94,7 @@ public class ScheduledForecastService {
         try {
             forecastService.runForecasts(
                     location.getName(), location.getLat(), location.getLon(),
-                    targetDate, targetType);
+                    targetDate, targetType, location.getTideType());
             return true;
         } catch (Exception e) {
             LOG.error("Forecast failed for {} {} on {}: {}",

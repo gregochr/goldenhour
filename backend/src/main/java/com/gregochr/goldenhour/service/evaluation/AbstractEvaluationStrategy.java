@@ -57,6 +57,11 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             + "Since data is non-directional, use altitude as proxy: low cloud (0-3km) sits near "
             + "the horizon and blocks light; mid (3-8km) and high (8+km) cloud sits above and "
             + "catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
+            + "For coastal locations, tide data may be provided. When available:\n"
+            + "- High tide can expose dramatic rock formations and alter water colour\n"
+            + "- Low tide may reveal sand patterns and new horizon details\n"
+            + "- If the tide aligns with the photographer's preference, factor this favourably into the score\n"
+            + "- If not aligned, briefly mention the tide limitation but don't heavily penalise unless extreme\n\n"
             + "Respond ONLY with raw JSON (no code fences): "
             + "{\"rating\": <1-5>, \"summary\": \"<2 sentences>\"}. "
             + "Do not use double-quote characters within the summary text.";
@@ -121,22 +126,36 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
      * @return formatted user message string
      */
     String buildUserMessage(AtmosphericData data) {
-        return String.format(
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
                 "Location: %s. %s: %s UTC.%n"
                 + "Cloud: Low %d%%, Mid %d%%, High %d%%%n"
                 + "Visibility: %,dm, Wind: %.2f m/s (%d\u00b0), Precip: %.2fmm%n"
                 + "Humidity: %d%%, Weather code: %d%n"
                 + "Boundary layer: %dm, Shortwave: %.0f W/m\u00b2%n"
-                + "PM2.5: %s\u00b5g/m\u00b3, Dust: %s\u00b5g/m\u00b3, AOD: %s%n"
-                + "%s",
+                + "PM2.5: %s\u00b5g/m\u00b3, Dust: %s\u00b5g/m\u00b3, AOD: %s",
                 data.locationName(), data.targetType(), data.solarEventTime(),
                 data.lowCloudPercent(), data.midCloudPercent(), data.highCloudPercent(),
                 data.visibilityMetres(), data.windSpeedMs(), data.windDirectionDegrees(),
                 data.precipitationMm(),
                 data.humidityPercent(), data.weatherCode(),
                 data.boundaryLayerHeightMetres(), data.shortwaveRadiationWm2(),
-                data.pm25(), data.dustUgm3(), data.aerosolOpticalDepth(),
-                getPromptSuffix());
+                data.pm25(), data.dustUgm3(), data.aerosolOpticalDepth()));
+
+        // Include tide data if available (coastal location)
+        if (data.tideState() != null) {
+            sb.append(String.format(
+                    "%nTide: %s (next high: %.2fm at %s, next low: %.2fm at %s), Aligned: %s",
+                    data.tideState(),
+                    data.nextHighTideHeightMetres(),
+                    data.nextHighTideTime(),
+                    data.nextLowTideHeightMetres(),
+                    data.nextLowTideTime(),
+                    data.tideAligned()));
+        }
+
+        sb.append("\n").append(getPromptSuffix());
+        return sb.toString();
     }
 
     /**

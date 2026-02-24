@@ -101,6 +101,7 @@ class SonnetEvaluationStrategyTest {
                 10, 50, 30, 25000,
                 new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
                 62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"));
+                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
+                null, null, null, null, null, null);
     }
 }

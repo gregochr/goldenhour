@@ -16,7 +16,7 @@ const ALL_OPTIONS = [
  * @param {function} props.onChange - Called with the new mode string when toggled.
  * @param {boolean} [props.isAdmin=false] - Whether to show the admin-only Manage tab.
  */
-export default function ViewToggle({ value, onChange, isAdmin }) {
+export default function ViewToggle({ value, onChange, isAdmin = false }) {
   const options = ALL_OPTIONS.filter((opt) => !opt.adminOnly || isAdmin);
 
   return (
@@ -42,8 +42,4 @@ ViewToggle.propTypes = {
   value: PropTypes.oneOf(['location', 'date', 'map', 'manage']).isRequired,
   onChange: PropTypes.func.isRequired,
   isAdmin: PropTypes.bool,
-};
-
-ViewToggle.defaultProps = {
-  isAdmin: false,
 };

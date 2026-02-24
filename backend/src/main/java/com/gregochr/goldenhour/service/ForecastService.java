@@ -2,9 +2,11 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
@@ -35,6 +37,7 @@ public class ForecastService {
 
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
+    private final TideService tideService;
     private final EvaluationService evaluationService;
     private final ForecastEvaluationRepository repository;
     private final EmailNotificationService emailService;
@@ -46,6 +49,7 @@ public class ForecastService {
      *
      * @param solarService      calculates solar event times
      * @param openMeteoService  retrieves Open-Meteo forecast data
+     * @param tideService       fetches tide data for coastal locations
      * @param evaluationService calls Claude to evaluate colour potential
      * @param repository        persists forecast evaluation results
      * @param emailService      email notification channel
@@ -53,11 +57,12 @@ public class ForecastService {
      * @param toastService      macOS toast notification channel
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
-            EvaluationService evaluationService, ForecastEvaluationRepository repository,
-            EmailNotificationService emailService, PushoverNotificationService pushoverService,
-            MacOsToastNotificationService toastService) {
+            TideService tideService, EvaluationService evaluationService,
+            ForecastEvaluationRepository repository, EmailNotificationService emailService,
+            PushoverNotificationService pushoverService, MacOsToastNotificationService toastService) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
+        this.tideService = tideService;
         this.evaluationService = evaluationService;
         this.repository = repository;
         this.emailService = emailService;
@@ -79,7 +84,7 @@ public class ForecastService {
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
             LocalDate date) {
-        return runForecasts(locationName, lat, lon, date, null);
+        return runForecasts(locationName, lat, lon, date, null, java.util.Set.of());
     }
 
     /**
@@ -93,10 +98,11 @@ public class ForecastService {
      * @param lon          longitude in decimal degrees
      * @param date         the calendar date to forecast
      * @param targetType   the target type to evaluate, or {@code null} to evaluate both
+     * @param tideTypes    tide preferences for this location (empty if inland)
      * @return the saved entities in evaluation order
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
-            LocalDate date, TargetType targetType) {
+            LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
         List<ForecastEvaluationEntity> results = new ArrayList<>();
@@ -111,7 +117,47 @@ public class ForecastService {
                     : solarService.sunsetUtc(lat, lon, date);
 
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
-            AtmosphericData forecastData = openMeteoService.getAtmosphericData(request, eventTime);
+            AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
+
+            // Fetch tide data only for coastal locations (non-empty tideTypes set)
+            TideData tideData = null;
+            Boolean tideAligned = null;
+            boolean isCoastal = tideTypes != null && !tideTypes.isEmpty()
+                    && !tideTypes.equals(java.util.Set.of(TideType.NOT_COASTAL));
+            if (isCoastal) {
+                var tideMaybe = tideService.getTideData(lat, lon, eventTime);
+                if (tideMaybe.isPresent()) {
+                    tideData = tideMaybe.get();
+                    tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
+                }
+            }
+
+            // Create augmented atmospheric data with tide information
+            AtmosphericData forecastData = new AtmosphericData(
+                    baseData.locationName(),
+                    baseData.solarEventTime(),
+                    baseData.targetType(),
+                    baseData.lowCloudPercent(),
+                    baseData.midCloudPercent(),
+                    baseData.highCloudPercent(),
+                    baseData.visibilityMetres(),
+                    baseData.windSpeedMs(),
+                    baseData.windDirectionDegrees(),
+                    baseData.precipitationMm(),
+                    baseData.humidityPercent(),
+                    baseData.weatherCode(),
+                    baseData.boundaryLayerHeightMetres(),
+                    baseData.shortwaveRadiationWm2(),
+                    baseData.pm25(),
+                    baseData.dustUgm3(),
+                    baseData.aerosolOpticalDepth(),
+                    tideData != null ? tideData.tideState() : null,
+                    tideData != null ? tideData.nextHighTideTime() : null,
+                    tideData != null ? tideData.nextHighTideHeightMetres() : null,
+                    tideData != null ? tideData.nextLowTideTime() : null,
+                    tideData != null ? tideData.nextLowTideHeightMetres() : null,
+                    tideAligned);
+
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData);
 
             int azimuth = type == TargetType.SUNRISE
@@ -140,6 +186,12 @@ public class ForecastService {
                     .pm25(forecastData.pm25())
                     .dust(forecastData.dustUgm3())
                     .aerosolOpticalDepth(forecastData.aerosolOpticalDepth())
+                    .tideState(forecastData.tideState())
+                    .nextHighTideTime(forecastData.nextHighTideTime())
+                    .nextHighTideHeightMetres(forecastData.nextHighTideHeightMetres())
+                    .nextLowTideTime(forecastData.nextLowTideTime())
+                    .nextLowTideHeightMetres(forecastData.nextLowTideHeightMetres())
+                    .tideAligned(forecastData.tideAligned())
                     .rating(evaluation.rating())
                     .summary(evaluation.summary())
                     .solarEventTime(eventTime)

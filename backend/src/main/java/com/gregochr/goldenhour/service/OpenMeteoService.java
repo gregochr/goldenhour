@@ -158,7 +158,13 @@ public class OpenMeteoService {
                         .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
                 toDecimal(pm25Raw, PRECIP_SCALE),
                 toDecimal(dustRaw, PRECIP_SCALE),
-                toDecimal(aodRaw, AOD_SCALE));
+                toDecimal(aodRaw, AOD_SCALE),
+                null, // tideState - populated by TideService if location is coastal
+                null, // nextHighTideTime
+                null, // nextHighTideHeightMetres
+                null, // nextLowTideTime
+                null, // nextLowTideHeightMetres
+                null); // tideAligned
     }
 
     private Double getAirQualityValue(List<Double> values, int idx) {
