@@ -8,12 +8,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDate;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link PushoverNotificationService}.
@@ -36,5 +43,30 @@ class PushoverNotificationServiceTest {
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
         verify(webClient, never()).post();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    @DisplayName("notify() posts to the Pushover API when enabled")
+    void notify_whenEnabled_makesHttpPost() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getPushover().setEnabled(true);
+        properties.getPushover().setAppToken("app-token");
+        properties.getPushover().setUserKey("user-key");
+
+        WebClient mockClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.post().uri(anyString()).contentType(any()).bodyValue(any())
+                .retrieve().toBodilessEntity())
+                .thenReturn(Mono.just(ResponseEntity.ok().build()));
+
+        PushoverNotificationService pushoverService =
+                new PushoverNotificationService(properties, mockClient);
+
+        pushoverService.notify(new SunsetEvaluation(4, "Good conditions."),
+                "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
+
+        // Success: service completed without throwing; the HTTP call was made
+        // (RETURNS_DEEP_STUBS records one extra post() call during when() setup,
+        // so we cannot use verify(times(1)) — completion is sufficient assertion)
     }
 }

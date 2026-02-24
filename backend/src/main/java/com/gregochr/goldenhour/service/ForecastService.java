@@ -118,85 +118,15 @@ public class ForecastService {
 
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
             AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
-
-            // Fetch tide data only for coastal locations (non-empty tideTypes set)
-            TideData tideData = null;
-            Boolean tideAligned = null;
-            boolean isCoastal = tideTypes != null && !tideTypes.isEmpty()
-                    && !tideTypes.equals(java.util.Set.of(TideType.NOT_COASTAL));
-            if (isCoastal) {
-                var tideMaybe = tideService.getTideData(lat, lon, eventTime);
-                if (tideMaybe.isPresent()) {
-                    tideData = tideMaybe.get();
-                    tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
-                }
-            }
-
-            // Create augmented atmospheric data with tide information
-            AtmosphericData forecastData = new AtmosphericData(
-                    baseData.locationName(),
-                    baseData.solarEventTime(),
-                    baseData.targetType(),
-                    baseData.lowCloudPercent(),
-                    baseData.midCloudPercent(),
-                    baseData.highCloudPercent(),
-                    baseData.visibilityMetres(),
-                    baseData.windSpeedMs(),
-                    baseData.windDirectionDegrees(),
-                    baseData.precipitationMm(),
-                    baseData.humidityPercent(),
-                    baseData.weatherCode(),
-                    baseData.boundaryLayerHeightMetres(),
-                    baseData.shortwaveRadiationWm2(),
-                    baseData.pm25(),
-                    baseData.dustUgm3(),
-                    baseData.aerosolOpticalDepth(),
-                    tideData != null ? tideData.tideState() : null,
-                    tideData != null ? tideData.nextHighTideTime() : null,
-                    tideData != null ? tideData.nextHighTideHeightMetres() : null,
-                    tideData != null ? tideData.nextLowTideTime() : null,
-                    tideData != null ? tideData.nextLowTideHeightMetres() : null,
-                    tideAligned);
-
+            AtmosphericData forecastData = augmentWithTideData(baseData, lat, lon, eventTime, tideTypes);
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData);
 
             int azimuth = type == TargetType.SUNRISE
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
-            ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()
-                    .locationLat(BigDecimal.valueOf(lat))
-                    .locationLon(BigDecimal.valueOf(lon))
-                    .locationName(locationName)
-                    .targetDate(date)
-                    .targetType(type)
-                    .forecastRunAt(LocalDateTime.now(ZoneOffset.UTC))
-                    .daysAhead(daysAhead)
-                    .lowCloud(forecastData.lowCloudPercent())
-                    .midCloud(forecastData.midCloudPercent())
-                    .highCloud(forecastData.highCloudPercent())
-                    .visibility(forecastData.visibilityMetres())
-                    .windSpeed(forecastData.windSpeedMs())
-                    .windDirection(forecastData.windDirectionDegrees())
-                    .precipitation(forecastData.precipitationMm())
-                    .humidity(forecastData.humidityPercent())
-                    .weatherCode(forecastData.weatherCode())
-                    .boundaryLayerHeight(forecastData.boundaryLayerHeightMetres())
-                    .shortwaveRadiation(forecastData.shortwaveRadiationWm2())
-                    .pm25(forecastData.pm25())
-                    .dust(forecastData.dustUgm3())
-                    .aerosolOpticalDepth(forecastData.aerosolOpticalDepth())
-                    .tideState(forecastData.tideState())
-                    .nextHighTideTime(forecastData.nextHighTideTime())
-                    .nextHighTideHeightMetres(forecastData.nextHighTideHeightMetres())
-                    .nextLowTideTime(forecastData.nextLowTideTime())
-                    .nextLowTideHeightMetres(forecastData.nextLowTideHeightMetres())
-                    .tideAligned(forecastData.tideAligned())
-                    .rating(evaluation.rating())
-                    .summary(evaluation.summary())
-                    .solarEventTime(eventTime)
-                    .azimuthDeg(azimuth)
-                    .build();
+            ForecastEvaluationEntity entity = buildEntity(
+                    locationName, lat, lon, date, type, daysAhead, eventTime, azimuth, forecastData, evaluation);
 
             results.add(repository.save(entity));
             LOG.info("Forecast saved: {} {} {} (T+{}) — rating {}/5",
@@ -206,5 +136,111 @@ public class ForecastService {
             toastService.notify(evaluation, locationName, type, date);
         }
         return results;
+    }
+
+    /**
+     * Returns a copy of {@code base} augmented with tide fields for coastal locations.
+     *
+     * <p>If the location is not coastal (empty or NOT_COASTAL tide types), the tide
+     * fields in the returned record are {@code null} and the original data is otherwise
+     * unchanged.
+     *
+     * @param base       atmospheric data without tide fields
+     * @param lat        latitude in decimal degrees
+     * @param lon        longitude in decimal degrees
+     * @param eventTime  UTC time of the solar event
+     * @param tideTypes  tide preferences for this location (empty if inland)
+     * @return a new {@link AtmosphericData} with tide fields populated where applicable
+     */
+    private AtmosphericData augmentWithTideData(AtmosphericData base, double lat, double lon,
+            LocalDateTime eventTime, java.util.Set<TideType> tideTypes) {
+        TideData tideData = null;
+        Boolean tideAligned = null;
+        boolean isCoastal = tideTypes != null && !tideTypes.isEmpty()
+                && !tideTypes.equals(java.util.Set.of(TideType.NOT_COASTAL));
+        if (isCoastal) {
+            var tideMaybe = tideService.getTideData(lat, lon, eventTime);
+            if (tideMaybe.isPresent()) {
+                tideData = tideMaybe.get();
+                tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
+            }
+        }
+        return new AtmosphericData(
+                base.locationName(),
+                base.solarEventTime(),
+                base.targetType(),
+                base.lowCloudPercent(),
+                base.midCloudPercent(),
+                base.highCloudPercent(),
+                base.visibilityMetres(),
+                base.windSpeedMs(),
+                base.windDirectionDegrees(),
+                base.precipitationMm(),
+                base.humidityPercent(),
+                base.weatherCode(),
+                base.boundaryLayerHeightMetres(),
+                base.shortwaveRadiationWm2(),
+                base.pm25(),
+                base.dustUgm3(),
+                base.aerosolOpticalDepth(),
+                tideData != null ? tideData.tideState() : null,
+                tideData != null ? tideData.nextHighTideTime() : null,
+                tideData != null ? tideData.nextHighTideHeightMetres() : null,
+                tideData != null ? tideData.nextLowTideTime() : null,
+                tideData != null ? tideData.nextLowTideHeightMetres() : null,
+                tideAligned);
+    }
+
+    /**
+     * Builds a {@link ForecastEvaluationEntity} from the evaluated forecast data.
+     *
+     * @param locationName human-readable location name
+     * @param lat          latitude in decimal degrees
+     * @param lon          longitude in decimal degrees
+     * @param date         the calendar date of the forecast
+     * @param type         sunrise or sunset
+     * @param daysAhead    number of days from today to {@code date}
+     * @param eventTime    UTC time of the solar event
+     * @param azimuth      solar azimuth in degrees
+     * @param data         atmospheric data (with tide fields if coastal)
+     * @param evaluation   Claude's rating and summary
+     * @return the unsaved entity
+     */
+    private ForecastEvaluationEntity buildEntity(String locationName, double lat, double lon,
+            LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, int azimuth,
+            AtmosphericData data, SunsetEvaluation evaluation) {
+        return ForecastEvaluationEntity.builder()
+                .locationLat(BigDecimal.valueOf(lat))
+                .locationLon(BigDecimal.valueOf(lon))
+                .locationName(locationName)
+                .targetDate(date)
+                .targetType(type)
+                .forecastRunAt(LocalDateTime.now(ZoneOffset.UTC))
+                .daysAhead(daysAhead)
+                .lowCloud(data.lowCloudPercent())
+                .midCloud(data.midCloudPercent())
+                .highCloud(data.highCloudPercent())
+                .visibility(data.visibilityMetres())
+                .windSpeed(data.windSpeedMs())
+                .windDirection(data.windDirectionDegrees())
+                .precipitation(data.precipitationMm())
+                .humidity(data.humidityPercent())
+                .weatherCode(data.weatherCode())
+                .boundaryLayerHeight(data.boundaryLayerHeightMetres())
+                .shortwaveRadiation(data.shortwaveRadiationWm2())
+                .pm25(data.pm25())
+                .dust(data.dustUgm3())
+                .aerosolOpticalDepth(data.aerosolOpticalDepth())
+                .tideState(data.tideState())
+                .nextHighTideTime(data.nextHighTideTime())
+                .nextHighTideHeightMetres(data.nextHighTideHeightMetres())
+                .nextLowTideTime(data.nextLowTideTime())
+                .nextLowTideHeightMetres(data.nextLowTideHeightMetres())
+                .tideAligned(data.tideAligned())
+                .rating(evaluation.rating())
+                .summary(evaluation.summary())
+                .solarEventTime(eventTime)
+                .azimuthDeg(azimuth)
+                .build();
     }
 }
