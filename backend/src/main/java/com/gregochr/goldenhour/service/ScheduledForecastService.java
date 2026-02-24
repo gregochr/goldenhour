@@ -12,11 +12,15 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * Triggers automatic forecast runs on the configured cron schedule.
+ * Triggers automatic forecast runs and tide data refreshes on configured cron schedules.
  *
  * <p>For each configured location, forecasts are run for today through
  * {@link #FORECAST_HORIZON_DAYS} days ahead. This allows accuracy tracking as the
  * forecast horizon narrows from T+{@value #FORECAST_HORIZON_DAYS} to T+0.
+ *
+ * <p>A separate weekly job refreshes 14 days of tide extremes from WorldTides for all
+ * coastal locations so that {@link ForecastService} can classify tide state from the DB
+ * without making a live API call on every evaluation.
  */
 @Service
 public class ScheduledForecastService {
@@ -28,17 +32,20 @@ public class ScheduledForecastService {
 
     private final ForecastService forecastService;
     private final LocationService locationService;
+    private final TideService tideService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
      *
      * @param forecastService the service that runs individual location forecasts
      * @param locationService the service providing persisted locations
+     * @param tideService     the service that fetches and stores tide extremes
      */
     public ScheduledForecastService(ForecastService forecastService,
-            LocationService locationService) {
+            LocationService locationService, TideService tideService) {
         this.forecastService = forecastService;
         this.locationService = locationService;
+        this.tideService = tideService;
     }
 
     /**
@@ -82,6 +89,36 @@ public class ScheduledForecastService {
     }
 
     /**
+     * Refreshes 14 days of tide extremes from WorldTides for all coastal locations.
+     *
+     * <p>Runs once a week (default: Monday at 02:00 UTC). Configurable via
+     * {@code tide.schedule.cron}. Exceptions per location are caught and logged.
+     */
+    @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
+    public void refreshTideExtremes() {
+        List<LocationEntity> coastal = locationService.findAll().stream()
+                .filter(locationService::isCoastal)
+                .toList();
+        LOG.info("Weekly tide refresh started — {} coastal location(s)", coastal.size());
+        long startMs = System.currentTimeMillis();
+        int succeeded = 0;
+        int failed = 0;
+
+        for (LocationEntity location : coastal) {
+            try {
+                tideService.fetchAndStoreTideExtremes(location);
+                succeeded++;
+            } catch (Exception e) {
+                LOG.error("Tide refresh failed for {}: {}", location.getName(), e.getMessage(), e);
+                failed++;
+            }
+        }
+
+        LOG.info("Weekly tide refresh complete — {} succeeded, {} failed, took {}ms",
+                succeeded, failed, System.currentTimeMillis() - startMs);
+    }
+
+    /**
      * Runs a single forecast for a location, date, and target type, logging any failure.
      *
      * @param location   the location to forecast
@@ -94,7 +131,7 @@ public class ScheduledForecastService {
         try {
             forecastService.runForecasts(
                     location.getName(), location.getLat(), location.getLon(),
-                    targetDate, targetType, location.getTideType());
+                    location.getId(), targetDate, targetType, location.getTideType());
             return true;
         } catch (Exception e) {
             LOG.error("Forecast failed for {} {} on {}: {}",

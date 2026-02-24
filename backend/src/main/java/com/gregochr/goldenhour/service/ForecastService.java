@@ -84,7 +84,7 @@ public class ForecastService {
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
             LocalDate date) {
-        return runForecasts(locationName, lat, lon, date, null, java.util.Set.of());
+        return runForecasts(locationName, lat, lon, null, date, null, java.util.Set.of());
     }
 
     /**
@@ -96,13 +96,14 @@ public class ForecastService {
      * @param locationName human-readable location name
      * @param lat          latitude in decimal degrees
      * @param lon          longitude in decimal degrees
+     * @param locationId   the location primary key (for tide DB lookup), or {@code null} if not coastal
      * @param date         the calendar date to forecast
      * @param targetType   the target type to evaluate, or {@code null} to evaluate both
      * @param tideTypes    tide preferences for this location (empty if inland)
      * @return the saved entities in evaluation order
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
-            LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes) {
+            Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
         List<ForecastEvaluationEntity> results = new ArrayList<>();
@@ -118,7 +119,7 @@ public class ForecastService {
 
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
             AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
-            AtmosphericData forecastData = augmentWithTideData(baseData, lat, lon, eventTime, tideTypes);
+            AtmosphericData forecastData = augmentWithTideData(baseData, locationId, eventTime, tideTypes);
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData);
 
             int azimuth = type == TargetType.SUNRISE
@@ -145,21 +146,20 @@ public class ForecastService {
      * fields in the returned record are {@code null} and the original data is otherwise
      * unchanged.
      *
-     * @param base       atmospheric data without tide fields
-     * @param lat        latitude in decimal degrees
-     * @param lon        longitude in decimal degrees
-     * @param eventTime  UTC time of the solar event
-     * @param tideTypes  tide preferences for this location (empty if inland)
+     * @param base        atmospheric data without tide fields
+     * @param locationId  the location primary key used for DB tide lookup, or {@code null} if inland
+     * @param eventTime   UTC time of the solar event
+     * @param tideTypes   tide preferences for this location (empty if inland)
      * @return a new {@link AtmosphericData} with tide fields populated where applicable
      */
-    private AtmosphericData augmentWithTideData(AtmosphericData base, double lat, double lon,
+    private AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
             LocalDateTime eventTime, java.util.Set<TideType> tideTypes) {
         TideData tideData = null;
         Boolean tideAligned = null;
-        boolean isCoastal = tideTypes != null && !tideTypes.isEmpty()
+        boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty()
                 && !tideTypes.equals(java.util.Set.of(TideType.NOT_COASTAL));
         if (isCoastal) {
-            var tideMaybe = tideService.getTideData(lat, lon, eventTime);
+            var tideMaybe = tideService.deriveTideData(locationId, eventTime);
             if (tideMaybe.isPresent()) {
                 tideData = tideMaybe.get();
                 tideAligned = tideService.calculateTideAligned(tideData, tideTypes);

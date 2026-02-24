@@ -35,17 +35,20 @@ public class LocationService {
 
     private final LocationRepository locationRepository;
     private final ForecastProperties forecastProperties;
+    private final TideService tideService;
 
     /**
      * Constructs a {@code LocationService}.
      *
      * @param locationRepository repository for {@link LocationEntity}
      * @param forecastProperties YAML-configured seed locations
+     * @param tideService        used to immediately fetch tide extremes for newly seeded coastal locations
      */
     public LocationService(LocationRepository locationRepository,
-            ForecastProperties forecastProperties) {
+            ForecastProperties forecastProperties, TideService tideService) {
         this.locationRepository = locationRepository;
         this.forecastProperties = forecastProperties;
+        this.tideService = tideService;
     }
 
     /**
@@ -63,7 +66,7 @@ public class LocationService {
         for (ForecastProperties.Location loc : forecastProperties.getLocations()) {
             Optional<LocationEntity> existing = locationRepository.findByName(loc.getName());
             if (existing.isEmpty()) {
-                locationRepository.save(LocationEntity.builder()
+                LocationEntity saved = locationRepository.save(LocationEntity.builder()
                         .name(loc.getName())
                         .lat(loc.getLat())
                         .lon(loc.getLon())
@@ -73,6 +76,9 @@ public class LocationService {
                         .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build());
                 seeded++;
+                if (isCoastal(saved)) {
+                    tideService.fetchAndStoreTideExtremes(saved);
+                }
             } else {
                 LocationEntity entity = existing.get();
                 boolean changed = !entity.getGoldenHourType().equals(loc.getGoldenHourType())

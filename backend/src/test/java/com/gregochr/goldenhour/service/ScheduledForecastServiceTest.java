@@ -17,11 +17,14 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.doThrow;
 
 /**
  * Unit tests for {@link ScheduledForecastService}.
@@ -34,6 +37,9 @@ class ScheduledForecastServiceTest {
 
     @Mock
     private LocationService locationService;
+
+    @Mock
+    private TideService tideService;
 
     private ScheduledForecastService scheduledForecastService;
 
@@ -51,9 +57,11 @@ class ScheduledForecastServiceTest {
     @BeforeEach
     void setUp() {
         when(locationService.findAll()).thenReturn(List.of(durham()));
-        when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
-        when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
-        scheduledForecastService = new ScheduledForecastService(forecastService, locationService);
+        // lenient: only needed by runScheduledForecasts tests, not refreshTideExtremes tests
+        lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
+        lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        scheduledForecastService = new ScheduledForecastService(
+                forecastService, locationService, tideService);
     }
 
     @Test
@@ -65,7 +73,7 @@ class ScheduledForecastServiceTest {
         int expectedCalls = daysInHorizon * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(LocalDate.class), any(TargetType.class), any());
+                        any(), any(LocalDate.class), any(TargetType.class), any());
     }
 
     @Test
@@ -76,7 +84,8 @@ class ScheduledForecastServiceTest {
         int totalCalls = (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(forecastService, times(totalCalls))
-                .runForecasts(any(), anyDouble(), anyDouble(), dateCaptor.capture(), any(TargetType.class), any());
+                .runForecasts(any(), anyDouble(), anyDouble(), any(),
+                        dateCaptor.capture(), any(TargetType.class), any());
 
         List<LocalDate> capturedDates = dateCaptor.getAllValues();
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
@@ -98,7 +107,7 @@ class ScheduledForecastServiceTest {
 
         doThrow(new RuntimeException("API error"))
                 .when(forecastService).runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(TargetType.class), any());
+                        any(), any(), any(TargetType.class), any());
 
         scheduledForecastService.runScheduledForecasts();
 
@@ -106,6 +115,50 @@ class ScheduledForecastServiceTest {
         int expectedLondonCalls = (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedLondonCalls))
                 .runForecasts(eq("London UK"), anyDouble(), anyDouble(),
-                        any(LocalDate.class), any(TargetType.class), any());
+                        any(), any(LocalDate.class), any(TargetType.class), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // refreshTideExtremes
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("refreshTideExtremes() calls tideService for each coastal location")
+    void refreshTideExtremes_callsTideService_forCoastalLocations() {
+        when(locationService.isCoastal(any())).thenReturn(true);
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(tideService, times(1)).fetchAndStoreTideExtremes(any());
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() skips non-coastal locations")
+    void refreshTideExtremes_skipsNonCoastalLocations() {
+        when(locationService.isCoastal(any())).thenReturn(false);
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(tideService, never()).fetchAndStoreTideExtremes(any());
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() continues after a single location failure")
+    void refreshTideExtremes_continuesAfterFailure() {
+        LocationEntity scarborough = LocationEntity.builder()
+                .name("Scarborough")
+                .lat(54.28)
+                .lon(-0.40)
+                .build();
+        when(locationService.findAll()).thenReturn(List.of(durham(), scarborough));
+        when(locationService.isCoastal(any())).thenReturn(true);
+        doThrow(new RuntimeException("API error"))
+                .when(tideService).fetchAndStoreTideExtremes(
+                        argThat(loc -> "Durham UK".equals(loc.getName())));
+
+        scheduledForecastService.refreshTideExtremes();
+
+        // Scarborough should still be processed despite Durham failure
+        verify(tideService, times(2)).fetchAndStoreTideExtremes(any());
     }
 }

@@ -25,6 +25,9 @@ anthropic:
   api-key: ${ANTHROPIC_API_KEY:YOUR_ANTHROPIC_API_KEY}
   model: claude-haiku-4-5
 
+worldtides:
+  api-key: ${WORLDTIDES_API_KEY:}
+
 notifications:
   email:
     enabled: false

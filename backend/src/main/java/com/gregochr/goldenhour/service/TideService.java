@@ -1,35 +1,40 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.WorldTidesProperties;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TideExtremeEntity;
+import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
-import com.gregochr.goldenhour.model.OpenMeteoMarineResponse;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.WorldTidesResponse;
+import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.util.retry.Retry;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 /**
- * Fetches tide data from the Open-Meteo Marine API for coastal locations.
+ * Manages tide extremes for coastal locations using the WorldTides API.
  *
- * <p>Retrieves three days of hourly sea surface height data centred on the solar event
- * date, finds high and low tide peaks from the timeseries, then classifies the tide state
- * at the solar event time as HIGH, LOW, or MID.
+ * <p>On a weekly schedule, fetches 14 days of high and low tide times from WorldTides
+ * and stores them in the {@code tide_extreme} table. At forecast evaluation time,
+ * {@link #deriveTideData} looks up the stored extremes to classify the tide state
+ * and find the next high and low tides — without calling the external API on every run.
  *
- * <p>HIGH: solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of a peak.
- * LOW: solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of a trough.
+ * <p>HIGH: solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of a stored HIGH extreme.
+ * LOW: solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of a stored LOW extreme.
  * MID: everything else — tide is neither fully in nor fully out.
  */
 @Service
@@ -37,70 +42,133 @@ public class TideService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TideService.class);
 
-    private static final String MARINE_HOST = "marine-api.open-meteo.com";
-    private static final String MARINE_PARAM = "sea_surface_height_above_mean_sea_level";
-    private static final int MAX_RETRIES = 2;
-    private static final Duration RETRY_BACKOFF = Duration.ofSeconds(5);
+    private static final String WORLDTIDES_HOST = "www.worldtides.info";
+
+    /** Seconds in 14 days: the WorldTides fetch window per location per weekly refresh. */
+    private static final long FETCH_LENGTH_SECONDS = 14L * 24 * 3600;
+
+    /** Days either side of the solar event time to query from the DB. */
+    private static final long QUERY_WINDOW_DAYS = 2;
+
+    /** Minutes within which the solar event is classified as HIGH or LOW tide. */
     private static final long HIGH_LOW_THRESHOLD_MINUTES = 90;
-    private static final int HEIGHT_SCALE = 2;
+
+    /** Decimal precision for stored tide heights. */
+    private static final int HEIGHT_SCALE = 3;
 
     private final WebClient webClient;
+    private final TideExtremeRepository tideExtremeRepository;
+    private final WorldTidesProperties worldTidesProperties;
 
     /**
      * Constructs a {@code TideService}.
      *
-     * @param webClient shared WebClient for outbound HTTP calls
+     * @param webClient              shared WebClient for outbound HTTP calls
+     * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param worldTidesProperties   WorldTides API configuration
      */
-    public TideService(WebClient webClient) {
+    public TideService(WebClient webClient, TideExtremeRepository tideExtremeRepository,
+            WorldTidesProperties worldTidesProperties) {
         this.webClient = webClient;
+        this.tideExtremeRepository = tideExtremeRepository;
+        this.worldTidesProperties = worldTidesProperties;
     }
 
     /**
-     * Fetches tide data for a coastal location at a specific solar event time.
+     * Fetches 14 days of tide extremes from WorldTides for a coastal location and replaces
+     * any existing rows for that location in the {@code tide_extreme} table.
      *
-     * <p>Fetches three days of sea surface height data (day before, day of, day after)
-     * to ensure surrounding tide peaks are captured. Returns empty if the API is
-     * unreachable or does not provide sea level data for the location.
+     * <p>If the WorldTides API key is not configured, or if the API call fails or returns
+     * a non-200 status, no rows are deleted or written — the existing data is preserved.
      *
-     * @param lat            latitude in decimal degrees
-     * @param lon            longitude in decimal degrees
-     * @param solarEventTime UTC time of sunrise or sunset being evaluated
-     * @return Optional containing TideData if fetch succeeds, empty otherwise
+     * @param location the coastal location to fetch tide data for
      */
-    public Optional<TideData> getTideData(double lat, double lon, LocalDateTime solarEventTime) {
+    @Transactional
+    public void fetchAndStoreTideExtremes(LocationEntity location) {
+        String apiKey = worldTidesProperties.getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.warn("WorldTides API key not configured — skipping tide fetch for {}",
+                    location.getName());
+            return;
+        }
+
+        LocalDateTime startOfDay = LocalDateTime.now(ZoneOffset.UTC).toLocalDate().atStartOfDay();
+        long startEpoch = startOfDay.toEpochSecond(ZoneOffset.UTC);
+
         try {
-            OpenMeteoMarineResponse response = webClient.get()
+            WorldTidesResponse response = webClient.get()
                     .uri(uriBuilder -> uriBuilder
-                            .scheme("https").host(MARINE_HOST).path("/v1/marine")
-                            .queryParam("latitude", lat)
-                            .queryParam("longitude", lon)
-                            .queryParam("hourly", MARINE_PARAM)
-                            .queryParam("timezone", "UTC")
-                            .queryParam("start_date", solarEventTime.toLocalDate().minusDays(1))
-                            .queryParam("end_date", solarEventTime.toLocalDate().plusDays(1))
+                            .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")
+                            .queryParam("extremes")
+                            .queryParam("lat", location.getLat())
+                            .queryParam("lon", location.getLon())
+                            .queryParam("start", startEpoch)
+                            .queryParam("length", FETCH_LENGTH_SECONDS)
+                            .queryParam("key", apiKey)
                             .build())
                     .retrieve()
-                    .bodyToMono(OpenMeteoMarineResponse.class)
-                    .retryWhen(retryOnTransient())
+                    .bodyToMono(WorldTidesResponse.class)
                     .block();
 
-            if (response == null
-                    || response.getHourly() == null
-                    || response.getHourly().getTime() == null
-                    || response.getHourly().getSeaSurfaceHeight() == null) {
-                LOG.warn("Marine API returned no sea level data for lat={}, lon={}", lat, lon);
-                return Optional.empty();
+            if (response == null || response.getStatus() != 200
+                    || response.getExtremes() == null) {
+                LOG.warn("WorldTides returned no usable data for {} (status={})",
+                        location.getName(), response != null ? response.getStatus() : "null");
+                return;
             }
 
-            return Optional.of(parseTideData(
-                    response.getHourly().getTime(),
-                    response.getHourly().getSeaSurfaceHeight(),
-                    solarEventTime));
+            LocalDateTime fetchedAt = LocalDateTime.now(ZoneOffset.UTC);
+            List<TideExtremeEntity> entities = response.getExtremes().stream()
+                    .filter(e -> e.getType() != null
+                            && ("High".equalsIgnoreCase(e.getType())
+                                    || "Low".equalsIgnoreCase(e.getType())))
+                    .map(e -> TideExtremeEntity.builder()
+                            .locationId(location.getId())
+                            .eventTime(Instant.ofEpochSecond(e.getDt())
+                                    .atZone(ZoneOffset.UTC)
+                                    .toLocalDateTime())
+                            .heightMetres(BigDecimal.valueOf(e.getHeight())
+                                    .setScale(HEIGHT_SCALE, RoundingMode.HALF_UP))
+                            .type("High".equalsIgnoreCase(e.getType())
+                                    ? TideExtremeType.HIGH : TideExtremeType.LOW)
+                            .fetchedAt(fetchedAt)
+                            .build())
+                    .toList();
+
+            tideExtremeRepository.deleteByLocationId(location.getId());
+            tideExtremeRepository.saveAll(entities);
+            LOG.info("Stored {} tide extremes for {} (T+0 to T+13)",
+                    entities.size(), location.getName());
 
         } catch (Exception e) {
-            LOG.warn("Failed to fetch tide data for lat={}, lon={}: {}", lat, lon, e.getMessage());
+            LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Derives tide data for a coastal location at a solar event time using stored extremes.
+     *
+     * <p>Queries the {@code tide_extreme} table for extremes within
+     * {@value #QUERY_WINDOW_DAYS} days either side of the event time.
+     * Returns empty if no extremes are stored (e.g. weekly refresh not yet run).
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of sunrise or sunset
+     * @return Optional containing TideData if extremes are available, empty otherwise
+     */
+    public Optional<TideData> deriveTideData(Long locationId, LocalDateTime eventTime) {
+        List<TideExtremeEntity> extremes = tideExtremeRepository
+                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                        locationId,
+                        eventTime.minusDays(QUERY_WINDOW_DAYS),
+                        eventTime.plusDays(QUERY_WINDOW_DAYS));
+
+        if (extremes.isEmpty()) {
+            LOG.warn("No tide extremes in DB for locationId={} around {}", locationId, eventTime);
             return Optional.empty();
         }
+
+        return Optional.of(buildTideData(extremes, eventTime));
     }
 
     /**
@@ -125,113 +193,64 @@ public class TideService {
     }
 
     /**
-     * Parses a sea surface height timeseries into a {@link TideData} snapshot.
+     * Builds a {@link TideData} snapshot from a list of stored tide extremes at an event time.
      *
      * <p>Package-private for unit testing.
      *
-     * @param times          ISO-8601 timestamp strings from the API
-     * @param heights        sea surface heights in metres (may contain nulls)
-     * @param solarEventTime UTC time of the solar event
+     * @param extremes  stored tide extremes in chronological order
+     * @param eventTime UTC time of the solar event
      * @return tide data snapshot including state and next high/low events
      */
-    TideData parseTideData(List<String> times, List<Double> heights, LocalDateTime solarEventTime) {
-        List<TideEvent> peaks = findPeaks(times, heights);
-        List<TideEvent> troughs = findTroughs(times, heights);
+    TideData buildTideData(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
+        TideState state = classifyTideState(extremes, eventTime);
 
-        TideState state = classifyTideState(solarEventTime, peaks, troughs);
-        TideEvent nextHigh = firstAfter(peaks, solarEventTime);
-        TideEvent nextLow = firstAfter(troughs, solarEventTime);
+        TideExtremeEntity nextHigh = extremes.stream()
+                .filter(e -> e.getType() == TideExtremeType.HIGH
+                        && e.getEventTime().isAfter(eventTime))
+                .findFirst()
+                .orElse(null);
+
+        TideExtremeEntity nextLow = extremes.stream()
+                .filter(e -> e.getType() == TideExtremeType.LOW
+                        && e.getEventTime().isAfter(eventTime))
+                .findFirst()
+                .orElse(null);
 
         return new TideData(
                 state,
-                nextHigh != null ? nextHigh.time() : null,
-                nextHigh != null ? nextHigh.heightMetres() : null,
-                nextLow != null ? nextLow.time() : null,
-                nextLow != null ? nextLow.heightMetres() : null);
+                nextHigh != null ? nextHigh.getEventTime() : null,
+                nextHigh != null ? nextHigh.getHeightMetres() : null,
+                nextLow != null ? nextLow.getEventTime() : null,
+                nextLow != null ? nextLow.getHeightMetres() : null);
     }
 
     /**
-     * Classifies the tide state at {@code eventTime} given the known peaks and troughs.
+     * Classifies the tide state at {@code eventTime} given a list of stored extremes.
      *
      * <p>Package-private for unit testing.
      *
+     * @param extremes  stored tide extremes around the event time
      * @param eventTime UTC time of the solar event
-     * @param peaks     high tide events in the timeseries
-     * @param troughs   low tide events in the timeseries
      * @return HIGH, LOW, or MID
      */
-    TideState classifyTideState(LocalDateTime eventTime,
-            List<TideEvent> peaks, List<TideEvent> troughs) {
-        boolean nearHigh = peaks.stream().anyMatch(p ->
-                Math.abs(ChronoUnit.MINUTES.between(p.time(), eventTime))
+    TideState classifyTideState(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
+        boolean nearHigh = extremes.stream()
+                .filter(e -> e.getType() == TideExtremeType.HIGH)
+                .anyMatch(e -> Math.abs(ChronoUnit.MINUTES.between(e.getEventTime(), eventTime))
                         <= HIGH_LOW_THRESHOLD_MINUTES);
         if (nearHigh) {
             return TideState.HIGH;
         }
 
-        boolean nearLow = troughs.stream().anyMatch(t ->
-                Math.abs(ChronoUnit.MINUTES.between(t.time(), eventTime))
+        boolean nearLow = extremes.stream()
+                .filter(e -> e.getType() == TideExtremeType.LOW)
+                .anyMatch(e -> Math.abs(ChronoUnit.MINUTES.between(e.getEventTime(), eventTime))
                         <= HIGH_LOW_THRESHOLD_MINUTES);
         if (nearLow) {
             return TideState.LOW;
         }
 
         return TideState.MID;
-    }
-
-    /**
-     * Finds local maxima (high tide peaks) in the height timeseries.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param times   ISO-8601 timestamp strings
-     * @param heights sea surface heights in metres
-     * @return list of high tide events, in chronological order
-     */
-    List<TideEvent> findPeaks(List<String> times, List<Double> heights) {
-        List<TideEvent> peaks = new ArrayList<>();
-        for (int i = 1; i < heights.size() - 1; i++) {
-            Double prev = heights.get(i - 1);
-            Double curr = heights.get(i);
-            Double next = heights.get(i + 1);
-            if (prev != null && curr != null && next != null && curr > prev && curr > next) {
-                peaks.add(new TideEvent(
-                        LocalDateTime.parse(times.get(i)),
-                        BigDecimal.valueOf(curr).setScale(HEIGHT_SCALE, RoundingMode.HALF_UP)));
-            }
-        }
-        return peaks;
-    }
-
-    /**
-     * Finds local minima (low tide troughs) in the height timeseries.
-     *
-     * <p>Package-private for unit testing.
-     *
-     * @param times   ISO-8601 timestamp strings
-     * @param heights sea surface heights in metres
-     * @return list of low tide events, in chronological order
-     */
-    List<TideEvent> findTroughs(List<String> times, List<Double> heights) {
-        List<TideEvent> troughs = new ArrayList<>();
-        for (int i = 1; i < heights.size() - 1; i++) {
-            Double prev = heights.get(i - 1);
-            Double curr = heights.get(i);
-            Double next = heights.get(i + 1);
-            if (prev != null && curr != null && next != null && curr < prev && curr < next) {
-                troughs.add(new TideEvent(
-                        LocalDateTime.parse(times.get(i)),
-                        BigDecimal.valueOf(curr).setScale(HEIGHT_SCALE, RoundingMode.HALF_UP)));
-            }
-        }
-        return troughs;
-    }
-
-    private TideEvent firstAfter(List<TideEvent> events, LocalDateTime time) {
-        return events.stream()
-                .filter(e -> e.time().isAfter(time))
-                .findFirst()
-                .orElse(null);
     }
 
     private boolean tideStateMatches(TideState tideState, TideType tideType) {
@@ -242,21 +261,5 @@ public class TideService {
             case ANY_TIDE -> true;
             case NOT_COASTAL -> false;
         };
-    }
-
-    private Retry retryOnTransient() {
-        return Retry.backoff(MAX_RETRIES, RETRY_BACKOFF)
-                .filter(ex -> ex instanceof WebClientResponseException wex
-                        && (wex.getStatusCode().is5xxServerError()
-                            || wex.getStatusCode().value() == 429));
-    }
-
-    /**
-     * A high or low tide event identified from the sea surface height timeseries.
-     *
-     * @param time         UTC time of the peak or trough
-     * @param heightMetres sea surface height in metres at that point
-     */
-    record TideEvent(LocalDateTime time, BigDecimal heightMetres) {
     }
 }

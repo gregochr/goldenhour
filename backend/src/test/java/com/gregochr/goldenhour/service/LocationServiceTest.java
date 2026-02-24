@@ -35,13 +35,16 @@ class LocationServiceTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private TideService tideService;
+
     private ForecastProperties forecastProperties;
     private LocationService locationService;
 
     @BeforeEach
     void setUp() {
         forecastProperties = new ForecastProperties();
-        locationService = new LocationService(locationRepository, forecastProperties);
+        locationService = new LocationService(locationRepository, forecastProperties, tideService);
     }
 
     // --- seedFromProperties ---
