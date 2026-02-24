@@ -336,11 +336,10 @@
                             <!-- Exclude Spring Boot entry point — main() is never called in unit tests -->
                             <excludes>
                                 <exclude>com/gregochr/goldenhour/GoldenHourApplication.class</exclude>
-                                <exclude>com/gregochr/goldenhour/entity/AppUserEntity.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
-                                    <element>BUNDLE</element>
+                                    <element>CLASS</element>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>

@@ -17,7 +17,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -98,6 +100,114 @@ class UserControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":false}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users returns 400 when required fields are missing")
+    void createUser_missingFields_returns400() throws Exception {
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"bob\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users returns 400 when role is invalid")
+    void createUser_invalidRole_returns400() throws Exception {
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"bob\",\"password\":\"pass\",\"role\":\"SUPERUSER\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid role: SUPERUSER"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users returns 400 when username already exists")
+    void createUser_duplicateUsername_returns400() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class)))
+                .thenThrow(new IllegalArgumentException("Username already exists"));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\",\"role\":\"LITE_USER\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Username already exists"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/enabled returns 400 when enabled field is missing")
+    void setEnabled_missingField_returns400() throws Exception {
+        mockMvc.perform(put("/api/users/1/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/enabled returns 400 when user does not exist")
+    void setEnabled_userNotFound_returns400() throws Exception {
+        doThrow(new IllegalArgumentException("User not found"))
+                .when(userService).setEnabled(anyLong(), any(Boolean.class));
+
+        mockMvc.perform(put("/api/users/99/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/role returns 200 when role is valid")
+    void setRole_asAdmin_returns200() throws Exception {
+        mockMvc.perform(put("/api/users/1/role")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"PRO_USER\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Updated"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/role returns 400 when role field is missing")
+    void setRole_missingField_returns400() throws Exception {
+        mockMvc.perform(put("/api/users/1/role")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/role returns 400 when role is invalid")
+    void setRole_invalidRole_returns400() throws Exception {
+        mockMvc.perform(put("/api/users/1/role")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"SUPERUSER\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid role: SUPERUSER"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/role returns 400 when user does not exist")
+    void setRole_userNotFound_returns400() throws Exception {
+        doThrow(new IllegalArgumentException("User not found"))
+                .when(userService).setRole(anyLong(), any(UserRole.class));
+
+        mockMvc.perform(put("/api/users/99/role")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"PRO_USER\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found"));
     }
 
     private AppUserEntity buildUser(Long id, String username, UserRole role) {

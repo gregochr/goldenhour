@@ -98,4 +98,48 @@ class SolarServiceTest {
         assertThat(summer).isLessThan(90);
         assertThat(winter).isGreaterThan(90);
     }
+
+    @Test
+    @DisplayName("civilDawnUtc() is before sunrise")
+    void civilDawnUtc_isBeforeSunrise() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime civilDawn = solarService.civilDawnUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime sunrise = solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(civilDawn).isBefore(sunrise);
+    }
+
+    @Test
+    @DisplayName("civilDuskUtc() is after sunset")
+    void civilDuskUtc_isAfterSunset() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime civilDusk = solarService.civilDuskUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(civilDusk).isAfter(sunset);
+    }
+
+    @Test
+    @DisplayName("solarNoonUtc() falls between sunrise and sunset")
+    void solarNoonUtc_isBetweenSunriseAndSunset() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime noon = solarService.solarNoonUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime sunset = solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(noon).isAfter(sunrise).isBefore(sunset);
+    }
+
+    @Test
+    @DisplayName("dayLengthMinutes() matches duration between sunrise and sunset")
+    void dayLengthMinutes_matchesSunriseSunsetDuration() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime sunset = solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date);
+        long expectedMinutes = java.time.Duration.between(sunrise, sunset).toMinutes();
+
+        long actualMinutes = solarService.dayLengthMinutes(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(actualMinutes).isCloseTo(expectedMinutes, org.assertj.core.data.Offset.offset(2L));
+    }
 }
