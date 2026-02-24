@@ -88,6 +88,9 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **CORS** — configured in `SecurityConfig` via `CorsConfigurationSource` bean; `allowedOriginPatterns` covers `localhost:*` and LAN subnets.
 - **Location metadata** — YAML is source of truth; `LocationService.@PostConstruct` seeds and syncs to DB on every startup.
+- **Layer inference** — cloud altitude layers are used as a proxy for directional cloud positioning. Low < 30% = solar horizon clear ✓; mid 30–60% = canvas above horizon ✓; high 20–60% = depth and texture ✓. True 5-point directional sampling deferred to v1.1. See `docs/product/directional_analysis_breakdown.md`.
+- **Aerosol proxy** — AOD + PM2.5 together proxy aerosol type: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (grey haze ✗). Implemented in evaluation prompt; no competitor does this.
+- **Freemium UI** — breadcrumbs not paywalls: blur/lock for gated metrics, soft limits for horizon/locations, discovery moments for aerosol detail. See `docs/product/freemium_ui_strategy.md`.
 
 ---
 
@@ -233,52 +236,13 @@ Validate with a temporary tunnel first: `cloudflared tunnel --url http://localho
 
 ### 2. Docker Production Deployment
 
-**Architecture**: Spring Boot backend runs containerised on Mac Mini. Cloudflare Tunnel exposes it publicly. Laptop dev can point frontend at the prod backend via the tunnel — no local backend needed unless actively coding backend changes.
-
-**Database**: H2 file database (same as local dev), volume-mounted to Mac filesystem so data persists across container restarts and is picked up by Time Machine. No PostgreSQL for initial prod — keep it simple.
-
-**Dockerfile**:
-```dockerfile
-FROM eclipse-temurin:21-jre-alpine
-WORKDIR /app
-COPY target/goldenhour-*.jar app.jar
-EXPOSE 8082
-HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:8082/actuator/health || exit 1
-ENTRYPOINT ["java", "-jar", "app.jar"]
-```
-
-**Run command** (or docker-compose equivalent):
-```bash
-docker run -d \
-  --name goldenhour \
-  --restart=always \
-  -p 8082:8082 \
-  -v /Users/gregochr/goldenhour-data:/app/data \
-  -e ANTHROPIC_API_KEY=... \
-  -e JWT_SECRET=... \
-  goldenhour:latest
-```
-
-`--restart=always` means Docker restarts the container if it crashes or if the Mac Mini reboots.
-
-**Database backup** — cron script on Mac Mini, runs daily at 02:00:
-```bash
-#!/bin/bash
-DB_FILE="$HOME/goldenhour-data/goldenhour.mv.db"
-BACKUP_DIR="$HOME/backups/goldenhour"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-mkdir -p "$BACKUP_DIR"
-cp "$DB_FILE" "$BACKUP_DIR/goldenhour_${TIMESTAMP}.mv.db"
-# Keep last 7 backups
-ls -t "$BACKUP_DIR"/goldenhour_*.mv.db | tail -n +8 | xargs rm -f
-```
-
-Add to crontab: `0 2 * * * /path/to/backup-db.sh`
-
-**Resilience notes**: Docker health check + `--restart=always` covers app crashes. Mac Mini power loss is unrecoverable without manual intervention — acceptable for this use case (low stakes if the app is down for a day). Time Machine covers the H2 file. This is not enterprise-grade but it's good enough.
-
-Spring Boot Actuator health endpoint: `GET /actuator/health` (also used as Cloudflare Tunnel health probe).
+- Spring Boot backend containerised on Mac Mini; Cloudflare Tunnel exposes it publicly
+- **Database**: H2 file database (same as local dev), volume-mounted to Mac filesystem (`/Users/gregochr/goldenhour-data`) so data persists and is covered by Time Machine. No PostgreSQL for initial prod — keep it simple.
+- `eclipse-temurin:21-jre-alpine` base image; `--restart=always` for crash recovery and Mac Mini reboots
+- HEALTHCHECK on `GET /actuator/health` (also used as Cloudflare Tunnel health probe)
+- Secrets passed as env vars: `ANTHROPIC_API_KEY`, `JWT_SECRET`
+- **DB backup**: cron at 02:00 daily — `cp goldenhour.mv.db backups/goldenhour_$TIMESTAMP.mv.db`, keep last 7
+- Resilience: `--restart=always` covers crashes; Mac Mini power loss requires manual restart (acceptable — low stakes)
 
 ### 3. Backend Health Status Indicator
 
@@ -290,47 +254,19 @@ Spring Boot Actuator health endpoint: `GET /actuator/health` (also used as Cloud
 
 For locations where `tideType != NOT_COASTAL`. Use NOAA or UK Admiralty API for tide times; Open-Meteo Marine for wave height.
 
-`TideService`:
-- `getTideState(location, dateTime)` → RISING / FALLING / HIGH / LOW
-- `getNextHighTide(location, date)` / `getNextLowTide(location, date)`
+`TideService`: `getTideState(location, dateTime)` → RISING/FALLING/HIGH/LOW; `getNextHighTide` / `getNextLowTide`.
 
-Include in forecast response when location is coastal:
-```json
-{
-  "tideState": "FALLING",
-  "nextLowTideTime": "...",
-  "nextLowTideHeightMetres": 0.4,
-  "tideAligned": true
-}
-```
-
-`tideAligned = true` when tide state at solar event time matches location's `tideType` preference.
+Forecast response includes `tideState`, `nextLowTideTime`, `nextLowTideHeightMetres`, `tideAligned` when coastal. `tideAligned = true` when tide state at solar event time matches location's `tideType` preference.
 
 ### 5. Wildlife Location UI
 
-WILDLIFE locations need practical comfort information, not atmospheric scoring. A bird hide visit is about whether to pack an extra layer and if the walk back to the car will be wet — not cloud cover ratios.
+WILDLIFE locations need practical comfort information, not atmospheric scoring.
 
-**Per location type, show different data:**
+- `LANDSCAPE` / `SEASCAPE`: atmospheric score, cloud cover, visibility, AOD, humidity
+- `WILDLIFE`: temperature, wind speed/direction, rain chance — no colour score
+- `BOTH` (e.g. LANDSCAPE + WILDLIFE): show both sections
 
-| locationType | Show |
-|---|---|
-| `LANDSCAPE` / `SEASCAPE` | Atmospheric score, cloud cover, visibility, AOD, humidity |
-| `WILDLIFE` | Temperature, wind speed/direction, rain chance — no score |
-| `BOTH` (e.g. LANDSCAPE + WILDLIFE) | Show both sections |
-
-**API response when `locationType` includes `WILDLIFE`:**
-```json
-{
-  "practicalWeather": {
-    "temperatureCelsius": 3,
-    "windSpeedMph": 15,
-    "rainChancePercent": 20,
-    "summary": "Cold with a brisk wind — pack an extra layer"
-  }
-}
-```
-
-Backend generates `practicalWeather` summary via Claude using a short prompt focused on comfort, not colour potential. Frontend renders it as a simple card — no star rating, no cloud bars.
+Backend generates a `practicalWeather.summary` via Claude (short comfort-focused prompt). Frontend renders as a simple card — no star rating, no cloud bars.
 
 ### 6. Prediction Accuracy Feedback
 
