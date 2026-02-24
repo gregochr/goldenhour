@@ -72,12 +72,12 @@
     </Match>
 
     <!--
-        OpenMeteoMarineResponse and its inner Hourly class use plain @Getter / @Setter
-        for Jackson deserialization. The List fields are internal API response data
+        WorldTidesResponse and its inner Extreme class use plain getters/setters
+        for Jackson deserialization. The List field is internal API response data
         only consumed within TideService.
     -->
     <Match>
-        <Class name="~com\.gregochr\.goldenhour\.model\.OpenMeteoMarineResponse.*"/>
+        <Class name="~com\.gregochr\.goldenhour\.model\.WorldTidesResponse.*"/>
         <Or>
             <Bug pattern="EI_EXPOSE_REP"/>
             <Bug pattern="EI_EXPOSE_REP2"/>

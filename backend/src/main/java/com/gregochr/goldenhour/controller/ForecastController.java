@@ -133,8 +133,8 @@ public class ForecastController {
 
         return locations.stream()
                 .flatMap(loc -> forecastService
-                        .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), date, targetType,
-                                loc.getTideType())
+                        .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), loc.getId(),
+                                date, targetType, loc.getTideType())
                         .stream())
                 .toList();
     }

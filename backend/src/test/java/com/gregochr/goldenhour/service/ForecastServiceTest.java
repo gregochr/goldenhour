@@ -78,7 +78,7 @@ class ForecastServiceTest {
         when(repository.save(any())).thenReturn(savedEntity);
 
         List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, date, null, java.util.Set.of());
+                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of());
 
         assertThat(results).hasSize(2);
         verify(repository, times(2)).save(any());
