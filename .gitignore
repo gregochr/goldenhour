@@ -46,3 +46,4 @@ frontend/test-results/
 backend/target/
 backend/data/
 .claude/
+backend/.claude/
