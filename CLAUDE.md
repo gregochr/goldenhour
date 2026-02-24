@@ -23,6 +23,8 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - JWT authentication: ADMIN / PRO_USER / LITE_USER roles
 - User management (ADMIN-only Manage tab)
 - First-login password change gate with complexity enforcement
+- Session expiry warnings (amber ≤7 days, red ≤1 day); refresh token rotates on every `/refresh` call
+- Session countdown (`Session: 30d`) in header for ADMIN users
 
 ---
 
@@ -156,14 +158,7 @@ jwt:
 
 ## Planned Features
 
-### 1. Token Expiry Warnings
-
-- At 7 days remaining on access token: subtle amber banner
-- At 1 day remaining: more prominent warning
-- "Refresh session" button — exchanges refresh token for new access token without re-login
-- Frontend checks token `exp` on mount and after each API call
-
-### 2. Cloudflare Tunnel
+### 1. Cloudflare Tunnel
 
 Expose home-hosted backend without opening router ports.
 
@@ -178,27 +173,62 @@ cloudflared service install   # run as launchd on Mac Mini
 
 Validate with a temporary tunnel first: `cloudflared tunnel --url http://localhost:8082`
 
-### 3. Docker Production Deployment
+### 2. Docker Production Deployment
 
+**Architecture**: Spring Boot backend runs containerised on Mac Mini. Cloudflare Tunnel exposes it publicly. Laptop dev can point frontend at the prod backend via the tunnel — no local backend needed unless actively coding backend changes.
+
+**Database**: H2 file database (same as local dev), volume-mounted to Mac filesystem so data persists across container restarts and is picked up by Time Machine. No PostgreSQL for initial prod — keep it simple.
+
+**Dockerfile**:
 ```dockerfile
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY target/goldenhour-*.jar app.jar
 EXPOSE 8082
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -f http://localhost:8082/actuator/health || exit 1
 ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
-`docker-compose.prod.yml` runs backend + postgres + grafana. Secrets in `.env` (gitignored).
+**Run command** (or docker-compose equivalent):
+```bash
+docker run -d \
+  --name goldenhour \
+  --restart=always \
+  -p 8082:8082 \
+  -v /Users/gregochr/goldenhour-data:/app/data \
+  -e ANTHROPIC_API_KEY=... \
+  -e JWT_SECRET=... \
+  goldenhour:latest
+```
 
-Spring Boot Actuator health endpoint: `GET /actuator/health` (used as Cloudflare Tunnel health probe).
+`--restart=always` means Docker restarts the container if it crashes or if the Mac Mini reboots.
 
-### 4. Backend Health Status Indicator
+**Database backup** — cron script on Mac Mini, runs daily at 02:00:
+```bash
+#!/bin/bash
+DB_FILE="$HOME/goldenhour-data/goldenhour.mv.db"
+BACKUP_DIR="$HOME/backups/goldenhour"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+mkdir -p "$BACKUP_DIR"
+cp "$DB_FILE" "$BACKUP_DIR/goldenhour_${TIMESTAMP}.mv.db"
+# Keep last 7 backups
+ls -t "$BACKUP_DIR"/goldenhour_*.mv.db | tail -n +8 | xargs rm -f
+```
+
+Add to crontab: `0 2 * * * /path/to/backup-db.sh`
+
+**Resilience notes**: Docker health check + `--restart=always` covers app crashes. Mac Mini power loss is unrecoverable without manual intervention — acceptable for this use case (low stakes if the app is down for a day). Time Machine covers the H2 file. This is not enterprise-grade but it's good enough.
+
+Spring Boot Actuator health endpoint: `GET /actuator/health` (also used as Cloudflare Tunnel health probe).
+
+### 3. Backend Health Status Indicator
 
 - Small green/red dot in app header, ADMIN only
 - Polls `/actuator/health` every 30 seconds
 - Shows UP / DOWN — no auto-reconnect logic
 
-### 5. Tide Data
+### 4. Tide Data
 
 For locations where `tideType != NOT_COASTAL`. Use NOAA or UK Admiralty API for tide times; Open-Meteo Marine for wave height.
 
@@ -217,6 +247,32 @@ Include in forecast response when location is coastal:
 ```
 
 `tideAligned = true` when tide state at solar event time matches location's `tideType` preference.
+
+### 5. Wildlife Location UI
+
+WILDLIFE locations need practical comfort information, not atmospheric scoring. A bird hide visit is about whether to pack an extra layer and if the walk back to the car will be wet — not cloud cover ratios.
+
+**Per location type, show different data:**
+
+| locationType | Show |
+|---|---|
+| `LANDSCAPE` / `SEASCAPE` | Atmospheric score, cloud cover, visibility, AOD, humidity |
+| `WILDLIFE` | Temperature, wind speed/direction, rain chance — no score |
+| `BOTH` (e.g. LANDSCAPE + WILDLIFE) | Show both sections |
+
+**API response when `locationType` includes `WILDLIFE`:**
+```json
+{
+  "practicalWeather": {
+    "temperatureCelsius": 3,
+    "windSpeedMph": 15,
+    "rainChancePercent": 20,
+    "summary": "Cold with a brisk wind — pack an extra layer"
+  }
+}
+```
+
+Backend generates `practicalWeather` summary via Claude using a short prompt focused on comfort, not colour potential. Frontend renders it as a simple card — no star rating, no cloud bars.
 
 ### 6. Prediction Accuracy Feedback
 
@@ -264,7 +320,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 148 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 149 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
