@@ -41,14 +41,14 @@ export default function OutcomeModal({
         locationLat,
         locationLon,
         locationName,
-        date,
-        type,
+        outcomeDate: date,
+        targetType: type,
         wentOut: wentOut === 'yes',
         actualRating: actualRating ? Number(actualRating) : null,
         notes,
       });
       setSaved(true);
-      onSaved();
+      setTimeout(onSaved, 1500);
     } catch (err) {
       setSaveError(err.response?.data?.message || err.message || 'Failed to save outcome.');
     } finally {
