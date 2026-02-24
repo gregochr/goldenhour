@@ -145,6 +145,12 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
+        <!-- Spring Boot Actuator - health check and monitoring endpoints -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
         <!-- JJWT API - JWT generation and validation -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
