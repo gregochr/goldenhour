@@ -3,18 +3,41 @@ import { test, expect } from '@playwright/test';
 /**
  * End-to-end tests for the Golden Hour forecast timeline.
  *
- * These tests require both the React dev server and the Spring Boot backend
- * to be running.
+ * These tests require both the React dev server (port 5173) and the Spring Boot
+ * backend (port 8082) to be running.
  */
+
+const BACKEND = 'http://127.0.0.1:8082';
+
+/**
+ * Obtains a JWT from the backend and injects it into localStorage so that the
+ * app boots directly into the authenticated state, bypassing the login page.
+ */
+async function loginAsAdmin(page) {
+  const response = await page.request.post(`${BACKEND}/api/auth/login`, {
+    data: { username: 'admin', password: 'golden2026' },
+  });
+  const { accessToken, refreshToken, refreshExpiresAt } = await response.json();
+  await page.evaluate(({ token, refresh, refreshExpires }) => {
+    localStorage.setItem('goldenhour_token', token);
+    localStorage.setItem('goldenhour_refresh', refresh);
+    localStorage.setItem('goldenhour_role', 'ADMIN');
+    localStorage.setItem('goldenhour_refresh_expires', refreshExpires);
+  }, { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt });
+}
 
 test.describe('Forecast timeline', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/');        // establishes the origin (shows login page)
+    await loginAsAdmin(page);    // inject tokens into localStorage
+    await page.goto('/');        // reload — now authenticated
+    await page.getByRole('button', { name: 'By Location' }).click();
   });
 
   test('page loads and shows app header', async ({ page }) => {
-    await expect(page.getByText('Golden Hour')).toBeVisible();
-    await expect(page.getByText(/Durham UK/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Golden Hour/ })).toBeVisible();
+    await page.waitForSelector('[data-testid="forecast-card"]', { timeout: 10000 });
+    await expect(page.getByTestId('forecast-card').first()).toBeVisible();
   });
 
   test('shows Today and Tomorrow labels', async ({ page }) => {
@@ -23,7 +46,6 @@ test.describe('Forecast timeline', () => {
   });
 
   test('renders at least 8 forecast cards', async ({ page }) => {
-    // Wait for cards to load (API call)
     await page.waitForSelector('[data-testid="forecast-card"]', { timeout: 10000 });
     const cards = page.getByTestId('forecast-card');
     await expect(cards).toHaveCount(16); // 8 dates × 2 (sunrise + sunset)
@@ -44,15 +66,20 @@ test.describe('Forecast timeline', () => {
 });
 
 test.describe('Outcome recording flow', () => {
-  test('opens outcome form on button click', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await loginAsAdmin(page);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'By Location' }).click();
+  });
+
+  test('opens outcome form on button click', async ({ page }) => {
     await page.waitForSelector('[data-testid="record-outcome-button"]', { timeout: 10000 });
     await page.getByTestId('record-outcome-button').first().click();
     await expect(page.getByTestId('outcome-form')).toBeVisible();
   });
 
   test('submits outcome form successfully', async ({ page }) => {
-    await page.goto('/');
     await page.waitForSelector('[data-testid="record-outcome-button"]', { timeout: 10000 });
     await page.getByTestId('record-outcome-button').first().click();
 
@@ -67,7 +94,9 @@ test.describe('Outcome recording flow', () => {
 
 test.describe('Error handling', () => {
   test('shows friendly error message when API is unavailable', async ({ page }) => {
-    // Route all API calls to a non-existent server
+    // Login first, then abort API calls to simulate the backend going down
+    await page.goto('/');
+    await loginAsAdmin(page);
     await page.route('/api/**', (route) => route.abort());
     await page.goto('/');
     await expect(page.getByTestId('error-message')).toBeVisible({ timeout: 10000 });
