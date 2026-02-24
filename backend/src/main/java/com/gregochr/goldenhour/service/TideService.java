@@ -146,6 +146,19 @@ public class TideService {
     }
 
     /**
+     * Returns {@code true} if any tide extremes are stored for the given location.
+     *
+     * <p>Called at startup to decide whether a tide fetch is needed — avoids redundant
+     * API calls when the {@code tide_extreme} table already has data for this location.
+     *
+     * @param locationId the location primary key
+     * @return {@code true} if the {@code tide_extreme} table has at least one row for this location
+     */
+    public boolean hasStoredExtremes(Long locationId) {
+        return tideExtremeRepository.existsByLocationId(locationId);
+    }
+
+    /**
      * Derives tide data for a coastal location at a solar event time using stored extremes.
      *
      * <p>Queries the {@code tide_extreme} table for extremes within

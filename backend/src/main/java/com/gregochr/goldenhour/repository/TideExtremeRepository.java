@@ -29,6 +29,16 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
             Long locationId, LocalDateTime from, LocalDateTime to);
 
     /**
+     * Returns {@code true} if any tide extremes are stored for the given location.
+     *
+     * <p>Used at startup to decide whether a tide fetch is needed for a coastal location.
+     *
+     * @param locationId the location primary key
+     * @return {@code true} if at least one tide extreme row exists for this location
+     */
+    boolean existsByLocationId(Long locationId);
+
+    /**
      * Deletes all tide extremes for the given location.
      *
      * <p>Called before saving a fresh batch to avoid duplicates on the unique constraint.
