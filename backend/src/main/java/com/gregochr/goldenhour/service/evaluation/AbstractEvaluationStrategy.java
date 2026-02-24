@@ -11,6 +11,9 @@ import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,6 +24,8 @@ import java.util.regex.Pattern;
  * parsing. Subclasses control only the prompt suffix (sentence count instruction).
  */
 public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AbstractEvaluationStrategy.class);
 
     /** Maximum tokens Claude may return per evaluation. */
     private static final int MAX_TOKENS = 256;
@@ -85,6 +90,10 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
     @Override
     public SunsetEvaluation evaluate(AtmosphericData data) {
+        LOG.debug("Calling Claude ({}) for {} {}", properties.getModel(),
+                data.locationName(), data.targetType());
+        long startMs = System.currentTimeMillis();
+
         Message response = client.messages().create(
                 MessageCreateParams.builder()
                         .model(properties.getModel())
@@ -100,7 +109,9 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
 
-        return parseEvaluation(text);
+        SunsetEvaluation result = parseEvaluation(text);
+        LOG.debug("Claude responded in {}ms", System.currentTimeMillis() - startMs);
+        return result;
     }
 
     /**
@@ -166,6 +177,8 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
      * @throws IllegalArgumentException if the rating and summary cannot be extracted
      */
     private SunsetEvaluation parseWithRegexFallback(String text, Exception cause) {
+        LOG.warn("Claude response was not valid JSON — falling back to regex parser: {}",
+                cause.getMessage());
         Matcher ratingMatcher = RATING_PATTERN.matcher(text);
         Matcher summaryMatcher = SUMMARY_PATTERN.matcher(text);
 

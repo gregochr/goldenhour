@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 
 /**
  * Triggers automatic forecast runs on the configured cron schedule.
@@ -49,17 +50,35 @@ public class ScheduledForecastService {
     @Scheduled(cron = "${forecast.schedule.cron:0 0 6,18 * * *}")
     public void runScheduledForecasts() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        for (LocationEntity location : locationService.findAll()) {
+        List<LocationEntity> locations = locationService.findAll();
+        LOG.info("Scheduled forecast run started — {} location(s), T+0 to T+{}",
+                locations.size(), FORECAST_HORIZON_DAYS);
+        long startMs = System.currentTimeMillis();
+        int succeeded = 0;
+        int failed = 0;
+
+        for (LocationEntity location : locations) {
             for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
                 LocalDate targetDate = today.plusDays(daysAhead);
                 if (locationService.shouldEvaluateSunrise(location)) {
-                    runForecast(location, targetDate, TargetType.SUNRISE);
+                    if (runForecast(location, targetDate, TargetType.SUNRISE)) {
+                        succeeded++;
+                    } else {
+                        failed++;
+                    }
                 }
                 if (locationService.shouldEvaluateSunset(location)) {
-                    runForecast(location, targetDate, TargetType.SUNSET);
+                    if (runForecast(location, targetDate, TargetType.SUNSET)) {
+                        succeeded++;
+                    } else {
+                        failed++;
+                    }
                 }
             }
         }
+
+        LOG.info("Scheduled forecast run complete — {} succeeded, {} failed, took {}ms",
+                succeeded, failed, System.currentTimeMillis() - startMs);
     }
 
     /**
@@ -68,15 +87,19 @@ public class ScheduledForecastService {
      * @param location   the location to forecast
      * @param targetDate the calendar date to forecast
      * @param targetType {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}
+     * @return {@code true} if the forecast succeeded, {@code false} if it failed
      */
-    private void runForecast(LocationEntity location, LocalDate targetDate, TargetType targetType) {
+    private boolean runForecast(LocationEntity location, LocalDate targetDate,
+            TargetType targetType) {
         try {
             forecastService.runForecasts(
                     location.getName(), location.getLat(), location.getLon(),
                     targetDate, targetType);
+            return true;
         } catch (Exception e) {
             LOG.error("Forecast failed for {} {} on {}: {}",
                     location.getName(), targetType, targetDate, e.getMessage(), e);
+            return false;
         }
     }
 }

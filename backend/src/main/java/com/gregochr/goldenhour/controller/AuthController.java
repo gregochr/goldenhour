@@ -7,6 +7,8 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -32,6 +34,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class AuthController {
 
+    private static final Logger LOG = LoggerFactory.getLogger(AuthController.class);
+
     private final AppUserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
@@ -52,11 +56,13 @@ public class AuthController {
         AppUserEntity user = userRepository.findByUsername(username).orElse(null);
 
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
+            LOG.warn("Login failed: user='{}' — bad credentials", username);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Invalid username or password"));
         }
 
         if (!user.isEnabled()) {
+            LOG.warn("Login failed: user='{}' — account disabled", username);
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Account is disabled"));
         }
@@ -76,6 +82,7 @@ public class AuthController {
                 .build();
         refreshTokenRepository.save(tokenEntity);
 
+        LOG.info("Login: user='{}' role={}", user.getUsername(), user.getRole());
         return ResponseEntity.ok(Map.of(
                 "accessToken", accessToken,
                 "refreshToken", rawRefresh,
@@ -119,6 +126,7 @@ public class AuthController {
         user.setPasswordChangeRequired(false);
         userRepository.save(user);
 
+        LOG.info("Password changed: user='{}'", username);
         return ResponseEntity.ok(Map.of("message", "Password updated"));
     }
 

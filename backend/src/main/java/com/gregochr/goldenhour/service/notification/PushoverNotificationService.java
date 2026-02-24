@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.service.notification;
 import com.gregochr.goldenhour.config.NotificationProperties;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -18,6 +20,7 @@ import java.util.Map;
 @Service
 public class PushoverNotificationService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(PushoverNotificationService.class);
     private static final String PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json";
 
     private final NotificationProperties properties;
@@ -45,6 +48,7 @@ public class PushoverNotificationService {
     public void notify(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
         if (!properties.getPushover().isEnabled()) {
+            LOG.debug("Pushover notifications disabled — skipping {} {} {}", locationName, targetType, date);
             return;
         }
         Map<String, String> body = Map.of(
@@ -60,6 +64,7 @@ public class PushoverNotificationService {
                 .retrieve()
                 .toBodilessEntity()
                 .block();
+        LOG.info("Pushover sent — {} {} {} rating {}/5", locationName, targetType, date, evaluation.rating());
     }
 
     private String buildTitle(String locationName, TargetType targetType, LocalDate date) {

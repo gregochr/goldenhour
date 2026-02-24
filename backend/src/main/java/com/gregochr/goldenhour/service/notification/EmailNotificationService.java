@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.service.notification;
 import com.gregochr.goldenhour.config.NotificationProperties;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,8 @@ import java.time.LocalDate;
  */
 @Service
 public class EmailNotificationService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(EmailNotificationService.class);
 
     private final NotificationProperties properties;
     private final JavaMailSender mailSender;
@@ -42,6 +46,7 @@ public class EmailNotificationService {
     public void notify(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
         if (!properties.getEmail().isEnabled()) {
+            LOG.debug("Email notifications disabled — skipping {} {} {}", locationName, targetType, date);
             return;
         }
         SimpleMailMessage message = new SimpleMailMessage();
@@ -49,6 +54,8 @@ public class EmailNotificationService {
         message.setSubject(buildSubject(locationName, targetType, date, evaluation.rating()));
         message.setText(buildBody(evaluation, locationName, targetType, date));
         mailSender.send(message);
+        LOG.info("Email sent to {} — {} {} {} rating {}/5",
+                properties.getEmail().getRecipient(), locationName, targetType, date, evaluation.rating());
     }
 
     private String buildSubject(String locationName, TargetType targetType, LocalDate date,

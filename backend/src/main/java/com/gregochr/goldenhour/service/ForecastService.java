@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -28,6 +30,8 @@ import java.util.List;
  */
 @Service
 public class ForecastService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ForecastService.class);
 
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
@@ -143,6 +147,8 @@ public class ForecastService {
                     .build();
 
             results.add(repository.save(entity));
+            LOG.info("Forecast saved: {} {} {} (T+{}) — rating {}/5",
+                    locationName, type, date, daysAhead, evaluation.rating());
             emailService.notify(evaluation, locationName, type, date);
             pushoverService.notify(evaluation, locationName, type, date);
             toastService.notify(evaluation, locationName, type, date);
