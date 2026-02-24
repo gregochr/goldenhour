@@ -47,6 +47,8 @@ const POPUP_TIDE_META = {
   ANY_TIDE:  'Any tide',
 };
 
+const POPUP_TIDE_STATE_LABEL = { HIGH: 'High', MID: 'Mid', LOW: 'Low' };
+
 /**
  * Maps Leaflet zoom level to azimuth line length in km.
  * Zoomed out (zoom 7-8) → long lines; zoomed in (zoom 13+) → short lines.
@@ -390,6 +392,35 @@ export default function MapView({ locations, date }) {
                         ))}
                       </div>
                     )}
+
+                    {/* Row 3.5: Tide state from the forecast (coastal only) */}
+                    {forecast?.tideState && (() => {
+                      const stateLabel = POPUP_TIDE_STATE_LABEL[forecast.tideState] ?? forecast.tideState;
+                      const nextHigh = forecast.nextHighTideTime ? formatEventTimeUk(forecast.nextHighTideTime) : null;
+                      const nextLow  = forecast.nextLowTideTime  ? formatEventTimeUk(forecast.nextLowTideTime)  : null;
+                      const hiHeight = forecast.nextHighTideHeightMetres != null ? parseFloat(forecast.nextHighTideHeightMetres).toFixed(1) : null;
+                      const loHeight = forecast.nextLowTideHeightMetres  != null ? parseFloat(forecast.nextLowTideHeightMetres).toFixed(1)  : null;
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                          <span style={{ ...POPUP_PILL, background: '#083344', color: '#67e8f9', border: '1px solid rgba(22,163,190,0.4)' }}>
+                            🌊 {stateLabel}
+                          </span>
+                          {forecast.tideAligned && (
+                            <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: '600' }}>✓ Aligned</span>
+                          )}
+                          {nextHigh && (
+                            <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                              ↑ {nextHigh}{hiHeight ? ` ${hiHeight}m` : ''}
+                            </span>
+                          )}
+                          {nextLow && (
+                            <span style={{ fontSize: '11px', color: '#6b7280' }}>
+                              ↓ {nextLow}{loHeight ? ` ${loHeight}m` : ''}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Row 4: Golden / Blue hour pills */}
                     {forecast && goldenStart && blueStart && (
