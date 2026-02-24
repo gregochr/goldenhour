@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -28,7 +29,7 @@ import java.time.LocalDateTime;
  * @param pm25                      fine particulate matter concentration in µg/m³
  * @param dustUgm3                  dust concentration in µg/m³
  * @param aerosolOpticalDepth       aerosol optical depth (dimensionless)
- * @param tideState                 current tide state (HIGH, LOW, RISING, FALLING) or null for inland
+ * @param tideState                 current tide state at the solar event time, or null for inland
  * @param nextHighTideTime          UTC time of next high tide or null
  * @param nextHighTideHeightMetres  height of next high tide in metres or null
  * @param nextLowTideTime           UTC time of next low tide or null
@@ -53,7 +54,7 @@ public record AtmosphericData(
         BigDecimal pm25,
         BigDecimal dustUgm3,
         BigDecimal aerosolOpticalDepth,
-        String tideState,
+        TideState tideState,
         LocalDateTime nextHighTideTime,
         BigDecimal nextHighTideHeightMetres,
         LocalDateTime nextLowTideTime,
