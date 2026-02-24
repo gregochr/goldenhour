@@ -4,7 +4,7 @@
 
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
-- **Backend**: Spring Boot 3 REST API — Open-Meteo weather + air quality, Claude (Anthropic SDK) evaluation, PostgreSQL persistence, scheduled runs, email/Pushover/macOS toast notifications.
+- **Backend**: Spring Boot 3 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, PostgreSQL persistence, scheduled runs, email/Web Push/macOS toast notifications.
 - **Frontend**: React 18 + Vite + Tailwind — map view (Leaflet), forecast timeline, outcome recording, JWT-authenticated.
 - **Future**: macOS menu bar widget (Tauri).
 
@@ -15,6 +15,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Core forecast pipeline: Open-Meteo → Claude → PostgreSQL
 - Scheduled evaluations (06:00 + 18:00 UTC, T through T+7)
 - Notifications: email (Thymeleaf HTML), Pushover, macOS toast
+- Tide data: WorldTides API, weekly refresh per coastal location, `tide_extreme` table (V14), `TideService` derives state/next tides from DB at evaluation time
 - Outcome recording (`actual_outcome` table, UI form)
 - Multi-location support with map view (Leaflet/OpenStreetMap)
 - Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH_TIDE/LOW_TIDE/ANY_TIDE/MID_TIDE/NOT_COASTAL), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
@@ -36,15 +37,15 @@ goldenhour/
 │   ├── src/main/java/com/gregochr/goldenhour/
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig
 │   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, UserRole, GoldenHourType, TideType, LocationType
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState
 │   │   ├── repository/    all Spring Data repos
-│   │   ├── service/       ForecastService, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, ScheduledForecastService, notification/
+│   │   ├── service/       ForecastService, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, notification/
 │   │   └── model/         AtmosphericData, SunsetEvaluation, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
-│       └── db/migration/            V1–V12 Flyway migrations
+│       └── db/migration/            V1–V14 Flyway migrations
 ├── frontend/              React 18 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js (global axios interceptors)
@@ -98,7 +99,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 
 Never commit `application.yml`. Only `application-example.yml` is committed.
 
-Key config sections: `anthropic`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`.
+Key config sections: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`.
 
 ```yaml
 jwt:
@@ -124,6 +125,8 @@ jwt:
 | V10 | `app_user` table + default admin row |
 | V11 | `refresh_token` table |
 | V12 | `password_change_required` on app_user |
+| V13 | tide columns on `forecast_evaluation` (tideState, nextHighTide, nextLowTide, tideAligned) |
+| V14 | `tide_extreme` table — pre-fetched WorldTides extremes, FK to `locations` |
 
 ---
 
@@ -156,6 +159,9 @@ jwt:
 | `POST` | `/api/users` | ADMIN | Create user |
 | `PUT` | `/api/users/{id}/enabled` | ADMIN | Enable/disable user |
 | `PUT` | `/api/users/{id}/role` | ADMIN | Change user role |
+| `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
+| `POST` | `/api/push/subscribe` | Bearer | Save a push subscription |
+| `DELETE` | `/api/push/subscribe` | Bearer | Remove a push subscription |
 
 ---
 
@@ -250,13 +256,11 @@ Validate with a temporary tunnel first: `cloudflared tunnel --url http://localho
 - Polls `/actuator/health` every 30 seconds
 - Shows UP / DOWN — no auto-reconnect logic
 
-### 4. Tide Data
+### 4. Tide Data ✓ Built
 
-For locations where `tideType != NOT_COASTAL`. Use NOAA or UK Admiralty API for tide times; Open-Meteo Marine for wave height.
+WorldTides API (v3) for coastal locations. `TideService.fetchAndStoreTideExtremes` fetches 14 days of high/low extremes weekly and stores in `tide_extreme` (FK to `locations`). `deriveTideData` looks up from DB at evaluation time — no live API call per forecast.
 
-`TideService`: `getTideState(location, dateTime)` → RISING/FALLING/HIGH/LOW; `getNextHighTide` / `getNextLowTide`.
-
-Forecast response includes `tideState`, `nextLowTideTime`, `nextLowTideHeightMetres`, `tideAligned` when coastal. `tideAligned = true` when tide state at solar event time matches location's `tideType` preference.
+`ScheduledForecastService` runs a weekly refresh (Monday 02:00 UTC, configurable via `tide.schedule.cron`). `LocationService.@PostConstruct` triggers immediate fetch when a new coastal location is first seeded. API key via `WORLDTIDES_API_KEY` env var.
 
 ### 5. Wildlife Location UI
 
@@ -285,7 +289,36 @@ Admin Manage tab shows accuracy breakdown by model and by days_ahead.
 
 Privacy notice shown once on first feedback submission (stored in localStorage).
 
-### 7. macOS Menu Bar Widget (Tauri)
+### 7. Web Push Notifications
+
+Replace Pushover with Web Push (W3C Push API + VAPID). No third-party app required for users, free, cross-platform, and feels native on desktop and Android. Delivers forecast alerts directly to the browser/OS notification centre.
+
+**iOS caveat**: background push is only available when the site is added to the Home Screen via Safari's share button → "Add to Home Screen". Users on iOS Safari in a regular browser tab cannot receive push. Show a one-time guidance prompt explaining this during the permission flow.
+
+**Backend — `webpush-java` library** (`nl.martijndwars:web-push`):
+- Generate a VAPID key pair once (`VAPIDKeyPairs.generate()`) and store in config as `web-push.vapid-public-key` and `web-push.vapid-private-key` (base64url encoded)
+- `PushSubscriptionEntity` — stores `endpoint`, `p256dh` (public key), `auth` (auth secret), `userId` FK, `createdAt`; V15 migration
+- `WebPushService.send(PushSubscriptionEntity, String payload)` — builds a `Notification` and calls `PushService.send()`; catches `410 Gone` to auto-delete stale subscriptions
+- `PushSubscriptionController`: `POST /api/push/subscribe` (save), `DELETE /api/push/subscribe` (unsubscribe), `GET /api/push/vapid-public-key` (returns public key to frontend, no auth required)
+- `ForecastService` calls `WebPushService` after each evaluation alongside the existing notification channels
+
+**Frontend**:
+- `public/sw.js` — service worker that handles `push` events and calls `self.registration.showNotification()`
+- Register service worker on app load (`navigator.serviceWorker.register('/sw.js')`)
+- `NotificationPermission.jsx` — shown once; calls `Notification.requestPermission()`, then `PushManager.subscribe()` with the VAPID public key; shows iOS "Add to Home Screen" guidance if `navigator.standalone === false` on iOS
+- Send the resulting `PushSubscription` JSON to `POST /api/push/subscribe`
+
+**Config** (`application.yml`):
+```yaml
+web-push:
+  vapid-public-key: ${VAPID_PUBLIC_KEY}
+  vapid-private-key: ${VAPID_PRIVATE_KEY}
+  subject: mailto:admin@goldenhour.example.com
+```
+
+Generate keys once: `openssl ecparam -name prime256v1 -genkey -noout -out vapid_private.pem`
+
+### 8. macOS Menu Bar Widget (Tauri)
 
 Separate Tauri app reusing React components from `frontend/src/components/`. Menu bar icon shows today's best rating. Click expands T through T+7. Native macOS toast notifications (replaces osascript).
 
@@ -314,7 +347,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 149 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 214 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
