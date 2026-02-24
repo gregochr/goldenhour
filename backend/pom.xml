@@ -191,12 +191,8 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- H2 - in-memory database for @DataJpaTest repository tests -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- H2 - used in tests (@DataJpaTest) and local dev profile (H2 file DB).
+             runtime scope makes it available for both test execution and spring-boot:run. -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
