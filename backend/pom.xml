@@ -336,6 +336,9 @@
                             <!-- Exclude Spring Boot entry point — main() is never called in unit tests -->
                             <excludes>
                                 <exclude>com/gregochr/goldenhour/GoldenHourApplication.class</exclude>
+                                <!-- Pure Jackson POJO — no logic, only getters/setters for deserialization -->
+                                <exclude>com/gregochr/goldenhour/model/OpenMeteoMarineResponse.class</exclude>
+                                <exclude>com/gregochr/goldenhour/model/OpenMeteoMarineResponse$Hourly.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
