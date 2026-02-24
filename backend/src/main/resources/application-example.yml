@@ -65,3 +65,12 @@ jwt:
 
 server:
   port: 8081
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized
