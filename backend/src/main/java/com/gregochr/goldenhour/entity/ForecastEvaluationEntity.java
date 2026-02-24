@@ -139,9 +139,10 @@ public class ForecastEvaluationEntity {
     @Column(name = "azimuth_deg")
     private Integer azimuthDeg;
 
-    /** Tide state at solar event time (HIGH, LOW, RISING, FALLING) or null for inland. */
+    /** Tide state at solar event time (HIGH, LOW, MID) or null for inland locations. */
+    @Enumerated(EnumType.STRING)
     @Column(name = "tide_state", length = 10)
-    private String tideState;
+    private TideState tideState;
 
     /** UTC time of the next high tide, or null for inland locations. */
     @Column(name = "next_high_tide_time")
