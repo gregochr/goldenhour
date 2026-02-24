@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import StarRating from './StarRating.jsx';
 import AzimuthIndicator from './AzimuthIndicator.jsx';
+import TideIndicator from './TideIndicator.jsx';
 import { formatEventTimeUk, formatGeneratedAt } from '../utils/conversions.js';
 
 /**
@@ -88,6 +89,8 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
             {forecast.summary}
           </p>
         )}
+
+        <TideIndicator forecast={forecast} />
 
         <div className="flex justify-end">
           <button className="btn-secondary text-sm" onClick={onClose}>
