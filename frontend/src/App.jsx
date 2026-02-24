@@ -10,8 +10,10 @@ import ManageView from './components/ManageView.jsx';
 import LoginPage from './components/LoginPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
+import HealthIndicator from './components/HealthIndicator.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
+import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { runForecast } from './api/forecastApi.js';
 
 /**
@@ -35,6 +37,7 @@ function AuthGate() {
 function AppInner() {
   const { isAdmin, logout, sessionDaysRemaining } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
+  const healthStatus = useHealthStatus();
   const [selectedTab, setSelectedTab] = useState(0);
   const [viewMode, setViewMode] = useState('map');
   const [selectedDate, setSelectedDate] = useState(null);
@@ -70,6 +73,7 @@ function AppInner() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
+            {isAdmin && <HealthIndicator status={healthStatus} />}
             <button
               className="btn-secondary text-xs"
               onClick={logout}
