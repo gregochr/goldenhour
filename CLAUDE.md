@@ -127,6 +127,7 @@ jwt:
 | V12 | `password_change_required` on app_user |
 | V13 | tide columns on `forecast_evaluation` (tideState, nextHighTide, nextLowTide, tideAligned) |
 | V14 | `tide_extreme` table — pre-fetched WorldTides extremes, FK to `locations` |
+| V15 | FK constraints: `forecast_evaluation.location_name` → `locations(name)`, same for `actual_outcome` |
 
 ---
 
