@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 
 /** Checks a single complexity rule and returns a styled list item. */
@@ -10,6 +11,11 @@ function CheckItem({ ok, label }) {
     </li>
   );
 }
+
+CheckItem.propTypes = {
+  ok: PropTypes.bool.isRequired,
+  label: PropTypes.string.isRequired,
+};
 
 /**
  * Full-page form shown when a user's {@code passwordChangeRequired} flag is set.

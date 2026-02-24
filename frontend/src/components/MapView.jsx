@@ -71,6 +71,10 @@ function ZoomTracker({ onZoom }) {
   return null;
 }
 
+ZoomTracker.propTypes = {
+  onZoom: PropTypes.func.isRequired,
+};
+
 /**
  * Calculates a destination lat/lon given a start point, bearing and distance.
  * Uses the spherical law of cosines (accurate enough for distances under 500km).
