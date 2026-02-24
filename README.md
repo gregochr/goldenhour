@@ -12,9 +12,10 @@ A full-stack application that predicts the colour potential of sunrise and sunse
 
 - Evaluates sunrise and sunset colour potential for any number of locations, T through T+7
 - Rates each event 1–5 using cloud layers, visibility, humidity, aerosol optical depth, and boundary layer height
-- Stores every evaluation to PostgreSQL so you can track how the forecast converges as the date approaches
-- Lets you record actual outcomes (went out / actual rating / notes) for accuracy analysis in Grafana
+- Stores every evaluation so you can track how the forecast converges as the date approaches
+- Lets you record actual outcomes (went out / actual rating / notes) alongside predictions
 - Sends a daily digest at 07:30 via email, Pushover (iOS), and macOS toast
+- JWT-authenticated — users are created by an admin; the Manage tab is ADMIN-only
 
 ---
 
@@ -27,6 +28,7 @@ A full-stack application that predicts the colour potential of sunrise and sunse
 | Solar times | [solar-utils](https://github.com/gregochr/solar-utils) (GitHub Packages) |
 | Weather data | Open-Meteo Forecast + Air Quality APIs (free, no key) |
 | Database | PostgreSQL + Flyway migrations |
+| Security | Spring Security 6, stateless JWT (JJWT 0.12.6) |
 | Frontend | React 18, Vite, Tailwind CSS, Recharts, Leaflet |
 | Dev database | H2 file (local profile — no Docker needed) |
 
@@ -36,7 +38,7 @@ A full-stack application that predicts the colour potential of sunrise and sunse
 
 - Java 21
 - Node 20
-- Docker (for PostgreSQL + Grafana in production) — or use the local H2 profile
+- Docker (for PostgreSQL in production) — or use the local H2 profile for development
 - A GitHub personal access token with `read:packages` scope (for `solar-utils`)
 - An Anthropic API key
 
@@ -59,7 +61,7 @@ Create a token at [github.com/settings/tokens](https://github.com/settings/token
 
 ```bash
 cp backend/src/main/resources/application-example.yml backend/src/main/resources/application.yml
-# Edit application.yml — set your Anthropic API key, DB credentials, and notification settings
+# Edit application.yml — set your Anthropic API key, DB credentials, JWT secret, and notification settings
 ```
 
 ---
@@ -81,44 +83,91 @@ cd frontend && npm install && npm run dev
 - UI: [http://localhost:5173](http://localhost:5173)
 - H2 console: [http://localhost:8082/h2-console](http://localhost:8082/h2-console) (JDBC URL: `jdbc:h2:file:./data/goldenhour`, user: `sa`, password: empty)
 
-Trigger an initial forecast run:
+Trigger an initial forecast run (login first — see Authentication below):
 
 ```bash
-curl -X POST http://localhost:8082/api/forecast/run
+TOKEN=$(curl -s -X POST http://localhost:8082/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"golden2026"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
+
+curl -X POST http://localhost:8082/api/forecast/run \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-## Running with Docker
+## Running with Docker (production)
+
+Start PostgreSQL, then run the backend with the default (PostgreSQL) profile:
 
 ```bash
-# Start PostgreSQL and Grafana
 docker-compose up -d
 
-# Build and run backend (default profile uses PostgreSQL)
 export ANTHROPIC_API_KEY=sk-ant-...
 cd backend && ./mvnw spring-boot:run
 
-# Start frontend
 cd frontend && npm install && npm run dev
 ```
 
-Grafana is available at [http://localhost:3000](http://localhost:3000) (admin / admin). Add a PostgreSQL data source pointing at `host.docker.internal:5432`, database `goldenhour`, user `sunset`, password `sunset`.
+---
+
+## Authentication
+
+All API endpoints except `/api/auth/**` require a valid JWT. The default admin account is created by the V10 Flyway migration.
+
+**Default credentials:** `admin` / `golden2026`
+
+> Change the admin password immediately after first login via the UI (Profile → Change Password).
+
+### Roles
+
+| Role | Access |
+|---|---|
+| `ADMIN` | All endpoints + Manage tab (user management) |
+| `USER` | Forecast, outcome recording, prediction feedback |
+
+Users are created by an admin in the Manage tab — there is no self-registration.
 
 ---
 
 ## Key API endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/forecast` | T through T+7 for all locations |
-| `GET` | `/api/forecast/history` | Historical evaluations by date range |
-| `POST` | `/api/forecast/run` | On-demand run (optional date, location, targetType) |
-| `GET` | `/api/forecast/compare` | All evaluation runs for a location+date (convergence) |
-| `GET` | `/api/locations` | All persisted locations |
-| `POST` | `/api/locations` | Add a new location (persists across restarts) |
-| `POST` | `/api/outcome` | Record an actual observed outcome |
-| `GET` | `/api/outcome` | Query outcomes by location and date range |
+### Auth
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/login` | None | Exchange credentials for access + refresh tokens |
+| `POST` | `/api/auth/refresh` | Refresh token | Issue a new access token |
+| `POST` | `/api/auth/logout` | Bearer | Revoke refresh token |
+| `POST` | `/api/auth/change-password` | Bearer | Change own password |
+
+### Forecast
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/forecast` | Bearer | T through T+7 for all locations |
+| `GET` | `/api/forecast/history` | Bearer | Historical evaluations by date range |
+| `POST` | `/api/forecast/run` | Bearer | On-demand run |
+| `GET` | `/api/forecast/compare` | Bearer | All evaluation runs for a location+date |
+
+### Locations & outcomes
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/locations` | Bearer | All persisted locations |
+| `POST` | `/api/locations` | Bearer | Add a new location |
+| `POST` | `/api/outcome` | Bearer | Record an actual observed outcome |
+| `GET` | `/api/outcome` | Bearer | Query outcomes by location and date range |
+
+### User management (ADMIN only)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/users` | ADMIN | List all users |
+| `POST` | `/api/users` | ADMIN | Create a user |
+| `PUT` | `/api/users/{id}/enabled` | ADMIN | Enable or disable a user |
+| `PUT` | `/api/users/{id}/role` | ADMIN | Change a user's role |
 
 ---
 
