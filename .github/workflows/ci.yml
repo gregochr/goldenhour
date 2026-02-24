@@ -1,76 +1,76 @@
-name: CI                                                                                                                                                                                                                               
-                                                                                                                                                                                                                                       
-  on:                                                                                                                                                                                                                                    
-    push:                                                                                                                                                                                                                              
-      branches: [main]                                                                                                                                                                                                                   
-    pull_request:                                                                                                                                                                                                                        
-      branches: [main]
+name: CI
 
-  jobs:
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
-    # ── Backend ──────────────────────────────────────────────────────────────────
-    backend:
-      name: Backend — Build, Test & Coverage
-      runs-on: ubuntu-latest
+jobs:
 
-      steps:
-        - uses: actions/checkout@v4
+  # ── Backend ──────────────────────────────────────────────────────────────────
+  backend:
+    name: Backend — Build, Test & Coverage
+    runs-on: ubuntu-latest
 
-        - name: Set up JDK 21
-          uses: actions/setup-java@v4
-          with:
-            java-version: '21'
-            distribution: 'temurin'
-            cache: maven
-            # Generates ~/.m2/settings.xml with credentials for GitHub Packages (solar-utils)
-            server-id: github
-            server-username: GITHUB_ACTOR
-            server-password: GITHUB_TOKEN
+    steps:
+      - uses: actions/checkout@v4
 
-        # Tests use H2 in-memory (src/test/resources/application.yml) — no external DB needed.
-        # mvn verify also runs JaCoCo and enforces the 80% line coverage minimum.
-        - name: Build, test, and verify coverage
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          run: |
-            chmod +x backend/mvnw
-            cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+          # Generates ~/.m2/settings.xml with credentials for GitHub Packages (solar-utils)
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
 
-        - name: Upload JaCoCo coverage report
-          if: always()
-          uses: actions/upload-artifact@v4
-          with:
-            name: jacoco-report
-            path: backend/target/site/jacoco/
+      # Tests use H2 in-memory (src/test/resources/application.yml) — no external DB needed.
+      # mvn verify also runs JaCoCo and enforces the 80% line coverage minimum.
+      - name: Build, test, and verify coverage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          chmod +x backend/mvnw
+          cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
 
-    # ── Frontend ─────────────────────────────────────────────────────────────────
-    frontend:
-      name: Frontend — Lint, Test & Build
-      runs-on: ubuntu-latest
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: backend/target/site/jacoco/
 
-      steps:
-        - uses: actions/checkout@v4
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — Lint, Test & Build
+    runs-on: ubuntu-latest
 
-        - name: Set up Node 20
-          uses: actions/setup-node@v4
-          with:
-            node-version: '20'
-            cache: npm
-            cache-dependency-path: frontend/package-lock.json
+    steps:
+      - uses: actions/checkout@v4
 
-        - name: Install dependencies
-          run: cd frontend && npm ci
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-        - name: Lint
-          run: cd frontend && npm run lint
+      - name: Install dependencies
+        run: cd frontend && npm ci
 
-        - name: Unit tests (Vitest)
-          run: cd frontend && npm test
+      - name: Lint
+        run: cd frontend && npm run lint
 
-        - name: Build
-          run: cd frontend && npm run build
+      - name: Unit tests (Vitest)
+        run: cd frontend && npm test
 
-    # ── Playwright E2E ───────────────────────────────────────────────────────────
-    # E2E tests require a live Spring Boot backend (Open-Meteo + Claude + DB).
-    # They run against a real environment rather than in the standard CI pipeline.
-    # To run locally: cd frontend && npm run test:e2e
+      - name: Build
+        run: cd frontend && npm run build
+
+  # ── Playwright E2E ───────────────────────────────────────────────────────────
+  # E2E tests require a live Spring Boot backend (Open-Meteo + Claude + DB).
+  # They run against a real environment rather than in the standard CI pipeline.
+  # To run locally: cd frontend && npm run test:e2e
