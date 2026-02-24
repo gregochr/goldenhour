@@ -44,6 +44,8 @@ class ForecastServiceTest {
     @Mock
     private OpenMeteoService openMeteoService;
     @Mock
+    private TideService tideService;
+    @Mock
     private EvaluationService evaluationService;
     @Mock
     private ForecastEvaluationRepository repository;
@@ -76,7 +78,7 @@ class ForecastServiceTest {
         when(repository.save(any())).thenReturn(savedEntity);
 
         List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, date);
+                DURHAM, DURHAM_LAT, DURHAM_LON, date, null, java.util.Set.of());
 
         assertThat(results).hasSize(2);
         verify(repository, times(2)).save(any());
@@ -145,6 +147,7 @@ class ForecastServiceTest {
         return new AtmosphericData("Durham UK", eventTime, targetType,
                 15, 55, 30, 22000, new BigDecimal("4.20"), 225, new BigDecimal("0.00"),
                 62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"));
+                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
+                null, null, null, null, null, null);
     }
 }

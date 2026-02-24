@@ -65,7 +65,7 @@ class ScheduledForecastServiceTest {
         int expectedCalls = daysInHorizon * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(LocalDate.class), any(TargetType.class));
+                        any(LocalDate.class), any(TargetType.class), any());
     }
 
     @Test
@@ -76,7 +76,7 @@ class ScheduledForecastServiceTest {
         int totalCalls = (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(forecastService, times(totalCalls))
-                .runForecasts(any(), anyDouble(), anyDouble(), dateCaptor.capture(), any(TargetType.class));
+                .runForecasts(any(), anyDouble(), anyDouble(), dateCaptor.capture(), any(TargetType.class), any());
 
         List<LocalDate> capturedDates = dateCaptor.getAllValues();
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
@@ -98,7 +98,7 @@ class ScheduledForecastServiceTest {
 
         doThrow(new RuntimeException("API error"))
                 .when(forecastService).runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(TargetType.class));
+                        any(), any(TargetType.class), any());
 
         scheduledForecastService.runScheduledForecasts();
 
@@ -106,6 +106,6 @@ class ScheduledForecastServiceTest {
         int expectedLondonCalls = (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedLondonCalls))
                 .runForecasts(eq("London UK"), anyDouble(), anyDouble(),
-                        any(LocalDate.class), any(TargetType.class));
+                        any(LocalDate.class), any(TargetType.class), any());
     }
 }

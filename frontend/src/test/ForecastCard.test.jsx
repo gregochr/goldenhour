@@ -32,6 +32,7 @@ const baseProps = {
   locationLon: -1.5849,
   locationName: 'Durham UK',
   onOutcomeSaved: vi.fn(),
+  onRerun: vi.fn(),
 };
 
 describe('ForecastCard', () => {

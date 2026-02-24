@@ -138,4 +138,28 @@ public class ForecastEvaluationEntity {
     /** Compass azimuth in degrees (clockwise from North) of the solar event. */
     @Column(name = "azimuth_deg")
     private Integer azimuthDeg;
+
+    /** Tide state at solar event time (HIGH, LOW, RISING, FALLING) or null for inland. */
+    @Column(name = "tide_state", length = 10)
+    private String tideState;
+
+    /** UTC time of the next high tide, or null for inland locations. */
+    @Column(name = "next_high_tide_time")
+    private LocalDateTime nextHighTideTime;
+
+    /** Height of the next high tide in metres, or null for inland locations. */
+    @Column(name = "next_high_tide_height_m", precision = 5, scale = 2)
+    private BigDecimal nextHighTideHeightMetres;
+
+    /** UTC time of the next low tide, or null for inland locations. */
+    @Column(name = "next_low_tide_time")
+    private LocalDateTime nextLowTideTime;
+
+    /** Height of the next low tide in metres, or null for inland locations. */
+    @Column(name = "next_low_tide_height_m", precision = 5, scale = 2)
+    private BigDecimal nextLowTideHeightMetres;
+
+    /** True if tide state matches location preference, null for inland locations. */
+    @Column(name = "tide_aligned")
+    private Boolean tideAligned;
 }

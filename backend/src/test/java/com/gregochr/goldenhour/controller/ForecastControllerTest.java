@@ -98,7 +98,7 @@ class ForecastControllerTest {
     void runForecast_noBody_runsForAllLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 20));
         when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(LocalDate.class), any()))
+                        anyString(), anyDouble(), anyDouble(), any(LocalDate.class), any(), any()))
                 .thenReturn(List.of(entity));
 
         mockMvc.perform(post("/api/forecast/run"))
