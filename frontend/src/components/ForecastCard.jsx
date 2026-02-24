@@ -5,6 +5,7 @@ import CloudCoverBars from './CloudCoverBars.jsx';
 import WindIndicator from './WindIndicator.jsx';
 import VisibilityIndicator from './VisibilityIndicator.jsx';
 import OutcomeModal from './OutcomeModal.jsx';
+import TideIndicator from './TideIndicator.jsx';
 import { formatEventTimeUk, formatGeneratedAt, formatShiftedEventTimeUk } from '../utils/conversions.js';
 
 /**
@@ -156,6 +157,8 @@ export default function ForecastCard({
                 Precipitation: {forecast.precipitation} mm
               </p>
             )}
+
+            <TideIndicator forecast={forecast} />
           </>
         ) : (
           <p className="text-sm text-gray-500 italic">No forecast available.</p>
