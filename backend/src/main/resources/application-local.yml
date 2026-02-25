@@ -39,6 +39,13 @@ notifications:
   macos-toast:
     enabled: false
 
+cost:
+  # API call costs in pence (local dev values)
+  anthropic-haiku-pence: 50
+  anthropic-sonnet-pence: 130
+  world-tides-pence: 20
+  open-meteo-pence: 0
+
 logging:
   level:
     com.gregochr.goldenhour.config.RequestLoggingInterceptor: INFO

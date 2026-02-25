@@ -7,6 +7,7 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -77,6 +78,13 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     protected abstract String getPromptSuffix();
 
     /**
+     * Returns the evaluation model used by this strategy.
+     *
+     * @return HAIKU or SONNET
+     */
+    protected abstract EvaluationModel getEvaluationModel();
+
+    /**
      * Parses Claude's JSON response text into a {@link SunsetEvaluation}.
      *
      * <p>Subclasses override this to handle their specific JSON schema.
@@ -132,7 +140,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             if (jobRun != null && jobRunService != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
                         "POST", "https://api.anthropic.com/v1/messages", null,
-                        durationMs, statusCode, null, true, null);
+                        durationMs, statusCode, null, true, null, getEvaluationModel());
             }
 
             return result;
@@ -147,7 +155,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             if (jobRun != null && jobRunService != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
                         "POST", "https://api.anthropic.com/v1/messages", null,
-                        durationMs, statusCode, errorMessage, false, errorMessage);
+                        durationMs, statusCode, errorMessage, false, errorMessage, getEvaluationModel());
             }
 
             throw e;

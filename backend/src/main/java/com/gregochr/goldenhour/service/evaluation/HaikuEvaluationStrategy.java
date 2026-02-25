@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +66,11 @@ public class HaikuEvaluationStrategy extends AbstractEvaluationStrategy {
     @Override
     protected String getPromptSuffix() {
         return PROMPT_SUFFIX;
+    }
+
+    @Override
+    protected EvaluationModel getEvaluationModel() {
+        return EvaluationModel.HAIKU;
     }
 
     /**

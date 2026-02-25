@@ -38,6 +38,13 @@ notifications:
   macos-toast:
     enabled: true
 
+cost:
+  # API call costs in pence
+  anthropic-haiku-pence: 50
+  anthropic-sonnet-pence: 130
+  world-tides-pence: 20
+  open-meteo-pence: 0
+
 forecast:
   locations:
     - name: Durham UK

@@ -67,6 +67,10 @@ public class JobRunEntity {
     @Column(name = "failed")
     private Integer failed;
 
+    /** Total cost of all API calls in this run, in pence. */
+    @Column(name = "total_cost_pence")
+    private Integer totalCostPence;
+
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;

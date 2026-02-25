@@ -213,6 +213,7 @@ class AbstractEvaluationStrategyTest {
                 eq(200),
                 any(),
                 eq(true),
+                any(),
                 any());
 
         assertThat(jobRunIdCaptor.getValue()).isEqualTo(1L);
@@ -255,6 +256,7 @@ class AbstractEvaluationStrategyTest {
                 eq(429),
                 any(),
                 succeededCaptor.capture(),
+                any(),
                 any());
 
         assertThat(succeededCaptor.getValue()).isFalse();
@@ -292,6 +294,11 @@ class AbstractEvaluationStrategyTest {
         @Override
         protected String getPromptSuffix() {
             return TEST_SUFFIX;
+        }
+
+        @Override
+        protected com.gregochr.goldenhour.entity.EvaluationModel getEvaluationModel() {
+            return com.gregochr.goldenhour.entity.EvaluationModel.SONNET;
         }
 
         @Override

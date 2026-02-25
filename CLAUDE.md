@@ -29,6 +29,21 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Session expiry warnings (amber ≤7 days, red ≤1 day); refresh token rotates on every `/refresh` call
 - Session countdown (`Session: 30d`) in header for ADMIN users
 - Backend health indicator: green/red dot in header (ADMIN only), polls `/actuator/health` every 30 s
+- **Job run metrics** ✓ — persistent tracking of all scheduled forecast runs and external API calls with cost aggregation
+  - `job_run` table (V20) tracks run duration, success/failure counts, total cost in pence
+  - `api_call_log` table (V20) records every API call with request/response details, duration, cost
+  - Admin metrics dashboard shows last 7 days: total runs, success rate, slowest service, cost breakdown
+  - Per-location failure tracking: `consecutive_failures`, auto-disable after 3 failures (V21)
+- **Retry robustness** ✓ — resilient API failure handling with exponential backoff
+  - Anthropic 529 (overloaded) retry logic: 1s → 2s → 4s, max 30s, 3 retries
+  - Dead-letter mechanism for persistent location failures
+  - Request/response logging interceptor captures all `/api/**` endpoints at INFO level
+- **Docker & CloudFlare Tunnel** ✓ — production deployment ready
+  - `Dockerfile` with health checks, alpine base, non-root user
+  - `docker-compose.yml` with H2 persistence to Mac filesystem
+  - `application-prod.yml` with Flyway enabled, production Spring config
+  - Automated daily backups via cron (keeps last 7 backups)
+  - CloudFlare Tunnel exposure without opening router ports
 
 ---
 
@@ -38,17 +53,18 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 goldenhour/
 ├── backend/               Spring Boot 3 app (port 8082 local)
 │   ├── src/main/java/com/gregochr/goldenhour/
-│   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig
-│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState
-│   │   ├── repository/    all Spring Data repos
-│   │   ├── service/       ForecastService, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, notification/
+│   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties
+│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, JobName, ServiceName, EvaluationModel
+│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository
+│   │   ├── service/       ForecastService, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, JobRunService, CostCalculator, notification/
 │   │   └── model/         AtmosphericData, SunsetEvaluation, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
-│       └── db/migration/            V1–V19 Flyway migrations
+│       ├── application-prod.yml     (production config with H2 persistence)
+│       └── db/migration/            V1–V21 Flyway migrations (V20: job metrics, V21: location failure tracking)
 ├── frontend/              React 18 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js (global axios interceptors)
@@ -233,7 +249,7 @@ then gate them. See `docs/product/freemium_ui_strategy.md`.
 
 ## Planned Features
 
-### 1. Cloudflare Tunnel
+### 1. Cloudflare Tunnel ✓ BUILT
 
 Expose home-hosted backend without opening router ports.
 
@@ -248,15 +264,21 @@ cloudflared service install   # run as launchd on Mac Mini
 
 Validate with a temporary tunnel first: `cloudflared tunnel --url http://localhost:8082`
 
-### 2. Docker Production Deployment
+Documentation in `DEPLOYMENT.md` covers full setup including health checks and DNS routing.
+
+### 2. Docker Production Deployment ✓ BUILT
 
 - Spring Boot backend containerised on Mac Mini; Cloudflare Tunnel exposes it publicly
 - **Database**: H2 file database (same as local dev), volume-mounted to Mac filesystem (`/Users/gregochr/goldenhour-data`) so data persists and is covered by Time Machine. No PostgreSQL for initial prod — keep it simple.
 - `eclipse-temurin:21-jre-alpine` base image; `--restart=always` for crash recovery and Mac Mini reboots
 - HEALTHCHECK on `GET /actuator/health` (also used as Cloudflare Tunnel health probe)
-- Secrets passed as env vars: `ANTHROPIC_API_KEY`, `JWT_SECRET`
+- Secrets passed as env vars: `ANTHROPIC_API_KEY`, `JWT_SECRET`, `WORLDTIDES_API_KEY`
 - **DB backup**: cron at 02:00 daily — `cp goldenhour.mv.db backups/goldenhour_$TIMESTAMP.mv.db`, keep last 7
 - Resilience: `--restart=always` covers crashes; Mac Mini power loss requires manual restart (acceptable — low stakes)
+- Production config `application-prod.yml` with Flyway migrations enabled, H2 dialect
+- `Dockerfile` with multi-stage build, health checks, non-root user for security
+- `docker-compose.yml` with volumes, environment variables, restart policy
+- `goldenhour-backup.sh` automated backup script (keeps last 7 backups)
 
 ### 3. Backend Health Status Indicator ✓ Built
 
@@ -323,24 +345,39 @@ web-push:
 
 Generate keys once: `openssl ecparam -name prime256v1 -genkey -noout -out vapid_private.pem`
 
-### 8. Job Run Metrics
+### 8. Job Run Metrics ✓ BUILT
 
-Track performance of scheduled forecast runs and external API calls, stored in Postgres.
+Track performance of scheduled forecast runs and external API calls, stored in H2.
 
-- `job_run` table: `id`, `job_name` (SONNET/HAIKU/WILDLIFE/TIDE), `started_at`, `completed_at`, `duration_ms`, `locations_total`, `succeeded`, `failed`
-- `api_call_log` table: `id`, `job_run_id` (FK), `service` (OPEN_METEO_FORECAST/OPEN_METEO_AIR_QUALITY/WORLD_TIDES/ANTHROPIC), `called_at`, `duration_ms`, `status_code`, `succeeded`
-- `JobRunService` wraps `ScheduledForecastService` and `TideService` calls, records timings
-- Admin Manage tab: show last N job runs with per-service average response times and error rates
-- Flyway migration: V20
+- `job_run` table: `id`, `job_name` (SONNET/HAIKU/WILDLIFE/TIDE), `started_at`, `completed_at`, `duration_ms`, `locations_processed`, `succeeded`, `failed`, `total_cost_pence`
+- `api_call_log` table: `id`, `job_run_id` (FK), `service` (OPEN_METEO_FORECAST/OPEN_METEO_AIR_QUALITY/WORLD_TIDES/ANTHROPIC), `called_at`, `completed_at`, `duration_ms`, `request_method`, `request_url`, `request_body`, `status_code`, `response_body`, `succeeded`, `error_message`, `cost_pence`
+- `JobRunService` wraps `ScheduledForecastService` and `TideService` calls, records timings and costs
+- `CostCalculator` service computes API call costs by service and model
+- `JobMetricsController` endpoints: `GET /api/metrics/job-runs`, `GET /api/metrics/api-calls`
+- Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
+- Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
+- Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
+- 271 backend tests, all passing with ≥80% JaCoCo coverage
 
-### 9. Retry Robustness
+### 9. Retry Robustness ✓ BUILT
 
-Each scheduled job run should be resilient — a 429 or transient 5xx on one location/slot should not abort the entire run.
+Each scheduled job run is resilient — a 429 or transient 5xx on one location/slot does not abort the entire run.
 
-- Open-Meteo and WorldTides: already have `Retry.backoff(2, 5s)` for 5xx/429; verify WILDLIFE hourly path is covered
-- Anthropic: add retry on 529 (overloaded) with exponential backoff
-- Per-location failure isolation: already in `ScheduledForecastService` (try/catch per location); extend to log failure reason to `job_run` metrics
-- Dead-letter concept: locations that fail 3 consecutive runs get flagged in `location` table (`consecutive_failures` counter, reset on success)
+- **Open-Meteo and WorldTides**: already have `Retry.backoff(2, 5s)` for 5xx/429; WILDLIFE hourly path covered
+- **Anthropic**: retry on 529 (overloaded) with exponential backoff — 1s → 2s → 4s (max 30s, 3 retries)
+  - `AbstractEvaluationStrategy.invokeClaudeWithRetry()` with detailed logging
+  - Both Haiku and Sonnet strategies inherit retry logic
+  - Test coverage: `AbstractEvaluationStrategyTest` validates retry on 529, success on 2nd attempt
+- **Per-location failure isolation**: `ScheduledForecastService` catches exceptions per location
+  - Failures logged to `job_run` and `api_call_log` metrics with error messages
+  - `ForecastService` logs API calls with status codes and error details
+- **Dead-letter mechanism**: locations auto-disabled after 3 consecutive forecast failures (V21)
+  - `consecutive_failures` counter on location entity (reset to 0 on success)
+  - `last_failure_at` timestamp tracks most recent failure
+  - `disabled_reason` field explains why location was auto-disabled
+  - Frontend could show disabled location badge in ManageView (future UI enhancement)
+- **Request/response logging**: `RequestLoggingInterceptor` logs all `/api/**` endpoints at INFO level
+  - Captures method, URL, status code, duration for debugging and auditing
 
 ### 10. macOS Menu Bar Widget (Tauri)
 
