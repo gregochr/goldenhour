@@ -6,7 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
-- Session expiry warnings — amber banner at ≤7 days, red at ≤1 day; "Refresh session" button extends by 30 days
+- Wildlife location UI — pure-WILDLIFE locations get a green 🦅 map marker and an hourly comfort timeline in the popup (time · temp · wind · rain); no colour score bars
+- Hourly comfort forecasts — one DB row per full UTC hour between sunrise and sunset via a single Open-Meteo call (`getHourlyAtmosphericData`); no Claude evaluation, zero AI cost
+- `WILDLIFE` added to `EvaluationModel` enum; `HOURLY` added to `TargetType` enum
+- `V19` Flyway migration — adds `temperature_celsius`, `apparent_temperature_celsius`, `precipitation_probability_percent` to `forecast_evaluation`; columns populated on every row (colour and wildlife)
+- Comfort data on all colour popups — temp / feels-like / wind / rain shown below colour scores for LANDSCAPE/SEASCAPE locations
+- `runWildlifeForecasts()` scheduled at 06:00 and 18:00 UTC for pure-WILDLIFE locations
+- `hasColourTypes()` / `isPureWildlife()` location helpers in `ScheduledForecastService` and `ForecastController`
+- `WildlifeComfortCard.jsx` — reusable comfort card component
+- `conversions.js groupForecastsByDate` collects `HOURLY` rows into a sorted `hourly[]` array, deduplicating by slot + most-recent run
+- 257 backend tests (up from 244), 78 frontend tests — all passing
+
+### Session expiry warnings — amber banner at ≤7 days, red at ≤1 day; "Refresh session" button extends by 30 days
 - Refresh token rotation — `/api/auth/refresh` revokes the old token and issues a new 30-day one on every call
 - `refreshExpiresAt` included in login and refresh responses; stored in localStorage
 - `SessionExpiryBanner` component — renders between header and main content when session is close to expiry
