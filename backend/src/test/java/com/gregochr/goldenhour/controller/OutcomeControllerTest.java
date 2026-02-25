@@ -91,16 +91,16 @@ class OutcomeControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("POST /api/outcome returns 400 when the service rejects an invalid rating")
-    void recordOutcome_serviceRejectsRating_returns400() throws Exception {
+    @DisplayName("POST /api/outcome returns 400 when the service rejects an invalid score")
+    void recordOutcome_serviceRejectsScore_returns400() throws Exception {
         when(outcomeService.record(any()))
-                .thenThrow(new IllegalArgumentException("actualRating must be between 1 and 5"));
+                .thenThrow(new IllegalArgumentException("fierySkyActual must be between 0 and 100"));
 
         mockMvc.perform(post("/api/outcome")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validOutcomeJson()))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("actualRating must be between 1 and 5"));
+                .andExpect(jsonPath("$.error").value("fierySkyActual must be between 0 and 100"));
     }
 
     private ActualOutcomeEntity buildOutcomeEntity() {
@@ -112,7 +112,8 @@ class OutcomeControllerTest {
                 .outcomeDate(LocalDate.of(2026, 2, 20))
                 .targetType(TargetType.SUNSET)
                 .wentOut(true)
-                .actualRating(4)
+                .fierySkyActual(68)
+                .goldenHourActual(75)
                 .recordedAt(LocalDateTime.of(2026, 2, 20, 21, 0))
                 .build();
     }
@@ -126,7 +127,8 @@ class OutcomeControllerTest {
                   "outcomeDate": "2026-02-20",
                   "targetType": "SUNSET",
                   "wentOut": true,
-                  "actualRating": 4,
+                  "fierySkyActual": 68,
+                  "goldenHourActual": 75,
                   "notes": "Beautiful orange sky"
                 }
                 """;

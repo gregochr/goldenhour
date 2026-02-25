@@ -1,8 +1,4 @@
 import React, { useState } from 'react';
-import ForecastTimeline from './components/ForecastTimeline.jsx';
-import LocationTabs from './components/LocationTabs.jsx';
-import LocationCompactCard from './components/LocationCompactCard.jsx';
-import LocationTypeBadges from './components/LocationTypeBadges.jsx';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
@@ -14,7 +10,6 @@ import HealthIndicator from './components/HealthIndicator.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
-import { runForecast } from './api/forecastApi.js';
 
 /**
  * Auth gate — renders {@link LoginPage} when no token is present,
@@ -38,14 +33,12 @@ function AppInner() {
   const { isAdmin, logout, sessionDaysRemaining } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const healthStatus = useHealthStatus();
-  const [selectedTab, setSelectedTab] = useState(0);
   const [viewMode, setViewMode] = useState('map');
   const [selectedDate, setSelectedDate] = useState(null);
 
   const sortedLocations = [...locations].sort((a, b) => a.name.localeCompare(b.name));
-  const location = sortedLocations[selectedTab] ?? null;
 
-  // All dates available across any location, sorted, for the By Date strip.
+  // All dates available across any location, sorted, for the map date strip.
   const allDates = [...new Set(
     sortedLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
   )].sort();
@@ -54,11 +47,6 @@ function AppInner() {
   const effectiveDate = (selectedDate && allDates.includes(selectedDate))
     ? selectedDate
     : allDates[0] ?? null;
-
-  async function handleRerun(date, type) {
-    await runForecast(date, location.name, type);
-    await refresh();
-  }
 
   return (
     <div className="min-h-screen bg-gray-950">
@@ -119,59 +107,12 @@ function AppInner() {
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
             </div>
 
-            {viewMode === 'location' && location && (
-              <>
-                <LocationTabs
-                  locations={sortedLocations}
-                  selectedIndex={selectedTab}
-                  onSelect={setSelectedTab}
-                />
-                {(location.goldenHourType || location.locationType?.length > 0 || location.tideType?.length > 0) && (
-                  <div className="mb-4">
-                    <LocationTypeBadges
-                      goldenHourType={location.goldenHourType}
-                      locationType={location.locationType}
-                      tideType={location.tideType}
-                    />
-                  </div>
-                )}
-                <ForecastTimeline
-                  forecastsByDate={location.forecastsByDate}
-                  outcomes={location.outcomes}
-                  locationLat={location.lat}
-                  locationLon={location.lon}
-                  locationName={location.name}
-                  onOutcomeSaved={refresh}
-                  onRerun={handleRerun}
-                />
-              </>
-            )}
-
-            {(viewMode === 'date' || viewMode === 'map') && effectiveDate && (
+            {viewMode === 'map' && effectiveDate && (
               <DateStrip
                 dates={allDates}
                 selectedDate={effectiveDate}
                 onSelect={setSelectedDate}
               />
-            )}
-
-            {viewMode === 'date' && effectiveDate && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {sortedLocations.map((loc) => {
-                  const dayData = loc.forecastsByDate.get(effectiveDate);
-                  return (
-                    <LocationCompactCard
-                      key={loc.name}
-                      locationName={loc.name}
-                      sunrise={dayData?.sunrise ?? null}
-                      sunset={dayData?.sunset ?? null}
-                      goldenHourType={loc.goldenHourType}
-                      locationType={loc.locationType}
-                      tideType={loc.tideType}
-                    />
-                  );
-                })}
-              </div>
             )}
 
             {viewMode === 'map' && (

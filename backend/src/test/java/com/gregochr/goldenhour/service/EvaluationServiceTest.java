@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
-import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +18,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -25,28 +28,49 @@ import static org.mockito.Mockito.when;
 class EvaluationServiceTest {
 
     @Mock
-    private EvaluationStrategy strategy;
+    private HaikuEvaluationStrategy haikuStrategy;
+
+    @Mock
+    private SonnetEvaluationStrategy sonnetStrategy;
 
     @InjectMocks
     private EvaluationService evaluationService;
 
     @Test
-    @DisplayName("evaluate() delegates to the injected strategy")
-    void evaluate_delegatesToStrategy() {
-        AtmosphericData data = new AtmosphericData(
+    @DisplayName("evaluate() with SONNET delegates to the Sonnet strategy")
+    void evaluate_sonnet_delegatesToSonnetStrategy() {
+        AtmosphericData data = buildAtmosphericData();
+        SunsetEvaluation expected = new SunsetEvaluation(null, 70, 75, "Promising conditions.");
+        when(sonnetStrategy.evaluate(data)).thenReturn(expected);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.SONNET);
+
+        assertThat(result).isSameAs(expected);
+        verify(sonnetStrategy).evaluate(data);
+        verifyNoInteractions(haikuStrategy);
+    }
+
+    @Test
+    @DisplayName("evaluate() with HAIKU delegates to the Haiku strategy")
+    void evaluate_haiku_delegatesToHaikuStrategy() {
+        AtmosphericData data = buildAtmosphericData();
+        SunsetEvaluation expected = new SunsetEvaluation(4, null, null, "Good conditions.");
+        when(haikuStrategy.evaluate(data)).thenReturn(expected);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.HAIKU);
+
+        assertThat(result).isSameAs(expected);
+        verify(haikuStrategy).evaluate(data);
+        verifyNoInteractions(sonnetStrategy);
+    }
+
+    private AtmosphericData buildAtmosphericData() {
+        return new AtmosphericData(
                 "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
                 10, 50, 30, 25000,
                 new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
                 62, 3, 1200, new BigDecimal("180.00"),
                 new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
                 null, null, null, null, null, null);
-
-        SunsetEvaluation expected = new SunsetEvaluation(4, "Promising conditions.");
-        when(strategy.evaluate(data)).thenReturn(expected);
-
-        SunsetEvaluation result = evaluationService.evaluate(data);
-
-        assertThat(result).isSameAs(expected);
-        verify(strategy).evaluate(data);
     }
 }

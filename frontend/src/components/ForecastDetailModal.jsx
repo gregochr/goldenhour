@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import ScoreBar from './ScoreBar.jsx';
 import StarRating from './StarRating.jsx';
 import AzimuthIndicator from './AzimuthIndicator.jsx';
 import TideIndicator from './TideIndicator.jsx';
@@ -67,9 +68,9 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
           </button>
         </div>
 
-        {/* Rating */}
-        <div>
-          <p className="text-xs text-gray-500 mb-1.5">
+        {/* Scores */}
+        <div className="flex flex-col gap-2">
+          <p className="text-xs text-gray-500">
             Forecast
             {forecast.forecastRunAt && (
               <span className="ml-1 text-gray-600">
@@ -77,10 +78,14 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
               </span>
             )}
           </p>
-          <StarRating
-            rating={forecast.rating}
-            label={`${typeLabel} forecast rating`}
-          />
+          {forecast.rating != null ? (
+            <StarRating rating={forecast.rating} />
+          ) : (
+            <>
+              <ScoreBar label="Fiery Sky" score={forecast.fierySkyPotential} />
+              <ScoreBar label="Golden Hour" score={forecast.goldenHourPotential} />
+            </>
+          )}
         </div>
 
         {/* Full summary */}

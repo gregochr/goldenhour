@@ -39,7 +39,7 @@ class OutcomeServiceTest {
         LocalDate date = LocalDate.of(2026, 2, 20);
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
-                true, 4, "Beautiful warm light.");
+                true, 68, 75, "Beautiful warm light.");
 
         ActualOutcomeEntity savedEntity = ActualOutcomeEntity.builder()
                 .id(1L).locationName("Durham UK").build();
@@ -57,21 +57,34 @@ class OutcomeServiceTest {
         assertThat(captured.getOutcomeDate()).isEqualTo(date);
         assertThat(captured.getTargetType()).isEqualTo(TargetType.SUNSET);
         assertThat(captured.getWentOut()).isTrue();
-        assertThat(captured.getActualRating()).isEqualTo(4);
+        assertThat(captured.getFierySkyActual()).isEqualTo(68);
+        assertThat(captured.getGoldenHourActual()).isEqualTo(75);
         assertThat(captured.getNotes()).isEqualTo("Beautiful warm light.");
         assertThat(captured.getRecordedAt()).isNotNull();
         assertThat(result).isSameAs(savedEntity);
     }
 
     @Test
-    @DisplayName("record() throws IllegalArgumentException when actualRating is out of range")
-    void record_invalidRating_throwsIllegalArgumentException() {
+    @DisplayName("record() throws IllegalArgumentException when fierySkyActual is out of range")
+    void record_invalidFierySkyScore_throwsIllegalArgumentException() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, 6, null);
+                TargetType.SUNSET, true, 150, null, null);
 
         assertThatThrownBy(() -> outcomeService.record(outcome))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("actualRating");
+                .hasMessageContaining("fierySkyActual");
+    }
+
+    @Test
+    @DisplayName("record() throws IllegalArgumentException when goldenHourActual is out of range")
+    void record_invalidGoldenHourScore_throwsIllegalArgumentException() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, null, -1, null);
+
+        assertThatThrownBy(() -> outcomeService.record(outcome))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("goldenHourActual");
     }
 }

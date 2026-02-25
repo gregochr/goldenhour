@@ -15,6 +15,8 @@ import java.time.LocalDate;
  * Sends a forecast evaluation by email.
  *
  * <p>Silently skips sending when {@code notifications.email.enabled} is {@code false}.
+ * Formats the score section based on which model produced the evaluation: Haiku evaluations
+ * show a 1–5 rating; Sonnet evaluations show dual 0–100 scores.
  */
 @Service
 public class EmailNotificationService {
@@ -51,24 +53,45 @@ public class EmailNotificationService {
         }
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(properties.getEmail().getRecipient());
-        message.setSubject(buildSubject(locationName, targetType, date, evaluation.rating()));
+        message.setSubject(buildSubject(locationName, targetType, date, evaluation));
         message.setText(buildBody(evaluation, locationName, targetType, date));
         mailSender.send(message);
-        LOG.info("Email sent to {} — {} {} {} rating {}/5",
-                properties.getEmail().getRecipient(), locationName, targetType, date, evaluation.rating());
+        if (evaluation.rating() != null) {
+            LOG.info("Email sent to {} — {} {} {} rating={}/5",
+                    properties.getEmail().getRecipient(), locationName, targetType, date,
+                    evaluation.rating());
+        } else {
+            LOG.info("Email sent to {} — {} {} {} fiery={}/100 golden={}/100",
+                    properties.getEmail().getRecipient(), locationName, targetType, date,
+                    evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
+        }
     }
 
     private String buildSubject(String locationName, TargetType targetType, LocalDate date,
-            int rating) {
-        return String.format("Golden Hour \u2014 %s %s on %s (rating %d/5)",
-                locationName, targetType.name().toLowerCase(), date, rating);
+            SunsetEvaluation evaluation) {
+        if (evaluation.rating() != null) {
+            return String.format("Golden Hour \u2014 %s %s on %s (rating %d/5)",
+                    locationName, targetType.name().toLowerCase(), date, evaluation.rating());
+        }
+        return String.format("Golden Hour \u2014 %s %s on %s (fiery %d/100, golden %d/100)",
+                locationName, targetType.name().toLowerCase(), date,
+                evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
     }
 
     private String buildBody(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
+        if (evaluation.rating() != null) {
+            return String.format(
+                    "Colour potential forecast for %s %s on %s%n%n"
+                    + "Rating: %d / 5%n%n%s",
+                    locationName, targetType.name().toLowerCase(), date,
+                    evaluation.rating(), evaluation.summary());
+        }
         return String.format(
-                "Colour potential forecast for %s %s on %s%n%nRating: %d / 5%n%n%s",
+                "Colour potential forecast for %s %s on %s%n%n"
+                + "Fiery Sky: %d / 100%nGolden Hour: %d / 100%n%n%s",
                 locationName, targetType.name().toLowerCase(), date,
-                evaluation.rating(), evaluation.summary());
+                evaluation.fierySkyPotential(), evaluation.goldenHourPotential(),
+                evaluation.summary());
     }
 }

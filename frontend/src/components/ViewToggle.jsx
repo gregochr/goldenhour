@@ -3,8 +3,6 @@ import PropTypes from 'prop-types';
 
 const ALL_OPTIONS = [
   { value: 'map', label: 'Map', adminOnly: false },
-  { value: 'location', label: 'By Location', adminOnly: false },
-  { value: 'date', label: 'By Date', adminOnly: false },
   { value: 'manage', label: 'Manage', adminOnly: true },
 ];
 
@@ -12,7 +10,7 @@ const ALL_OPTIONS = [
  * Segmented control for switching between view modes.
  *
  * @param {object} props
- * @param {'location'|'date'|'map'|'manage'} props.value - Currently active mode.
+ * @param {'map'|'manage'} props.value - Currently active mode.
  * @param {function} props.onChange - Called with the new mode string when toggled.
  * @param {boolean} [props.isAdmin=false] - Whether to show the admin-only Manage tab.
  */
@@ -39,7 +37,7 @@ export default function ViewToggle({ value, onChange, isAdmin = false }) {
 }
 
 ViewToggle.propTypes = {
-  value: PropTypes.oneOf(['location', 'date', 'map', 'manage']).isRequired,
+  value: PropTypes.oneOf(['map', 'manage']).isRequired,
   onChange: PropTypes.func.isRequired,
   isAdmin: PropTypes.bool,
 };

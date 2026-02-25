@@ -37,7 +37,8 @@ class ActualOutcomeRepositoryTest {
 
         Optional<ActualOutcomeEntity> found = repository.findById(saved.getId());
         assertThat(found).isPresent();
-        assertThat(found.get().getActualRating()).isEqualTo(4);
+        assertThat(found.get().getFierySkyActual()).isEqualTo(68);
+        assertThat(found.get().getGoldenHourActual()).isEqualTo(75);
         assertThat(found.get().getWentOut()).isTrue();
     }
 
@@ -100,7 +101,8 @@ class ActualOutcomeRepositoryTest {
                 .outcomeDate(outcomeDate)
                 .targetType(targetType)
                 .wentOut(true)
-                .actualRating(4)
+                .fierySkyActual(68)
+                .goldenHourActual(75)
                 .notes("Beautiful warm light — golden hour lived up to the forecast.")
                 .recordedAt(LocalDateTime.now())
                 .build();

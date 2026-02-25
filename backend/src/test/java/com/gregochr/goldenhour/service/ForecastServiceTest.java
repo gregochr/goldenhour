@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -67,18 +68,20 @@ class ForecastServiceTest {
         LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
 
         AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(4, "Good conditions.");
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 75, "Good conditions.");
         ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(1L).build();
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(forecastData)).thenReturn(evaluation);
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class)))
+                .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
 
         List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of());
+                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
+                EvaluationModel.SONNET);
 
         assertThat(results).hasSize(2);
         verify(repository, times(2)).save(any());
@@ -92,14 +95,15 @@ class ForecastServiceTest {
         LocalDateTime sunset = LocalDateTime.of(2026, 2, 20, 17, 10);
 
         AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(3, "Moderate potential.");
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 50, 60, "Moderate potential.");
         ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(2L).build();
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(forecastData)).thenReturn(evaluation);
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class)))
+                .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
 
         forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, date);
@@ -117,13 +121,14 @@ class ForecastServiceTest {
         LocalDateTime sunset = LocalDateTime.of(2026, 2, 20, 17, 10);
 
         AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
-        SunsetEvaluation evaluation = new SunsetEvaluation(5, "Exceptional setup.");
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 88, 82, "Exceptional setup.");
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(forecastData)).thenReturn(evaluation);
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class)))
+                .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, date);
@@ -133,7 +138,10 @@ class ForecastServiceTest {
         verify(repository, times(2)).save(captor.capture());
 
         ForecastEvaluationEntity first = captor.getAllValues().get(0);
-        assertThat(first.getRating()).isEqualTo(5);
+        assertThat(first.getFierySkyPotential()).isEqualTo(88);
+        assertThat(first.getGoldenHourPotential()).isEqualTo(82);
+        assertThat(first.getRating()).isNull();
+        assertThat(first.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
         assertThat(first.getSummary()).isEqualTo("Exceptional setup.");
         assertThat(first.getLocationName()).isEqualTo(DURHAM);
         assertThat(first.getTargetDate()).isEqualTo(date);
@@ -141,6 +149,38 @@ class ForecastServiceTest {
 
         ForecastEvaluationEntity second = captor.getAllValues().get(1);
         assertThat(second.getSolarEventTime()).isEqualTo(sunset);
+    }
+
+    @Test
+    @DisplayName("runForecasts() persists Haiku entity with rating and null scores")
+    void runForecasts_haikuEntity_hasRatingAndNullScores() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 2, 20, 17, 10);
+
+        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        SunsetEvaluation evaluation = new SunsetEvaluation(4, null, null, "Good conditions.");
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
+                .thenReturn(forecastData);
+        when(evaluationService.evaluate(eq(forecastData), eq(EvaluationModel.HAIKU)))
+                .thenReturn(evaluation);
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null,
+                java.util.Set.of(), EvaluationModel.HAIKU);
+
+        ArgumentCaptor<ForecastEvaluationEntity> captor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(2)).save(captor.capture());
+
+        ForecastEvaluationEntity first = captor.getAllValues().get(0);
+        assertThat(first.getRating()).isEqualTo(4);
+        assertThat(first.getFierySkyPotential()).isNull();
+        assertThat(first.getGoldenHourPotential()).isNull();
+        assertThat(first.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {

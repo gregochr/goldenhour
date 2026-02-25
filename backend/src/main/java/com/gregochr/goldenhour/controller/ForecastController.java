@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -11,6 +12,8 @@ import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * REST controller for forecast evaluation data.
@@ -56,16 +60,20 @@ public class ForecastController {
      * Returns stored forecast evaluations for all configured locations from today
      * through T+{@value ScheduledForecastService#FORECAST_HORIZON_DAYS}.
      *
+     * <p>LITE_USER receives HAIKU rows (1–5 rating); PRO_USER and ADMIN receive
+     * SONNET rows (dual 0–100 scores).
+     *
+     * @param auth the current authentication context (injected by Spring Security)
      * @return evaluations ordered by target date and target type
      */
     @GetMapping
-    public List<ForecastEvaluationEntity> getForecasts() {
+    public List<ForecastEvaluationEntity> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate horizon = today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS);
+        EvaluationModel model = modelForAuth(auth);
         return locationService.findAll().stream()
                 .flatMap(loc -> repository
-                        .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                                loc.getName(), today, horizon)
+                        .findByLocationAndDateRangeAndModel(loc.getName(), today, horizon, model)
                         .stream())
                 .toList();
     }
@@ -104,17 +112,21 @@ public class ForecastController {
     }
 
     /**
-     * Triggers an on-demand forecast run.
+     * Triggers an on-demand forecast run for both Haiku and Sonnet models. Restricted to ADMIN only.
+     *
+     * <p>Runs Sonnet (dual 0–100 scores) and Haiku (1–5 rating) for each location/date combination.
+     * This is a recovery mechanism for when scheduled jobs fail.
      *
      * <p>If the request body is absent or its fields are {@code null}, defaults apply:
      * {@code dates} defaults to today only; {@code location} defaults to all configured locations.
      *
      * @param request optional run parameters (dates and/or location)
-     * @return the saved evaluation entities produced by the run, ordered by date then location
+     * @return all saved evaluation entities produced by the run (Sonnet + Haiku)
      * @throws IllegalArgumentException if the specified location name is not configured,
      *                                  or if any date string is not a valid ISO date
      */
     @PostMapping("/run")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runForecast(
             @RequestBody(required = false) ForecastRunRequest request) {
         List<LocalDate> dates = (request != null
@@ -145,10 +157,18 @@ public class ForecastController {
 
         return dates.stream()
                 .flatMap(date -> locations.stream()
-                        .flatMap(loc -> forecastService
-                                .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), loc.getId(),
-                                        date, targetType, loc.getTideType())
-                                .stream()))
+                        .flatMap(loc -> {
+                            List<ForecastEvaluationEntity> sonnetResults = forecastService
+                                    .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
+                                            loc.getId(), date, targetType, loc.getTideType(),
+                                            EvaluationModel.SONNET);
+                            List<ForecastEvaluationEntity> haikuResults = forecastService
+                                    .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
+                                            loc.getId(), date, targetType, loc.getTideType(),
+                                            EvaluationModel.HAIKU);
+                            return Stream.concat(
+                                    sonnetResults.stream(), haikuResults.stream());
+                        }))
                 .toList();
     }
 
@@ -170,5 +190,19 @@ public class ForecastController {
             @RequestParam TargetType targetType) {
         return repository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
                 location, date, targetType);
+    }
+
+    /**
+     * Resolves which evaluation model to return for the authenticated user.
+     *
+     * <p>LITE_USER → HAIKU; PRO_USER and ADMIN → SONNET.
+     *
+     * @param auth the current authentication context
+     * @return the appropriate {@link EvaluationModel}
+     */
+    private EvaluationModel modelForAuth(Authentication auth) {
+        boolean isLite = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_LITE_USER"));
+        return isLite ? EvaluationModel.HAIKU : EvaluationModel.SONNET;
     }
 }

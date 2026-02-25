@@ -36,22 +36,22 @@ class EmailNotificationServiceTest {
         EmailNotificationService emailService =
                 new EmailNotificationService(properties, mailSender);
 
-        emailService.notify(new SunsetEvaluation(3, "Moderate."),
+        emailService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
         verify(mailSender, never()).send(any(SimpleMailMessage.class));
     }
 
     @Test
-    @DisplayName("notify() sends email when notifications are enabled")
-    void notify_whenEnabled_sendsEmail() {
+    @DisplayName("notify() sends Sonnet email with dual scores when notifications are enabled")
+    void notify_sonnetEvaluation_sendsEmailWithDualScores() {
         NotificationProperties properties = new NotificationProperties();
         properties.getEmail().setEnabled(true);
         properties.getEmail().setRecipient("test@example.com");
         EmailNotificationService emailService =
                 new EmailNotificationService(properties, mailSender);
 
-        SunsetEvaluation evaluation = new SunsetEvaluation(4, "Good conditions.");
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 72, 80, "Good conditions.");
         emailService.notify(evaluation, "Durham UK", TargetType.SUNSET,
                 LocalDate.of(2026, 2, 20));
 
@@ -61,7 +61,29 @@ class EmailNotificationServiceTest {
 
         assertThat(sent.getTo()).contains("test@example.com");
         assertThat(sent.getSubject()).contains("Durham UK");
-        assertThat(sent.getSubject()).contains("4/5");
+        assertThat(sent.getSubject()).contains("72/100");
+        assertThat(sent.getText()).contains("Good conditions.");
+    }
+
+    @Test
+    @DisplayName("notify() sends Haiku email with rating when evaluation has a rating")
+    void notify_haikuEvaluation_sendsEmailWithRating() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(true);
+        properties.getEmail().setRecipient("test@example.com");
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, mailSender);
+
+        SunsetEvaluation evaluation = new SunsetEvaluation(4, null, null, "Good conditions.");
+        emailService.notify(evaluation, "Durham UK", TargetType.SUNSET,
+                LocalDate.of(2026, 2, 20));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        SimpleMailMessage sent = captor.getValue();
+
+        assertThat(sent.getSubject()).contains("rating 4/5");
+        assertThat(sent.getText()).contains("4 / 5");
         assertThat(sent.getText()).contains("Good conditions.");
     }
 }

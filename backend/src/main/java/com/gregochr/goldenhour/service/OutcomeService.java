@@ -54,10 +54,21 @@ public class OutcomeService {
      * @param outcome the outcome data received from the client
      * @return the saved entity with its assigned database ID
      */
-    public ActualOutcomeEntity record(ActualOutcome outcome) {
-        if (outcome.actualRating() < 1 || outcome.actualRating() > 5) {
-            throw new IllegalArgumentException("actualRating must be between 1 and 5");
+    /**
+     * Validates that a score is in the 0–100 range if present.
+     *
+     * @param value the score to validate, or {@code null}
+     * @param name  field name used in the exception message
+     */
+    private void validateScore(Integer value, String name) {
+        if (value != null && (value < 0 || value > 100)) {
+            throw new IllegalArgumentException(name + " must be between 0 and 100");
         }
+    }
+
+    public ActualOutcomeEntity record(ActualOutcome outcome) {
+        validateScore(outcome.fierySkyActual(), "fierySkyActual");
+        validateScore(outcome.goldenHourActual(), "goldenHourActual");
         ActualOutcomeEntity entity = ActualOutcomeEntity.builder()
                 .locationLat(BigDecimal.valueOf(outcome.locationLat()))
                 .locationLon(BigDecimal.valueOf(outcome.locationLon()))
@@ -65,7 +76,8 @@ public class OutcomeService {
                 .outcomeDate(outcome.outcomeDate())
                 .targetType(outcome.targetType())
                 .wentOut(outcome.wentOut())
-                .actualRating(outcome.actualRating())
+                .fierySkyActual(outcome.fierySkyActual())
+                .goldenHourActual(outcome.goldenHourActual())
                 .notes(outcome.notes())
                 .recordedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
