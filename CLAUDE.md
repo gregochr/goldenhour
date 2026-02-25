@@ -323,7 +323,26 @@ web-push:
 
 Generate keys once: `openssl ecparam -name prime256v1 -genkey -noout -out vapid_private.pem`
 
-### 8. macOS Menu Bar Widget (Tauri)
+### 8. Job Run Metrics
+
+Track performance of scheduled forecast runs and external API calls, stored in Postgres.
+
+- `job_run` table: `id`, `job_name` (SONNET/HAIKU/WILDLIFE/TIDE), `started_at`, `completed_at`, `duration_ms`, `locations_total`, `succeeded`, `failed`
+- `api_call_log` table: `id`, `job_run_id` (FK), `service` (OPEN_METEO_FORECAST/OPEN_METEO_AIR_QUALITY/WORLD_TIDES/ANTHROPIC), `called_at`, `duration_ms`, `status_code`, `succeeded`
+- `JobRunService` wraps `ScheduledForecastService` and `TideService` calls, records timings
+- Admin Manage tab: show last N job runs with per-service average response times and error rates
+- Flyway migration: V20
+
+### 9. Retry Robustness
+
+Each scheduled job run should be resilient — a 429 or transient 5xx on one location/slot should not abort the entire run.
+
+- Open-Meteo and WorldTides: already have `Retry.backoff(2, 5s)` for 5xx/429; verify WILDLIFE hourly path is covered
+- Anthropic: add retry on 529 (overloaded) with exponential backoff
+- Per-location failure isolation: already in `ScheduledForecastService` (try/catch per location); extend to log failure reason to `job_run` metrics
+- Dead-letter concept: locations that fail 3 consecutive runs get flagged in `location` table (`consecutive_failures` counter, reset on success)
+
+### 10. macOS Menu Bar Widget (Tauri)
 
 Separate Tauri app reusing React components from `frontend/src/components/`. Menu bar icon shows today's best rating. Click expands T through T+7. Native macOS toast notifications (replaces osascript).
 
