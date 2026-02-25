@@ -26,6 +26,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - First-login password change gate with complexity enforcement
 - Session expiry warnings (amber ≤7 days, red ≤1 day); refresh token rotates on every `/refresh` call
 - Session countdown (`Session: 30d`) in header for ADMIN users
+- Backend health indicator: green/red dot in header (ADMIN only), polls `/actuator/health` every 30 s
 
 ---
 
@@ -251,7 +252,7 @@ Validate with a temporary tunnel first: `cloudflared tunnel --url http://localho
 - **DB backup**: cron at 02:00 daily — `cp goldenhour.mv.db backups/goldenhour_$TIMESTAMP.mv.db`, keep last 7
 - Resilience: `--restart=always` covers crashes; Mac Mini power loss requires manual restart (acceptable — low stakes)
 
-### 3. Backend Health Status Indicator
+### 3. Backend Health Status Indicator ✓ Built
 
 - Small green/red dot in app header, ADMIN only
 - Polls `/actuator/health` every 30 seconds
