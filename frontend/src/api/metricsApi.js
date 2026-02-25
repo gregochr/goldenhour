@@ -1,7 +1,8 @@
-import api from './authApi';
+import axios from 'axios';
 
 /**
  * Metrics API client — job run tracking and API call logging.
+ * Uses axios with JWT interceptors (configured in forecastApi.js)
  */
 
 /**
@@ -17,7 +18,7 @@ export const getJobRuns = (jobName = undefined, page = 0, size = 20) => {
   if (jobName) params.append('jobName', jobName);
   params.append('page', page);
   params.append('size', size);
-  return api.get(`/api/metrics/job-runs?${params.toString()}`);
+  return axios.get(`/api/metrics/job-runs?${params.toString()}`);
 };
 
 /**
@@ -27,7 +28,7 @@ export const getJobRuns = (jobName = undefined, page = 0, size = 20) => {
  * @returns {Promise} List of API call logs
  */
 export const getApiCalls = (jobRunId) => {
-  return api.get(`/api/metrics/api-calls?jobRunId=${jobRunId}`);
+  return axios.get(`/api/metrics/api-calls?jobRunId=${jobRunId}`);
 };
 
 /**
@@ -36,5 +37,5 @@ export const getApiCalls = (jobRunId) => {
  * @returns {Promise} Service health statistics
  */
 export const getServiceHealth = () => {
-  return api.get('/api/metrics/service-health');
+  return axios.get('/api/metrics/service-health');
 };
