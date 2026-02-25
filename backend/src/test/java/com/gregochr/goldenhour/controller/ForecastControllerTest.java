@@ -102,11 +102,11 @@ class ForecastControllerTest {
         ForecastEvaluationEntity haikuEntity = buildHaikuEntity("Durham UK", LocalDate.of(2026, 2, 20));
         when(forecastService.runForecasts(
                         anyString(), anyDouble(), anyDouble(), any(), any(LocalDate.class), any(),
-                        any(), eq(EvaluationModel.SONNET)))
+                        any(), eq(EvaluationModel.SONNET), any()))
                 .thenReturn(List.of(sonnetEntity));
         when(forecastService.runForecasts(
                         anyString(), anyDouble(), anyDouble(), any(), any(LocalDate.class), any(),
-                        any(), eq(EvaluationModel.HAIKU)))
+                        any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(List.of(haikuEntity));
 
         mockMvc.perform(post("/api/forecast/run"))
@@ -143,19 +143,19 @@ class ForecastControllerTest {
         ForecastEvaluationEntity day2Haiku = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 2));
         when(forecastService.runForecasts(
                         anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 1)), any(), any(), eq(EvaluationModel.SONNET)))
+                        eq(LocalDate.of(2026, 3, 1)), any(), any(), eq(EvaluationModel.SONNET), any()))
                 .thenReturn(List.of(day1Sonnet));
         when(forecastService.runForecasts(
                         anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 1)), any(), any(), eq(EvaluationModel.HAIKU)))
+                        eq(LocalDate.of(2026, 3, 1)), any(), any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(List.of(day1Haiku));
         when(forecastService.runForecasts(
                         anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 2)), any(), any(), eq(EvaluationModel.SONNET)))
+                        eq(LocalDate.of(2026, 3, 2)), any(), any(), eq(EvaluationModel.SONNET), any()))
                 .thenReturn(List.of(day2Sonnet));
         when(forecastService.runForecasts(
                         anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 2)), any(), any(), eq(EvaluationModel.HAIKU)))
+                        eq(LocalDate.of(2026, 3, 2)), any(), any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(List.of(day2Haiku));
 
         mockMvc.perform(post("/api/forecast/run")

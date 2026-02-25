@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.WorldTidesProperties;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -14,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -62,6 +65,7 @@ public class TideService {
     private final WebClient webClient;
     private final TideExtremeRepository tideExtremeRepository;
     private final WorldTidesProperties worldTidesProperties;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs a {@code TideService}.
@@ -69,12 +73,14 @@ public class TideService {
      * @param webClient              shared WebClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
      * @param worldTidesProperties   WorldTides API configuration
+     * @param jobRunService          service for recording API call metrics
      */
     public TideService(WebClient webClient, TideExtremeRepository tideExtremeRepository,
-            WorldTidesProperties worldTidesProperties) {
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
         this.webClient = webClient;
         this.tideExtremeRepository = tideExtremeRepository;
         this.worldTidesProperties = worldTidesProperties;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -88,6 +94,22 @@ public class TideService {
      */
     @Transactional
     public void fetchAndStoreTideExtremes(LocationEntity location) {
+        fetchAndStoreTideExtremes(location, null);
+    }
+
+    /**
+     * Fetches 14 days of tide extremes from WorldTides for a coastal location and replaces
+     * any existing rows for that location in the {@code tide_extreme} table, with optional
+     * job run tracking.
+     *
+     * <p>If the WorldTides API key is not configured, or if the API call fails or returns
+     * a non-200 status, no rows are deleted or written — the existing data is preserved.
+     *
+     * @param location the coastal location to fetch tide data for
+     * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     */
+    @Transactional
+    public void fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
         String apiKey = worldTidesProperties.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             LOG.warn("WorldTides API key not configured — skipping tide fetch for {}",
@@ -97,9 +119,15 @@ public class TideService {
 
         LocalDateTime startOfDay = LocalDateTime.now(ZoneOffset.UTC).toLocalDate().atStartOfDay();
         long startEpoch = startOfDay.toEpochSecond(ZoneOffset.UTC);
+        long callStartMs = System.currentTimeMillis();
 
         try {
             LOG.info("WorldTides ← {} ({}, {})", location.getName(), location.getLat(), location.getLon());
+            String tideUrl = "https://" + WORLDTIDES_HOST + "/api/v3?extremes&lat=" + location.getLat()
+                    + "&lon=" + location.getLon() + "&start=" + startEpoch
+                    + "&length=" + FETCH_LENGTH_SECONDS + "&key=" + (apiKey.length() > 4
+                    ? apiKey.substring(0, 4) + "***" : "***");
+
             WorldTidesResponse response = webClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")
@@ -114,8 +142,16 @@ public class TideService {
                     .bodyToMono(WorldTidesResponse.class)
                     .block();
 
+            long durationMs = System.currentTimeMillis() - callStartMs;
+
             if (response == null || response.getStatus() != 200
                     || response.getExtremes() == null) {
+                String errorMsg = "WorldTides returned status=" + (response != null ? response.getStatus() : "null");
+                if (jobRun != null) {
+                    jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                            "GET", tideUrl, null, durationMs, response != null ? response.getStatus() : null,
+                            null, false, errorMsg);
+                }
                 LOG.warn("WorldTides returned no usable data for {} (status={})",
                         location.getName(), response != null ? response.getStatus() : "null");
                 return;
@@ -141,10 +177,24 @@ public class TideService {
 
             tideExtremeRepository.deleteByLocationId(location.getId());
             tideExtremeRepository.saveAll(entities);
+
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                        "GET", tideUrl, null, durationMs, 200, null, true, null);
+            }
+
             LOG.info("Stored {} tide extremes for {} (T+0 to T+13)",
                     entities.size(), location.getName());
 
         } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - callStartMs;
+            String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            if (jobRun != null) {
+                Integer statusCode = getStatusCode(e);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                        "GET", "https://" + WORLDTIDES_HOST + "/api/v3", null, durationMs,
+                        statusCode, null, false, errorMsg);
+            }
             LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), e.getMessage());
         }
     }
@@ -319,5 +369,18 @@ public class TideService {
             }
         }
         return false;
+    }
+
+    /**
+     * Extracts the HTTP status code from an exception, if available.
+     *
+     * @param e the exception
+     * @return the HTTP status code, or null if not available
+     */
+    private Integer getStatusCode(Exception e) {
+        if (e instanceof WebClientResponseException wex) {
+            return wex.getStatusCode().value();
+        }
+        return null;
     }
 }

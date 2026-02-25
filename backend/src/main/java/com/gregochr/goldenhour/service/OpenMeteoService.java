@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
@@ -51,14 +53,17 @@ public class OpenMeteoService {
     private static final int AOD_SCALE = 3;
 
     private final WebClient webClient;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs an {@code OpenMeteoService}.
      *
-     * @param webClient shared WebClient for outbound HTTP calls
+     * @param webClient      shared WebClient for outbound HTTP calls
+     * @param jobRunService  service for recording API call metrics
      */
-    public OpenMeteoService(WebClient webClient) {
+    public OpenMeteoService(WebClient webClient, JobRunService jobRunService) {
         this.webClient = webClient;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -70,46 +75,93 @@ public class OpenMeteoService {
      * @return pre-processed atmospheric data for the ±30-minute window
      */
     public AtmosphericData getAtmosphericData(ForecastRequest request, LocalDateTime solarEventTime) {
+        return getAtmosphericData(request, solarEventTime, null);
+    }
+
+    /**
+     * Fetches atmospheric data from the Open-Meteo APIs and extracts values
+     * for the slot nearest to the solar event time, with optional job run tracking.
+     *
+     * @param request        the forecast request (location, date, target type)
+     * @param solarEventTime UTC time of the sunrise or sunset being evaluated
+     * @param jobRun         the parent job run for metrics tracking, or {@code null}
+     * @return pre-processed atmospheric data for the ±30-minute window
+     */
+    public AtmosphericData getAtmosphericData(ForecastRequest request, LocalDateTime solarEventTime,
+            JobRunEntity jobRun) {
         LOG.info("Open-Meteo ← {} {} {}", request.locationName(), request.targetType(),
                 solarEventTime.toLocalDate());
         long startMs = System.currentTimeMillis();
 
-        Mono<OpenMeteoForecastResponse> forecastMono = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https").host("api.open-meteo.com").path("/v1/forecast")
-                        .queryParam("latitude", request.latitude())
-                        .queryParam("longitude", request.longitude())
-                        .queryParam("hourly", FORECAST_PARAMS)
-                        .queryParam("wind_speed_unit", "ms")
-                        .queryParam("timezone", "UTC")
-                        .build())
-                .retrieve()
-                .bodyToMono(OpenMeteoForecastResponse.class)
-                .retryWhen(retryOnTransient());
+        try {
+            String forecastUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + request.latitude()
+                    + "&longitude=" + request.longitude()
+                    + "&hourly=" + FORECAST_PARAMS
+                    + "&wind_speed_unit=ms&timezone=UTC";
 
-        Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https").host("air-quality-api.open-meteo.com")
-                        .path("/v1/air-quality")
-                        .queryParam("latitude", request.latitude())
-                        .queryParam("longitude", request.longitude())
-                        .queryParam("hourly", AIR_QUALITY_PARAMS)
-                        .queryParam("timezone", "UTC")
-                        .build())
-                .retrieve()
-                .bodyToMono(OpenMeteoAirQualityResponse.class)
-                .retryWhen(retryOnTransient());
+            Mono<OpenMeteoForecastResponse> forecastMono = webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https").host("api.open-meteo.com").path("/v1/forecast")
+                            .queryParam("latitude", request.latitude())
+                            .queryParam("longitude", request.longitude())
+                            .queryParam("hourly", FORECAST_PARAMS)
+                            .queryParam("wind_speed_unit", "ms")
+                            .queryParam("timezone", "UTC")
+                            .build())
+                    .retrieve()
+                    .bodyToMono(OpenMeteoForecastResponse.class)
+                    .retryWhen(retryOnTransient());
 
-        AtmosphericData data = Mono.zip(forecastMono, airQualityMono)
-                .map(tuple -> extractAtmosphericData(tuple.getT1(), tuple.getT2(),
-                        request.locationName(), solarEventTime, request.targetType()))
-                .block();
-        if (data == null) {
-            throw new IllegalStateException("Open-Meteo API returned null response");
+            String airQualityUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" + request.latitude()
+                    + "&longitude=" + request.longitude()
+                    + "&hourly=" + AIR_QUALITY_PARAMS
+                    + "&timezone=UTC";
+
+            Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https").host("air-quality-api.open-meteo.com")
+                            .path("/v1/air-quality")
+                            .queryParam("latitude", request.latitude())
+                            .queryParam("longitude", request.longitude())
+                            .queryParam("hourly", AIR_QUALITY_PARAMS)
+                            .queryParam("timezone", "UTC")
+                            .build())
+                    .retrieve()
+                    .bodyToMono(OpenMeteoAirQualityResponse.class)
+                    .retryWhen(retryOnTransient());
+
+            AtmosphericData data = Mono.zip(forecastMono, airQualityMono)
+                    .map(tuple -> extractAtmosphericData(tuple.getT1(), tuple.getT2(),
+                            request.locationName(), solarEventTime, request.targetType()))
+                    .block();
+            if (data == null) {
+                throw new IllegalStateException("Open-Meteo API returned null response");
+            }
+
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", forecastUrl, null, durationMs, 200, null, true, null);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_AIR_QUALITY,
+                        "GET", airQualityUrl, null, durationMs, 200, null, true, null);
+            }
+
+            LOG.info("Open-Meteo → {} {}: {}ms", request.locationName(), request.targetType(),
+                    durationMs);
+            return data;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (jobRun != null) {
+                String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "https://api.open-meteo.com/v1/forecast", null, durationMs,
+                        getStatusCode(e), null, false, errorMsg);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_AIR_QUALITY,
+                        "GET", "https://air-quality-api.open-meteo.com/v1/air-quality", null, durationMs,
+                        getStatusCode(e), null, false, errorMsg);
+            }
+            throw e;
         }
-        LOG.info("Open-Meteo → {} {}: {}ms", request.locationName(), request.targetType(),
-                System.currentTimeMillis() - startMs);
-        return data;
     }
 
     /**
@@ -126,55 +178,107 @@ public class OpenMeteoService {
      */
     public List<AtmosphericData> getHourlyAtmosphericData(ForecastRequest request,
             LocalDateTime from, LocalDateTime to) {
+        return getHourlyAtmosphericData(request, from, to, null);
+    }
+
+    /**
+     * Fetches atmospheric data from the Open-Meteo APIs and extracts values for each full UTC
+     * hour between {@code from} and {@code to} (both inclusive, truncated to the hour),
+     * with optional job run tracking.
+     *
+     * <p>Makes a single pair of API calls for the full day and extracts data for each
+     * hourly slot, so the cost is one request regardless of how many hours are covered.
+     *
+     * @param request  the forecast request (location, date, target type)
+     * @param from     start of the window (truncated to hour)
+     * @param to       end of the window (truncated to hour)
+     * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     * @return pre-processed atmospheric data for each full UTC hour in [from, to]
+     */
+    public List<AtmosphericData> getHourlyAtmosphericData(ForecastRequest request,
+            LocalDateTime from, LocalDateTime to, JobRunEntity jobRun) {
         LOG.info("Open-Meteo (hourly) ← {} {} to {}", request.locationName(), from, to);
         long startMs = System.currentTimeMillis();
 
-        Mono<OpenMeteoForecastResponse> forecastMono = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https").host("api.open-meteo.com").path("/v1/forecast")
-                        .queryParam("latitude", request.latitude())
-                        .queryParam("longitude", request.longitude())
-                        .queryParam("hourly", FORECAST_PARAMS)
-                        .queryParam("wind_speed_unit", "ms")
-                        .queryParam("timezone", "UTC")
-                        .build())
-                .retrieve()
-                .bodyToMono(OpenMeteoForecastResponse.class)
-                .retryWhen(retryOnTransient());
+        try {
+            String forecastUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + request.latitude()
+                    + "&longitude=" + request.longitude()
+                    + "&hourly=" + FORECAST_PARAMS
+                    + "&wind_speed_unit=ms&timezone=UTC";
 
-        Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .scheme("https").host("air-quality-api.open-meteo.com")
-                        .path("/v1/air-quality")
-                        .queryParam("latitude", request.latitude())
-                        .queryParam("longitude", request.longitude())
-                        .queryParam("hourly", AIR_QUALITY_PARAMS)
-                        .queryParam("timezone", "UTC")
-                        .build())
-                .retrieve()
-                .bodyToMono(OpenMeteoAirQualityResponse.class)
-                .retryWhen(retryOnTransient());
+            Mono<OpenMeteoForecastResponse> forecastMono = webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https").host("api.open-meteo.com").path("/v1/forecast")
+                            .queryParam("latitude", request.latitude())
+                            .queryParam("longitude", request.longitude())
+                            .queryParam("hourly", FORECAST_PARAMS)
+                            .queryParam("wind_speed_unit", "ms")
+                            .queryParam("timezone", "UTC")
+                            .build())
+                    .retrieve()
+                    .bodyToMono(OpenMeteoForecastResponse.class)
+                    .retryWhen(retryOnTransient());
 
-        List<AtmosphericData> result = Mono.zip(forecastMono, airQualityMono)
-                .map(tuple -> {
-                    LocalDateTime startHour = from.truncatedTo(ChronoUnit.HOURS);
-                    LocalDateTime endHour = to.truncatedTo(ChronoUnit.HOURS);
-                    List<AtmosphericData> slots = new ArrayList<>();
-                    LocalDateTime current = startHour;
-                    while (!current.isAfter(endHour)) {
-                        slots.add(extractAtmosphericData(tuple.getT1(), tuple.getT2(),
-                                request.locationName(), current, request.targetType()));
-                        current = current.plusHours(1);
-                    }
-                    return slots;
-                })
-                .block();
-        if (result == null) {
-            throw new IllegalStateException("Open-Meteo API returned null response");
+            String airQualityUrl = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=" + request.latitude()
+                    + "&longitude=" + request.longitude()
+                    + "&hourly=" + AIR_QUALITY_PARAMS
+                    + "&timezone=UTC";
+
+            Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .scheme("https").host("air-quality-api.open-meteo.com")
+                            .path("/v1/air-quality")
+                            .queryParam("latitude", request.latitude())
+                            .queryParam("longitude", request.longitude())
+                            .queryParam("hourly", AIR_QUALITY_PARAMS)
+                            .queryParam("timezone", "UTC")
+                            .build())
+                    .retrieve()
+                    .bodyToMono(OpenMeteoAirQualityResponse.class)
+                    .retryWhen(retryOnTransient());
+
+            List<AtmosphericData> result = Mono.zip(forecastMono, airQualityMono)
+                    .map(tuple -> {
+                        LocalDateTime startHour = from.truncatedTo(ChronoUnit.HOURS);
+                        LocalDateTime endHour = to.truncatedTo(ChronoUnit.HOURS);
+                        List<AtmosphericData> slots = new ArrayList<>();
+                        LocalDateTime current = startHour;
+                        while (!current.isAfter(endHour)) {
+                            slots.add(extractAtmosphericData(tuple.getT1(), tuple.getT2(),
+                                    request.locationName(), current, request.targetType()));
+                            current = current.plusHours(1);
+                        }
+                        return slots;
+                    })
+                    .block();
+            if (result == null) {
+                throw new IllegalStateException("Open-Meteo API returned null response");
+            }
+
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", forecastUrl, null, durationMs, 200, null, true, null);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_AIR_QUALITY,
+                        "GET", airQualityUrl, null, durationMs, 200, null, true, null);
+            }
+
+            LOG.info("Open-Meteo (hourly) → {}: {} slots, {}ms",
+                    request.locationName(), result.size(), durationMs);
+            return result;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (jobRun != null) {
+                String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "https://api.open-meteo.com/v1/forecast", null, durationMs,
+                        getStatusCode(e), null, false, errorMsg);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_AIR_QUALITY,
+                        "GET", "https://air-quality-api.open-meteo.com/v1/air-quality", null, durationMs,
+                        getStatusCode(e), null, false, errorMsg);
+            }
+            throw e;
         }
-        LOG.info("Open-Meteo (hourly) → {}: {} slots, {}ms",
-                request.locationName(), result.size(), System.currentTimeMillis() - startMs);
-        return result;
     }
 
     /**
@@ -189,6 +293,19 @@ public class OpenMeteoService {
                 .filter(ex -> ex instanceof WebClientResponseException wex
                         && (wex.getStatusCode().is5xxServerError()
                             || wex.getStatusCode().value() == 429));
+    }
+
+    /**
+     * Extracts the HTTP status code from an exception, if available.
+     *
+     * @param e the exception
+     * @return the HTTP status code, or null if not available
+     */
+    private Integer getStatusCode(Exception e) {
+        if (e instanceof WebClientResponseException wex) {
+            return wex.getStatusCode().value();
+        }
+        return null;
     }
 
     /**

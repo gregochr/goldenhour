@@ -62,11 +62,14 @@ class TideServiceTest {
     @Mock
     private WorldTidesProperties worldTidesProperties;
 
+    @Mock
+    private JobRunService jobRunService;
+
     private TideService tideService;
 
     @BeforeEach
     void setUp() {
-        tideService = new TideService(webClient, tideExtremeRepository, worldTidesProperties);
+        tideService = new TideService(webClient, tideExtremeRepository, worldTidesProperties, jobRunService);
     }
 
     // -------------------------------------------------------------------------

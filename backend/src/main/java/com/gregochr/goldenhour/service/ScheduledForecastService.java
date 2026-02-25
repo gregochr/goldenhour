@@ -110,7 +110,7 @@ public class ScheduledForecastService {
 
         for (LocationEntity location : coastal) {
             try {
-                tideService.fetchAndStoreTideExtremes(location);
+                tideService.fetchAndStoreTideExtremes(location, jobRun);
                 succeeded++;
             } catch (Exception e) {
                 LOG.error("Tide refresh failed for {}: {}", location.getName(), e.getMessage(), e);
