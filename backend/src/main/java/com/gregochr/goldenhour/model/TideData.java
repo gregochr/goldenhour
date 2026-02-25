@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
  * Immutable tide state snapshot for a solar event time at a coastal location.
  *
  * @param tideState                 current tide state at the solar event time
- * @param nearMidPoint              true when the solar event falls within ±45 minutes of the
+ * @param nearMidPoint              true when the solar event falls within ±60 minutes of the
  *                                  halfway point between a consecutive HIGH and LOW extreme,
  *                                  indicating a precise mid-tide window
  * @param nextHighTideTime          UTC time of the next high tide

@@ -54,7 +54,7 @@ public class TideService {
      * Minutes within which the solar event is classified as HIGH or LOW tide,
      * and within which the midpoint between consecutive extremes is considered mid-tide.
      */
-    private static final long HIGH_LOW_THRESHOLD_MINUTES = 45;
+    private static final long HIGH_LOW_THRESHOLD_MINUTES = 60;
 
     /** Decimal precision for stored tide heights. */
     private static final int HEIGHT_SCALE = 3;
