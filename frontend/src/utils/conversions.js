@@ -211,17 +211,24 @@ export function groupForecastsByLocation(forecasts) {
  * Groups an array of forecast evaluations by date, keeping only the most
  * recent run for each date+type combination.
  *
+ * HOURLY rows (WILDLIFE model) are collected into a sorted {@code hourly} array
+ * keyed by the full UTC hour timestamp. Only the most-recent run per hour slot
+ * is kept.
+ *
  * @param {Array<object>} forecasts - Raw forecast evaluations from the API.
- * @returns {Map<string, {sunrise: object|null, sunset: object|null}>}
- *   A map keyed by date string (YYYY-MM-DD) with sunrise and sunset entries.
+ * @returns {Map<string, {sunrise: object|null, sunset: object|null, hourly: Array<object>}>}
+ *   A map keyed by date string (YYYY-MM-DD).
  */
 export function groupForecastsByDate(forecasts) {
   const map = new Map();
+  // Intermediate: collect most-recent HOURLY row per hour slot
+  const hourlyByDate = new Map();
 
   for (const forecast of forecasts) {
     const date = forecast.targetDate;
     if (!map.has(date)) {
-      map.set(date, { sunrise: null, sunset: null });
+      map.set(date, { sunrise: null, sunset: null, hourly: [] });
+      hourlyByDate.set(date, new Map());
     }
     const entry = map.get(date);
     const type = forecast.targetType?.toLowerCase();
@@ -234,6 +241,27 @@ export function groupForecastsByDate(forecasts) {
       ) {
         entry[type] = forecast;
       }
+    } else if (type === 'hourly') {
+      // Key by solarEventTime (truncated to hour) — keep most-recent run per slot
+      const slotKey = forecast.solarEventTime;
+      const slotMap = hourlyByDate.get(date);
+      const existing = slotMap.get(slotKey);
+      if (
+        !existing ||
+        new Date(forecast.forecastRunAt) > new Date(existing.forecastRunAt)
+      ) {
+        slotMap.set(slotKey, forecast);
+      }
+    }
+  }
+
+  // Flatten hourly maps back into sorted arrays
+  for (const [date, entry] of map.entries()) {
+    const slotMap = hourlyByDate.get(date);
+    if (slotMap && slotMap.size > 0) {
+      entry.hourly = Array.from(slotMap.values()).sort(
+        (a, b) => new Date(a.solarEventTime + 'Z') - new Date(b.solarEventTime + 'Z'),
+      );
     }
   }
 

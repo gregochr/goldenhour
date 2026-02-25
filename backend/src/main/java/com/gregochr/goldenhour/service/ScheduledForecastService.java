@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,13 +66,23 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs Haiku (1–5 rating) forecasts for all configured locations every 12 h.
+     * Runs Haiku (1–5 rating) forecasts for all colour-type locations every 12 h.
      *
      * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.haiku.cron}.
      */
     @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
     public void runHaikuForecasts() {
         runAll(EvaluationModel.HAIKU);
+    }
+
+    /**
+     * Runs comfort-only (no Claude) forecasts for pure WILDLIFE locations every 12 h.
+     *
+     * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.wildlife.cron}.
+     */
+    @Scheduled(cron = "${forecast.schedule.wildlife.cron:0 0 6,18 * * *}")
+    public void runWildlifeForecasts() {
+        runAll(EvaluationModel.WILDLIFE);
     }
 
     /**
@@ -105,13 +116,44 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs forecasts for all locations and dates using the given model.
+     * Returns {@code true} if the location has at least one colour photography type
+     * (LANDSCAPE or SEASCAPE), or has no types at all (treated as colour).
+     *
+     * @param loc the location to check
+     * @return {@code true} if colour forecasts should be generated for this location
+     */
+    boolean hasColourTypes(LocationEntity loc) {
+        return loc.getLocationType().contains(LocationType.LANDSCAPE)
+                || loc.getLocationType().contains(LocationType.SEASCAPE)
+                || loc.getLocationType().isEmpty();
+    }
+
+    /**
+     * Returns {@code true} if the location is exclusively a WILDLIFE location
+     * (i.e. has WILDLIFE type and no colour photography types).
+     *
+     * @param loc the location to check
+     * @return {@code true} if only wildlife comfort rows should be generated
+     */
+    boolean isPureWildlife(LocationEntity loc) {
+        return loc.getLocationType().contains(LocationType.WILDLIFE) && !hasColourTypes(loc);
+    }
+
+    /**
+     * Runs forecasts for locations relevant to the given model and all dates using that model.
+     *
+     * <p>WILDLIFE model runs only on pure-WILDLIFE locations. HAIKU and SONNET models run
+     * on colour-type locations (LANDSCAPE, SEASCAPE, untyped, or mixed).
      *
      * @param model the evaluation model to use
      */
     private void runAll(EvaluationModel model) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocationEntity> locations = locationService.findAll();
+        List<LocationEntity> locations = locationService.findAll().stream()
+                .filter(loc -> model == EvaluationModel.WILDLIFE
+                        ? isPureWildlife(loc)
+                        : hasColourTypes(loc))
+                .toList();
         LOG.info("Scheduled {} forecast run started — {} location(s), T+0 to T+{}",
                 model, locations.size(), FORECAST_HORIZON_DAYS);
         long startMs = System.currentTimeMillis();
@@ -121,18 +163,27 @@ public class ScheduledForecastService {
         for (LocationEntity location : locations) {
             for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
                 LocalDate targetDate = today.plusDays(daysAhead);
-                if (locationService.shouldEvaluateSunrise(location)) {
-                    if (runForecast(location, targetDate, TargetType.SUNRISE, model)) {
+                if (model == EvaluationModel.WILDLIFE) {
+                    // Single call per day: runForecasts handles the hourly loop internally
+                    if (runForecast(location, targetDate, null, model)) {
                         succeeded++;
                     } else {
                         failed++;
                     }
-                }
-                if (locationService.shouldEvaluateSunset(location)) {
-                    if (runForecast(location, targetDate, TargetType.SUNSET, model)) {
-                        succeeded++;
-                    } else {
-                        failed++;
+                } else {
+                    if (locationService.shouldEvaluateSunrise(location)) {
+                        if (runForecast(location, targetDate, TargetType.SUNRISE, model)) {
+                            succeeded++;
+                        } else {
+                            failed++;
+                        }
+                    }
+                    if (locationService.shouldEvaluateSunset(location)) {
+                        if (runForecast(location, targetDate, TargetType.SUNSET, model)) {
+                            succeeded++;
+                        } else {
+                            failed++;
+                        }
                     }
                 }
             }

@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.entity;
 
 /**
- * Whether an evaluation targets sunrise or sunset.
+ * The solar event or time slot a forecast evaluation targets.
  */
 public enum TargetType {
 
@@ -9,5 +9,8 @@ public enum TargetType {
     SUNRISE,
 
     /** The evening sunset. */
-    SUNSET
+    SUNSET,
+
+    /** An intraday hourly slot (used for WILDLIFE comfort forecasts between sunrise and sunset). */
+    HOURLY
 }

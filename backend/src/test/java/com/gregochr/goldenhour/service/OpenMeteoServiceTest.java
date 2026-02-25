@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import reactor.util.retry.Retry;
@@ -530,6 +531,18 @@ class OpenMeteoServiceTest {
             List<Double> visibility, List<Double> windSpeed, List<Integer> windDir,
             List<Double> precip, List<Integer> weatherCode, List<Integer> humidity,
             List<Double> boundaryLayer, List<Double> shortwave) {
+        return buildForecastResponse(time, cloudLow, cloudMid, cloudHigh, visibility, windSpeed,
+                windDir, precip, weatherCode, humidity, boundaryLayer, shortwave, null, null, null);
+    }
+
+    private OpenMeteoForecastResponse buildForecastResponse(
+            List<String> time,
+            List<Integer> cloudLow, List<Integer> cloudMid, List<Integer> cloudHigh,
+            List<Double> visibility, List<Double> windSpeed, List<Integer> windDir,
+            List<Double> precip, List<Integer> weatherCode, List<Integer> humidity,
+            List<Double> boundaryLayer, List<Double> shortwave,
+            List<Double> temperature, List<Double> apparentTemperature,
+            List<Integer> precipProbability) {
 
         OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
@@ -545,8 +558,135 @@ class OpenMeteoServiceTest {
         hourly.setRelativeHumidity2m(humidity);
         hourly.setBoundaryLayerHeight(boundaryLayer);
         hourly.setShortwaveRadiation(shortwave);
+        hourly.setTemperature2m(temperature);
+        hourly.setApparentTemperature(apparentTemperature);
+        hourly.setPrecipitationProbability(precipProbability);
         response.setHourly(hourly);
         return response;
+    }
+
+    @Test
+    @DisplayName("extractAtmosphericData() extracts temperature, apparent temperature and precipitation probability")
+    void extractAtmosphericData_extractsComfortFields() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(10), List.of(20), List.of(30),
+                List.of(20000.0), List.of(4.0), List.of(225),
+                List.of(0.0), List.of(1), List.of(60),
+                List.of(1000.0), List.of(100.0),
+                List.of(14.5), List.of(11.2), List.of(35));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(1.0), List.of(0.5), List.of(0.05));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.temperatureCelsius()).isEqualTo(14.5);
+        assertThat(result.apparentTemperatureCelsius()).isEqualTo(11.2);
+        assertThat(result.precipitationProbability()).isEqualTo(35);
+    }
+
+    @Test
+    @DisplayName("extractAtmosphericData() returns null comfort fields when not provided by API")
+    void extractAtmosphericData_nullComfortFields_returnsNull() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(10), List.of(20), List.of(30),
+                List.of(20000.0), List.of(4.0), List.of(225),
+                List.of(0.0), List.of(1), List.of(60),
+                List.of(1000.0), List.of(100.0),
+                null, null, null); // temperature/apparent/precipProb not populated
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(1.0), List.of(0.5), List.of(0.05));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.temperatureCelsius()).isNull();
+        assertThat(result.apparentTemperatureCelsius()).isNull();
+        assertThat(result.precipitationProbability()).isNull();
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @DisplayName("getHourlyAtmosphericData() returns one slot per full UTC hour between from and to")
+    void getHourlyAtmosphericData_returnsOneSlotPerHour() {
+        // from=03:30, to=04:45 → truncated to 03:00–04:00 → 2 slots
+        LocalDateTime from = LocalDateTime.of(2026, 6, 21, 3, 30, 0);
+        LocalDateTime to   = LocalDateTime.of(2026, 6, 21, 4, 45, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T03:00", "2026-06-21T04:00"),
+                List.of(5, 10), List.of(20, 25), List.of(30, 35),
+                List.of(20000.0, 21000.0), List.of(3.0, 4.0), List.of(225, 240),
+                List.of(0.0, 0.0), List.of(1, 1), List.of(60, 65),
+                List.of(1000.0, 1100.0), List.of(100.0, 120.0),
+                List.of(12.0, 13.0), List.of(10.0, 11.0), List.of(20, 25));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T03:00", "2026-06-21T04:00"),
+                List.of(2.0, 3.0), List.of(0.5, 0.6), List.of(0.05, 0.06));
+
+        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
+        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
+        WebClient.ResponseSpec forecastResponseSpec = mock(WebClient.ResponseSpec.class);
+        WebClient.ResponseSpec airQualityResponseSpec = mock(WebClient.ResponseSpec.class);
+
+        when(webClient.get()).thenReturn(uriSpec);
+        // Use thenAnswer to actually invoke the URI builder lambda, exercising those code paths.
+        when(uriSpec.uri(any(java.util.function.Function.class))).thenAnswer(inv -> {
+            java.util.function.Function<org.springframework.web.util.UriBuilder, java.net.URI> fn =
+                    inv.getArgument(0);
+            fn.apply(UriComponentsBuilder.newInstance());
+            return headersSpec;
+        });
+        when(headersSpec.retrieve()).thenReturn(forecastResponseSpec, airQualityResponseSpec);
+        when(forecastResponseSpec.bodyToMono(OpenMeteoForecastResponse.class))
+                .thenReturn(Mono.just(forecast));
+        when(airQualityResponseSpec.bodyToMono(OpenMeteoAirQualityResponse.class))
+                .thenReturn(Mono.just(airQuality));
+
+        ForecastRequest request = new ForecastRequest(
+                54.7753, -1.5849, "Wildlife Reserve", LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
+
+        List<AtmosphericData> result = openMeteoService.getHourlyAtmosphericData(request, from, to);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).solarEventTime()).isEqualTo(LocalDateTime.of(2026, 6, 21, 3, 0, 0));
+        assertThat(result.get(1).solarEventTime()).isEqualTo(LocalDateTime.of(2026, 6, 21, 4, 0, 0));
+        assertThat(result.get(0).temperatureCelsius()).isEqualTo(12.0);
+        assertThat(result.get(0).precipitationProbability()).isEqualTo(20);
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @DisplayName("getHourlyAtmosphericData() throws IllegalStateException when API returns null response")
+    void getHourlyAtmosphericData_whenApiReturnsNull_throwsIllegalStateException() {
+        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
+        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
+        WebClient.ResponseSpec responseSpec = mock(WebClient.ResponseSpec.class);
+
+        when(webClient.get()).thenReturn(uriSpec);
+        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
+        when(headersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(any(Class.class))).thenReturn(Mono.empty());
+
+        ForecastRequest request = new ForecastRequest(
+                54.7753, -1.5849, "Wildlife Reserve", LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
+
+        assertThatThrownBy(() -> openMeteoService.getHourlyAtmosphericData(request,
+                LocalDateTime.of(2026, 6, 21, 3, 0, 0),
+                LocalDateTime.of(2026, 6, 21, 4, 0, 0)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("null response");
     }
 
     private OpenMeteoAirQualityResponse buildAirQualityResponse(

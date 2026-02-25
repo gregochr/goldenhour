@@ -110,11 +110,16 @@ public class ForecastService {
             EvaluationModel model) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
-        List<ForecastEvaluationEntity> results = new ArrayList<>();
 
+        if (model == EvaluationModel.WILDLIFE) {
+            // No Claude call — run hourly comfort rows from sunrise to sunset
+            return runWildlifeHourly(locationName, lat, lon, locationId, date, daysAhead, tideTypes);
+        }
+
+        List<ForecastEvaluationEntity> results = new ArrayList<>();
         List<TargetType> types = (targetType != null)
                 ? List.of(targetType)
-                : List.of(TargetType.values());
+                : List.of(TargetType.SUNRISE, TargetType.SUNSET);
 
         for (TargetType type : types) {
             LocalDateTime eventTime = type == TargetType.SUNRISE
@@ -124,11 +129,12 @@ public class ForecastService {
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
             AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
             AtmosphericData forecastData = augmentWithTideData(baseData, locationId, eventTime, tideTypes);
-            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model);
 
             int azimuth = type == TargetType.SUNRISE
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
+
+            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model);
 
             ForecastEvaluationEntity entity = buildEntity(
                     locationName, lat, lon, date, type, daysAhead, eventTime, azimuth,
@@ -147,6 +153,48 @@ public class ForecastService {
             pushoverService.notify(evaluation, locationName, type, date);
             toastService.notify(evaluation, locationName, type, date);
         }
+        return results;
+    }
+
+    /**
+     * Runs comfort-only hourly forecasts for a WILDLIFE location, covering every full UTC
+     * hour between sunrise and sunset on the given date.
+     *
+     * <p>Makes a single Open-Meteo API call for the day and extracts data for each slot.
+     * No Claude evaluation is performed. Notifications are not sent for WILDLIFE rows.
+     *
+     * @param locationName human-readable location name
+     * @param lat          latitude in decimal degrees
+     * @param lon          longitude in decimal degrees
+     * @param locationId   location primary key for tide lookup, or {@code null}
+     * @param date         the calendar date to forecast
+     * @param daysAhead    number of days from today to {@code date}
+     * @param tideTypes    tide preferences for the location (empty if inland)
+     * @return the saved entities, one per full UTC hour from sunrise to sunset
+     */
+    private List<ForecastEvaluationEntity> runWildlifeHourly(String locationName, double lat, double lon,
+            Long locationId, LocalDate date, int daysAhead, java.util.Set<TideType> tideTypes) {
+        LocalDateTime sunriseTime = solarService.sunriseUtc(lat, lon, date);
+        LocalDateTime sunsetTime = solarService.sunsetUtc(lat, lon, date);
+
+        ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, TargetType.SUNRISE);
+        List<AtmosphericData> hourlyData =
+                openMeteoService.getHourlyAtmosphericData(request, sunriseTime, sunsetTime);
+
+        List<ForecastEvaluationEntity> results = new ArrayList<>();
+        SunsetEvaluation noEval = new SunsetEvaluation(null, null, null, null);
+
+        for (AtmosphericData baseData : hourlyData) {
+            AtmosphericData forecastData = augmentWithTideData(
+                    baseData, locationId, baseData.solarEventTime(), tideTypes);
+            ForecastEvaluationEntity entity = buildEntity(
+                    locationName, lat, lon, date, TargetType.HOURLY, daysAhead,
+                    forecastData.solarEventTime(), null,
+                    forecastData, noEval, EvaluationModel.WILDLIFE);
+            results.add(repository.save(entity));
+        }
+        LOG.info("Forecast saved (WILDLIFE hourly comfort): {} {} (T+{}) — {} slot(s)",
+                locationName, date, daysAhead, results.size());
         return results;
     }
 
@@ -194,6 +242,9 @@ public class ForecastService {
                 base.pm25(),
                 base.dustUgm3(),
                 base.aerosolOpticalDepth(),
+                base.temperatureCelsius(),
+                base.apparentTemperatureCelsius(),
+                base.precipitationProbability(),
                 tideData != null ? tideData.tideState() : null,
                 tideData != null ? tideData.nextHighTideTime() : null,
                 tideData != null ? tideData.nextHighTideHeightMetres() : null,
@@ -219,7 +270,7 @@ public class ForecastService {
      * @return the unsaved entity
      */
     private ForecastEvaluationEntity buildEntity(String locationName, double lat, double lon,
-            LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, int azimuth,
+            LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
         return ForecastEvaluationEntity.builder()
                 .locationLat(BigDecimal.valueOf(lat))
@@ -243,6 +294,9 @@ public class ForecastService {
                 .pm25(data.pm25())
                 .dust(data.dustUgm3())
                 .aerosolOpticalDepth(data.aerosolOpticalDepth())
+                .temperatureCelsius(data.temperatureCelsius())
+                .apparentTemperatureCelsius(data.apparentTemperatureCelsius())
+                .precipitationProbabilityPercent(data.precipitationProbability())
                 .tideState(data.tideState())
                 .nextHighTideTime(data.nextHighTideTime())
                 .nextHighTideHeightMetres(data.nextHighTideHeightMetres())

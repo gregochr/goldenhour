@@ -183,11 +183,73 @@ class ForecastServiceTest {
         assertThat(first.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
     }
 
+    @Test
+    @DisplayName("runForecasts() with WILDLIFE model skips Claude, saves hourly entities with no notifications")
+    void runForecasts_wildlifeModel_skipsClaudeAndNotifications() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        AtmosphericData slot1 = buildAtmosphericData(LocalDateTime.of(2026, 6, 21, 3, 0), TargetType.SUNRISE);
+        AtmosphericData slot2 = buildAtmosphericData(LocalDateTime.of(2026, 6, 21, 4, 0), TargetType.SUNRISE);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(5L).build();
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any()))
+                .thenReturn(java.util.List.of(slot1, slot2));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
+                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
+                EvaluationModel.WILDLIFE);
+
+        assertThat(results).hasSize(2);
+        verify(repository, times(2)).save(any());
+        verify(evaluationService, org.mockito.Mockito.never())
+                .evaluate(any(), any(EvaluationModel.class));
+        verify(emailService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
+        verify(pushoverService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
+        verify(toastService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("runForecasts() with WILDLIFE model persists HOURLY entities with null scores")
+    void runForecasts_wildlifeModel_entityHasHourlyTargetTypeAndNullScores() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        AtmosphericData slot = buildAtmosphericData(LocalDateTime.of(2026, 6, 21, 7, 0), TargetType.SUNRISE);
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any()))
+                .thenReturn(java.util.List.of(slot));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null,
+                java.util.Set.of(), EvaluationModel.WILDLIFE);
+
+        ArgumentCaptor<ForecastEvaluationEntity> captor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(1)).save(captor.capture());
+
+        ForecastEvaluationEntity saved = captor.getValue();
+        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.WILDLIFE);
+        assertThat(saved.getTargetType()).isEqualTo(TargetType.HOURLY);
+        assertThat(saved.getRating()).isNull();
+        assertThat(saved.getFierySkyPotential()).isNull();
+        assertThat(saved.getGoldenHourPotential()).isNull();
+        assertThat(saved.getSummary()).isNull();
+    }
+
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {
         return new AtmosphericData("Durham UK", eventTime, targetType,
                 15, 55, 30, 22000, new BigDecimal("4.20"), 225, new BigDecimal("0.00"),
                 62, 3, 1200, new BigDecimal("180.00"),
                 new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
+                12.5, 9.8, 20,
                 null, null, null, null, null, null);
     }
 }

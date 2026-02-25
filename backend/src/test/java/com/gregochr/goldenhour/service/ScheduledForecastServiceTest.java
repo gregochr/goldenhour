@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -55,9 +56,19 @@ class ScheduledForecastServiceTest {
                 .build();
     }
 
+    private static LocationEntity wildlifeReserve() {
+        return LocationEntity.builder()
+                .name("Wildlife Reserve")
+                .lat(53.5)
+                .lon(-1.2)
+                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .locationType(java.util.Set.of(LocationType.WILDLIFE))
+                .build();
+    }
+
     @BeforeEach
     void setUp() {
-        when(locationService.findAll()).thenReturn(List.of(durham()));
+        lenient().when(locationService.findAll()).thenReturn(List.of(durham()));
         // lenient: only needed by forecast tests, not refreshTideExtremes tests
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
@@ -134,6 +145,85 @@ class ScheduledForecastServiceTest {
                 .runForecasts(eq("London UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),
                         any(EvaluationModel.class));
+    }
+
+    @Test
+    @DisplayName("runWildlifeForecasts() calls forecastService with WILDLIFE only for pure-WILDLIFE locations")
+    void runWildlifeForecasts_callsForecastService_withWildlifeModel_forWildlifeLocations() {
+        when(locationService.findAll()).thenReturn(List.of(durham(), wildlifeReserve()));
+        lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
+        lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        scheduledForecastService = new ScheduledForecastService(
+                forecastService, locationService, tideService);
+
+        scheduledForecastService.runWildlifeForecasts();
+
+        // WILDLIFE model: one call per day (null targetType — hourly runs handled internally)
+        int daysInHorizon = ScheduledForecastService.FORECAST_HORIZON_DAYS + 1;
+        verify(forecastService, times(daysInHorizon))
+                .runForecasts(eq("Wildlife Reserve"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), org.mockito.ArgumentMatchers.isNull(),
+                        any(), eq(EvaluationModel.WILDLIFE));
+        // Durham (untyped = colour) must NOT receive WILDLIFE calls
+        verify(forecastService, never())
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(),
+                        any(), eq(EvaluationModel.WILDLIFE));
+    }
+
+    @Test
+    @DisplayName("runSonnetForecasts() excludes pure-WILDLIFE locations")
+    void runSonnetForecasts_excludesPureWildlifeLocations() {
+        when(locationService.findAll()).thenReturn(List.of(durham(), wildlifeReserve()));
+        lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
+        lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        scheduledForecastService = new ScheduledForecastService(
+                forecastService, locationService, tideService);
+
+        scheduledForecastService.runSonnetForecasts();
+
+        // Wildlife Reserve must NOT receive SONNET calls
+        verify(forecastService, never())
+                .runForecasts(eq("Wildlife Reserve"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.SONNET));
+    }
+
+    @Test
+    @DisplayName("hasColourTypes() returns true for untyped location")
+    void hasColourTypes_untypedLocation_returnsTrue() {
+        assertThat(scheduledForecastService.hasColourTypes(durham())).isTrue();
+    }
+
+    @Test
+    @DisplayName("hasColourTypes() returns false for pure-WILDLIFE location")
+    void hasColourTypes_pureWildlifeLocation_returnsFalse() {
+        assertThat(scheduledForecastService.hasColourTypes(wildlifeReserve())).isFalse();
+    }
+
+    @Test
+    @DisplayName("isPureWildlife() returns true for pure-WILDLIFE location")
+    void isPureWildlife_pureWildlifeLocation_returnsTrue() {
+        assertThat(scheduledForecastService.isPureWildlife(wildlifeReserve())).isTrue();
+    }
+
+    @Test
+    @DisplayName("isPureWildlife() returns false for untyped location")
+    void isPureWildlife_untypedLocation_returnsFalse() {
+        assertThat(scheduledForecastService.isPureWildlife(durham())).isFalse();
+    }
+
+    @Test
+    @DisplayName("isPureWildlife() returns false for mixed LANDSCAPE+WILDLIFE location")
+    void isPureWildlife_mixedLocation_returnsFalse() {
+        LocationEntity mixed = LocationEntity.builder()
+                .name("Coastal Park")
+                .lat(54.0)
+                .lon(-1.5)
+                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .locationType(java.util.Set.of(LocationType.LANDSCAPE, LocationType.WILDLIFE))
+                .build();
+        assertThat(scheduledForecastService.isPureWildlife(mixed)).isFalse();
     }
 
     // -------------------------------------------------------------------------
