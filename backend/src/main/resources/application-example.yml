@@ -39,11 +39,11 @@ notifications:
     enabled: true
 
 cost:
-  # API call costs in pence
-  anthropic-haiku-pence: 50
-  anthropic-sonnet-pence: 130
-  world-tides-pence: 20
-  open-meteo-pence: 0
+  # API call costs in units of 1/10th pence (e.g., 0.5p = 5, 1.3p = 13)
+  anthropic-haiku-pence: 5        # 0.5p per call
+  anthropic-sonnet-pence: 13      # 1.3p per call
+  world-tides-pence: 2            # 0.2p per call
+  open-meteo-pence: 0             # free (included in subscription)
 
 forecast:
   locations:

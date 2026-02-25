@@ -101,7 +101,30 @@ function AppInner() {
           </div>
         )}
 
-        {!loading && !error && sortedLocations.length > 0 && (
+        {!loading && !error && sortedLocations.length === 0 && (
+          <div className="card border border-gray-800 text-center py-16">
+            <p className="text-gray-400 text-lg mb-4">No forecasts available</p>
+            <p className="text-gray-500 text-sm mb-6">Add locations in the Manage tab to get started</p>
+            <button
+              className="btn-primary"
+              onClick={() => setViewMode('manage')}
+            >
+              Go to Manage
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && (
+          <div className="card border border-gray-800 text-center py-16">
+            <p className="text-gray-400 text-lg mb-4">No forecasts loaded yet</p>
+            <p className="text-gray-500 text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
+            <button className="btn-primary" onClick={refresh}>
+              Refresh
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && sortedLocations.length > 0 && allDates.length > 0 && (
           <>
             <div className="mb-6">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />

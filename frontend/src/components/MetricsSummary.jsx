@@ -8,7 +8,8 @@ import PropTypes from 'prop-types';
  * - Total runs by job type
  * - Overall success rate
  * - Slowest service (by avg latency)
- * - Common error types
+ * - Evaluation count
+ * - Total operational cost
  */
 const MetricsSummary = ({ runs, apiCalls }) => {
   if (!runs || runs.length === 0) {
@@ -28,6 +29,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
   const successRate = totalEvaluations > 0
     ? Math.round((totalSucceeded / totalEvaluations) * 100)
     : 0;
+  const totalCostPence = runs.reduce((sum, run) => sum + (run.totalCostPence || 0), 0);
 
   // Count runs by job type
   const runsByType = runs.reduce((acc, run) => {
@@ -102,6 +104,18 @@ const MetricsSummary = ({ runs, apiCalls }) => {
         <div className="mt-3 text-3xl font-bold text-gray-900">{totalEvaluations}</div>
         <div className="mt-1 text-xs text-gray-600">in {totalRuns} runs</div>
       </div>
+
+      {/* Total Cost */}
+      {totalCostPence > 0 && (
+        <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
+          <div className="text-sm font-medium text-gray-500">Total Cost</div>
+          <p className="text-xs text-gray-400 mt-1">Operational cost of API calls over the past 7 days. Anthropic (Haiku 0.5p, Sonnet 1.3p), WorldTides (0.2p), Open-Meteo (free)</p>
+          <div className="mt-3 text-3xl font-bold text-blue-600">£{(totalCostPence / 1000).toFixed(3)}</div>
+          <div className="mt-2 text-xs text-gray-600">
+            {totalRuns} runs, {totalEvaluations} evaluations
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -115,6 +129,7 @@ MetricsSummary.propTypes = {
       durationMs: PropTypes.number,
       succeeded: PropTypes.number,
       failed: PropTypes.number,
+      totalCostPence: PropTypes.number,
     })
   ).isRequired,
   apiCalls: PropTypes.arrayOf(

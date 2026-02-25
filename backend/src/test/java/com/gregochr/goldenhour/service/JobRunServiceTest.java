@@ -64,7 +64,7 @@ class JobRunServiceTest {
         ArgumentCaptor<com.gregochr.goldenhour.entity.ApiCallLogEntity> captor =
                 ArgumentCaptor.forClass(com.gregochr.goldenhour.entity.ApiCallLogEntity.class);
         when(apiCallLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(costCalculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).thenReturn(130);
+        when(costCalculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).thenReturn(13);  // 1.3p
 
         jobRunService.logApiCall(
                 1L, ServiceName.ANTHROPIC, "POST",
@@ -78,7 +78,7 @@ class JobRunServiceTest {
         assertThat(logged.getService()).isEqualTo(ServiceName.ANTHROPIC);
         assertThat(logged.getDurationMs()).isEqualTo(250L);
         assertThat(logged.getSucceeded()).isTrue();
-        assertThat(logged.getCostPence()).isEqualTo(130);
+        assertThat(logged.getCostPence()).isEqualTo(13);
     }
 
     @Test
