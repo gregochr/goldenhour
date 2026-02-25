@@ -48,21 +48,28 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
       <div className="p-4 border-b border-gray-200 flex justify-between items-center">
         <h3 className="font-semibold text-gray-900">Job Runs ({runs.length})</h3>
         <div className="flex gap-2">
-          {['date', 'duration', 'succeeded'].map((option) => (
-            <button
-              key={option}
-              onClick={() => setSortBy(option)}
-              className={`px-3 py-1 text-sm rounded ${
-                sortBy === option
-                  ? 'bg-blue-100 text-blue-700 font-medium'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              data-testid={`sort-${option}`}
-            >
-              {option === 'date' && 'Date'}
-              {option === 'duration' && 'Duration'}
-              {option === 'succeeded' && 'Succeeded'}
-            </button>
+          {[
+            { value: 'date', label: 'Date', tooltip: 'Sort by start time (Descending — newest first)' },
+            { value: 'duration', label: 'Duration', tooltip: 'Sort by runtime (Descending — longest first)' },
+            { value: 'succeeded', label: 'Succeeded', tooltip: 'Sort by successful count (Descending — highest first)' },
+          ].map((option) => (
+            <div key={option.value} className="relative group">
+              <button
+                onClick={() => setSortBy(option.value)}
+                className={`px-3 py-1 text-sm rounded ${
+                  sortBy === option.value
+                    ? 'bg-blue-100 text-blue-700 font-medium'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+                data-testid={`sort-${option.value}`}
+              >
+                {option.label}
+              </button>
+              {/* Tooltip */}
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                {option.tooltip}
+              </div>
+            </div>
           ))}
         </div>
       </div>

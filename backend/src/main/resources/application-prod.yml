@@ -1,4 +1,4 @@
-spring:
+Durationspring:
   datasource:
     url: jdbc:h2:file:/data/goldenhour;MODE=MySQL
     driver-class-name: org.h2.Driver
