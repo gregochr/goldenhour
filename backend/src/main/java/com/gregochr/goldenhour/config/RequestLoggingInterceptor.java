@@ -3,56 +3,148 @@ package com.gregochr.goldenhour.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.servlet.HandlerInterceptor;
-import org.springframework.web.servlet.ModelAndView;
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
 
 /**
- * Logs all API endpoint invocations with timing and response status.
+ * Logs all /api/** endpoint invocations with timing, response status, and error details.
+ * Runs at Servlet filter level (before Spring Security) to capture all requests.
  */
 @Component
-public class RequestLoggingInterceptor implements HandlerInterceptor {
+public class RequestLoggingInterceptor implements Filter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RequestLoggingInterceptor.class);
-    private static final String START_TIME = "startTime";
 
     @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
-            throws Exception {
-        request.setAttribute(START_TIME, System.currentTimeMillis());
-        LOG.info("→ {} {}", request.getMethod(), request.getRequestURI());
-        return true;
-    }
+    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain chain)
+            throws IOException, ServletException {
+        HttpServletRequest request = (HttpServletRequest) servletRequest;
+        HttpServletResponse response = (HttpServletResponse) servletResponse;
 
-    @Override
-    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler,
-            ModelAndView modelAndView) throws Exception {
-        // Not used
-    }
-
-    @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler,
-            Exception ex) throws Exception {
-        long startTime = (long) request.getAttribute(START_TIME);
-        long duration = System.currentTimeMillis() - startTime;
-        int status = response.getStatus();
-
-        String statusLabel;
-        if (status >= 200 && status < 300) {
-            statusLabel = "✓ " + status;
-        } else if (status >= 300 && status < 400) {
-            statusLabel = "→ " + status;
-        } else if (status >= 400 && status < 500) {
-            statusLabel = "⚠ " + status;
-        } else {
-            statusLabel = "✗ " + status;
+        // Only log /api/** requests
+        if (!request.getRequestURI().startsWith("/api/")) {
+            chain.doFilter(request, response);
+            return;
         }
 
-        LOG.info("← {} {} ({} ms)", statusLabel, request.getRequestURI(), duration);
+        long startTime = System.currentTimeMillis();
+        LOG.info("→ {} {}", request.getMethod(), request.getRequestURI());
 
-        if (ex != null) {
-            LOG.error("Exception in {}: {}", request.getRequestURI(), ex.getMessage(), ex);
+        // Wrap response to capture body
+        ResponseWrapper wrappedResponse = new ResponseWrapper(response);
+
+        try {
+            chain.doFilter(request, wrappedResponse);
+        } finally {
+            wrappedResponse.flushBuffer();
+            long duration = System.currentTimeMillis() - startTime;
+            int status = wrappedResponse.getStatus();
+
+            String statusLabel;
+            if (status >= 200 && status < 300) {
+                statusLabel = "✓ " + status;
+            } else if (status >= 300 && status < 400) {
+                statusLabel = "→ " + status;
+            } else if (status >= 400 && status < 500) {
+                statusLabel = "⚠ " + status;
+            } else {
+                statusLabel = "✗ " + status;
+            }
+
+            String body = wrappedResponse.getResponseBody();
+            LOG.info("← {} {} ({} ms)", statusLabel, request.getRequestURI(), duration);
+            if (status >= 400 && !body.isEmpty()) {
+                LOG.info("    error: {}", body.length() > 200 ? body.substring(0, 200) + "..." : body);
+            }
+        }
+    }
+
+    /**
+     * Wrapper to capture response body without consuming it.
+     */
+    private static class ResponseWrapper extends HttpServletResponseWrapper {
+        private final ByteArrayOutputStream capture = new ByteArrayOutputStream();
+        private ServletOutputStream output;
+        private PrintWriter writer;
+
+        ResponseWrapper(HttpServletResponse response) {
+            super(response);
+        }
+
+        @Override
+        public ServletOutputStream getOutputStream() throws IOException {
+            if (output == null) {
+                output = new ServletOutputStream() {
+                    @Override
+                    public void write(int b) throws IOException {
+                        capture.write(b);
+                        getResponse().getOutputStream().write(b);
+                    }
+
+                    @Override
+                    public void flush() throws IOException {
+                        getResponse().getOutputStream().flush();
+                    }
+
+                    @Override
+                    public void close() throws IOException {
+                        getResponse().getOutputStream().close();
+                    }
+
+                    @Override
+                    public boolean isReady() {
+                        try {
+                            return getResponse().getOutputStream().isReady();
+                        } catch (IOException e) {
+                            return false;
+                        }
+                    }
+
+                    @Override
+                    public void setWriteListener(WriteListener listener) {
+                        try {
+                            getResponse().getOutputStream().setWriteListener(listener);
+                        } catch (IOException e) {
+                            // Ignore
+                        }
+                    }
+                };
+            }
+            return output;
+        }
+
+        @Override
+        public PrintWriter getWriter() throws IOException {
+            if (writer == null) {
+                writer = new PrintWriter(getOutputStream(), true);
+            }
+            return writer;
+        }
+
+        @Override
+        public void flushBuffer() throws IOException {
+            if (writer != null) {
+                writer.flush();
+            }
+            if (output != null) {
+                output.flush();
+            }
+            super.flushBuffer();
+        }
+
+        String getResponseBody() {
+            return capture.toString();
         }
     }
 }

@@ -39,6 +39,11 @@ notifications:
   macos-toast:
     enabled: false
 
+logging:
+  level:
+    com.gregochr.goldenhour.config.RequestLoggingInterceptor: INFO
+
+
 forecast:
   locations:
     - name: Berwick-Upon-Tweed
