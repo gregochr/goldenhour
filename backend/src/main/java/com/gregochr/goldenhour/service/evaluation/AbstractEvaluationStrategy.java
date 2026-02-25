@@ -85,6 +85,13 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     protected abstract EvaluationModel getEvaluationModel();
 
     /**
+     * Returns the Claude model identifier for this strategy.
+     *
+     * @return the model name (e.g., "claude-haiku-4-5" or "claude-sonnet-4-5-20250929")
+     */
+    protected abstract String getModelName();
+
+    /**
      * Parses Claude's JSON response text into a {@link SunsetEvaluation}.
      *
      * <p>Subclasses override this to handle their specific JSON schema.
@@ -103,7 +110,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
     @Override
     public SunsetEvaluation evaluate(AtmosphericData data, JobRunEntity jobRun) {
-        LOG.info("Anthropic ({}) ← {} {} {}", properties.getModel(),
+        LOG.info("Anthropic ({}) ← {} {} {}", getModelName(),
                 data.locationName(), data.targetType(), data.solarEventTime().toLocalDate());
         long startMs = System.currentTimeMillis();
         int statusCode = 500;
@@ -177,7 +184,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             try {
                 return client.messages().create(
                         MessageCreateParams.builder()
-                                .model(properties.getModel())
+                                .model(getModelName())
                                 .maxTokens(MAX_TOKENS)
                                 .system(getSystemPrompt())
                                 .addUserMessage(buildUserMessage(data))

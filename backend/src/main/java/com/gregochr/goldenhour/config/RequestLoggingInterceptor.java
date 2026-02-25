@@ -52,7 +52,6 @@ public class RequestLoggingInterceptor implements Filter {
             } else {
                 statusLabel = "✗ " + status;
             }
-
             LOG.info("← {} {} ({} ms)", statusLabel, request.getRequestURI(), duration);
         }
     }

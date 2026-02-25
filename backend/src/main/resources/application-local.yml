@@ -73,174 +73,31 @@ forecast:
         - HIGH_TIDE
         - MID_TIDE
       locationType: SEASCAPE
-    - name: Lindisfarne Castle
-      lat: 55.6991
-      lon: -1.7848
-    - name: Holy Island Harbour
-      lat: 55.6667
-      lon: -1.7833
-    - name: Lindisfarne Priory
-      lat: 55.6712
-      lon: -1.8019
-    - name: Emmanuel Head
-      lat: 55.6859
-      lon: -1.7801
-    - name: Holy Island Causeway
-      lat: 55.6780
-      lon: -1.8739
-    - name: Budle Bay
-      lat: 55.6105
-      lon: -1.7662
-    - name: Bamburgh Castle
-      lat: 55.6090
-      lon: -1.7099
-    - name: Beadnell
-      lat: 55.5588
-      lon: -1.6342
-    - name: Low Newton-by-the-Sea
-      lat: 55.5153
-      lon: -1.6197
-    - name: Embleton Bay
-      lat: 55.5004
-      lon: -1.6070
-    - name: Dunstanburgh Castle
-      lat: 55.4894
-      lon: -1.5951
-    - name: Black Hole
-      lat: 55.465
-      lon: -1.587
-    - name: Cullernose Point
-      lat: 55.4617
-      lon: -1.58836
-    - name: Howick Scar
-      lat: 55.4642
-      lon: -1.5928
-    - name: Rumbling Kern
-      lat: 55.4485
-      lon: -1.5866
-    - name: Sugar Sands
-      lat: 55.4373
-      lon: -1.5903
-    - name: Alnmouth
-      lat: 55.3902
-      lon: -1.6129
-    - name: Amble
-      lat: 55.3315
-      lon: -1.5853
-    - name: Low Hauxley
-      lat: 55.3204
-      lon: -1.5519
-    - name: Cresswell
-      lat: 55.2333
-      lon: -1.5434
-    - name: Newbiggin-by-the-Sea
-      lat: 55.1851
-      lon: -1.5122
-    - name: Cambois Beach
-      lat: 55.1566
-      lon: -1.5229
-    - name: Blyth
-      lat: 55.1270
-      lon: -1.5103
-    - name: Seaton Sluice
-      lat: 55.0836
-      lon: -1.4744
-    - name: Rumbling Kern
-      lat: 55.4485
-      lon: -1.4744
-    - name: St. Mary's Lighthouse
-      lat: 55.0717
-      lon: -1.4494
-    - name: Cullercoats
-      lat: 55.0368
-      lon: -1.4338
-    - name: Tynemouth
-      lat: 55.0719
-      lon: -1.4255
-    - name: Duddo Stone Circle
-      lat: 55.6868
-      lon: -2.1120
-    - name: Roughting Linn
-      lat: 55.6243
-      lon: -2.0302
-    - name: Yeavering Bell
-      lat: 55.5500
-      lon: -2.1000
-    - name: Alnwick Castle
-      lat: 55.4156
-      lon: -1.7059
-    - name: Warkworth Castle
-      lat: 55.3452
-      lon: -1.6118
-    - name: Edlinghham
-      lat: 55.3761
-      lon: -1.8296
-    - name: Harbottle Hills
-      lat: 55.337
-      lon: -2.131
-    - name: Simonside
-      lat: 54.9741
-      lon: -1.4599
-    - name: Hareshaw Linn
-      lat: 55.1456
-      lon: -2.2519
-    - name: Allen Banks
-      lat: 54.96
-      lon: -2.32
-    - name: Walltown Crags
-      lat: 54.9893
-      lon: -2.5094
-    - name: Cawfields
-      lat: 54.9399
-      lon: -2.4458
-    - name: Caw Gap
-      lat: 54.9971
-      lon: -2.4243
-    - name: Steel Rigg & Winshield Crags
-      lat: 55.0030
-      lon: -2.3908
-    - name: Peel Craggs
-      lat: 55.0008
-      lon: -2.2310
-    - name: Sycamore Gap
-      lat: 55.00356
-      lon: -2.37387
-    - name: Highshield Crags
-      lat: 54.9992
-      lon: -2.366
-    - name: Hotbank Crags
-      lat: 54.9916
-      lon: -2.3563
-    - name: Cuddy's Crags
-      lat: 55.0019
-      lon: -2.2431
-    - name: Houseteads Fort
-      lat: 55.0107
-      lon: -2.3278
-    - name: Infinity Bridge
-      lat: 54.5649
-      lon: -1.2992
-    - name: The Tees Transporter Bridge
-      lat: 54.5835
-      lon: -1.2291
-    - name: Redcar
-      lat: 54.5975
-      lon: -1.0780
-    - name: South Gare & Paddy's Hole
-      lat: 54.6357
-      lon: -1.1369
-    - name: Saltburn-by-the-Sea
-      lat: 54.5816
-      lon: -0.9751
+    - name: Angel of the North
+      lat: 54.9141
+      lon: -1.5895
+      locationType: LANDSCAPE
+      goldenHourType:
+        - SUNRISE
+        - SUNSET
+    - name: Lowes Barns, Witton Le Wear
+      lat: 54.717
+      lon: -1.761
+      locationType: WILDLIFE
     - name: Keswick
       lat: 54.6
       lon: -3.13
-    - name: Ambleside
-      lat: 54.43
-      lon: -2.96
-    - name: Durham
-      lat: 54.7753
-      lon: -1.5849
+      locationType: LANDSCAPE
+      goldenHourType:
+        - SUNRISE
+        - SUNSET
+    - name: Wharton Park, Durham
+      lat: 54.7806
+      lon: -1.5833
+      locationType: LANDSCAPE
+      goldenHourType:
+        - SUNRISE
+
   schedule:
     cron: "0 0 6,18 * * *"
 

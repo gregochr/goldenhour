@@ -302,6 +302,11 @@ class AbstractEvaluationStrategyTest {
         }
 
         @Override
+        protected String getModelName() {
+            return "claude-sonnet-4-5-20250929";
+        }
+
+        @Override
         protected SunsetEvaluation parseEvaluation(String text, ObjectMapper objectMapper) {
             // Delegate to Sonnet-style parsing for test purposes
             try {
