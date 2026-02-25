@@ -158,7 +158,7 @@ export default function ForecastCard({
               </p>
             )}
 
-            <TideIndicator forecast={forecast} />
+            <TideIndicator locationName={locationName} date={date} />
           </>
         ) : (
           <p className="text-sm text-gray-500 italic">No forecast available.</p>

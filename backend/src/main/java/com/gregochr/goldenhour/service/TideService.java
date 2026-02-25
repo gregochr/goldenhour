@@ -50,8 +50,11 @@ public class TideService {
     /** Days either side of the solar event time to query from the DB. */
     private static final long QUERY_WINDOW_DAYS = 2;
 
-    /** Minutes within which the solar event is classified as HIGH or LOW tide. */
-    private static final long HIGH_LOW_THRESHOLD_MINUTES = 90;
+    /**
+     * Minutes within which the solar event is classified as HIGH or LOW tide,
+     * and within which the midpoint between consecutive extremes is considered mid-tide.
+     */
+    private static final long HIGH_LOW_THRESHOLD_MINUTES = 45;
 
     /** Decimal precision for stored tide heights. */
     private static final int HEIGHT_SCALE = 3;
@@ -159,6 +162,24 @@ public class TideService {
     }
 
     /**
+     * Returns all tide extremes for a location on the given UTC calendar day, ordered chronologically.
+     *
+     * <p>Used by {@code TideController} to serve the daily tide schedule for a specific date.
+     * The query window is midnight-to-midnight UTC, so extremes that straddle midnight
+     * (e.g. a low tide at 01:15) appear on the day they actually occur.
+     *
+     * @param locationId the location primary key
+     * @param date       the UTC calendar day to query
+     * @return tide extremes for that day in chronological order; empty list if none stored
+     */
+    public List<TideExtremeEntity> getTidesForDate(Long locationId, java.time.LocalDate date) {
+        LocalDateTime from = date.atStartOfDay();
+        LocalDateTime to = date.plusDays(1).atStartOfDay().minusNanos(1);
+        return tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                locationId, from, to);
+    }
+
+    /**
      * Derives tide data for a coastal location at a solar event time using stored extremes.
      *
      * <p>Queries the {@code tide_extreme} table for extremes within
@@ -187,6 +208,10 @@ public class TideService {
     /**
      * Computes whether the tide state aligns with the location's photographer preference.
      *
+     * <p>For {@link TideType#MID_TIDE}, alignment requires the solar event to be within
+     * {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of the midpoint between consecutive
+     * HIGH and LOW extremes — not merely "not HIGH and not LOW".
+     *
      * @param tideData          the tide data snapshot at the solar event time
      * @param locationTideTypes the location's acceptable tide states
      * @return true if the tide state matches any of the location's preferences
@@ -195,14 +220,17 @@ public class TideService {
         if (locationTideTypes.isEmpty()) {
             return false;
         }
-
         if (locationTideTypes.contains(TideType.ANY_TIDE)) {
             return true;
         }
-
         TideState tideState = tideData.tideState();
-        return locationTideTypes.stream()
-                .anyMatch(pref -> tideStateMatches(tideState, pref));
+        return locationTideTypes.stream().anyMatch(pref -> switch (pref) {
+            case HIGH_TIDE -> tideState == TideState.HIGH;
+            case LOW_TIDE -> tideState == TideState.LOW;
+            case MID_TIDE -> tideData.nearMidPoint();
+            case ANY_TIDE -> true;
+            case NOT_COASTAL -> false;
+        });
     }
 
     /**
@@ -212,10 +240,11 @@ public class TideService {
      *
      * @param extremes  stored tide extremes in chronological order
      * @param eventTime UTC time of the solar event
-     * @return tide data snapshot including state and next high/low events
+     * @return tide data snapshot including state, mid-point proximity, and next high/low events
      */
     TideData buildTideData(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
         TideState state = classifyTideState(extremes, eventTime);
+        boolean nearMid = isMidPointAligned(extremes, eventTime);
 
         TideExtremeEntity nextHigh = extremes.stream()
                 .filter(e -> e.getType() == TideExtremeType.HIGH
@@ -231,6 +260,7 @@ public class TideService {
 
         return new TideData(
                 state,
+                nearMid,
                 nextHigh != null ? nextHigh.getEventTime() : null,
                 nextHigh != null ? nextHigh.getHeightMetres() : null,
                 nextLow != null ? nextLow.getEventTime() : null,
@@ -266,13 +296,27 @@ public class TideService {
         return TideState.MID;
     }
 
-    private boolean tideStateMatches(TideState tideState, TideType tideType) {
-        return switch (tideType) {
-            case HIGH_TIDE -> tideState == TideState.HIGH;
-            case LOW_TIDE -> tideState == TideState.LOW;
-            case MID_TIDE -> tideState == TideState.MID;
-            case ANY_TIDE -> true;
-            case NOT_COASTAL -> false;
-        };
+    /**
+     * Returns {@code true} when the solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES}
+     * minutes of the midpoint between any consecutive pair of tide extremes.
+     *
+     * <p>Consecutive pairs are taken from the chronologically sorted {@code extremes} list.
+     * In practice extremes alternate HIGH-LOW-HIGH-LOW so each pair spans one tidal phase.
+     *
+     * @param extremes  stored tide extremes in chronological order
+     * @param eventTime UTC time of the solar event
+     * @return {@code true} if the event falls in a precise mid-tide window
+     */
+    private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
+        for (int i = 0; i < extremes.size() - 1; i++) {
+            LocalDateTime t1 = extremes.get(i).getEventTime();
+            LocalDateTime t2 = extremes.get(i + 1).getEventTime();
+            long halfSeconds = ChronoUnit.SECONDS.between(t1, t2) / 2;
+            LocalDateTime midpoint = t1.plusSeconds(halfSeconds);
+            if (Math.abs(ChronoUnit.MINUTES.between(midpoint, eventTime)) <= HIGH_LOW_THRESHOLD_MINUTES) {
+                return true;
+            }
+        }
+        return false;
     }
 }

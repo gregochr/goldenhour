@@ -90,7 +90,7 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
           </p>
         )}
 
-        <TideIndicator forecast={forecast} />
+        <TideIndicator locationName={locationName} date={forecast.targetDate} />
 
         <div className="flex justify-end">
           <button className="btn-secondary text-sm" onClick={onClose}>
