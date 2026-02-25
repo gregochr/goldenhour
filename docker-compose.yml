@@ -1,25 +1,26 @@
-version: '3.8'
+version: '3.9'
+
 services:
-  postgres:
-    image: postgres:16
+  goldenhour-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gregochr/goldenhour:latest
+    container_name: goldenhour-backend
+    ports:
+      - "8082:8082"
+    volumes:
+      - /Users/gregochr/goldenhour-data:/data
     environment:
-      POSTGRES_DB: goldenhour
-      POSTGRES_USER: sunset
-      POSTGRES_PASSWORD: sunset
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana_data:/var/lib/grafana
-    depends_on:
-      - postgres
-
-volumes:
-  postgres_data:
-  grafana_data:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      WORLDTIDES_API_KEY: ${WORLDTIDES_API_KEY}
+      SPRING_DATASOURCE_URL: jdbc:h2:file:/data/goldenhour;MODE=MySQL
+      SPRING_PROFILES_ACTIVE: prod
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

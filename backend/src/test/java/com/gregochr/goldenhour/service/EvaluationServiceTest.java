@@ -41,12 +41,12 @@ class EvaluationServiceTest {
     void evaluate_sonnet_delegatesToSonnetStrategy() {
         AtmosphericData data = buildAtmosphericData();
         SunsetEvaluation expected = new SunsetEvaluation(null, 70, 75, "Promising conditions.");
-        when(sonnetStrategy.evaluate(data)).thenReturn(expected);
+        when(sonnetStrategy.evaluate(data, null)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.SONNET);
 
         assertThat(result).isSameAs(expected);
-        verify(sonnetStrategy).evaluate(data);
+        verify(sonnetStrategy).evaluate(data, null);
         verifyNoInteractions(haikuStrategy);
     }
 
@@ -55,12 +55,12 @@ class EvaluationServiceTest {
     void evaluate_haiku_delegatesToHaikuStrategy() {
         AtmosphericData data = buildAtmosphericData();
         SunsetEvaluation expected = new SunsetEvaluation(4, null, null, "Good conditions.");
-        when(haikuStrategy.evaluate(data)).thenReturn(expected);
+        when(haikuStrategy.evaluate(data, null)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.HAIKU);
 
         assertThat(result).isSameAs(expected);
-        verify(haikuStrategy).evaluate(data);
+        verify(haikuStrategy).evaluate(data, null);
         verifyNoInteractions(sonnetStrategy);
     }
 

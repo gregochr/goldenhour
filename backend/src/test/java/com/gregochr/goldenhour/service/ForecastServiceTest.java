@@ -75,7 +75,7 @@ class ForecastServiceTest {
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class)))
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
 
@@ -102,7 +102,7 @@ class ForecastServiceTest {
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class)))
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
 
@@ -127,7 +127,7 @@ class ForecastServiceTest {
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class)))
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -165,7 +165,7 @@ class ForecastServiceTest {
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
                 .thenReturn(forecastData);
-        when(evaluationService.evaluate(eq(forecastData), eq(EvaluationModel.HAIKU)))
+        when(evaluationService.evaluate(eq(forecastData), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -207,7 +207,7 @@ class ForecastServiceTest {
         assertThat(results).hasSize(2);
         verify(repository, times(2)).save(any());
         verify(evaluationService, org.mockito.Mockito.never())
-                .evaluate(any(), any(EvaluationModel.class));
+                .evaluate(any(), any(EvaluationModel.class), any());
         verify(emailService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
         verify(pushoverService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
         verify(toastService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());

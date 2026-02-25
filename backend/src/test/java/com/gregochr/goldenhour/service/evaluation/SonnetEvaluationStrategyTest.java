@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.gregochr.goldenhour.service.JobRunService;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -42,6 +43,9 @@ class SonnetEvaluationStrategyTest {
     @Mock
     private MessageService messageService;
 
+    @Mock
+    private JobRunService jobRunService;
+
     private SonnetEvaluationStrategy strategy;
     private ObjectMapper objectMapper;
 
@@ -50,7 +54,7 @@ class SonnetEvaluationStrategyTest {
         AnthropicProperties properties = new AnthropicProperties();
         properties.setModel("claude-sonnet-4-5-20250929");
         objectMapper = new ObjectMapper();
-        strategy = new SonnetEvaluationStrategy(anthropicClient, properties, objectMapper);
+        strategy = new SonnetEvaluationStrategy(anthropicClient, properties, objectMapper, jobRunService);
     }
 
     @Test

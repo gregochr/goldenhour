@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.gregochr.goldenhour.service.JobRunService;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -42,6 +43,9 @@ class HaikuEvaluationStrategyTest {
     @Mock
     private MessageService messageService;
 
+    @Mock
+    private JobRunService jobRunService;
+
     private HaikuEvaluationStrategy strategy;
     private ObjectMapper objectMapper;
 
@@ -50,7 +54,7 @@ class HaikuEvaluationStrategyTest {
         AnthropicProperties properties = new AnthropicProperties();
         properties.setModel("claude-haiku-4-5-20251001");
         objectMapper = new ObjectMapper();
-        strategy = new HaikuEvaluationStrategy(anthropicClient, properties, objectMapper);
+        strategy = new HaikuEvaluationStrategy(anthropicClient, properties, objectMapper, jobRunService);
     }
 
     @Test

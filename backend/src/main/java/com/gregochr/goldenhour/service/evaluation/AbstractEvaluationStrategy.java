@@ -7,11 +7,15 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
+import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.service.JobRunService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.client.HttpServerErrorException;
 
 import java.util.regex.Pattern;
 
@@ -40,6 +44,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     private final AnthropicClient client;
     private final AnthropicProperties properties;
     private final ObjectMapper objectMapper;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs an {@code AbstractEvaluationStrategy}.
@@ -47,12 +52,14 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
      * @param client       configured Anthropic client
      * @param properties   Anthropic configuration (model identifier)
      * @param objectMapper Jackson mapper for parsing Claude's JSON response
+     * @param jobRunService optional service for metrics tracking
      */
     protected AbstractEvaluationStrategy(AnthropicClient client, AnthropicProperties properties,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, JobRunService jobRunService) {
         this.client = client;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -83,37 +90,107 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
     @Override
     public SunsetEvaluation evaluate(AtmosphericData data) {
+        return evaluate(data, null);
+    }
+
+    @Override
+    public SunsetEvaluation evaluate(AtmosphericData data, JobRunEntity jobRun) {
         LOG.info("Anthropic ({}) ← {} {} {}", properties.getModel(),
                 data.locationName(), data.targetType(), data.solarEventTime().toLocalDate());
         long startMs = System.currentTimeMillis();
+        int statusCode = 500;
+        String errorMessage = null;
+        boolean succeeded = false;
 
-        Message response = client.messages().create(
-                MessageCreateParams.builder()
-                        .model(properties.getModel())
-                        .maxTokens(MAX_TOKENS)
-                        .system(getSystemPrompt())
-                        .addUserMessage(buildUserMessage(data))
-                        .build());
+        try {
+            Message response = invokeClaudeWithRetry(data);
 
-        String text = response.content().stream()
-                .filter(ContentBlock::isText)
-                .map(ContentBlock::asText)
-                .map(TextBlock::text)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
+            String text = response.content().stream()
+                    .filter(ContentBlock::isText)
+                    .map(ContentBlock::asText)
+                    .map(TextBlock::text)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
 
-        SunsetEvaluation result = parseEvaluation(text, objectMapper);
-        if (result.rating() != null) {
-            LOG.info("Anthropic → {} {}: rating={}/5 ({}ms)",
-                    data.locationName(), data.targetType(),
-                    result.rating(), System.currentTimeMillis() - startMs);
-        } else {
-            LOG.info("Anthropic → {} {}: fiery={}/100 golden={}/100 ({}ms)",
-                    data.locationName(), data.targetType(),
-                    result.fierySkyPotential(), result.goldenHourPotential(),
-                    System.currentTimeMillis() - startMs);
+            SunsetEvaluation result = parseEvaluation(text, objectMapper);
+            long durationMs = System.currentTimeMillis() - startMs;
+            statusCode = 200;
+            succeeded = true;
+
+            if (result.rating() != null) {
+                LOG.info("Anthropic → {} {}: rating={}/5 ({}ms)",
+                        data.locationName(), data.targetType(),
+                        result.rating(), durationMs);
+            } else {
+                LOG.info("Anthropic → {} {}: fiery={}/100 golden={}/100 ({}ms)",
+                        data.locationName(), data.targetType(),
+                        result.fierySkyPotential(), result.goldenHourPotential(),
+                        durationMs);
+            }
+
+            // Log API call to metrics if jobRun is available
+            if (jobRun != null && jobRunService != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
+                        "POST", "https://api.anthropic.com/v1/messages", null,
+                        durationMs, statusCode, null, true, null);
+            }
+
+            return result;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            errorMessage = e.getMessage();
+            if (e instanceof HttpServerErrorException httpEx) {
+                statusCode = httpEx.getStatusCode().value();
+            }
+
+            // Log failed API call to metrics if jobRun is available
+            if (jobRun != null && jobRunService != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
+                        "POST", "https://api.anthropic.com/v1/messages", null,
+                        durationMs, statusCode, errorMessage, false, errorMessage);
+            }
+
+            throw e;
         }
-        return result;
+    }
+
+    /**
+     * Invokes the Anthropic API with retry logic for transient failures (529).
+     *
+     * @param data atmospheric data for the prompt
+     * @return Claude's response message
+     */
+    private Message invokeClaudeWithRetry(AtmosphericData data) {
+        int maxRetries = 3;
+        int retryCount = 0;
+        long backoffMs = 1000;
+
+        while (true) {
+            try {
+                return client.messages().create(
+                        MessageCreateParams.builder()
+                                .model(properties.getModel())
+                                .maxTokens(MAX_TOKENS)
+                                .system(getSystemPrompt())
+                                .addUserMessage(buildUserMessage(data))
+                                .build());
+            } catch (HttpServerErrorException httpEx) {
+                if (httpEx.getStatusCode().value() == 529 && retryCount < maxRetries) {
+                    retryCount++;
+                    LOG.warn("Anthropic overloaded (529), retrying in {}ms... (attempt {}/{})",
+                            backoffMs, retryCount, maxRetries);
+                    try {
+                        Thread.sleep(backoffMs);
+                        backoffMs = Math.min(backoffMs * 2, 30000); // exponential backoff, max 30s
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Retry sleep interrupted", ie);
+                    }
+                } else {
+                    throw httpEx;
+                }
+            }
+        }
     }
 
     /**
