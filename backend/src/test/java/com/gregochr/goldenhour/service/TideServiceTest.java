@@ -112,23 +112,23 @@ class TideServiceTest {
     }
 
     @Test
-    @DisplayName("classifyTideState() returns HIGH when event is exactly at 90-minute boundary")
+    @DisplayName("classifyTideState() returns HIGH when event is exactly at 45-minute boundary")
     void classifyTideState_exactlyAtBoundary_returnsHigh() {
         LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 14, 0);
-        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 12, 30); // exactly 90 min before
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 13, 15); // exactly 45 min before
 
         List<TideExtremeEntity> extremes = List.of(
                 extreme(highTime, TideExtremeType.HIGH, 1.8));
 
-        // <= 90 min threshold: 90 == 90 → HIGH
+        // <= 45 min threshold: 45 == 45 → HIGH
         assertThat(tideService.classifyTideState(extremes, event)).isEqualTo(TideState.HIGH);
     }
 
     @Test
-    @DisplayName("classifyTideState() returns MID when event is 91 minutes from nearest extreme")
+    @DisplayName("classifyTideState() returns MID when event is 46 minutes from nearest extreme")
     void classifyTideState_justOutsideBoundary_returnsMid() {
         LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 14, 0);
-        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 12, 29); // 91 min before
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 13, 14); // 46 min before
 
         List<TideExtremeEntity> extremes = List.of(
                 extreme(highTime, TideExtremeType.HIGH, 1.8));
@@ -163,6 +163,36 @@ class TideServiceTest {
     }
 
     @Test
+    @DisplayName("buildTideData() sets nearMidPoint=true when event is within 45 min of midpoint")
+    void buildTideData_nearMidpoint_setsNearMidPointTrue() {
+        // HIGH at 06:00, LOW at 12:00 → midpoint at 09:00; event at 09:30 (30 min after)
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+
+        assertThat(tideService.buildTideData(extremes, event).nearMidPoint()).isTrue();
+    }
+
+    @Test
+    @DisplayName("buildTideData() sets nearMidPoint=false when event is more than 45 min from midpoint")
+    void buildTideData_farFromMidpoint_setsNearMidPointFalse() {
+        // HIGH at 06:00, LOW at 12:00 → midpoint at 09:00; event at 07:00 (2hr before midpoint)
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 7, 0);
+
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+
+        assertThat(tideService.buildTideData(extremes, event).nearMidPoint()).isFalse();
+    }
+
+    @Test
     @DisplayName("buildTideData() returns null nextHighTideTime when no future HIGH extreme exists")
     void buildTideData_noFutureHigh_nextHighIsNull() {
         LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
@@ -175,6 +205,32 @@ class TideServiceTest {
 
         assertThat(result.nextHighTideTime()).isNull();
         assertThat(result.nextHighTideHeightMetres()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // getTidesForDate
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("getTidesForDate() returns extremes within the given UTC calendar day")
+    void getTidesForDate_returnsExtremesForDay() {
+        Long locationId = 1L;
+        java.time.LocalDate date = java.time.LocalDate.of(2026, 2, 24);
+        LocalDateTime from = date.atStartOfDay();
+        LocalDateTime to = date.plusDays(1).atStartOfDay().minusNanos(1);
+
+        List<TideExtremeEntity> expected = List.of(
+                extreme(LocalDateTime.of(2026, 2, 24, 6, 20), TideExtremeType.HIGH, 1.8),
+                extreme(LocalDateTime.of(2026, 2, 24, 12, 45), TideExtremeType.LOW, 0.2));
+
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(locationId), eq(from), eq(to))).thenReturn(expected);
+
+        List<TideExtremeEntity> result = tideService.getTidesForDate(locationId, date);
+
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getType()).isEqualTo(TideExtremeType.HIGH);
+        assertThat(result.get(1).getType()).isEqualTo(TideExtremeType.LOW);
     }
 
     // -------------------------------------------------------------------------
@@ -364,6 +420,15 @@ class TideServiceTest {
         assertFalse(tideService.calculateTideAligned(tideData(TideState.HIGH), Set.of(TideType.NOT_COASTAL)));
     }
 
+    @Test
+    @DisplayName("MID_TIDE preference returns false when tide is MID state but not near midpoint")
+    void calculateTideAligned_midTide_notNearMidpoint_notAligned() {
+        TideData data = new TideData(TideState.MID, false,
+                LocalDateTime.of(2026, 2, 24, 14, 30), BigDecimal.valueOf(1.50),
+                LocalDateTime.of(2026, 2, 24, 20, 45), BigDecimal.valueOf(0.30));
+        assertFalse(tideService.calculateTideAligned(data, Set.of(TideType.MID_TIDE)));
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -379,8 +444,10 @@ class TideServiceTest {
     }
 
     private TideData tideData(TideState state) {
+        // nearMidPoint=true for MID state to keep existing alignment tests meaningful
         return new TideData(
                 state,
+                state == TideState.MID,
                 LocalDateTime.of(2026, 2, 24, 14, 30),
                 BigDecimal.valueOf(1.50),
                 LocalDateTime.of(2026, 2, 24, 20, 45),

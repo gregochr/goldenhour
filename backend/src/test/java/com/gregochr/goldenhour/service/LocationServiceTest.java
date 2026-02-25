@@ -202,6 +202,29 @@ class LocationServiceTest {
         verify(locationRepository, times(1)).save(any());
     }
 
+    // --- findByName ---
+
+    @Test
+    @DisplayName("findByName() returns the location when found")
+    void findByName_found_returnsLocation() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.findByName("Durham UK");
+
+        assertThat(result).isSameAs(entity);
+    }
+
+    @Test
+    @DisplayName("findByName() throws NoSuchElementException when not found")
+    void findByName_notFound_throwsNoSuchElementException() {
+        when(locationRepository.findByName("Unknown")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> locationService.findByName("Unknown"))
+                .isInstanceOf(java.util.NoSuchElementException.class)
+                .hasMessageContaining("Unknown");
+    }
+
     // --- findAll ---
 
     @Test

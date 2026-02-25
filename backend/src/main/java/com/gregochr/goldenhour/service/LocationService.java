@@ -107,6 +107,18 @@ public class LocationService {
     }
 
     /**
+     * Returns a location by its exact name.
+     *
+     * @param name the location name to look up
+     * @return the matching {@link LocationEntity}
+     * @throws java.util.NoSuchElementException if no location with that name exists
+     */
+    public LocationEntity findByName(String name) {
+        return locationRepository.findByName(name)
+                .orElseThrow(() -> new java.util.NoSuchElementException("No location named '" + name + "'"));
+    }
+
+    /**
      * Adds a new location and persists it to the database.
      *
      * @param name human-readable identifier (e.g. "Durham UK")

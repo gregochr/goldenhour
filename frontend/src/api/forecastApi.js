@@ -112,6 +112,20 @@ export async function addLocation(name, lat, lon) {
 }
 
 /**
+ * Fetches all tide extremes for a location on a given UTC calendar day.
+ *
+ * @param {string} locationName - The configured location name.
+ * @param {string} date - Target date in ISO format (YYYY-MM-DD).
+ * @returns {Promise<Array<{id: number, type: string, eventTime: string, heightMetres: string}>>}
+ */
+export async function fetchTidesForDate(locationName, date) {
+  const response = await axios.get(`${BASE_URL}/tides`, {
+    params: { locationName, date },
+  });
+  return response.data;
+}
+
+/**
  * Records an actual observed outcome for a given date and type.
  *
  * @param {object} outcome - Outcome payload.

@@ -1,0 +1,60 @@
+package com.gregochr.goldenhour.controller;
+
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TideExtremeEntity;
+import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.TideService;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
+import java.util.List;
+
+/**
+ * REST controller for tide extreme data.
+ *
+ * <p>Exposes a single endpoint that returns all tide extremes for a given location
+ * and UTC calendar day, ordered chronologically. Intended to drive the daily tide
+ * schedule display in the map popup and forecast card UI.
+ */
+@RestController
+@RequestMapping("/api/tides")
+public class TideController {
+
+    private final LocationService locationService;
+    private final TideService tideService;
+
+    /**
+     * Constructs a {@code TideController}.
+     *
+     * @param locationService service for resolving location names to entities
+     * @param tideService     service for querying stored tide extremes
+     */
+    public TideController(LocationService locationService, TideService tideService) {
+        this.locationService = locationService;
+        this.tideService = tideService;
+    }
+
+    /**
+     * Returns all tide extremes for a location on a given UTC calendar day.
+     *
+     * <p>Extremes are ordered chronologically by event time ascending.
+     * Returns an empty array if no extremes are stored for that location and date
+     * (e.g. non-coastal location or weekly refresh not yet run).
+     *
+     * @param locationName the configured location name
+     * @param date         the target date in ISO format {@code yyyy-MM-dd} (UTC)
+     * @return list of tide extremes for that day
+     * @throws java.util.NoSuchElementException if no location with {@code locationName} exists (→ 404)
+     */
+    @GetMapping
+    public List<TideExtremeEntity> getTidesForDate(
+            @RequestParam String locationName,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        LocationEntity location = locationService.findByName(locationName);
+        return tideService.getTidesForDate(location.getId(), date);
+    }
+}
