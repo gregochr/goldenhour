@@ -499,7 +499,7 @@ export default function MapView({ locations, date }) {
                       hourlyData.length > 0 ? (
                         <div>
                           <div style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a', marginBottom: '6px' }}>
-                            🦅 Hourly comfort
+                            🦅 Hourly comfort during daylight hours
                           </div>
                           <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
                             {hourlyData.map((h) => (
@@ -508,7 +508,7 @@ export default function MapView({ locations, date }) {
                                   {formatEventTimeUk(h.solarEventTime)}
                                 </div>
                                 <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                                  🌡 {h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C` : '—'}
+                                  🌡 {h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C` : '—'}
                                 </div>
                                 <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
                                   💨 {h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}
