@@ -45,18 +45,23 @@ const JobRunDetail = ({ jobRun }) => {
       acc[call.service] = {
         calls: [],
         totalDuration: 0,
+        totalCost: 0,
         count: 0,
         errorCount: 0,
       };
     }
     acc[call.service].calls.push(call);
     acc[call.service].totalDuration += call.durationMs || 0;
+    acc[call.service].totalCost += call.costPence || 0;
     acc[call.service].count += 1;
     if (!call.succeeded) {
       acc[call.service].errorCount += 1;
     }
     return acc;
   }, {});
+
+  // Calculate grand total cost
+  const totalCostPence = Object.values(serviceStats).reduce((sum, stats) => sum + stats.totalCost, 0);
 
   return (
     <div className="mt-4 space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
@@ -76,6 +81,9 @@ const JobRunDetail = ({ jobRun }) => {
                   <div className="font-medium text-gray-900">{service}</div>
                   <div className="text-xs text-gray-600 mt-1">
                     {stats.count} calls, avg {Math.round(stats.totalDuration / stats.count)}ms
+                  </div>
+                  <div className="text-xs text-blue-600 mt-1 font-semibold">
+                    Cost: £{(stats.totalCost / 1000).toFixed(3)}
                   </div>
                   {stats.errorCount > 0 && (
                     <div className="text-xs text-red-600 mt-1">
@@ -114,6 +122,16 @@ const JobRunDetail = ({ jobRun }) => {
                   <div className="text-red-700">{call.errorMessage}</div>
                 </div>
               ))}
+          </div>
+        </div>
+      )}
+
+      {/* Total cost */}
+      {totalCostPence > 0 && (
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <div className="flex justify-between items-center">
+            <span className="font-medium text-gray-900 text-sm">Total Cost</span>
+            <span className="text-lg font-bold text-blue-600">£{(totalCostPence / 1000).toFixed(3)}</span>
           </div>
         </div>
       )}

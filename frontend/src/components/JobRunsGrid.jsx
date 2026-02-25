@@ -96,6 +96,11 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
                       <div className="text-xs text-gray-600 mt-1">
                         {new Date(run.startedAt).toLocaleString()} · {run.durationMs}ms
                       </div>
+                      {run.totalCostPence > 0 && (
+                        <div className="text-xs text-blue-600 mt-1 font-semibold">
+                          Cost: £{(run.totalCostPence / 1000).toFixed(3)}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right flex-shrink-0 ml-4">
                       <div className="text-sm font-semibold text-gray-900">

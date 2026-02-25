@@ -17,36 +17,36 @@ class CostCalculatorTest {
     @DisplayName("calculateCost() returns Sonnet cost when model is SONNET")
     void calculateCost_returnsSonnetCost_whenModelIsSonnet() {
         CostProperties props = new CostProperties();
-        props.setAnthropicSonnetPence(130);
+        props.setAnthropicSonnetPence(13);  // 1.3p in units of 1/10th pence
         CostCalculator calculator = new CostCalculator(props);
 
         int cost = calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET);
 
-        assertThat(cost).isEqualTo(130);
+        assertThat(cost).isEqualTo(13);
     }
 
     @Test
     @DisplayName("calculateCost() returns Haiku cost when model is HAIKU")
     void calculateCost_returnsHaikuCost_whenModelIsHaiku() {
         CostProperties props = new CostProperties();
-        props.setAnthropicHaikuPence(50);
+        props.setAnthropicHaikuPence(5);  // 0.5p in units of 1/10th pence
         CostCalculator calculator = new CostCalculator(props);
 
         int cost = calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU);
 
-        assertThat(cost).isEqualTo(50);
+        assertThat(cost).isEqualTo(5);
     }
 
     @Test
     @DisplayName("calculateCost() returns WorldTides cost for WORLD_TIDES service")
     void calculateCost_returnsWorldTidesCost_forWorldTidesService() {
         CostProperties props = new CostProperties();
-        props.setWorldTidesPence(20);
+        props.setWorldTidesPence(2);  // 0.2p in units of 1/10th pence
         CostCalculator calculator = new CostCalculator(props);
 
         int cost = calculator.calculateCost(ServiceName.WORLD_TIDES);
 
-        assertThat(cost).isEqualTo(20);
+        assertThat(cost).isEqualTo(2);
     }
 
     @Test
@@ -77,27 +77,27 @@ class CostCalculatorTest {
     @DisplayName("calculateCost() returns Sonnet cost for Anthropic when model is null")
     void calculateCost_returnsSonnetCost_whenModelIsNull() {
         CostProperties props = new CostProperties();
-        props.setAnthropicSonnetPence(130);
+        props.setAnthropicSonnetPence(13);  // 1.3p in units of 1/10th pence
         CostCalculator calculator = new CostCalculator(props);
 
         // When model is null, it defaults to Sonnet (the more expensive option)
         int cost = calculator.calculateCost(ServiceName.ANTHROPIC, null);
 
-        assertThat(cost).isEqualTo(130);
+        assertThat(cost).isEqualTo(13);
     }
 
     @Test
     @DisplayName("calculateCost() respects custom cost values from properties")
     void calculateCost_respectsCustomCostValues() {
         CostProperties props = new CostProperties();
-        props.setAnthropicHaikuPence(75);
-        props.setAnthropicSonnetPence(200);
-        props.setWorldTidesPence(25);
+        props.setAnthropicHaikuPence(8);  // custom 0.8p
+        props.setAnthropicSonnetPence(15);  // custom 1.5p
+        props.setWorldTidesPence(3);  // custom 0.3p
         CostCalculator calculator = new CostCalculator(props);
 
-        assertThat(calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU)).isEqualTo(75);
-        assertThat(calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).isEqualTo(200);
-        assertThat(calculator.calculateCost(ServiceName.WORLD_TIDES)).isEqualTo(25);
+        assertThat(calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU)).isEqualTo(8);
+        assertThat(calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).isEqualTo(15);
+        assertThat(calculator.calculateCost(ServiceName.WORLD_TIDES)).isEqualTo(3);
     }
 
     @Test
