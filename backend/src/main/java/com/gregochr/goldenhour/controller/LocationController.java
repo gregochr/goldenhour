@@ -4,11 +4,11 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.service.LocationService;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -63,12 +63,12 @@ public class LocationController {
      * <p>Allows ADMIN users to re-enable locations that have been auto-disabled
      * after 3 consecutive forecast failures.
      *
-     * @param name the location name to reset (URL-encoded)
+     * @param name the location name to reset (as query parameter)
      * @return the updated location entity
      * @throws java.util.NoSuchElementException if no location with that name exists (HTTP 404)
      */
-    @PutMapping("/{name}/reset-failures")
-    public LocationEntity resetLocationFailures(@PathVariable String name) {
+    @PutMapping("/reset-failures")
+    public LocationEntity resetLocationFailures(@RequestParam String name) {
         return locationService.resetFailures(name);
     }
 }
