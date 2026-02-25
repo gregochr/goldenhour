@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getJobRuns } from '../api/metricsApi';
+import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
 
@@ -36,6 +36,19 @@ const JobRunsMetricsView = () => {
 
       if (pageNum === 0) {
         setRuns(newRuns);
+        // Load API calls for all runs to calculate slowest service
+        if (newRuns.length > 0) {
+          const apiCallPromises = newRuns.map((run) => getApiCalls(run.id));
+          try {
+            const apiCallResponses = await Promise.all(apiCallPromises);
+            const allCalls = apiCallResponses.flatMap((res) => res.data || []);
+            setAllApiCalls(allCalls);
+          } catch {
+            // Silently ignore API call loading failures; summary will show "No data"
+          }
+        } else {
+          setAllApiCalls([]);
+        }
       } else {
         setRuns((prev) => [...prev, ...newRuns]);
       }
