@@ -240,7 +240,7 @@ class ScheduledForecastServiceTest {
 
         scheduledForecastService.refreshTideExtremes();
 
-        verify(tideService, times(1)).fetchAndStoreTideExtremes(any());
+        verify(tideService, times(1)).fetchAndStoreTideExtremes(any(), any());
     }
 
     @Test
@@ -250,7 +250,7 @@ class ScheduledForecastServiceTest {
 
         scheduledForecastService.refreshTideExtremes();
 
-        verify(tideService, never()).fetchAndStoreTideExtremes(any());
+        verify(tideService, never()).fetchAndStoreTideExtremes(any(), any());
     }
 
     @Test
@@ -265,11 +265,11 @@ class ScheduledForecastServiceTest {
         when(locationService.isCoastal(any())).thenReturn(true);
         doThrow(new RuntimeException("API error"))
                 .when(tideService).fetchAndStoreTideExtremes(
-                        argThat(loc -> "Durham UK".equals(loc.getName())));
+                        argThat(loc -> "Durham UK".equals(loc.getName())), any());
 
         scheduledForecastService.refreshTideExtremes();
 
         // Scarborough should still be processed despite Durham failure
-        verify(tideService, times(2)).fetchAndStoreTideExtremes(any());
+        verify(tideService, times(2)).fetchAndStoreTideExtremes(any(), any());
     }
 }

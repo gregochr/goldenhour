@@ -45,11 +45,14 @@ class OpenMeteoServiceTest {
     @Mock
     private WebClient webClient;
 
+    @Mock
+    private JobRunService jobRunService;
+
     private OpenMeteoService openMeteoService;
 
     @BeforeEach
     void setUp() {
-        openMeteoService = new OpenMeteoService(webClient);
+        openMeteoService = new OpenMeteoService(webClient, jobRunService);
     }
 
     @Test

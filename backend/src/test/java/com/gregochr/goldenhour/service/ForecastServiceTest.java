@@ -73,7 +73,7 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
                 .thenReturn(forecastData);
         when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
@@ -100,7 +100,7 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
                 .thenReturn(forecastData);
         when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
@@ -125,7 +125,7 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
                 .thenReturn(forecastData);
         when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
@@ -163,7 +163,7 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any()))
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
                 .thenReturn(forecastData);
         when(evaluationService.evaluate(eq(forecastData), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(evaluation);
@@ -196,7 +196,7 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any()))
+        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any(), any()))
                 .thenReturn(java.util.List.of(slot1, slot2));
         when(repository.save(any())).thenReturn(savedEntity);
 
@@ -224,7 +224,7 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any()))
+        when(openMeteoService.getHourlyAtmosphericData(any(ForecastRequest.class), any(), any(), any()))
                 .thenReturn(java.util.List.of(slot));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 

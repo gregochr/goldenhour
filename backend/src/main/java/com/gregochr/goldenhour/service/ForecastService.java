@@ -151,7 +151,7 @@ public class ForecastService {
                     : solarService.sunsetUtc(lat, lon, date);
 
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
-            AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
+            AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
             AtmosphericData forecastData = augmentWithTideData(baseData, locationId, eventTime, tideTypes);
 
             int azimuth = type == TargetType.SUNRISE
@@ -205,7 +205,7 @@ public class ForecastService {
 
         ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, TargetType.SUNRISE);
         List<AtmosphericData> hourlyData =
-                openMeteoService.getHourlyAtmosphericData(request, sunriseTime, sunsetTime);
+                openMeteoService.getHourlyAtmosphericData(request, sunriseTime, sunsetTime, jobRun);
 
         List<ForecastEvaluationEntity> results = new ArrayList<>();
         SunsetEvaluation noEval = new SunsetEvaluation(null, null, null, null);
