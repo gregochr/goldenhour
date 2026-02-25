@@ -20,7 +20,9 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Multi-location support with map view (Leaflet/OpenStreetMap)
 - Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH_TIDE/LOW_TIDE/ANY_TIDE/MID_TIDE/NOT_COASTAL), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
 - Sunrise/sunset azimuth lines on map
-- Evaluation strategy pattern: `@Profile("lite")` = Haiku, default = Sonnet
+- Dual evaluation model: HAIKU (1–5 rating, every 12 h) for LITE, SONNET (0–100 dual scores, every 6 h) for PRO/ADMIN
+- Wildlife location UI: pure-WILDLIFE locations get hourly comfort rows (temp/wind/rain) between sunrise and sunset, green 🦅 marker; no Claude call
+- Comfort fields (temperature, apparent temperature, precipitation probability) stored on every forecast row
 - JWT authentication: ADMIN / PRO_USER / LITE_USER roles
 - User management (ADMIN-only Manage tab)
 - First-login password change gate with complexity enforcement
@@ -46,7 +48,7 @@ goldenhour/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
-│       └── db/migration/            V1–V14 Flyway migrations
+│       └── db/migration/            V1–V19 Flyway migrations
 ├── frontend/              React 18 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js (global axios interceptors)
@@ -129,6 +131,10 @@ jwt:
 | V13 | tide columns on `forecast_evaluation` (tideState, nextHighTide, nextLowTide, tideAligned) |
 | V14 | `tide_extreme` table — pre-fetched WorldTides extremes, FK to `locations` |
 | V15 | FK constraints: `forecast_evaluation.location_name` → `locations(name)`, same for `actual_outcome` |
+| V16 | `evaluation_model` column on `forecast_evaluation` (HAIKU / SONNET) |
+| V17 | `fiery_sky_potential`, `golden_hour_potential` score columns on `forecast_evaluation` |
+| V18 | `rating` column on `forecast_evaluation` (1–5 Haiku rating) |
+| V19 | `temperature_celsius`, `apparent_temperature_celsius`, `precipitation_probability_percent` on `forecast_evaluation` |
 
 ---
 
@@ -264,13 +270,10 @@ WorldTides API (v3) for coastal locations. `TideService.fetchAndStoreTideExtreme
 
 `ScheduledForecastService` runs a weekly refresh (Monday 02:00 UTC, configurable via `tide.schedule.cron`). `LocationService.@PostConstruct` triggers immediate fetch when a new coastal location is first seeded. API key via `WORLDTIDES_API_KEY` env var.
 
-### 5. Wildlife Location UI
+### 5. Wildlife Location UI ✓ Built
 
-WILDLIFE locations need practical comfort information, not atmospheric scoring.
+Pure-WILDLIFE locations get hourly comfort rows (one per UTC hour, sunrise–sunset) via a single Open-Meteo call — no Claude evaluation. Green 🦅 marker on map; popup shows time · temp · wind · rain timeline. Colour locations (LANDSCAPE/SEASCAPE/mixed) keep score bars and also show comfort data below them. `V19` migration adds temperature, apparent temperature, and precipitation probability columns to `forecast_evaluation`.
 
-- `LANDSCAPE` / `SEASCAPE`: atmospheric score, cloud cover, visibility, AOD, humidity
-- `WILDLIFE`: temperature, wind speed/direction, rain chance — no colour score
-- `BOTH` (e.g. LANDSCAPE + WILDLIFE): show both sections
 
 Backend generates a `practicalWeather.summary` via Claude (short comfort-focused prompt). Frontend renders as a simple card — no star rating, no cloud bars.
 
