@@ -99,6 +99,7 @@ public class TideService {
         long startEpoch = startOfDay.toEpochSecond(ZoneOffset.UTC);
 
         try {
+            LOG.info("WorldTides ← {} ({}, {})", location.getName(), location.getLat(), location.getLon());
             WorldTidesResponse response = webClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")

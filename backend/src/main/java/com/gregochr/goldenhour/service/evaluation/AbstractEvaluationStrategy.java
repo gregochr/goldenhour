@@ -95,8 +95,8 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
     @Override
     public SunsetEvaluation evaluate(AtmosphericData data) {
-        LOG.debug("Calling Claude ({}) for {} {}", properties.getModel(),
-                data.locationName(), data.targetType());
+        LOG.info("Anthropic ({}) ← {} {} {}", properties.getModel(),
+                data.locationName(), data.targetType(), data.solarEventTime().toLocalDate());
         long startMs = System.currentTimeMillis();
 
         Message response = client.messages().create(
@@ -115,7 +115,9 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                 .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
 
         SunsetEvaluation result = parseEvaluation(text);
-        LOG.debug("Claude responded in {}ms", System.currentTimeMillis() - startMs);
+        LOG.info("Anthropic → {} {}: rating={} ({}ms)",
+                data.locationName(), data.targetType(), result.rating(),
+                System.currentTimeMillis() - startMs);
         return result;
     }
 
