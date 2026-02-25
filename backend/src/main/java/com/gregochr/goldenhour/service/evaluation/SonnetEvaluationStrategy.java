@@ -92,6 +92,11 @@ public class SonnetEvaluationStrategy extends AbstractEvaluationStrategy {
         return EvaluationModel.SONNET;
     }
 
+    @Override
+    protected String getModelName() {
+        return "claude-sonnet-4-5-20250929";
+    }
+
     /**
      * Parses Claude's dual-score JSON response into a {@link SunsetEvaluation}.
      *

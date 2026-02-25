@@ -73,6 +73,11 @@ public class HaikuEvaluationStrategy extends AbstractEvaluationStrategy {
         return EvaluationModel.HAIKU;
     }
 
+    @Override
+    protected String getModelName() {
+        return "claude-haiku-4-5";
+    }
+
     /**
      * Parses Claude's 1–5 rating JSON response into a {@link SunsetEvaluation}.
      *
