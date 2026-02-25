@@ -1,8 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+
+// Override Leaflet popup width
+const popupStyles = `
+  .leaflet-popup-content-wrapper {
+    width: 600px !important;
+    max-width: 600px !important;
+  }
+  .leaflet-popup-content {
+    max-height: 600px !important;
+    overflow-y: auto !important;
+  }
+`;
 import {
   formatEventTimeUk,
   formatShiftedEventTimeUk,
@@ -74,11 +86,17 @@ const ZOOM_TO_LINE_KM = {
 };
 
 function lineKmForZoom(zoom) {
-  const z = Math.round(zoom);
   const keys = Object.keys(ZOOM_TO_LINE_KM).map(Number).sort((a, b) => a - b);
-  if (z <= keys[0]) return ZOOM_TO_LINE_KM[keys[0]];
-  if (z >= keys[keys.length - 1]) return ZOOM_TO_LINE_KM[keys[keys.length - 1]];
-  return ZOOM_TO_LINE_KM[z] ?? 50;
+  if (zoom <= keys[0]) return ZOOM_TO_LINE_KM[keys[0]];
+  if (zoom >= keys[keys.length - 1]) return ZOOM_TO_LINE_KM[keys[keys.length - 1]];
+
+  // Interpolate between two zoom levels
+  const z = Math.floor(zoom);
+  const nextZ = z + 1;
+  if (!ZOOM_TO_LINE_KM[z] || !ZOOM_TO_LINE_KM[nextZ]) return 50;
+
+  const frac = zoom - z;
+  return ZOOM_TO_LINE_KM[z] + (ZOOM_TO_LINE_KM[nextZ] - ZOOM_TO_LINE_KM[z]) * frac;
 }
 
 /**
@@ -230,6 +248,14 @@ export default function MapView({ locations, date }) {
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
+
+  // Inject popup width styles
+  useEffect(() => {
+    const styleEl = document.createElement('style');
+    styleEl.textContent = popupStyles;
+    document.head.appendChild(styleEl);
+    return () => styleEl.remove();
+  }, []);
 
   const lineKm = lineKmForZoom(zoom);
 
@@ -405,8 +431,8 @@ export default function MapView({ locations, date }) {
                   popupclose: () => setSelectedLocationName(null),
                 }}
               >
-                <Popup>
-                  <div style={{ minWidth: '230px', fontFamily: 'system-ui, sans-serif' }}>
+                <Popup maxWidth={600} maxHeight={600}>
+                  <div style={{ fontFamily: 'system-ui, sans-serif' }}>
 
                     {/* Row 1: Title + event time pill */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '8px' }}>
