@@ -112,23 +112,23 @@ class TideServiceTest {
     }
 
     @Test
-    @DisplayName("classifyTideState() returns HIGH when event is exactly at 45-minute boundary")
+    @DisplayName("classifyTideState() returns HIGH when event is exactly at 60-minute boundary")
     void classifyTideState_exactlyAtBoundary_returnsHigh() {
         LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 14, 0);
-        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 13, 15); // exactly 45 min before
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 13, 0); // exactly 60 min before
 
         List<TideExtremeEntity> extremes = List.of(
                 extreme(highTime, TideExtremeType.HIGH, 1.8));
 
-        // <= 45 min threshold: 45 == 45 → HIGH
+        // <= 60 min threshold: 60 == 60 → HIGH
         assertThat(tideService.classifyTideState(extremes, event)).isEqualTo(TideState.HIGH);
     }
 
     @Test
-    @DisplayName("classifyTideState() returns MID when event is 46 minutes from nearest extreme")
+    @DisplayName("classifyTideState() returns MID when event is 61 minutes from nearest extreme")
     void classifyTideState_justOutsideBoundary_returnsMid() {
         LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 14, 0);
-        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 13, 14); // 46 min before
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 12, 59); // 61 min before
 
         List<TideExtremeEntity> extremes = List.of(
                 extreme(highTime, TideExtremeType.HIGH, 1.8));
