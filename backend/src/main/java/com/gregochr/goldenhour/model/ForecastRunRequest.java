@@ -2,24 +2,31 @@ package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.TargetType;
 
-import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Optional request body for {@code POST /api/forecast/run}.
  *
  * <p>Any field may be {@code null}:
  * <ul>
- *   <li>If {@code date} is null, today's UTC date is used.</li>
+ *   <li>If {@code dates} is null or empty, today's UTC date is used.</li>
  *   <li>If {@code location} is null, forecasts are run for all configured locations.</li>
  *   <li>If {@code targetType} is null, both SUNRISE and SUNSET are evaluated.</li>
  * </ul>
  *
- * @param date       the date to forecast (null = today)
+ * <p>Dates must be ISO format strings ({@code yyyy-MM-dd}), e.g. {@code ["2026-03-01","2026-03-02"]}.
+ *
+ * @param dates      ISO date strings to forecast (null or empty = today only)
  * @param location   the name of the location to forecast (null = all configured locations)
  * @param targetType SUNRISE or SUNSET (null = both)
  */
 public record ForecastRunRequest(
-        LocalDate date,
+        List<String> dates,
         String location,
         TargetType targetType) {
+
+    /** Defensive copy — ensures {@code dates} is immutable. */
+    public ForecastRunRequest {
+        dates = (dates != null) ? List.copyOf(dates) : null;
+    }
 }
