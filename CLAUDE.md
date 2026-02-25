@@ -359,6 +359,10 @@ Track performance of scheduled forecast runs and external API calls, stored in H
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
 - 271 backend tests, all passing with ≥80% JaCoCo coverage
 
+**UX Note (potential enhancement)**: Job runs are named after the evaluation model (SONNET/HAIKU/WILDLIFE/TIDE), which is architecturally correct but may not be intuitive to end users. Users might expect a single "Forecast Run" or "Evaluation Run" label instead of separate job names per model. Consider either:
+1. Unifying the UI to show "Forecast Run" with model breakdown inside, or
+2. Adding a more user-friendly label/description to job runs (e.g., "Daily Forecast — Sonnet + Haiku + Wildlife")
+
 ### 9. Retry Robustness ✓ BUILT
 
 Each scheduled job run is resilient — a 429 or transient 5xx on one location/slot does not abort the entire run.

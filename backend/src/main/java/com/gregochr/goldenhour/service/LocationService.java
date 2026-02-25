@@ -201,4 +201,22 @@ public class LocationService {
     public boolean isSeascape(LocationEntity location) {
         return location.getLocationType().contains(LocationType.SEASCAPE);
     }
+
+    /**
+     * Resets the consecutive failure counter and disabled reason for a location.
+     *
+     * <p>Used to re-enable locations that have been auto-disabled after 3 consecutive
+     * forecast failures. Clears both the consecutive failure count and the disabled reason.
+     *
+     * @param name the location name to reset
+     * @return the updated {@link LocationEntity}
+     * @throws java.util.NoSuchElementException if no location with that name exists
+     */
+    public LocationEntity resetFailures(String name) {
+        LocationEntity location = findByName(name);
+        location.setConsecutiveFailures(0);
+        location.setDisabledReason(null);
+        location.setLastFailureAt(null);
+        return locationRepository.save(location);
+    }
 }

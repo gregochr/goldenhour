@@ -4,6 +4,7 @@ import axios from 'axios';
 import { runForecast, fetchLocations, addLocation } from '../api/forecastApi.js';
 import { formatDateLabel } from '../utils/conversions.js';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
+import LocationAlerts from './LocationAlerts.jsx';
 
 const FORECAST_DAYS = 8; // T through T+7
 
@@ -382,6 +383,12 @@ export default function ManageView({ onComplete }) {
 
       {/* ── Locations tab ── */}
       {manageTab === 'locations' && <>
+
+      {/* Location alerts (failing/disabled) */}
+      <LocationAlerts
+        locations={manageLocations}
+        onReenabledLocation={() => refreshLocations()}
+      />
 
       {/* Global re-run */}
       <div className="card border border-gray-800 flex items-center justify-between gap-4">
