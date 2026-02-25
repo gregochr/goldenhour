@@ -119,6 +119,28 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("POST /api/forecast/run with multiple dates runs forecasts for each date")
+    void runForecast_multipleDates_runsForEachDate() throws Exception {
+        ForecastEvaluationEntity day1 = buildEntity("Durham UK", LocalDate.of(2026, 3, 1));
+        ForecastEvaluationEntity day2 = buildEntity("Durham UK", LocalDate.of(2026, 3, 2));
+        when(forecastService.runForecasts(
+                        anyString(), anyDouble(), anyDouble(), any(),
+                        eq(LocalDate.of(2026, 3, 1)), any(), any()))
+                .thenReturn(List.of(day1));
+        when(forecastService.runForecasts(
+                        anyString(), anyDouble(), anyDouble(), any(),
+                        eq(LocalDate.of(2026, 3, 2)), any(), any()))
+                .thenReturn(List.of(day2));
+
+        mockMvc.perform(post("/api/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/forecast/compare returns 200 with evaluations for valid params")
     void getCompare_validParams_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 28));

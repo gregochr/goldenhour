@@ -84,7 +84,7 @@ export async function fetchOutcomes(lat, lon, from, to) {
  * @returns {Promise<Array<object>>} Saved evaluation entities.
  */
 export async function runForecast(date, location, targetType) {
-  const response = await axios.post(`${BASE_URL}/forecast/run`, { date, location, targetType });
+  const response = await axios.post(`${BASE_URL}/forecast/run`, { dates: [date], location, targetType });
   return response.data;
 }
 

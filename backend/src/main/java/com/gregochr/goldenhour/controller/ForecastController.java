@@ -8,6 +8,8 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,6 +31,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/forecast")
 public class ForecastController {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ForecastController.class);
 
     private final ForecastEvaluationRepository repository;
     private final ForecastService forecastService;
@@ -103,18 +107,21 @@ public class ForecastController {
      * Triggers an on-demand forecast run.
      *
      * <p>If the request body is absent or its fields are {@code null}, defaults apply:
-     * {@code date} defaults to today; {@code location} defaults to all configured locations.
+     * {@code dates} defaults to today only; {@code location} defaults to all configured locations.
      *
-     * @param request optional run parameters (date and/or location)
-     * @return the saved evaluation entities produced by the run
-     * @throws IllegalArgumentException if the specified location name is not configured
+     * @param request optional run parameters (dates and/or location)
+     * @return the saved evaluation entities produced by the run, ordered by date then location
+     * @throws IllegalArgumentException if the specified location name is not configured,
+     *                                  or if any date string is not a valid ISO date
      */
     @PostMapping("/run")
     public List<ForecastEvaluationEntity> runForecast(
             @RequestBody(required = false) ForecastRunRequest request) {
-        LocalDate date = (request != null && request.date() != null)
-                ? request.date()
-                : LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = (request != null
+                && request.dates() != null
+                && !request.dates().isEmpty())
+                ? request.dates().stream().map(LocalDate::parse).toList()
+                : List.of(LocalDate.now(ZoneOffset.UTC));
 
         List<LocationEntity> locations;
         if (request != null && request.location() != null) {
@@ -131,11 +138,17 @@ public class ForecastController {
 
         TargetType targetType = (request != null) ? request.targetType() : null;
 
-        return locations.stream()
-                .flatMap(loc -> forecastService
-                        .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), loc.getId(),
-                                date, targetType, loc.getTideType())
-                        .stream())
+        LOG.info("POST /api/forecast/run — dates={}, location={}, targetType={}",
+                dates,
+                request != null ? request.location() : null,
+                targetType);
+
+        return dates.stream()
+                .flatMap(date -> locations.stream()
+                        .flatMap(loc -> forecastService
+                                .runForecasts(loc.getName(), loc.getLat(), loc.getLon(), loc.getId(),
+                                        date, targetType, loc.getTideType())
+                                .stream()))
                 .toList();
     }
 
