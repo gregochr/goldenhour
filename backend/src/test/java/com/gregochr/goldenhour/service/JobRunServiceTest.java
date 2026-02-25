@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
@@ -35,6 +36,9 @@ class JobRunServiceTest {
     @Mock
     private ApiCallLogRepository apiCallLogRepository;
 
+    @Mock
+    private CostCalculator costCalculator;
+
     @InjectMocks
     private JobRunService jobRunService;
 
@@ -55,17 +59,18 @@ class JobRunServiceTest {
     }
 
     @Test
-    @DisplayName("logApiCall() records API call with all details")
+    @DisplayName("logApiCall() records API call with all details and cost")
     void logApiCall_recordsApiCallWithDetails() {
         ArgumentCaptor<com.gregochr.goldenhour.entity.ApiCallLogEntity> captor =
                 ArgumentCaptor.forClass(com.gregochr.goldenhour.entity.ApiCallLogEntity.class);
         when(apiCallLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(costCalculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).thenReturn(130);
 
         jobRunService.logApiCall(
                 1L, ServiceName.ANTHROPIC, "POST",
                 "https://api.anthropic.com/messages",
                 "{\"model\":\"claude-opus\"}",
-                250L, 200, null, true, null);
+                250L, 200, null, true, null, EvaluationModel.SONNET);
 
         verify(apiCallLogRepository, times(1)).save(captor.capture());
         com.gregochr.goldenhour.entity.ApiCallLogEntity logged = captor.getValue();
@@ -73,6 +78,7 @@ class JobRunServiceTest {
         assertThat(logged.getService()).isEqualTo(ServiceName.ANTHROPIC);
         assertThat(logged.getDurationMs()).isEqualTo(250L);
         assertThat(logged.getSucceeded()).isTrue();
+        assertThat(logged.getCostPence()).isEqualTo(130);
     }
 
     @Test

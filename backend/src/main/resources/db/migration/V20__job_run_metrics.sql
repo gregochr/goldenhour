@@ -8,6 +8,7 @@ CREATE TABLE job_run (
     locations_processed INT DEFAULT 0,      -- total locations attempted
     succeeded INT DEFAULT 0,                -- successful evaluations
     failed INT DEFAULT 0,                   -- failed evaluations
+    total_cost_pence INT DEFAULT 0,         -- sum of all API call costs in pence
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -28,6 +29,7 @@ CREATE TABLE api_call_log (
     response_body TEXT,                     -- response body on error (for debugging)
     succeeded BOOLEAN NOT NULL DEFAULT FALSE,
     error_message VARCHAR(500),             -- truncated error message if failed
+    cost_pence INT DEFAULT 0,               -- calculated cost for this single API call
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

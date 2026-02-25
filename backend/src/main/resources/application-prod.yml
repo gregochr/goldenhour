@@ -28,6 +28,13 @@ management:
     health:
       show-details: when-authorized
 
+cost:
+  # API call costs in pence (production values)
+  anthropic-haiku-pence: 50
+  anthropic-sonnet-pence: 130
+  world-tides-pence: 20
+  open-meteo-pence: 0
+
 server:
   port: 8082
   servlet:

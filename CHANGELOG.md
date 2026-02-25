@@ -5,7 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added
+### Added (Feb 25, 2026)
+- **Job Run Metrics** — persistent tracking of scheduled forecast runs and API call timings
+  - `V20` migration adds `job_run` and `api_call_log` tables with cost tracking
+  - `V21` migration adds `consecutive_failures`, `last_failure_at`, `disabled_reason` to locations table
+  - `JobRunEntity`, `ApiCallLogEntity` JPA entities with full metrics capture
+  - `JobRunService` for recording job starts/completions and API call details
+  - `CostCalculator` service for calculating API call costs by service and model
+  - Cost configuration in `application*.yml` with per-service pricing (Anthropic, WorldTides, Open-Meteo)
+  - `JobMetricsController` endpoints: `GET /api/metrics/job-runs`, `GET /api/metrics/api-calls`
+- **Job Metrics Dashboard** — Admin-only view in ManageView showing last 7 days of metrics
+  - `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary` React components
+  - Sortable/pageable grid with per-service API call breakdown
+  - 7-day aggregated statistics: total runs, success rate, slowest service, evaluation count
+  - Cost aggregation per run and per job type
+- **Retry Robustness** — resilient API failure handling
+  - Anthropic 529 (overloaded) retry logic with exponential backoff (1s → 2s → 4s, max 30s, 3 retries)
+  - Dead-letter mechanism: locations auto-disabled after 3 consecutive forecast failures
+  - `AbstractEvaluationStrategy.invokeClaudeWithRetry()` with detailed logging
+  - Request/response interceptor logs all `/api/**` calls at INFO level with timing
+- **Docker & CloudFlare Deployment** — production-ready containerization
+  - `Dockerfile` — multi-stage build, alpine base, health checks, non-root user
+  - `docker-compose.yml` — service definition with volumes, environment variables, restart policy
+  - `application-prod.yml` — production Spring Boot config with H2 persistence
+  - `goldenhour-backup.sh` — automated daily database backups (keeps last 7)
+  - Support for CloudFlare Tunnel exposure without opening router ports
+  - Documented cron schedule for backups and scheduled forecast jobs
+- 271 backend tests (up from 214), all passing with ≥80% JaCoCo coverage
+
+### Earlier changes
 - Wildlife location UI — pure-WILDLIFE locations get a green 🦅 map marker and an hourly comfort timeline in the popup (time · temp · wind · rain); no colour score bars
 - Hourly comfort forecasts — one DB row per full UTC hour between sunrise and sunset via a single Open-Meteo call (`getHourlyAtmosphericData`); no Claude evaluation, zero AI cost
 - `WILDLIFE` added to `EvaluationModel` enum; `HOURLY` added to `TargetType` enum

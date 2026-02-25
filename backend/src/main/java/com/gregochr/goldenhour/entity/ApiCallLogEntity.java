@@ -84,6 +84,10 @@ public class ApiCallLogEntity {
     @Column(name = "error_message", length = 500)
     private String errorMessage;
 
+    /** Cost of this API call in pence (e.g., 130 for Sonnet, 20 for WorldTides). */
+    @Column(name = "cost_pence")
+    private Integer costPence;
+
     /** UTC timestamp when this log entry was created. */
     @Column(name = "created_at")
     private LocalDateTime createdAt;
