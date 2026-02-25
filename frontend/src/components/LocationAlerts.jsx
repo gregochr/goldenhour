@@ -17,7 +17,9 @@ export default function LocationAlerts({ locations, onReenabledLocation }) {
 
   async function handleReenableLocation(locationName) {
     try {
-      await axios.put(`/api/locations/${encodeURIComponent(locationName)}/reset-failures`);
+      await axios.put('/api/locations/reset-failures', null, {
+        params: { name: locationName },
+      });
       onReenabledLocation(locationName);
     } catch (err) {
       console.error('Failed to re-enable location:', err);
