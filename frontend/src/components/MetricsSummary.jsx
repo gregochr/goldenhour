@@ -62,7 +62,8 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Total Runs */}
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="text-sm font-medium text-gray-500">Total Runs</div>
-        <div className="mt-2 text-3xl font-bold text-gray-900">{totalRuns}</div>
+        <p className="text-xs text-gray-400 mt-1">Number of forecast job runs over the last 7 days, grouped by job type (SONNET, HAIKU, WILDLIFE, TIDE)</p>
+        <div className="mt-3 text-3xl font-bold text-gray-900">{totalRuns}</div>
         <div className="mt-2 text-xs text-gray-600">
           {Object.entries(runsByType).map(([type, count]) => (
             <div key={type}>{type}: {count}</div>
@@ -73,7 +74,8 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Success Rate */}
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="text-sm font-medium text-gray-500">Success Rate</div>
-        <div className="mt-2 text-3xl font-bold text-gray-900">{successRate}%</div>
+        <p className="text-xs text-gray-400 mt-1">Percentage of location evaluations that completed without error. Failures may indicate API issues, bad data, or transient network problems</p>
+        <div className="mt-3 text-3xl font-bold text-gray-900">{successRate}%</div>
         <div className="mt-2 text-xs text-gray-600">
           {totalSucceeded} succeeded, {totalFailed} failed
         </div>
@@ -82,20 +84,22 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Slowest Service */}
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="text-sm font-medium text-gray-500">Slowest Service</div>
+        <p className="text-xs text-gray-400 mt-1">External service with the highest average response time. Long latencies may indicate API rate limits, degradation, or geographic latency</p>
         {slowestService ? (
           <>
-            <div className="mt-2 text-lg font-semibold text-gray-900">{slowestService.service}</div>
+            <div className="mt-3 text-lg font-semibold text-gray-900">{slowestService.service}</div>
             <div className="mt-1 text-sm text-orange-600">{slowestService.avgDuration}ms avg</div>
           </>
         ) : (
-          <div className="mt-2 text-gray-500">No data</div>
+          <div className="mt-3 text-gray-500">No data</div>
         )}
       </div>
 
       {/* Evaluation Count */}
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="text-sm font-medium text-gray-500">Evaluations</div>
-        <div className="mt-2 text-3xl font-bold text-gray-900">{totalEvaluations}</div>
+        <p className="text-xs text-gray-400 mt-1">Total location-date-model combinations evaluated. One location across 8 days = 8 evaluations (SONNET + HAIKU)</p>
+        <div className="mt-3 text-3xl font-bold text-gray-900">{totalEvaluations}</div>
         <div className="mt-1 text-xs text-gray-600">in {totalRuns} runs</div>
       </div>
     </div>

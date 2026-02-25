@@ -2,12 +2,15 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.JobName;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
@@ -42,6 +45,7 @@ public class ForecastController {
     private final ForecastEvaluationRepository repository;
     private final ForecastService forecastService;
     private final LocationService locationService;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -49,12 +53,15 @@ public class ForecastController {
      * @param repository      the forecast evaluation repository
      * @param forecastService the service for running forecasts
      * @param locationService the service for persisted locations
+     * @param jobRunService   the service for tracking job runs and metrics
      */
     public ForecastController(ForecastEvaluationRepository repository,
-            ForecastService forecastService, LocationService locationService) {
+            ForecastService forecastService, LocationService locationService,
+            JobRunService jobRunService) {
         this.repository = repository;
         this.forecastService = forecastService;
         this.locationService = locationService;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -164,27 +171,33 @@ public class ForecastController {
                 request != null ? request.location() : null,
                 targetType);
 
-        return dates.stream()
+        // Track as manual job run for metrics
+        JobRunEntity jobRun = jobRunService.startRun(JobName.SONNET);
+
+        List<ForecastEvaluationEntity> results = dates.stream()
                 .flatMap(date -> locations.stream()
                         .flatMap(loc -> {
                             if (isPureWildlife(loc)) {
                                 return forecastService.runForecasts(
                                         loc.getName(), loc.getLat(), loc.getLon(),
                                         loc.getId(), date, targetType, loc.getTideType(),
-                                        EvaluationModel.WILDLIFE).stream();
+                                        EvaluationModel.WILDLIFE, jobRun).stream();
                             }
                             List<ForecastEvaluationEntity> sonnetResults = forecastService
                                     .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
                                             loc.getId(), date, targetType, loc.getTideType(),
-                                            EvaluationModel.SONNET);
+                                            EvaluationModel.SONNET, jobRun);
                             List<ForecastEvaluationEntity> haikuResults = forecastService
                                     .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
                                             loc.getId(), date, targetType, loc.getTideType(),
-                                            EvaluationModel.HAIKU);
+                                            EvaluationModel.HAIKU, jobRun);
                             return Stream.concat(
                                     sonnetResults.stream(), haikuResults.stream());
                         }))
                 .toList();
+
+        jobRunService.completeRun(jobRun, results.size(), 0);
+        return results;
     }
 
     /**
