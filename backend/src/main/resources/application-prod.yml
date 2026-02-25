@@ -1,0 +1,57 @@
+spring:
+  datasource:
+    url: jdbc:h2:file:/data/goldenhour;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      # Production: validate only, never auto-migrate. Flyway handles all migrations.
+      ddl-auto: validate
+    show-sql: false
+
+  h2:
+    console:
+      enabled: false
+
+  flyway:
+    enabled: true
+    out-of-order: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized
+
+server:
+  port: 8082
+  servlet:
+    context-path: /
+
+# Forecast scheduling — can be customized via environment variables
+forecast:
+  schedule:
+    sonnet:
+      # Every 6 hours: 0, 6, 12, 18 UTC
+      cron: "${FORECAST_SONNET_CRON:0 0 0,6,12,18 * * *}"
+    haiku:
+      # Every 12 hours: 6, 18 UTC
+      cron: "${FORECAST_HAIKU_CRON:0 0 6,18 * * *}"
+    wildlife:
+      # Every 12 hours: 6, 18 UTC
+      cron: "${FORECAST_WILDLIFE_CRON:0 0 6,18 * * *}"
+
+tide:
+  schedule:
+    # Weekly: Monday at 02:00 UTC
+    cron: "${TIDE_SCHEDULE_CRON:0 0 2 * * MON}"
+
+logging:
+  level:
+    root: INFO
+    com.gregochr.goldenhour: INFO

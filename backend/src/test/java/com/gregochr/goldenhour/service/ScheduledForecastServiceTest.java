@@ -43,6 +43,9 @@ class ScheduledForecastServiceTest {
     @Mock
     private TideService tideService;
 
+    @Mock
+    private JobRunService jobRunService;
+
     private ScheduledForecastService scheduledForecastService;
 
     private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET for BOTH_TIMES
@@ -73,7 +76,7 @@ class ScheduledForecastServiceTest {
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         scheduledForecastService = new ScheduledForecastService(
-                forecastService, locationService, tideService);
+                forecastService, locationService, tideService, jobRunService);
     }
 
     @Test
@@ -86,7 +89,7 @@ class ScheduledForecastServiceTest {
         verify(forecastService, times(expectedCalls))
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.SONNET));
+                        eq(EvaluationModel.SONNET), any());
     }
 
     @Test
@@ -99,7 +102,7 @@ class ScheduledForecastServiceTest {
         verify(forecastService, times(expectedCalls))
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.HAIKU));
+                        eq(EvaluationModel.HAIKU), any());
     }
 
     @Test
@@ -112,7 +115,7 @@ class ScheduledForecastServiceTest {
         verify(forecastService, times(totalCalls))
                 .runForecasts(any(), anyDouble(), anyDouble(), any(),
                         dateCaptor.capture(), any(TargetType.class), any(),
-                        any(EvaluationModel.class));
+                        any(EvaluationModel.class), any());
 
         List<LocalDate> capturedDates = dateCaptor.getAllValues();
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
@@ -134,7 +137,7 @@ class ScheduledForecastServiceTest {
 
         doThrow(new RuntimeException("API error"))
                 .when(forecastService).runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(), any(TargetType.class), any(), any(EvaluationModel.class));
+                        any(), any(), any(TargetType.class), any(), any(EvaluationModel.class), any());
 
         scheduledForecastService.runSonnetForecasts();
 
@@ -144,7 +147,7 @@ class ScheduledForecastServiceTest {
         verify(forecastService, times(expectedLondonCalls))
                 .runForecasts(eq("London UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),
-                        any(EvaluationModel.class));
+                        any(EvaluationModel.class), any());
     }
 
     @Test
@@ -154,7 +157,7 @@ class ScheduledForecastServiceTest {
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         scheduledForecastService = new ScheduledForecastService(
-                forecastService, locationService, tideService);
+                forecastService, locationService, tideService, jobRunService);
 
         scheduledForecastService.runWildlifeForecasts();
 
@@ -163,12 +166,12 @@ class ScheduledForecastServiceTest {
         verify(forecastService, times(daysInHorizon))
                 .runForecasts(eq("Wildlife Reserve"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), org.mockito.ArgumentMatchers.isNull(),
-                        any(), eq(EvaluationModel.WILDLIFE));
+                        any(), eq(EvaluationModel.WILDLIFE), any());
         // Durham (untyped = colour) must NOT receive WILDLIFE calls
         verify(forecastService, never())
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(),
-                        any(), eq(EvaluationModel.WILDLIFE));
+                        any(), eq(EvaluationModel.WILDLIFE), any());
     }
 
     @Test
@@ -178,7 +181,7 @@ class ScheduledForecastServiceTest {
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         scheduledForecastService = new ScheduledForecastService(
-                forecastService, locationService, tideService);
+                forecastService, locationService, tideService, jobRunService);
 
         scheduledForecastService.runSonnetForecasts();
 
@@ -186,7 +189,7 @@ class ScheduledForecastServiceTest {
         verify(forecastService, never())
                 .runForecasts(eq("Wildlife Reserve"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.SONNET));
+                        eq(EvaluationModel.SONNET), any());
     }
 
     @Test

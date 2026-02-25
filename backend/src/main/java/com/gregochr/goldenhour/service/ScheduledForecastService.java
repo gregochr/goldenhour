@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.JobName;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -40,6 +42,7 @@ public class ScheduledForecastService {
     private final ForecastService forecastService;
     private final LocationService locationService;
     private final TideService tideService;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
@@ -47,12 +50,15 @@ public class ScheduledForecastService {
      * @param forecastService the service that runs individual location forecasts
      * @param locationService the service providing persisted locations
      * @param tideService     the service that fetches and stores tide extremes
+     * @param jobRunService   the service for tracking job run metrics
      */
     public ScheduledForecastService(ForecastService forecastService,
-            LocationService locationService, TideService tideService) {
+            LocationService locationService, TideService tideService,
+            JobRunService jobRunService) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.tideService = tideService;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -90,14 +96,15 @@ public class ScheduledForecastService {
      *
      * <p>Runs once a week (default: Monday at 02:00 UTC). Configurable via
      * {@code tide.schedule.cron}. Exceptions per location are caught and logged.
+     * Metrics are recorded in the job_run table.
      */
     @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
     public void refreshTideExtremes() {
+        JobRunEntity jobRun = jobRunService.startRun(JobName.TIDE);
         List<LocationEntity> coastal = locationService.findAll().stream()
                 .filter(locationService::isCoastal)
                 .toList();
         LOG.info("Weekly tide refresh started — {} coastal location(s)", coastal.size());
-        long startMs = System.currentTimeMillis();
         int succeeded = 0;
         int failed = 0;
 
@@ -111,8 +118,9 @@ public class ScheduledForecastService {
             }
         }
 
-        LOG.info("Weekly tide refresh complete — {} succeeded, {} failed, took {}ms",
-                succeeded, failed, System.currentTimeMillis() - startMs);
+        jobRunService.completeRun(jobRun, succeeded, failed);
+        LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
+                succeeded, failed);
     }
 
     /**
@@ -145,9 +153,18 @@ public class ScheduledForecastService {
      * <p>WILDLIFE model runs only on pure-WILDLIFE locations. HAIKU and SONNET models run
      * on colour-type locations (LANDSCAPE, SEASCAPE, untyped, or mixed).
      *
+     * <p>Metrics are recorded in the job_run and api_call_log tables.
+     *
      * @param model the evaluation model to use
      */
     private void runAll(EvaluationModel model) {
+        JobName jobName = switch (model) {
+            case SONNET -> JobName.SONNET;
+            case HAIKU -> JobName.HAIKU;
+            case WILDLIFE -> JobName.WILDLIFE;
+        };
+        JobRunEntity jobRun = jobRunService.startRun(jobName);
+
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocationEntity> locations = locationService.findAll().stream()
                 .filter(loc -> model == EvaluationModel.WILDLIFE
@@ -156,7 +173,6 @@ public class ScheduledForecastService {
                 .toList();
         LOG.info("Scheduled {} forecast run started — {} location(s), T+0 to T+{}",
                 model, locations.size(), FORECAST_HORIZON_DAYS);
-        long startMs = System.currentTimeMillis();
         int succeeded = 0;
         int failed = 0;
 
@@ -165,21 +181,21 @@ public class ScheduledForecastService {
                 LocalDate targetDate = today.plusDays(daysAhead);
                 if (model == EvaluationModel.WILDLIFE) {
                     // Single call per day: runForecasts handles the hourly loop internally
-                    if (runForecast(location, targetDate, null, model)) {
+                    if (runForecast(location, targetDate, null, model, jobRun)) {
                         succeeded++;
                     } else {
                         failed++;
                     }
                 } else {
                     if (locationService.shouldEvaluateSunrise(location)) {
-                        if (runForecast(location, targetDate, TargetType.SUNRISE, model)) {
+                        if (runForecast(location, targetDate, TargetType.SUNRISE, model, jobRun)) {
                             succeeded++;
                         } else {
                             failed++;
                         }
                     }
                     if (locationService.shouldEvaluateSunset(location)) {
-                        if (runForecast(location, targetDate, TargetType.SUNSET, model)) {
+                        if (runForecast(location, targetDate, TargetType.SUNSET, model, jobRun)) {
                             succeeded++;
                         } else {
                             failed++;
@@ -189,8 +205,9 @@ public class ScheduledForecastService {
             }
         }
 
-        LOG.info("Scheduled {} forecast run complete — {} succeeded, {} failed, took {}ms",
-                model, succeeded, failed, System.currentTimeMillis() - startMs);
+        jobRunService.completeRun(jobRun, succeeded, failed);
+        LOG.info("Scheduled {} forecast run complete — {} succeeded, {} failed",
+                model, succeeded, failed);
     }
 
     /**
@@ -200,14 +217,15 @@ public class ScheduledForecastService {
      * @param targetDate the calendar date to forecast
      * @param targetType {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}
      * @param model      the evaluation model to use
+     * @param jobRun     the parent job run for metrics tracking
      * @return {@code true} if the forecast succeeded, {@code false} if it failed
      */
     private boolean runForecast(LocationEntity location, LocalDate targetDate,
-            TargetType targetType, EvaluationModel model) {
+            TargetType targetType, EvaluationModel model, JobRunEntity jobRun) {
         try {
             forecastService.runForecasts(
                     location.getName(), location.getLat(), location.getLon(),
-                    location.getId(), targetDate, targetType, location.getTideType(), model);
+                    location.getId(), targetDate, targetType, location.getTideType(), model, jobRun);
             return true;
         } catch (Exception e) {
             LOG.error("Forecast failed for {} {} on {} [{}]: {}",

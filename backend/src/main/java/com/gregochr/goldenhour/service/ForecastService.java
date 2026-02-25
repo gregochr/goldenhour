@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -108,12 +109,35 @@ public class ForecastService {
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
             Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes,
             EvaluationModel model) {
+        return runForecasts(locationName, lat, lon, locationId, date, targetType, tideTypes, model, null);
+    }
+
+    /**
+     * Runs forecasts for the given location and date, optionally limited to a single target type.
+     *
+     * <p>Persists one {@link ForecastEvaluationEntity} per evaluated target type and sends
+     * notifications via all enabled channels.
+     *
+     * @param locationName human-readable location name
+     * @param lat          latitude in decimal degrees
+     * @param lon          longitude in decimal degrees
+     * @param locationId   the location primary key (for tide DB lookup), or {@code null} if not coastal
+     * @param date         the calendar date to forecast
+     * @param targetType   the target type to evaluate, or {@code null} to evaluate both
+     * @param tideTypes    tide preferences for this location (empty if inland)
+     * @param model        which Claude model to use for evaluation
+     * @param jobRun       the parent job run for metrics tracking, or {@code null} if called from controller
+     * @return the saved entities in evaluation order
+     */
+    public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
+            Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes,
+            EvaluationModel model, JobRunEntity jobRun) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
 
         if (model == EvaluationModel.WILDLIFE) {
             // No Claude call — run hourly comfort rows from sunrise to sunset
-            return runWildlifeHourly(locationName, lat, lon, locationId, date, daysAhead, tideTypes);
+            return runWildlifeHourly(locationName, lat, lon, locationId, date, daysAhead, tideTypes, jobRun);
         }
 
         List<ForecastEvaluationEntity> results = new ArrayList<>();
@@ -134,7 +158,7 @@ public class ForecastService {
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
-            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model);
+            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
 
             ForecastEvaluationEntity entity = buildEntity(
                     locationName, lat, lon, date, type, daysAhead, eventTime, azimuth,
@@ -170,10 +194,12 @@ public class ForecastService {
      * @param date         the calendar date to forecast
      * @param daysAhead    number of days from today to {@code date}
      * @param tideTypes    tide preferences for the location (empty if inland)
+     * @param jobRun       the parent job run for metrics tracking, or {@code null}
      * @return the saved entities, one per full UTC hour from sunrise to sunset
      */
     private List<ForecastEvaluationEntity> runWildlifeHourly(String locationName, double lat, double lon,
-            Long locationId, LocalDate date, int daysAhead, java.util.Set<TideType> tideTypes) {
+            Long locationId, LocalDate date, int daysAhead, java.util.Set<TideType> tideTypes,
+            JobRunEntity jobRun) {
         LocalDateTime sunriseTime = solarService.sunriseUtc(lat, lon, date);
         LocalDateTime sunsetTime = solarService.sunsetUtc(lat, lon, date);
 

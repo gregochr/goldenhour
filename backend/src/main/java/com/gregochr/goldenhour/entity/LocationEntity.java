@@ -96,4 +96,20 @@ public class LocationEntity {
     /** UTC timestamp when this location was created. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    /** Number of consecutive forecast failures for this location. Used for auto-disabling. */
+    @Column(name = "consecutive_failures")
+    @Builder.Default
+    private Integer consecutiveFailures = 0;
+
+    /** UTC timestamp of the most recent forecast failure, or null if none. */
+    @Column(name = "last_failure_at")
+    private LocalDateTime lastFailureAt;
+
+    /**
+     * Reason this location was disabled, or null if enabled.
+     * Examples: "Auto-disabled after 3 consecutive failures", or set by admin.
+     */
+    @Column(name = "disabled_reason")
+    private String disabledReason;
 }

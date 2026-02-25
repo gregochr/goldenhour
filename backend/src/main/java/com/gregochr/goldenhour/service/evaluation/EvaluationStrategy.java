@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 
@@ -18,4 +19,13 @@ public interface EvaluationStrategy {
      * @return Claude's colour potential rating and plain-English explanation
      */
     SunsetEvaluation evaluate(AtmosphericData data);
+
+    /**
+     * Evaluates the colour potential for a solar event with optional metrics tracking.
+     *
+     * @param data   the atmospheric forecast data to evaluate
+     * @param jobRun the parent job run for metrics tracking, or {@code null}
+     * @return Claude's colour potential rating and plain-English explanation
+     */
+    SunsetEvaluation evaluate(AtmosphericData data, JobRunEntity jobRun);
 }

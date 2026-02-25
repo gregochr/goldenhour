@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import axios from 'axios';
 import { runForecast, fetchLocations, addLocation } from '../api/forecastApi.js';
 import { formatDateLabel } from '../utils/conversions.js';
+import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 
 const FORECAST_DAYS = 8; // T through T+7
 
@@ -218,7 +219,7 @@ export default function ManageView({ onComplete }) {
 
       {/* Sub-tabs */}
       <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-0.5 gap-0.5 self-start">
-        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }].map((tab) => (
+        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }, { value: 'metrics', label: 'Job Runs' }].map((tab) => (
           <button
             key={tab.value}
             onClick={() => setManageTab(tab.value)}
@@ -227,6 +228,7 @@ export default function ManageView({ onComplete }) {
                 ? 'bg-gray-700 text-gray-100'
                 : 'text-gray-500 hover:text-gray-300'
             }`}
+            data-testid={`manage-tab-${tab.value}`}
           >
             {tab.label}
           </button>
@@ -535,6 +537,14 @@ export default function ManageView({ onComplete }) {
         );
       })}
       </>}
+
+      {/* ── Metrics tab ── */}
+      {manageTab === 'metrics' && (
+        <div className="card border border-gray-800 flex flex-col gap-4">
+          <p className="text-sm font-semibold text-gray-100">Job Run Metrics</p>
+          <JobRunsMetricsView />
+        </div>
+      )}
 
     </div>
   );

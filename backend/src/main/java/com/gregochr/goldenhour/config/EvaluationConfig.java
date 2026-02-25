@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.springframework.context.annotation.Bean;
@@ -23,12 +24,13 @@ public class EvaluationConfig {
      * @param client       Anthropic API client
      * @param properties   Anthropic configuration
      * @param objectMapper Jackson mapper
+     * @param jobRunService job run metrics service
      * @return a Haiku evaluation strategy
      */
     @Bean
     public HaikuEvaluationStrategy haikuEvaluationStrategy(AnthropicClient client,
-            AnthropicProperties properties, ObjectMapper objectMapper) {
-        return new HaikuEvaluationStrategy(client, properties, objectMapper);
+            AnthropicProperties properties, ObjectMapper objectMapper, JobRunService jobRunService) {
+        return new HaikuEvaluationStrategy(client, properties, objectMapper, jobRunService);
     }
 
     /**
@@ -37,11 +39,12 @@ public class EvaluationConfig {
      * @param client       Anthropic API client
      * @param properties   Anthropic configuration
      * @param objectMapper Jackson mapper
+     * @param jobRunService job run metrics service
      * @return a Sonnet evaluation strategy
      */
     @Bean
     public SonnetEvaluationStrategy sonnetEvaluationStrategy(AnthropicClient client,
-            AnthropicProperties properties, ObjectMapper objectMapper) {
-        return new SonnetEvaluationStrategy(client, properties, objectMapper);
+            AnthropicProperties properties, ObjectMapper objectMapper, JobRunService jobRunService) {
+        return new SonnetEvaluationStrategy(client, properties, objectMapper, jobRunService);
     }
 }

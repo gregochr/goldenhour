@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
@@ -23,11 +24,12 @@ class EvaluationConfigTest {
     private final AnthropicClient client = mock(AnthropicClient.class);
     private final AnthropicProperties properties = new AnthropicProperties();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final JobRunService jobRunService = mock(JobRunService.class);
 
     @Test
     @DisplayName("haikuEvaluationStrategy() returns a HaikuEvaluationStrategy")
     void haikuEvaluationStrategy_returnsHaikuEvaluationStrategy() {
-        EvaluationStrategy strategy = config.haikuEvaluationStrategy(client, properties, objectMapper);
+        EvaluationStrategy strategy = config.haikuEvaluationStrategy(client, properties, objectMapper, jobRunService);
 
         assertThat(strategy).isInstanceOf(HaikuEvaluationStrategy.class);
     }
@@ -35,7 +37,7 @@ class EvaluationConfigTest {
     @Test
     @DisplayName("sonnetEvaluationStrategy() returns a SonnetEvaluationStrategy")
     void sonnetEvaluationStrategy_returnsSonnetEvaluationStrategy() {
-        EvaluationStrategy strategy = config.sonnetEvaluationStrategy(client, properties, objectMapper);
+        EvaluationStrategy strategy = config.sonnetEvaluationStrategy(client, properties, objectMapper, jobRunService);
 
         assertThat(strategy).isInstanceOf(SonnetEvaluationStrategy.class);
     }

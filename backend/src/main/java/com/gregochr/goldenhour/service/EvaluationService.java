@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
@@ -41,6 +42,20 @@ public class EvaluationService {
      * @return Claude's colour potential evaluation and plain-English explanation
      */
     public SunsetEvaluation evaluate(AtmosphericData data, EvaluationModel model) {
-        return (model == EvaluationModel.HAIKU ? haikuStrategy : sonnetStrategy).evaluate(data);
+        return evaluate(data, model, null);
+    }
+
+    /**
+     * Evaluates the colour potential for a solar event using the specified model.
+     *
+     * @param data   the atmospheric forecast data to evaluate
+     * @param model  which Claude model to use — HAIKU returns a 1–5 rating,
+     *               SONNET returns dual 0–100 scores
+     * @param jobRun the parent job run for metrics tracking, or {@code null} if not from scheduled run
+     * @return Claude's colour potential evaluation and plain-English explanation
+     */
+    public SunsetEvaluation evaluate(AtmosphericData data, EvaluationModel model, JobRunEntity jobRun) {
+        return (model == EvaluationModel.HAIKU ? haikuStrategy : sonnetStrategy)
+                .evaluate(data, jobRun);
     }
 }
