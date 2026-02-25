@@ -11,6 +11,9 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 
 import java.math.BigDecimal;
@@ -27,6 +30,8 @@ import java.util.List;
  */
 @Service
 public class OpenMeteoService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(OpenMeteoService.class);
 
     private static final String FORECAST_PARAMS =
             "cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,"
@@ -63,6 +68,10 @@ public class OpenMeteoService {
      * @return pre-processed atmospheric data for the ±30-minute window
      */
     public AtmosphericData getAtmosphericData(ForecastRequest request, LocalDateTime solarEventTime) {
+        LOG.info("Open-Meteo ← {} {} {}", request.locationName(), request.targetType(),
+                solarEventTime.toLocalDate());
+        long startMs = System.currentTimeMillis();
+
         Mono<OpenMeteoForecastResponse> forecastMono = webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .scheme("https").host("api.open-meteo.com").path("/v1/forecast")
@@ -96,6 +105,8 @@ public class OpenMeteoService {
         if (data == null) {
             throw new IllegalStateException("Open-Meteo API returned null response");
         }
+        LOG.info("Open-Meteo → {} {}: {}ms", request.locationName(), request.targetType(),
+                System.currentTimeMillis() - startMs);
         return data;
     }
 
