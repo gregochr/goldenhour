@@ -123,7 +123,19 @@ public class ForecastEvaluationEntity {
     @Column(name = "aerosol_optical_depth", precision = 5, scale = 3)
     private BigDecimal aerosolOpticalDepth;
 
-    /** Which Claude model produced this row — HAIKU (1–5 rating) or SONNET (dual 0–100 scores). */
+    /** Air temperature at 2 m above ground in °C. Populated for all evaluation models. */
+    @Column(name = "temperature_celsius")
+    private Double temperatureCelsius;
+
+    /** Apparent (feels-like) temperature at 2 m above ground in °C. Populated for all models. */
+    @Column(name = "apparent_temperature_celsius")
+    private Double apparentTemperatureCelsius;
+
+    /** Probability of precipitation in percent (0–100). Populated for all evaluation models. */
+    @Column(name = "precipitation_probability_percent")
+    private Integer precipitationProbabilityPercent;
+
+    /** Which evaluation path produced this row — HAIKU, SONNET, or WILDLIFE (comfort-only). */
     @Enumerated(EnumType.STRING)
     @Column(name = "evaluation_model", length = 10)
     private EvaluationModel evaluationModel;

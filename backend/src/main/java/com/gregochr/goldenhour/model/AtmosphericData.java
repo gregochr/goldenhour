@@ -29,6 +29,9 @@ import java.time.LocalDateTime;
  * @param pm25                      fine particulate matter concentration in µg/m³
  * @param dustUgm3                  dust concentration in µg/m³
  * @param aerosolOpticalDepth       aerosol optical depth (dimensionless)
+ * @param temperatureCelsius         air temperature at 2 m in °C
+ * @param apparentTemperatureCelsius feels-like temperature at 2 m in °C
+ * @param precipitationProbability   probability of precipitation in percent (0–100)
  * @param tideState                 current tide state at the solar event time, or null for inland
  * @param nextHighTideTime          UTC time of next high tide or null
  * @param nextHighTideHeightMetres  height of next high tide in metres or null
@@ -54,6 +57,9 @@ public record AtmosphericData(
         BigDecimal pm25,
         BigDecimal dustUgm3,
         BigDecimal aerosolOpticalDepth,
+        Double temperatureCelsius,
+        Double apparentTemperatureCelsius,
+        Integer precipitationProbability,
         TideState tideState,
         LocalDateTime nextHighTideTime,
         BigDecimal nextHighTideHeightMetres,

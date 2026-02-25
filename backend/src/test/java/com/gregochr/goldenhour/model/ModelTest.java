@@ -28,6 +28,7 @@ class ModelTest {
                 new BigDecimal("5.50"), 225, new BigDecimal("0.10"),
                 62, 3, 1200, new BigDecimal("180.00"),
                 new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
+                12.5, 9.8, 30,
                 null, null, null, null, null, null);
 
         assertThat(data.locationName()).isEqualTo("Durham UK");
@@ -47,6 +48,9 @@ class ModelTest {
         assertThat(data.pm25()).isEqualByComparingTo("8.50");
         assertThat(data.dustUgm3()).isEqualByComparingTo("2.10");
         assertThat(data.aerosolOpticalDepth()).isEqualByComparingTo("0.120");
+        assertThat(data.temperatureCelsius()).isEqualTo(12.5);
+        assertThat(data.apparentTemperatureCelsius()).isEqualTo(9.8);
+        assertThat(data.precipitationProbability()).isEqualTo(30);
     }
 
     @Test

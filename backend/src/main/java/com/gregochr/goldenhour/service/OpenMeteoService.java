@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -36,7 +37,8 @@ public class OpenMeteoService {
     private static final String FORECAST_PARAMS =
             "cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,"
             + "wind_speed_10m,wind_direction_10m,precipitation,weather_code,"
-            + "relative_humidity_2m,surface_pressure,shortwave_radiation,boundary_layer_height";
+            + "relative_humidity_2m,surface_pressure,shortwave_radiation,boundary_layer_height,"
+            + "temperature_2m,apparent_temperature,precipitation_probability";
 
     private static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
@@ -111,6 +113,71 @@ public class OpenMeteoService {
     }
 
     /**
+     * Fetches atmospheric data from the Open-Meteo APIs and extracts values for each full UTC
+     * hour between {@code from} and {@code to} (both inclusive, truncated to the hour).
+     *
+     * <p>Makes a single pair of API calls for the full day and extracts data for each
+     * hourly slot, so the cost is one request regardless of how many hours are covered.
+     *
+     * @param request  the forecast request (location, date, target type)
+     * @param from     start of the window (truncated to hour)
+     * @param to       end of the window (truncated to hour)
+     * @return pre-processed atmospheric data for each full UTC hour in [from, to]
+     */
+    public List<AtmosphericData> getHourlyAtmosphericData(ForecastRequest request,
+            LocalDateTime from, LocalDateTime to) {
+        LOG.info("Open-Meteo (hourly) ← {} {} to {}", request.locationName(), from, to);
+        long startMs = System.currentTimeMillis();
+
+        Mono<OpenMeteoForecastResponse> forecastMono = webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .scheme("https").host("api.open-meteo.com").path("/v1/forecast")
+                        .queryParam("latitude", request.latitude())
+                        .queryParam("longitude", request.longitude())
+                        .queryParam("hourly", FORECAST_PARAMS)
+                        .queryParam("wind_speed_unit", "ms")
+                        .queryParam("timezone", "UTC")
+                        .build())
+                .retrieve()
+                .bodyToMono(OpenMeteoForecastResponse.class)
+                .retryWhen(retryOnTransient());
+
+        Mono<OpenMeteoAirQualityResponse> airQualityMono = webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .scheme("https").host("air-quality-api.open-meteo.com")
+                        .path("/v1/air-quality")
+                        .queryParam("latitude", request.latitude())
+                        .queryParam("longitude", request.longitude())
+                        .queryParam("hourly", AIR_QUALITY_PARAMS)
+                        .queryParam("timezone", "UTC")
+                        .build())
+                .retrieve()
+                .bodyToMono(OpenMeteoAirQualityResponse.class)
+                .retryWhen(retryOnTransient());
+
+        List<AtmosphericData> result = Mono.zip(forecastMono, airQualityMono)
+                .map(tuple -> {
+                    LocalDateTime startHour = from.truncatedTo(ChronoUnit.HOURS);
+                    LocalDateTime endHour = to.truncatedTo(ChronoUnit.HOURS);
+                    List<AtmosphericData> slots = new ArrayList<>();
+                    LocalDateTime current = startHour;
+                    while (!current.isAfter(endHour)) {
+                        slots.add(extractAtmosphericData(tuple.getT1(), tuple.getT2(),
+                                request.locationName(), current, request.targetType()));
+                        current = current.plusHours(1);
+                    }
+                    return slots;
+                })
+                .block();
+        if (result == null) {
+            throw new IllegalStateException("Open-Meteo API returned null response");
+        }
+        LOG.info("Open-Meteo (hourly) → {}: {} slots, {}ms",
+                request.locationName(), result.size(), System.currentTimeMillis() - startMs);
+        return result;
+    }
+
+    /**
      * Returns a retry spec that retries up to {@value #MAX_RETRIES} times with exponential
      * backoff for transient errors: 5xx server errors and 429 Too Many Requests.
      * Other 4xx client errors are not retried.
@@ -170,6 +237,9 @@ public class OpenMeteoService {
                 toDecimal(pm25Raw, PRECIP_SCALE),
                 toDecimal(dustRaw, PRECIP_SCALE),
                 toDecimal(aodRaw, AOD_SCALE),
+                getDoubleValue(h.getTemperature2m(), idx),
+                getDoubleValue(h.getApparentTemperature(), idx),
+                getIntegerValue(h.getPrecipitationProbability(), idx),
                 null, // tideState - populated by TideService if location is coastal
                 null, // nextHighTideTime
                 null, // nextHighTideHeightMetres
@@ -179,6 +249,20 @@ public class OpenMeteoService {
     }
 
     private Double getAirQualityValue(List<Double> values, int idx) {
+        if (values == null || idx >= values.size()) {
+            return null;
+        }
+        return values.get(idx);
+    }
+
+    private Double getDoubleValue(List<Double> values, int idx) {
+        if (values == null || idx >= values.size()) {
+            return null;
+        }
+        return values.get(idx);
+    }
+
+    private Integer getIntegerValue(List<Integer> values, int idx) {
         if (values == null || idx >= values.size()) {
             return null;
         }

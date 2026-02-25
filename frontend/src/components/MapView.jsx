@@ -7,6 +7,8 @@ import {
   formatEventTimeUk,
   formatShiftedEventTimeUk,
   formatGeneratedAtFull,
+  mpsToMph,
+  degreesToCompass,
 } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 
@@ -129,11 +131,15 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
  * @param {number|null} fierySky - Fiery sky score 0–100, or null for Haiku rows.
  * @param {number|null} goldenHour - Golden hour score 0–100, or null for Haiku rows.
  * @param {string} locationName - Display name shown beneath the marker.
+ * @param {boolean} [isPureWildlife=false] - If true, renders a green wildlife marker.
  * @returns {L.DivIcon}
  */
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName) {
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false) {
   let colour, label;
-  if (rating != null) {
+  if (isPureWildlife) {
+    colour = '#4ade80'; // green
+    label = '🦅';
+  } else if (rating != null) {
     colour = RATING_COLOURS[rating] ?? '#6b7280';
     label = `${rating}★`;
   } else {
@@ -365,11 +371,15 @@ export default function MapView({ locations, date }) {
           {visibleLocations.map((loc) => {
             const dayData = loc.forecastsByDate.get(date);
             const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
+            const hourlyData = dayData?.hourly ?? [];
+            const locIsPureWildlife = (loc.locationType ?? []).length > 0
+              && (loc.locationType ?? []).every((t) => t === 'WILDLIFE');
             const icon = makeMarkerIcon(
               forecast?.rating ?? null,
               forecast?.fierySkyPotential ?? null,
               forecast?.goldenHourPotential ?? null,
               loc.name,
+              locIsPureWildlife,
             );
             const isSunrise = eventType === 'SUNRISE';
 
@@ -484,8 +494,38 @@ export default function MapView({ locations, date }) {
                       </div>
                     )}
 
-                    {/* Scores + summary */}
-                    {forecast ? (
+                    {/* Scores / summary / comfort OR hourly wildlife timeline */}
+                    {locIsPureWildlife ? (
+                      hourlyData.length > 0 ? (
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a', marginBottom: '6px' }}>
+                            🦅 Hourly comfort
+                          </div>
+                          <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                            {hourlyData.map((h) => (
+                              <div key={h.solarEventTime} style={{ display: 'table-row' }}>
+                                <div style={{ display: 'table-cell', color: '#6b7280', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                                  {formatEventTimeUk(h.solarEventTime)}
+                                </div>
+                                <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                                  🌡 {h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C` : '—'}
+                                </div>
+                                <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                                  💨 {h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}
+                                </div>
+                                <div style={{ display: 'table-cell', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                                  🌧 {h.precipitationProbabilityPercent != null ? `${h.precipitationProbabilityPercent}%` : '—'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
+                          No hourly forecast available
+                        </div>
+                      )
+                    ) : forecast ? (
                       <>
                         <div style={{ marginBottom: '6px' }}>
                           {forecast.rating != null ? (
@@ -502,9 +542,23 @@ export default function MapView({ locations, date }) {
                             </>
                           )}
                         </div>
-                        <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#374151' }}>
-                          {forecast.summary}
-                        </div>
+                        {forecast.summary && (
+                          <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#374151', marginBottom: '6px' }}>
+                            {forecast.summary}
+                          </div>
+                        )}
+
+                        {/* Comfort rows — shown on colour popups when data is available */}
+                        {forecast.temperatureCelsius != null && (
+                          <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: '#374151', lineHeight: '1.8' }}>
+                            <div>🌡 <strong>{Math.round(forecast.temperatureCelsius)}°C</strong> · feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
+                            <div>💨 <strong>{mpsToMph(forecast.windSpeed)} mph</strong> {degreesToCompass(forecast.windDirection)}</div>
+                            <div>🌧 <strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong> rain chance</div>
+                            {parseFloat(forecast.precipitation ?? 0) > 0 && (
+                              <div>💧 <strong>{parseFloat(forecast.precipitation).toFixed(1)} mm</strong> precip</div>
+                            )}
+                          </div>
+                        )}
                       </>
                     ) : (
                       <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
@@ -512,8 +566,8 @@ export default function MapView({ locations, date }) {
                       </div>
                     )}
 
-                    {/* Footer: generated at */}
-                    {forecast?.forecastRunAt && (
+                    {/* Footer: generated at (colour forecasts only) */}
+                    {!locIsPureWildlife && forecast?.forecastRunAt && (
                       <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
                         Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}
                       </div>

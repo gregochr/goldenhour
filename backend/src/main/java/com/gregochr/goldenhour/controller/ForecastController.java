@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
@@ -72,9 +73,17 @@ public class ForecastController {
         LocalDate horizon = today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS);
         EvaluationModel model = modelForAuth(auth);
         return locationService.findAll().stream()
-                .flatMap(loc -> repository
-                        .findByLocationAndDateRangeAndModel(loc.getName(), today, horizon, model)
-                        .stream())
+                .flatMap(loc -> {
+                    Stream<ForecastEvaluationEntity> colour = hasColourTypes(loc)
+                            ? repository.findByLocationAndDateRangeAndModel(
+                                    loc.getName(), today, horizon, model).stream()
+                            : Stream.empty();
+                    Stream<ForecastEvaluationEntity> wildlife = isPureWildlife(loc)
+                            ? repository.findByLocationAndDateRangeAndModel(
+                                    loc.getName(), today, horizon, EvaluationModel.WILDLIFE).stream()
+                            : Stream.empty();
+                    return Stream.concat(colour, wildlife);
+                })
                 .toList();
     }
 
@@ -158,6 +167,12 @@ public class ForecastController {
         return dates.stream()
                 .flatMap(date -> locations.stream()
                         .flatMap(loc -> {
+                            if (isPureWildlife(loc)) {
+                                return forecastService.runForecasts(
+                                        loc.getName(), loc.getLat(), loc.getLon(),
+                                        loc.getId(), date, targetType, loc.getTideType(),
+                                        EvaluationModel.WILDLIFE).stream();
+                            }
                             List<ForecastEvaluationEntity> sonnetResults = forecastService
                                     .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
                                             loc.getId(), date, targetType, loc.getTideType(),
@@ -190,6 +205,30 @@ public class ForecastController {
             @RequestParam TargetType targetType) {
         return repository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
                 location, date, targetType);
+    }
+
+    /**
+     * Returns {@code true} if the location has at least one colour photography type
+     * (LANDSCAPE or SEASCAPE), or has no types at all (treated as colour).
+     *
+     * @param loc the location to check
+     * @return {@code true} if colour model rows should be fetched or produced for this location
+     */
+    private boolean hasColourTypes(LocationEntity loc) {
+        return loc.getLocationType().contains(LocationType.LANDSCAPE)
+                || loc.getLocationType().contains(LocationType.SEASCAPE)
+                || loc.getLocationType().isEmpty();
+    }
+
+    /**
+     * Returns {@code true} if the location is exclusively a WILDLIFE location
+     * (has WILDLIFE type and no colour photography types).
+     *
+     * @param loc the location to check
+     * @return {@code true} if only WILDLIFE comfort rows should be fetched or produced
+     */
+    private boolean isPureWildlife(LocationEntity loc) {
+        return loc.getLocationType().contains(LocationType.WILDLIFE) && !hasColourTypes(loc);
     }
 
     /**

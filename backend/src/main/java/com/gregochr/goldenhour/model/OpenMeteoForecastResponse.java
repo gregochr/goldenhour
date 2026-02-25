@@ -60,5 +60,14 @@ public class OpenMeteoForecastResponse {
 
         @JsonProperty("boundary_layer_height")
         private List<Double> boundaryLayerHeight;
+
+        @JsonProperty("temperature_2m")
+        private List<Double> temperature2m;
+
+        @JsonProperty("apparent_temperature")
+        private List<Double> apparentTemperature;
+
+        @JsonProperty("precipitation_probability")
+        private List<Integer> precipitationProbability;
     }
 }
