@@ -63,9 +63,17 @@ public class ActualOutcomeEntity {
     @Column(name = "went_out")
     private Boolean wentOut;
 
-    /** The photographer's own 1-5 rating of the actual colour. */
+    /** The photographer's own 1-5 rating of the actual colour. Kept for backward compatibility. */
     @Column(name = "actual_rating")
     private Integer actualRating;
+
+    /** Photographer's fiery sky score (0–100) for the actual event. */
+    @Column(name = "fiery_sky_actual")
+    private Integer fierySkyActual;
+
+    /** Photographer's golden hour score (0–100) for the actual event. */
+    @Column(name = "golden_hour_actual")
+    private Integer goldenHourActual;
 
     /** Free-text observations about the shoot. */
     @Column(name = "notes", columnDefinition = "TEXT")

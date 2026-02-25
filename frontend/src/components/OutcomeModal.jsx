@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { recordOutcome } from '../api/forecastApi.js';
 
-const MAX_RATING = 5;
-
 /**
  * Modal dialog for recording an actual observed sunrise/sunset outcome.
  *
@@ -26,7 +24,8 @@ export default function OutcomeModal({
   onSaved,
 }) {
   const [wentOut, setWentOut] = useState(null);
-  const [actualRating, setActualRating] = useState(null);
+  const [fierySkyActual, setFierySkyActual] = useState('');
+  const [goldenHourActual, setGoldenHourActual] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -44,7 +43,8 @@ export default function OutcomeModal({
         outcomeDate: date,
         targetType: type,
         wentOut: wentOut === 'yes',
-        actualRating: actualRating ? Number(actualRating) : null,
+        fierySkyActual: fierySkyActual !== '' ? Number(fierySkyActual) : null,
+        goldenHourActual: goldenHourActual !== '' ? Number(goldenHourActual) : null,
         notes,
       });
       setSaved(true);
@@ -101,28 +101,51 @@ export default function OutcomeModal({
               </div>
             </fieldset>
 
-            <fieldset>
-              <legend className="text-sm text-gray-400 mb-2">Your rating (1–5 stars)</legend>
-              <div className="flex gap-2">
-                {Array.from({ length: MAX_RATING }).map((_, i) => {
-                  const val = String(i + 1);
-                  return (
-                    <button
-                      key={val}
-                      type="button"
-                      data-testid={`actual-rating-${val}`}
-                      className={`btn flex-1 text-base ${
-                        actualRating === val ? 'bg-amber-600 text-white' : 'btn-secondary'
-                      }`}
-                      onClick={() => setActualRating(val)}
-                      aria-label={`${val} star${i > 0 ? 's' : ''}`}
-                    >
-                      {i < (actualRating ? Number(actualRating) : 0) ? '★' : '☆'}
-                    </button>
-                  );
-                })}
+            <div>
+              <label htmlFor="fiery-sky-actual" className="text-sm text-gray-400 block mb-1">
+                Fiery Sky (0–100)
+              </label>
+              <input
+                id="fiery-sky-actual"
+                data-testid="fiery-sky-actual"
+                type="range"
+                min="0"
+                max="100"
+                value={fierySkyActual !== '' ? fierySkyActual : 0}
+                onChange={(e) => setFierySkyActual(e.target.value)}
+                className="w-full accent-amber-400"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+                <span>0</span>
+                <span className="font-semibold text-gray-200">
+                  {fierySkyActual !== '' ? fierySkyActual : '—'}
+                </span>
+                <span>100</span>
               </div>
-            </fieldset>
+            </div>
+
+            <div>
+              <label htmlFor="golden-hour-actual" className="text-sm text-gray-400 block mb-1">
+                Golden Hour (0–100)
+              </label>
+              <input
+                id="golden-hour-actual"
+                data-testid="golden-hour-actual"
+                type="range"
+                min="0"
+                max="100"
+                value={goldenHourActual !== '' ? goldenHourActual : 0}
+                onChange={(e) => setGoldenHourActual(e.target.value)}
+                className="w-full accent-amber-400"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+                <span>0</span>
+                <span className="font-semibold text-gray-200">
+                  {goldenHourActual !== '' ? goldenHourActual : '—'}
+                </span>
+                <span>100</span>
+              </div>
+            </div>
 
             <div>
               <label htmlFor="outcome-notes" className="text-sm text-gray-400 block mb-1">

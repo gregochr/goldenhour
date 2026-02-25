@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -42,24 +43,33 @@ class HaikuEvaluationStrategyTest {
     private MessageService messageService;
 
     private HaikuEvaluationStrategy strategy;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
         AnthropicProperties properties = new AnthropicProperties();
         properties.setModel("claude-haiku-4-5-20251001");
-        strategy = new HaikuEvaluationStrategy(anthropicClient, properties, new ObjectMapper());
+        objectMapper = new ObjectMapper();
+        strategy = new HaikuEvaluationStrategy(anthropicClient, properties, objectMapper);
     }
 
     @Test
-    @DisplayName("getPromptSuffix() returns concise 1-2 sentence instruction")
+    @DisplayName("getPromptSuffix() returns 1-5 rate instruction")
     void getPromptSuffix_returnsCorrectString() {
         assertThat(strategy.getPromptSuffix())
                 .isEqualTo("Rate 1-5 and explain in 1-2 sentences.");
     }
 
     @Test
-    @DisplayName("evaluate() end-to-end with mocked Claude returns parsed evaluation")
-    void evaluate_endToEnd_returnsParsedEvaluation() {
+    @DisplayName("getSystemPrompt() contains rating scale instruction")
+    void getSystemPrompt_containsRatingScaleInstruction() {
+        assertThat(strategy.getSystemPrompt()).contains("1-5");
+        assertThat(strategy.getSystemPrompt()).contains("rating");
+    }
+
+    @Test
+    @DisplayName("evaluate() end-to-end with mocked Claude returns Haiku rating evaluation")
+    void evaluate_endToEnd_returnsHaikuRatingEvaluation() {
         AtmosphericData data = buildAtmosphericData();
         Message response = buildMessage(
                 "{\"rating\": 3, \"summary\": \"Some cloud cover limits potential.\"}");
@@ -70,7 +80,52 @@ class HaikuEvaluationStrategyTest {
         SunsetEvaluation result = strategy.evaluate(data);
 
         assertThat(result.rating()).isEqualTo(3);
+        assertThat(result.fierySkyPotential()).isNull();
+        assertThat(result.goldenHourPotential()).isNull();
         assertThat(result.summary()).isEqualTo("Some cloud cover limits potential.");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() extracts rating and summary from valid JSON")
+    void parseEvaluation_validJson_returnsEvaluation() {
+        SunsetEvaluation result = strategy.parseEvaluation(
+                "{\"rating\": 4, \"summary\": \"Good mid-level cloud above a clear horizon.\"}",
+                objectMapper);
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isNull();
+        assertThat(result.goldenHourPotential()).isNull();
+        assertThat(result.summary()).isEqualTo("Good mid-level cloud above a clear horizon.");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() throws on invalid JSON with no rating field")
+    void parseEvaluation_invalidJson_throwsIllegalArgumentException() {
+        assertThatThrownBy(() -> strategy.parseEvaluation("not json", objectMapper))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Failed to parse");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() strips markdown code block wrapper")
+    void parseEvaluation_codeBlockWrapped_returnsEvaluation() {
+        SunsetEvaluation result = strategy.parseEvaluation(
+                "```json\n{\"rating\": 5, \"summary\": \"Exceptional conditions.\"}\n```",
+                objectMapper);
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.summary()).isEqualTo("Exceptional conditions.");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() falls back to regex when summary contains unescaped quotes")
+    void parseEvaluation_unescapedQuotesInSummary_returnsEvaluation() {
+        SunsetEvaluation result = strategy.parseEvaluation(
+                "{\"rating\": 2, \"summary\": \"A \"dull\" outlook with heavy overcast.\"}",
+                objectMapper);
+
+        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.summary()).isEqualTo("A \"dull\" outlook with heavy overcast.");
     }
 
     private Message buildMessage(String text) {

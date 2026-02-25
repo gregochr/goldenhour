@@ -2,24 +2,23 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 
 /**
- * Wires the correct {@link EvaluationStrategy} based on the active Spring profile.
+ * Exposes both evaluation strategy beans so they can be injected by name.
  *
- * <p>The {@code lite} profile selects Haiku for lower cost; all other profiles
- * (including the default) select Sonnet for higher accuracy.
+ * <p>Both Haiku and Sonnet strategies are always available regardless of the active profile.
+ * {@link com.gregochr.goldenhour.service.EvaluationService} selects the correct strategy
+ * at call time based on the {@link com.gregochr.goldenhour.entity.EvaluationModel} argument.
  */
 @Configuration
 public class EvaluationConfig {
 
     /**
-     * Haiku-based evaluation strategy, activated when the {@code lite} profile is active.
+     * Haiku-based evaluation strategy — lower cost, 1–5 rating output.
      *
      * @param client       Anthropic API client
      * @param properties   Anthropic configuration
@@ -27,14 +26,13 @@ public class EvaluationConfig {
      * @return a Haiku evaluation strategy
      */
     @Bean
-    @Profile("lite")
-    public EvaluationStrategy liteStrategy(AnthropicClient client,
+    public HaikuEvaluationStrategy haikuEvaluationStrategy(AnthropicClient client,
             AnthropicProperties properties, ObjectMapper objectMapper) {
         return new HaikuEvaluationStrategy(client, properties, objectMapper);
     }
 
     /**
-     * Sonnet-based evaluation strategy, activated for all profiles except {@code lite}.
+     * Sonnet-based evaluation strategy — higher accuracy, dual 0–100 score output.
      *
      * @param client       Anthropic API client
      * @param properties   Anthropic configuration
@@ -42,8 +40,7 @@ public class EvaluationConfig {
      * @return a Sonnet evaluation strategy
      */
     @Bean
-    @Profile("!lite")
-    public EvaluationStrategy proStrategy(AnthropicClient client,
+    public SonnetEvaluationStrategy sonnetEvaluationStrategy(AnthropicClient client,
             AnthropicProperties properties, ObjectMapper objectMapper) {
         return new SonnetEvaluationStrategy(client, properties, objectMapper);
     }

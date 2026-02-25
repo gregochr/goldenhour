@@ -123,11 +123,24 @@ public class ForecastEvaluationEntity {
     @Column(name = "aerosol_optical_depth", precision = 5, scale = 3)
     private BigDecimal aerosolOpticalDepth;
 
-    /** Colour potential rating assigned by Claude (1 = poor, 5 = exceptional). */
+    /** Which Claude model produced this row — HAIKU (1–5 rating) or SONNET (dual 0–100 scores). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "evaluation_model", length = 10)
+    private EvaluationModel evaluationModel;
+
+    /** Colour potential rating assigned by Claude (1 = poor, 5 = exceptional). Populated by Haiku only. */
     @Column(name = "rating")
     private Integer rating;
 
-    /** Claude's plain English explanation of the rating. */
+    /** Dramatic colour potential score (0–100). Requires clouds to catch and reflect light. */
+    @Column(name = "fiery_sky_potential")
+    private Integer fierySkyPotential;
+
+    /** Overall light quality score (0–100). Can score well with a clear sky. */
+    @Column(name = "golden_hour_potential")
+    private Integer goldenHourPotential;
+
+    /** Claude's plain English explanation of the evaluation. */
     @Column(name = "summary", columnDefinition = "TEXT")
     private String summary;
 

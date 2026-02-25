@@ -14,9 +14,8 @@ import static org.mockito.Mockito.mock;
 /**
  * Unit tests for {@link EvaluationConfig}.
  *
- * <p>Verifies that each profile wires the correct {@link EvaluationStrategy} implementation.
- * The {@code @Profile} annotation is a Spring concern and has no effect on direct bean-method
- * invocation, so these tests exercise the factory logic without loading a Spring context.
+ * <p>Verifies that each factory method returns the correct {@link EvaluationStrategy}
+ * implementation without loading a Spring context.
  */
 class EvaluationConfigTest {
 
@@ -26,17 +25,17 @@ class EvaluationConfigTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    @DisplayName("liteStrategy() returns a HaikuEvaluationStrategy")
-    void liteStrategy_returnsHaikuEvaluationStrategy() {
-        EvaluationStrategy strategy = config.liteStrategy(client, properties, objectMapper);
+    @DisplayName("haikuEvaluationStrategy() returns a HaikuEvaluationStrategy")
+    void haikuEvaluationStrategy_returnsHaikuEvaluationStrategy() {
+        EvaluationStrategy strategy = config.haikuEvaluationStrategy(client, properties, objectMapper);
 
         assertThat(strategy).isInstanceOf(HaikuEvaluationStrategy.class);
     }
 
     @Test
-    @DisplayName("proStrategy() returns a SonnetEvaluationStrategy")
-    void proStrategy_returnsSonnetEvaluationStrategy() {
-        EvaluationStrategy strategy = config.proStrategy(client, properties, objectMapper);
+    @DisplayName("sonnetEvaluationStrategy() returns a SonnetEvaluationStrategy")
+    void sonnetEvaluationStrategy_returnsSonnetEvaluationStrategy() {
+        EvaluationStrategy strategy = config.sonnetEvaluationStrategy(client, properties, objectMapper);
 
         assertThat(strategy).isInstanceOf(SonnetEvaluationStrategy.class);
     }

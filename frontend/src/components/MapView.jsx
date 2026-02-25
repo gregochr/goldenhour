@@ -10,6 +10,21 @@ import {
 } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 
+/**
+ * Maps an average 0–100 score to a marker colour.
+ * @param {number|null} avg
+ * @returns {string} hex colour
+ */
+function scoreColour(avg) {
+  if (avg == null) return '#374151';
+  if (avg > 80)   return '#fbbf24'; // gold
+  if (avg > 60)   return '#f59e0b'; // amber
+  if (avg > 40)   return '#d97706'; // orange
+  if (avg > 20)   return '#92400e'; // brown
+  return '#6b7280';                 // grey
+}
+
+/** Maps a 1–5 Haiku rating to a marker colour. */
 const RATING_COLOURS = {
   1: '#6b7280',
   2: '#92400e',
@@ -110,13 +125,24 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
 /**
  * Creates a custom Leaflet DivIcon for a location marker.
  *
- * @param {number|null} rating - 1-5 rating, or null if unavailable.
+ * @param {number|null} rating - Haiku 1–5 rating, or null for Sonnet rows.
+ * @param {number|null} fierySky - Fiery sky score 0–100, or null for Haiku rows.
+ * @param {number|null} goldenHour - Golden hour score 0–100, or null for Haiku rows.
  * @param {string} locationName - Display name shown beneath the marker.
  * @returns {L.DivIcon}
  */
-function makeMarkerIcon(rating, locationName) {
-  const colour = RATING_COLOURS[rating] ?? '#374151';
-  const label = rating ?? '?';
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName) {
+  let colour, label;
+  if (rating != null) {
+    colour = RATING_COLOURS[rating] ?? '#6b7280';
+    label = `${rating}★`;
+  } else {
+    const avg = (fierySky != null && goldenHour != null)
+      ? Math.round((fierySky + goldenHour) / 2)
+      : null;
+    colour = scoreColour(avg);
+    label = avg != null ? avg : '?';
+  }
 
   const html = `
     <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
@@ -151,7 +177,36 @@ function makeMarkerIcon(rating, locationName) {
 }
 
 /**
- * Map view showing all locations as rating markers for a given date.
+ * Inline score row used inside Leaflet popups (which render outside React tree via innerHTML).
+ * Returns a plain DOM-compatible element.
+ *
+ * @param {object} props
+ * @param {string} props.label
+ * @param {number|null} props.score
+ */
+function PopupScoreRow({ label, score }) {
+  const pct = score != null ? Math.min(100, Math.max(0, score)) : null;
+  const barColour =
+    pct == null  ? '#6b7280' :
+    pct > 75     ? '#fbbf24' :
+    pct > 50     ? '#f97316' :
+    pct > 25     ? '#b45309' :
+                   '#6b7280';
+  return (
+    <div style={{ marginBottom: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>
+        <span>{label}</span>
+        <span style={{ fontWeight: '600', color: '#374151' }}>{pct != null ? pct : '—'}</span>
+      </div>
+      <div style={{ height: '6px', background: '#e5e7eb', borderRadius: '9999px', overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: pct != null ? `${pct}%` : '0%', background: barColour, borderRadius: '9999px' }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Map view showing all locations as score markers for a given date.
  * Selecting a marker draws orange (sunrise) and purple (sunset) azimuth lines.
  *
  * @param {object} props
@@ -310,7 +365,12 @@ export default function MapView({ locations, date }) {
           {visibleLocations.map((loc) => {
             const dayData = loc.forecastsByDate.get(date);
             const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
-            const icon = makeMarkerIcon(forecast?.rating ?? null, loc.name);
+            const icon = makeMarkerIcon(
+              forecast?.rating ?? null,
+              forecast?.fierySkyPotential ?? null,
+              forecast?.goldenHourPotential ?? null,
+              loc.name,
+            );
             const isSunrise = eventType === 'SUNRISE';
 
             const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
@@ -424,11 +484,23 @@ export default function MapView({ locations, date }) {
                       </div>
                     )}
 
-                    {/* Rating + summary */}
+                    {/* Scores + summary */}
                     {forecast ? (
                       <>
-                        <div style={{ fontSize: '16px', color: RATING_COLOURS[forecast.rating], marginBottom: '6px' }}>
-                          {'★'.repeat(forecast.rating)}{'☆'.repeat(5 - forecast.rating)}
+                        <div style={{ marginBottom: '6px' }}>
+                          {forecast.rating != null ? (
+                            <div style={{ fontSize: '14px', color: '#f59e0b', letterSpacing: '2px', marginBottom: '4px' }}>
+                              {'★'.repeat(forecast.rating)}{'☆'.repeat(5 - forecast.rating)}
+                              <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', letterSpacing: 0 }}>
+                                {forecast.rating}/5
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />
+                              <PopupScoreRow label="Golden Hour" score={forecast.goldenHourPotential} />
+                            </>
+                          )}
                         </div>
                         <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#374151' }}>
                           {forecast.summary}

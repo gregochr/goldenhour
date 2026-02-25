@@ -78,10 +78,11 @@ describe('ForecastCard', () => {
     expect(screen.getByText(/no forecast available/i)).toBeInTheDocument();
   });
 
-  it('shows actual rating when outcome is provided', () => {
-    const outcome = { actualRating: 4, recordedAt: '2026-02-20T20:00:00Z' };
-    render(<ForecastCard {...baseProps} forecast={baseForecast} outcome={outcome} />);
-    expect(screen.getByTestId('sunset-actual-rating')).toBeInTheDocument();
+  it('shows actual scores when outcome is provided', () => {
+    const outcome = { fierySkyActual: 70, goldenHourActual: 80, recordedAt: '2026-02-20T20:00:00Z' };
+    const sonnetForecast = { ...baseForecast, rating: null, fierySkyPotential: 65, goldenHourPotential: 72 };
+    render(<ForecastCard {...baseProps} forecast={sonnetForecast} outcome={outcome} />);
+    expect(screen.getByTestId('sunset-fiery-sky-actual')).toBeInTheDocument();
   });
 
   it('shows sunrise accent for SUNRISE type', () => {

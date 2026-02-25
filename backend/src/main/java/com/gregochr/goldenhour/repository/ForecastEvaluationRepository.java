@@ -1,8 +1,11 @@
 package com.gregochr.goldenhour.repository;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -25,6 +28,25 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      */
     List<ForecastEvaluationEntity> findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
             String locationName, LocalDate from, LocalDate to);
+
+    /**
+     * Returns evaluations for a location, date range, and evaluation model, ordered by date
+     * and target type. Used by {@code GET /api/forecast} to return role-appropriate rows.
+     *
+     * @param locationName    the configured location name
+     * @param from            the start of the date range (inclusive)
+     * @param to              the end of the date range (inclusive)
+     * @param evaluationModel which model's rows to return (HAIKU or SONNET)
+     * @return evaluations ordered by target date ascending then target type ascending
+     */
+    @Query("SELECT e FROM ForecastEvaluationEntity e WHERE e.locationName = :locationName"
+            + " AND e.targetDate BETWEEN :from AND :to AND e.evaluationModel = :model"
+            + " ORDER BY e.targetDate ASC, e.targetType ASC")
+    List<ForecastEvaluationEntity> findByLocationAndDateRangeAndModel(
+            @Param("locationName") String locationName,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("model") EvaluationModel evaluationModel);
 
     /**
      * Returns all evaluation runs for a specific location, date, and target type, ordered

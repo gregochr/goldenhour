@@ -8,6 +8,7 @@ import com.anthropic.models.messages.Model;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.services.blocking.MessageService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -34,12 +35,14 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link AbstractEvaluationStrategy}.
  *
  * <p>Uses a concrete {@code TestEvaluationStrategy} inner class to test
- * the shared logic in the abstract base.
+ * the shared logic in the abstract base (user message construction and Claude API call).
+ * Parse-specific tests live in {@link SonnetEvaluationStrategyTest} and
+ * {@link HaikuEvaluationStrategyTest}.
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractEvaluationStrategyTest {
 
-    private static final String TEST_SUFFIX = "Rate 1-5 and explain in 2-3 sentences.";
+    private static final String TEST_SUFFIX = "Score both dimensions and explain in 2-3 sentences.";
 
     @Mock
     private AnthropicClient anthropicClient;
@@ -57,66 +60,20 @@ class AbstractEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("parseEvaluation() extracts rating and summary from valid JSON")
-    void parseEvaluation_validJson_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
-                "{\"rating\": 4, \"summary\": \"Good mid-level cloud above a clear horizon.\"}");
-
-        assertThat(result.rating()).isEqualTo(4);
-        assertThat(result.summary()).isEqualTo("Good mid-level cloud above a clear horizon.");
-    }
-
-    @Test
-    @DisplayName("parseEvaluation() throws on invalid JSON")
-    void parseEvaluation_invalidJson_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> strategy.parseEvaluation("not json"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Failed to parse");
-    }
-
-    @Test
-    @DisplayName("parseEvaluation() handles JSON with surrounding whitespace")
-    void parseEvaluation_trailingWhitespace_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
-                "  {\"rating\": 2, \"summary\": \"Mostly overcast.\"}  ");
-
-        assertThat(result.rating()).isEqualTo(2);
-        assertThat(result.summary()).isEqualTo("Mostly overcast.");
-    }
-
-    @Test
-    @DisplayName("parseEvaluation() strips markdown code block wrapper")
-    void parseEvaluation_codeBlockWrapped_returnsEvaluation() {
-        SunsetEvaluation result = strategy.parseEvaluation(
-                "```json\n{\"rating\": 3, \"summary\": \"Some cloud.\"}\n```");
-
-        assertThat(result.rating()).isEqualTo(3);
-        assertThat(result.summary()).isEqualTo("Some cloud.");
-    }
-
-    @Test
-    @DisplayName("parseEvaluation() falls back to regex when summary contains unescaped quotes")
-    void parseEvaluation_unescapedQuotesInSummary_returnsEvaluation() {
-        // Claude sometimes returns unescaped " inside the summary value, breaking strict JSON
-        SunsetEvaluation result = strategy.parseEvaluation(
-                "```json\n{\"rating\": 2, \"summary\": \"A \"blank canvas\" scenario with pale tones.\"}\n```");
-
-        assertThat(result.rating()).isEqualTo(2);
-        assertThat(result.summary()).isEqualTo("A \"blank canvas\" scenario with pale tones.");
-    }
-
-    @Test
     @DisplayName("evaluate() calls Claude and returns parsed evaluation")
     void evaluate_callsClaude_returnsParsedEvaluation() {
         AtmosphericData data = buildAtmosphericData();
-        Message response = buildMessage("{\"rating\": 4, \"summary\": \"Promising conditions.\"}");
+        Message response = buildMessage(
+                "{\"fiery_sky\": 70, \"golden_hour\": 75, \"summary\": \"Promising conditions.\"}");
 
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
 
         SunsetEvaluation result = strategy.evaluate(data);
 
-        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.rating()).isNull();
+        assertThat(result.fierySkyPotential()).isEqualTo(70);
+        assertThat(result.goldenHourPotential()).isEqualTo(75);
         assertThat(result.summary()).isEqualTo("Promising conditions.");
     }
 
@@ -200,8 +157,11 @@ class AbstractEvaluationStrategyTest {
 
     /**
      * Concrete test implementation of the abstract strategy.
+     * Uses Sonnet-style parsing so evaluate() tests can assert on score fields.
      */
     private static class TestEvaluationStrategy extends AbstractEvaluationStrategy {
+
+        private static final String TEST_SYSTEM_PROMPT = "Test system prompt.";
 
         TestEvaluationStrategy(AnthropicClient client, AnthropicProperties properties,
                 ObjectMapper objectMapper) {
@@ -209,8 +169,31 @@ class AbstractEvaluationStrategyTest {
         }
 
         @Override
+        protected String getSystemPrompt() {
+            return TEST_SYSTEM_PROMPT;
+        }
+
+        @Override
         protected String getPromptSuffix() {
             return TEST_SUFFIX;
+        }
+
+        @Override
+        protected SunsetEvaluation parseEvaluation(String text, ObjectMapper objectMapper) {
+            // Delegate to Sonnet-style parsing for test purposes
+            try {
+                String cleaned = text.trim()
+                        .replaceAll("(?s)^```(?:json)?\\s*", "")
+                        .replaceAll("(?s)\\s*```$", "")
+                        .trim();
+                JsonNode node = objectMapper.readTree(cleaned);
+                int fierySky = node.get("fiery_sky").asInt();
+                int goldenHour = node.get("golden_hour").asInt();
+                String summary = node.get("summary").asText();
+                return new SunsetEvaluation(null, fierySky, goldenHour, summary);
+            } catch (Exception e) {
+                throw new IllegalArgumentException("Failed to parse test response: " + text, e);
+            }
         }
     }
 }

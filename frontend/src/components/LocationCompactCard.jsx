@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
+import ScoreBar from './ScoreBar.jsx';
 import StarRating from './StarRating.jsx';
 import ForecastDetailModal from './ForecastDetailModal.jsx';
 import LocationTypeBadges from './LocationTypeBadges.jsx';
@@ -89,10 +90,14 @@ function EventSection({ forecast, type, onClick }) {
       </p>
       {forecast ? (
         <>
-          <StarRating
-            rating={forecast.rating}
-            label={`${typeLabel} forecast rating`}
-          />
+          {forecast.rating != null ? (
+            <StarRating rating={forecast.rating} />
+          ) : (
+            <>
+              <ScoreBar label="Fiery Sky" score={forecast.fierySkyPotential} />
+              <ScoreBar label="Golden Hour" score={forecast.goldenHourPotential} />
+            </>
+          )}
           <p className="text-sm text-gray-400 leading-relaxed line-clamp-2">
             {forecast.summary}
           </p>

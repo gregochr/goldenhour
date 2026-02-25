@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
@@ -71,7 +72,7 @@ public class ForecastService {
     }
 
     /**
-     * Runs sunrise and sunset forecasts for the given location and date.
+     * Runs sunrise and sunset forecasts for the given location and date using Sonnet.
      *
      * <p>Persists one {@link ForecastEvaluationEntity} per target type and sends
      * notifications via all enabled channels.
@@ -84,7 +85,8 @@ public class ForecastService {
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
             LocalDate date) {
-        return runForecasts(locationName, lat, lon, null, date, null, java.util.Set.of());
+        return runForecasts(locationName, lat, lon, null, date, null, java.util.Set.of(),
+                EvaluationModel.SONNET);
     }
 
     /**
@@ -100,10 +102,12 @@ public class ForecastService {
      * @param date         the calendar date to forecast
      * @param targetType   the target type to evaluate, or {@code null} to evaluate both
      * @param tideTypes    tide preferences for this location (empty if inland)
+     * @param model        which Claude model to use for evaluation
      * @return the saved entities in evaluation order
      */
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
-            Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes) {
+            Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes,
+            EvaluationModel model) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
         List<ForecastEvaluationEntity> results = new ArrayList<>();
@@ -120,18 +124,25 @@ public class ForecastService {
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
             AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
             AtmosphericData forecastData = augmentWithTideData(baseData, locationId, eventTime, tideTypes);
-            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData);
+            SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model);
 
             int azimuth = type == TargetType.SUNRISE
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
             ForecastEvaluationEntity entity = buildEntity(
-                    locationName, lat, lon, date, type, daysAhead, eventTime, azimuth, forecastData, evaluation);
+                    locationName, lat, lon, date, type, daysAhead, eventTime, azimuth,
+                    forecastData, evaluation, model);
 
             results.add(repository.save(entity));
-            LOG.info("Forecast saved: {} {} {} (T+{}) — rating {}/5",
-                    locationName, type, date, daysAhead, evaluation.rating());
+            if (evaluation.rating() != null) {
+                LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — rating={}/5",
+                        locationName, type, date, daysAhead, model, evaluation.rating());
+            } else {
+                LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — fiery={}/100 golden={}/100",
+                        locationName, type, date, daysAhead, model,
+                        evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
+            }
             emailService.notify(evaluation, locationName, type, date);
             pushoverService.notify(evaluation, locationName, type, date);
             toastService.notify(evaluation, locationName, type, date);
@@ -204,11 +215,12 @@ public class ForecastService {
      * @param azimuth      solar azimuth in degrees
      * @param data         atmospheric data (with tide fields if coastal)
      * @param evaluation   Claude's rating and summary
+     * @param model        which Claude model produced the evaluation
      * @return the unsaved entity
      */
     private ForecastEvaluationEntity buildEntity(String locationName, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, int azimuth,
-            AtmosphericData data, SunsetEvaluation evaluation) {
+            AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
         return ForecastEvaluationEntity.builder()
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
@@ -237,7 +249,10 @@ public class ForecastService {
                 .nextLowTideTime(data.nextLowTideTime())
                 .nextLowTideHeightMetres(data.nextLowTideHeightMetres())
                 .tideAligned(data.tideAligned())
+                .evaluationModel(model)
                 .rating(evaluation.rating())
+                .fierySkyPotential(evaluation.fierySkyPotential())
+                .goldenHourPotential(evaluation.goldenHourPotential())
                 .summary(evaluation.summary())
                 .solarEventTime(eventTime)
                 .azimuthDeg(azimuth)

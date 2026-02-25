@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -57,7 +58,7 @@ class ScheduledForecastServiceTest {
     @BeforeEach
     void setUp() {
         when(locationService.findAll()).thenReturn(List.of(durham()));
-        // lenient: only needed by runScheduledForecasts tests, not refreshTideExtremes tests
+        // lenient: only needed by forecast tests, not refreshTideExtremes tests
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         scheduledForecastService = new ScheduledForecastService(
@@ -65,27 +66,42 @@ class ScheduledForecastServiceTest {
     }
 
     @Test
-    @DisplayName("runScheduledForecasts() calls forecastService once per target type per day")
-    void runScheduledForecasts_callsForecastService_forEachTargetTypeAndDay() {
-        scheduledForecastService.runScheduledForecasts();
+    @DisplayName("runSonnetForecasts() calls forecastService with SONNET once per target type per day")
+    void runSonnetForecasts_callsForecastService_withSonnetModel() {
+        scheduledForecastService.runSonnetForecasts();
 
         int daysInHorizon = ScheduledForecastService.FORECAST_HORIZON_DAYS + 1;
         int expectedCalls = daysInHorizon * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(TargetType.class), any());
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.SONNET));
     }
 
     @Test
-    @DisplayName("runScheduledForecasts() forecasts from today through today+7 for both target types")
-    void runScheduledForecasts_datesRangeFromTodayToHorizon() {
-        scheduledForecastService.runScheduledForecasts();
+    @DisplayName("runHaikuForecasts() calls forecastService with HAIKU once per target type per day")
+    void runHaikuForecasts_callsForecastService_withHaikuModel() {
+        scheduledForecastService.runHaikuForecasts();
+
+        int daysInHorizon = ScheduledForecastService.FORECAST_HORIZON_DAYS + 1;
+        int expectedCalls = daysInHorizon * EXPECTED_CALLS_PER_DAY;
+        verify(forecastService, times(expectedCalls))
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.HAIKU));
+    }
+
+    @Test
+    @DisplayName("runSonnetForecasts() forecasts from today through today+7 for both target types")
+    void runSonnetForecasts_datesRangeFromTodayToHorizon() {
+        scheduledForecastService.runSonnetForecasts();
 
         int totalCalls = (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
         ArgumentCaptor<LocalDate> dateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         verify(forecastService, times(totalCalls))
                 .runForecasts(any(), anyDouble(), anyDouble(), any(),
-                        dateCaptor.capture(), any(TargetType.class), any());
+                        dateCaptor.capture(), any(TargetType.class), any(),
+                        any(EvaluationModel.class));
 
         List<LocalDate> capturedDates = dateCaptor.getAllValues();
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
@@ -95,8 +111,8 @@ class ScheduledForecastServiceTest {
     }
 
     @Test
-    @DisplayName("runScheduledForecasts() continues after a single location failure")
-    void runScheduledForecasts_continuesAfterFailure() {
+    @DisplayName("runSonnetForecasts() continues after a single location failure")
+    void runSonnetForecasts_continuesAfterFailure() {
         LocationEntity london = LocationEntity.builder()
                 .name("London UK")
                 .lat(51.5074)
@@ -107,15 +123,17 @@ class ScheduledForecastServiceTest {
 
         doThrow(new RuntimeException("API error"))
                 .when(forecastService).runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(), any(TargetType.class), any());
+                        any(), any(), any(TargetType.class), any(), any(EvaluationModel.class));
 
-        scheduledForecastService.runScheduledForecasts();
+        scheduledForecastService.runSonnetForecasts();
 
         // London calls should still happen despite Durham failures
-        int expectedLondonCalls = (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
+        int expectedLondonCalls =
+                (ScheduledForecastService.FORECAST_HORIZON_DAYS + 1) * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedLondonCalls))
                 .runForecasts(eq("London UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(TargetType.class), any());
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        any(EvaluationModel.class));
     }
 
     // -------------------------------------------------------------------------

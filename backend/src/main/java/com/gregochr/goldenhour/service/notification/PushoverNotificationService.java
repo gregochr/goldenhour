@@ -16,6 +16,8 @@ import java.util.Map;
  * Sends a forecast evaluation as a Pushover push notification.
  *
  * <p>Silently skips sending when {@code notifications.pushover.enabled} is {@code false}.
+ * Formats the message based on which model produced the evaluation: Haiku shows a 1–5 rating;
+ * Sonnet shows dual 0–100 scores.
  */
 @Service
 public class PushoverNotificationService {
@@ -64,7 +66,14 @@ public class PushoverNotificationService {
                 .retrieve()
                 .toBodilessEntity()
                 .block();
-        LOG.info("Pushover sent — {} {} {} rating {}/5", locationName, targetType, date, evaluation.rating());
+        if (evaluation.rating() != null) {
+            LOG.info("Pushover sent — {} {} {} rating={}/5", locationName, targetType, date,
+                    evaluation.rating());
+        } else {
+            LOG.info("Pushover sent — {} {} {} fiery={}/100 golden={}/100",
+                    locationName, targetType, date,
+                    evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
+        }
     }
 
     private String buildTitle(String locationName, TargetType targetType, LocalDate date) {
@@ -73,6 +82,11 @@ public class PushoverNotificationService {
     }
 
     private String buildMessage(SunsetEvaluation evaluation) {
-        return String.format("Rating %d/5: %s", evaluation.rating(), evaluation.summary());
+        if (evaluation.rating() != null) {
+            return String.format("Rating %d/5: %s", evaluation.rating(), evaluation.summary());
+        }
+        return String.format("Fiery %d/100 · Golden %d/100: %s",
+                evaluation.fierySkyPotential(), evaluation.goldenHourPotential(),
+                evaluation.summary());
     }
 }

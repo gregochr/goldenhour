@@ -24,13 +24,13 @@ class MacOsToastNotificationServiceTest {
                 new MacOsToastNotificationService(properties);
 
         assertThatNoException().isThrownBy(() ->
-                toastService.notify(new SunsetEvaluation(3, "Moderate."),
+                toastService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
                         "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
     }
 
     @Test
-    @DisplayName("notify() does not throw when macOS toast is enabled and osascript runs")
-    void notify_whenEnabled_doesNotThrow() {
+    @DisplayName("notify() does not throw for Sonnet evaluation when macOS toast is enabled")
+    void notify_sonnetEvaluation_whenEnabled_doesNotThrow() {
         NotificationProperties properties = new NotificationProperties();
         properties.getMacosToast().setEnabled(true);
         MacOsToastNotificationService toastService =
@@ -38,7 +38,20 @@ class MacOsToastNotificationServiceTest {
 
         // osascript may or may not be available in CI — service must not throw
         assertThatNoException().isThrownBy(() ->
-                toastService.notify(new SunsetEvaluation(4, "Good light expected."),
+                toastService.notify(new SunsetEvaluation(null, 70, 75, "Good light expected."),
+                        "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
+    }
+
+    @Test
+    @DisplayName("notify() does not throw for Haiku evaluation when macOS toast is enabled")
+    void notify_haikuEvaluation_whenEnabled_doesNotThrow() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getMacosToast().setEnabled(true);
+        MacOsToastNotificationService toastService =
+                new MacOsToastNotificationService(properties);
+
+        assertThatNoException().isThrownBy(() ->
+                toastService.notify(new SunsetEvaluation(4, null, null, "Good conditions."),
                         "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
     }
 }

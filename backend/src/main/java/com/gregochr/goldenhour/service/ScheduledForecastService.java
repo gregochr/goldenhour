@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import org.slf4j.Logger;
@@ -14,9 +15,14 @@ import java.util.List;
 /**
  * Triggers automatic forecast runs and tide data refreshes on configured cron schedules.
  *
+ * <p>Two separate scheduled methods run evaluations on different cadences:
+ * <ul>
+ *   <li>{@link #runSonnetForecasts()} — every 6 h (0, 6, 12, 18 UTC); produces dual 0–100 score rows</li>
+ *   <li>{@link #runHaikuForecasts()} — every 12 h (6, 18 UTC); produces 1–5 rating rows</li>
+ * </ul>
+ *
  * <p>For each configured location, forecasts are run for today through
- * {@link #FORECAST_HORIZON_DAYS} days ahead. This allows accuracy tracking as the
- * forecast horizon narrows from T+{@value #FORECAST_HORIZON_DAYS} to T+0.
+ * {@link #FORECAST_HORIZON_DAYS} days ahead.
  *
  * <p>A separate weekly job refreshes 14 days of tide extremes from WorldTides for all
  * coastal locations so that {@link ForecastService} can classify tide state from the DB
@@ -49,43 +55,23 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs forecasts for all configured locations across the forecast horizon.
+     * Runs Sonnet (dual 0–100 score) forecasts for all configured locations every 6 h.
      *
-     * <p>Exceptions from individual location runs are caught and logged so that a failure
-     * for one location does not prevent the remaining locations from being processed.
+     * <p>Cron defaults to 0, 6, 12, 18 UTC. Override via {@code forecast.schedule.sonnet.cron}.
      */
-    @Scheduled(cron = "${forecast.schedule.cron:0 0 6,18 * * *}")
-    public void runScheduledForecasts() {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocationEntity> locations = locationService.findAll();
-        LOG.info("Scheduled forecast run started — {} location(s), T+0 to T+{}",
-                locations.size(), FORECAST_HORIZON_DAYS);
-        long startMs = System.currentTimeMillis();
-        int succeeded = 0;
-        int failed = 0;
+    @Scheduled(cron = "${forecast.schedule.sonnet.cron:0 0 0,6,12,18 * * *}")
+    public void runSonnetForecasts() {
+        runAll(EvaluationModel.SONNET);
+    }
 
-        for (LocationEntity location : locations) {
-            for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
-                LocalDate targetDate = today.plusDays(daysAhead);
-                if (locationService.shouldEvaluateSunrise(location)) {
-                    if (runForecast(location, targetDate, TargetType.SUNRISE)) {
-                        succeeded++;
-                    } else {
-                        failed++;
-                    }
-                }
-                if (locationService.shouldEvaluateSunset(location)) {
-                    if (runForecast(location, targetDate, TargetType.SUNSET)) {
-                        succeeded++;
-                    } else {
-                        failed++;
-                    }
-                }
-            }
-        }
-
-        LOG.info("Scheduled forecast run complete — {} succeeded, {} failed, took {}ms",
-                succeeded, failed, System.currentTimeMillis() - startMs);
+    /**
+     * Runs Haiku (1–5 rating) forecasts for all configured locations every 12 h.
+     *
+     * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.haiku.cron}.
+     */
+    @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
+    public void runHaikuForecasts() {
+        runAll(EvaluationModel.HAIKU);
     }
 
     /**
@@ -119,23 +105,62 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs a single forecast for a location, date, and target type, logging any failure.
+     * Runs forecasts for all locations and dates using the given model.
+     *
+     * @param model the evaluation model to use
+     */
+    private void runAll(EvaluationModel model) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocationEntity> locations = locationService.findAll();
+        LOG.info("Scheduled {} forecast run started — {} location(s), T+0 to T+{}",
+                model, locations.size(), FORECAST_HORIZON_DAYS);
+        long startMs = System.currentTimeMillis();
+        int succeeded = 0;
+        int failed = 0;
+
+        for (LocationEntity location : locations) {
+            for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
+                LocalDate targetDate = today.plusDays(daysAhead);
+                if (locationService.shouldEvaluateSunrise(location)) {
+                    if (runForecast(location, targetDate, TargetType.SUNRISE, model)) {
+                        succeeded++;
+                    } else {
+                        failed++;
+                    }
+                }
+                if (locationService.shouldEvaluateSunset(location)) {
+                    if (runForecast(location, targetDate, TargetType.SUNSET, model)) {
+                        succeeded++;
+                    } else {
+                        failed++;
+                    }
+                }
+            }
+        }
+
+        LOG.info("Scheduled {} forecast run complete — {} succeeded, {} failed, took {}ms",
+                model, succeeded, failed, System.currentTimeMillis() - startMs);
+    }
+
+    /**
+     * Runs a single forecast for a location, date, target type, and model, logging any failure.
      *
      * @param location   the location to forecast
      * @param targetDate the calendar date to forecast
      * @param targetType {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}
+     * @param model      the evaluation model to use
      * @return {@code true} if the forecast succeeded, {@code false} if it failed
      */
     private boolean runForecast(LocationEntity location, LocalDate targetDate,
-            TargetType targetType) {
+            TargetType targetType, EvaluationModel model) {
         try {
             forecastService.runForecasts(
                     location.getName(), location.getLat(), location.getLon(),
-                    location.getId(), targetDate, targetType, location.getTideType());
+                    location.getId(), targetDate, targetType, location.getTideType(), model);
             return true;
         } catch (Exception e) {
-            LOG.error("Forecast failed for {} {} on {}: {}",
-                    location.getName(), targetType, targetDate, e.getMessage(), e);
+            LOG.error("Forecast failed for {} {} on {} [{}]: {}",
+                    location.getName(), targetType, targetDate, model, e.getMessage(), e);
             return false;
         }
     }

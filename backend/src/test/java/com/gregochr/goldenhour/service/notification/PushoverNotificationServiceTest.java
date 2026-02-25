@@ -39,7 +39,7 @@ class PushoverNotificationServiceTest {
         PushoverNotificationService pushoverService =
                 new PushoverNotificationService(properties, webClient);
 
-        pushoverService.notify(new SunsetEvaluation(3, "Moderate."),
+        pushoverService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
         verify(webClient, never()).post();
@@ -47,8 +47,8 @@ class PushoverNotificationServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    @DisplayName("notify() posts to the Pushover API when enabled")
-    void notify_whenEnabled_makesHttpPost() {
+    @DisplayName("notify() posts Sonnet dual-score message to the Pushover API when enabled")
+    void notify_sonnetEvaluation_whenEnabled_makesHttpPost() {
         NotificationProperties properties = new NotificationProperties();
         properties.getPushover().setEnabled(true);
         properties.getPushover().setAppToken("app-token");
@@ -62,11 +62,34 @@ class PushoverNotificationServiceTest {
         PushoverNotificationService pushoverService =
                 new PushoverNotificationService(properties, mockClient);
 
-        pushoverService.notify(new SunsetEvaluation(4, "Good conditions."),
+        pushoverService.notify(new SunsetEvaluation(null, 70, 75, "Good conditions."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
         // Success: service completed without throwing; the HTTP call was made
         // (RETURNS_DEEP_STUBS records one extra post() call during when() setup,
         // so we cannot use verify(times(1)) — completion is sufficient assertion)
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    @DisplayName("notify() posts Haiku rating message to the Pushover API when enabled")
+    void notify_haikuEvaluation_whenEnabled_makesHttpPost() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getPushover().setEnabled(true);
+        properties.getPushover().setAppToken("app-token");
+        properties.getPushover().setUserKey("user-key");
+
+        WebClient mockClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.post().uri(anyString()).contentType(any()).bodyValue(any())
+                .retrieve().toBodilessEntity())
+                .thenReturn(Mono.just(ResponseEntity.ok().build()));
+
+        PushoverNotificationService pushoverService =
+                new PushoverNotificationService(properties, mockClient);
+
+        pushoverService.notify(new SunsetEvaluation(4, null, null, "Good conditions."),
+                "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
+
+        // Success: service completed without throwing
     }
 }

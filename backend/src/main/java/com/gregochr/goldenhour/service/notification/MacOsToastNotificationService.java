@@ -15,6 +15,8 @@ import java.time.LocalDate;
  *
  * <p>Silently skips when {@code notifications.macosToast.enabled} is {@code false}.
  * Also skips silently if {@code osascript} is unavailable (e.g. when running on Linux/Windows).
+ * Formats the title based on which model produced the evaluation: Haiku shows a 1–5 rating;
+ * Sonnet shows dual 0–100 scores.
  */
 @Service
 public class MacOsToastNotificationService {
@@ -46,8 +48,7 @@ public class MacOsToastNotificationService {
         if (!properties.getMacosToast().isEnabled()) {
             return;
         }
-        String title = String.format("Golden Hour \u2014 %s %s %s (rating %d/5)",
-                locationName, targetType.name().toLowerCase(), date, evaluation.rating());
+        String title = buildTitle(evaluation, locationName, targetType, date);
         String script = String.format(
                 "display notification \"%s\" with title \"%s\"",
                 evaluation.summary().replace("\"", "\\\""), title.replace("\"", "\\\""));
@@ -56,5 +57,16 @@ public class MacOsToastNotificationService {
         } catch (IOException e) {
             LOG.warn("macOS toast notification failed: {}", e.getMessage());
         }
+    }
+
+    private String buildTitle(SunsetEvaluation evaluation, String locationName,
+            TargetType targetType, LocalDate date) {
+        if (evaluation.rating() != null) {
+            return String.format("Golden Hour \u2014 %s %s %s (rating %d/5)",
+                    locationName, targetType.name().toLowerCase(), date, evaluation.rating());
+        }
+        return String.format("Golden Hour \u2014 %s %s %s (fiery %d/100, golden %d/100)",
+                locationName, targetType.name().toLowerCase(), date,
+                evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
     }
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
+import ScoreBar from './ScoreBar.jsx';
 import StarRating from './StarRating.jsx';
 import CloudCoverBars from './CloudCoverBars.jsx';
 import WindIndicator from './WindIndicator.jsx';
@@ -107,29 +108,46 @@ export default function ForecastCard({
         {/* Body */}
         {forecast ? (
           <>
-            <div className="flex items-center gap-4">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">
-                  Forecast
-                  {forecast.forecastRunAt && (
-                    <span className="ml-1 text-gray-600">
-                      · Generated @ {formatGeneratedAt(forecast.forecastRunAt)}
-                    </span>
-                  )}
-                </p>
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-gray-500">
+                Forecast
+                {forecast.forecastRunAt && (
+                  <span className="ml-1 text-gray-600">
+                    · Generated @ {formatGeneratedAt(forecast.forecastRunAt)}
+                  </span>
+                )}
+              </p>
+              {forecast.rating != null ? (
                 <StarRating
                   rating={forecast.rating}
-                  label={`${typeLabel} forecast rating`}
                   testId={`${testIdSuffix}-rating`}
                 />
-              </div>
+              ) : (
+                <>
+                  <ScoreBar
+                    label="Fiery Sky"
+                    score={forecast.fierySkyPotential}
+                    testId={`${testIdSuffix}-fiery-sky`}
+                  />
+                  <ScoreBar
+                    label="Golden Hour"
+                    score={forecast.goldenHourPotential}
+                    testId={`${testIdSuffix}-golden-hour`}
+                  />
+                </>
+              )}
               {outcome && (
-                <div>
+                <div className="mt-1 pt-2 border-t border-gray-800/60">
                   <p className="text-xs text-gray-500 mb-1">Actual</p>
-                  <StarRating
-                    rating={outcome.actualRating}
-                    label={`${typeLabel} actual rating`}
-                    testId={`${testIdSuffix}-actual-rating`}
+                  <ScoreBar
+                    label="Fiery Sky"
+                    score={outcome.fierySkyActual}
+                    testId={`${testIdSuffix}-fiery-sky-actual`}
+                  />
+                  <ScoreBar
+                    label="Golden Hour"
+                    score={outcome.goldenHourActual}
+                    testId={`${testIdSuffix}-golden-hour-actual`}
                   />
                 </div>
               )}

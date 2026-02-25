@@ -50,12 +50,27 @@ class ModelTest {
     }
 
     @Test
-    @DisplayName("SunsetEvaluation components are accessible after construction")
-    void sunsetEvaluation_componentsAccessible() {
-        SunsetEvaluation evaluation = new SunsetEvaluation(4, "Good mid-level cloud above a clear horizon.");
+    @DisplayName("SunsetEvaluation (Sonnet) components are accessible after construction")
+    void sunsetEvaluation_sonnet_componentsAccessible() {
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 72, 80,
+                "Good mid-level cloud above a clear horizon.");
+
+        assertThat(evaluation.rating()).isNull();
+        assertThat(evaluation.fierySkyPotential()).isEqualTo(72);
+        assertThat(evaluation.goldenHourPotential()).isEqualTo(80);
+        assertThat(evaluation.summary()).contains("clear horizon");
+    }
+
+    @Test
+    @DisplayName("SunsetEvaluation (Haiku) components are accessible after construction")
+    void sunsetEvaluation_haiku_componentsAccessible() {
+        SunsetEvaluation evaluation = new SunsetEvaluation(4, null, null,
+                "Good conditions with mid-level cloud.");
 
         assertThat(evaluation.rating()).isEqualTo(4);
-        assertThat(evaluation.summary()).contains("clear horizon");
+        assertThat(evaluation.fierySkyPotential()).isNull();
+        assertThat(evaluation.goldenHourPotential()).isNull();
+        assertThat(evaluation.summary()).contains("Good conditions");
     }
 
     @Test
@@ -77,7 +92,7 @@ class ModelTest {
         LocalDate date = LocalDate.of(2026, 2, 20);
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
-                true, 4, "Beautiful warm light.");
+                true, 65, 78, "Beautiful warm light.");
 
         assertThat(outcome.locationLat()).isEqualTo(54.7753);
         assertThat(outcome.locationLon()).isEqualTo(-1.5849);
@@ -85,15 +100,16 @@ class ModelTest {
         assertThat(outcome.outcomeDate()).isEqualTo(date);
         assertThat(outcome.targetType()).isEqualTo(TargetType.SUNSET);
         assertThat(outcome.wentOut()).isTrue();
-        assertThat(outcome.actualRating()).isEqualTo(4);
+        assertThat(outcome.fierySkyActual()).isEqualTo(65);
+        assertThat(outcome.goldenHourActual()).isEqualTo(78);
         assertThat(outcome.notes()).isEqualTo("Beautiful warm light.");
     }
 
     @Test
     @DisplayName("Records with identical components are equal")
     void records_withIdenticalComponents_areEqual() {
-        SunsetEvaluation first = new SunsetEvaluation(3, "Moderate potential.");
-        SunsetEvaluation second = new SunsetEvaluation(3, "Moderate potential.");
+        SunsetEvaluation first = new SunsetEvaluation(null, 50, 60, "Moderate potential.");
+        SunsetEvaluation second = new SunsetEvaluation(null, 50, 60, "Moderate potential.");
 
         assertThat(first).isEqualTo(second);
         assertThat(first.hashCode()).isEqualTo(second.hashCode());
