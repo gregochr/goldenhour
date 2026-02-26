@@ -1,0 +1,22 @@
+package com.gregochr.goldenhour.repository;
+
+import com.gregochr.goldenhour.entity.ModelSelectionEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+/**
+ * Repository for the active evaluation model selection.
+ */
+@Repository
+public interface ModelSelectionRepository extends JpaRepository<ModelSelectionEntity, Long> {
+
+    /**
+     * Get the currently active model selection.
+     * Should return exactly one row (singleton pattern).
+     *
+     * @return the most recently updated model selection, or empty if none exist
+     */
+    Optional<ModelSelectionEntity> findFirstByOrderByUpdatedAtDesc();
+}

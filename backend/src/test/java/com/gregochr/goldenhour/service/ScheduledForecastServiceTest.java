@@ -101,12 +101,27 @@ class ScheduledForecastServiceTest {
     }
 
     @Test
-    @DisplayName("runHaikuForecasts() calls forecastService with HAIKU once per target type per day")
-    void runHaikuForecasts_callsForecastService_withHaikuModel() {
-        scheduledForecastService.runHaikuForecasts();
+    @DisplayName("runNearTermForecasts() calls forecastService with HAIKU for T, T+1, T+2")
+    void runNearTermForecasts_callsForecastService_withHaikuModel() {
+        scheduledForecastService.runNearTermForecasts();
 
-        int daysInHorizon = ScheduledForecastService.FORECAST_HORIZON_DAYS + 1;
-        int expectedCalls = daysInHorizon * EXPECTED_CALLS_PER_DAY;
+        int nearTermDays = 3; // T, T+1, T+2
+        int expectedCalls = nearTermDays * EXPECTED_CALLS_PER_DAY;
+        verify(forecastService, times(expectedCalls))
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.HAIKU), any());
+    }
+
+    @Test
+    @DisplayName("runDistantForecasts() calls forecastService with HAIKU for T+3 through T+7")
+    void runDistantForecasts_callsForecastService_withHaikuModel() {
+        scheduledForecastService.runDistantForecasts();
+
+        int distantDays = 5; // T+3, T+4, T+5, T+6, T+7
+        // Distant forecasts only run once daily (no need to skip sunrise/sunset)
+        // but shouldSkipEvent still applies to today's sunset
+        int expectedCalls = distantDays * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),

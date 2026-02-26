@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
+import { formatDuration } from '../utils/conversions';
 import JobRunDetail from './JobRunDetail';
 
 /**
@@ -94,7 +95,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
                         {getStatusBadge(run)}
                       </div>
                       <div className="text-xs text-gray-600 mt-1">
-                        {new Date(run.startedAt).toLocaleString()} · {run.durationMs}ms
+                        {new Date(run.startedAt).toLocaleString()} · {formatDuration(run.durationMs)}
                       </div>
                       {run.totalCostPence > 0 && (
                         <div className="text-xs text-blue-600 mt-1 font-semibold">

@@ -4,6 +4,7 @@ import ScoreBar from './ScoreBar.jsx';
 import StarRating from './StarRating.jsx';
 import ForecastDetailModal from './ForecastDetailModal.jsx';
 import LocationTypeBadges from './LocationTypeBadges.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { formatEventTimeUk } from '../utils/conversions.js';
 
 /**
@@ -64,6 +65,7 @@ export default function LocationCompactCard({ locationName, sunrise, sunset, gol
  * @param {function|null} props.onClick - Click handler, null if no forecast available.
  */
 function EventSection({ forecast, type, onClick }) {
+  const { role } = useAuth();
   const isSunrise = type === 'SUNRISE';
   const accentColor = isSunrise ? 'text-orange-400' : 'text-purple-400';
   const typeLabel = isSunrise ? '🌅 Sunrise' : '🌇 Sunset';
@@ -90,10 +92,11 @@ function EventSection({ forecast, type, onClick }) {
       </p>
       {forecast ? (
         <>
-          {forecast.rating != null ? (
+          {role === 'LITE_USER' ? (
             <StarRating rating={forecast.rating} />
           ) : (
             <>
+              <StarRating rating={forecast.rating} />
               <ScoreBar label="Fiery Sky" score={forecast.fierySkyPotential} />
               <ScoreBar label="Golden Hour" score={forecast.goldenHourPotential} />
             </>

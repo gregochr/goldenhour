@@ -95,7 +95,12 @@ function AppInner() {
           >
             <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
             <p className="text-gray-400 text-sm mb-4">{error}</p>
-            <button className="btn-primary" onClick={refresh}>
+            <button
+              className="btn-primary"
+              onClick={refresh}
+              disabled={healthStatus === 'DOWN'}
+              title={healthStatus === 'DOWN' ? 'Backend is down. Please wait...' : ''}
+            >
               Try again
             </button>
           </div>

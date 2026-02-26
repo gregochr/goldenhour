@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useAuth } from '../context/AuthContext.jsx';
 
 // Override Leaflet popup width
 const popupStyles = `
@@ -244,6 +245,7 @@ const LOCATION_TYPE_LABELS = {
 };
 
 export default function MapView({ locations, date }) {
+  const { role } = useAuth();
   const [eventType, setEventType] = useState('SUNSET');
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
@@ -554,14 +556,15 @@ export default function MapView({ locations, date }) {
                     ) : forecast ? (
                       <>
                         <div style={{ marginBottom: '6px' }}>
-                          {forecast.rating != null ? (
+                          {forecast.rating != null && (
                             <div style={{ fontSize: '14px', color: '#f59e0b', letterSpacing: '2px', marginBottom: '4px' }}>
                               {'★'.repeat(forecast.rating)}{'☆'.repeat(5 - forecast.rating)}
                               <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', letterSpacing: 0 }}>
                                 {forecast.rating}/5
                               </span>
                             </div>
-                          ) : (
+                          )}
+                          {role !== 'LITE_USER' && forecast.fierySkyPotential != null && (
                             <>
                               <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />
                               <PopupScoreRow label="Golden Hour" score={forecast.goldenHourPotential} />

@@ -2,16 +2,13 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.JobName;
-import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
-import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.stream.Stream;
 
 /**
  * REST controller for forecast evaluation data.
@@ -43,33 +39,33 @@ public class ForecastController {
     private static final Logger LOG = LoggerFactory.getLogger(ForecastController.class);
 
     private final ForecastEvaluationRepository repository;
-    private final ForecastService forecastService;
     private final LocationService locationService;
-    private final JobRunService jobRunService;
+    private final ModelSelectionService modelSelectionService;
+    private final ScheduledForecastService scheduledForecastService;
 
     /**
      * Constructs a {@code ForecastController}.
      *
-     * @param repository      the forecast evaluation repository
-     * @param forecastService the service for running forecasts
-     * @param locationService the service for persisted locations
-     * @param jobRunService   the service for tracking job runs and metrics
+     * @param repository                the forecast evaluation repository
+     * @param locationService           the service for persisted locations
+     * @param modelSelectionService     the service for managing active model selection
+     * @param scheduledForecastService  the service for running forecasts
      */
     public ForecastController(ForecastEvaluationRepository repository,
-            ForecastService forecastService, LocationService locationService,
-            JobRunService jobRunService) {
+            LocationService locationService, ModelSelectionService modelSelectionService,
+            ScheduledForecastService scheduledForecastService) {
         this.repository = repository;
-        this.forecastService = forecastService;
         this.locationService = locationService;
-        this.jobRunService = jobRunService;
+        this.modelSelectionService = modelSelectionService;
+        this.scheduledForecastService = scheduledForecastService;
     }
 
     /**
      * Returns stored forecast evaluations for all configured locations from today
      * through T+{@value ScheduledForecastService#FORECAST_HORIZON_DAYS}.
      *
-     * <p>LITE_USER receives HAIKU rows (1–5 rating); PRO_USER and ADMIN receive
-     * SONNET rows (dual 0–100 scores).
+     * <p>All evaluations are returned with all fields populated (rating + dual scores).
+     * The frontend uses user role to decide what UI cards to display.
      *
      * @param auth the current authentication context (injected by Spring Security)
      * @return evaluations ordered by target date and target type
@@ -78,19 +74,9 @@ public class ForecastController {
     public List<ForecastEvaluationEntity> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate horizon = today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS);
-        EvaluationModel model = modelForAuth(auth);
         return locationService.findAll().stream()
-                .flatMap(loc -> {
-                    Stream<ForecastEvaluationEntity> colour = hasColourTypes(loc)
-                            ? repository.findByLocationAndDateRangeAndModel(
-                                    loc.getName(), today, horizon, model).stream()
-                            : Stream.empty();
-                    Stream<ForecastEvaluationEntity> wildlife = isPureWildlife(loc)
-                            ? repository.findByLocationAndDateRangeAndModel(
-                                    loc.getName(), today, horizon, EvaluationModel.WILDLIFE).stream()
-                            : Stream.empty();
-                    return Stream.concat(colour, wildlife);
-                })
+                .flatMap(loc -> repository.findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        loc.getName(), today, horizon).stream())
                 .toList();
     }
 
@@ -128,15 +114,17 @@ public class ForecastController {
     }
 
     /**
-     * Triggers an on-demand forecast run for both Haiku and Sonnet models. Restricted to ADMIN only.
+     * Triggers an on-demand forecast run using the currently active model. Restricted to ADMIN only.
      *
-     * <p>Runs Sonnet (dual 0–100 scores) and Haiku (1–5 rating) for each location/date combination.
+     * <p>Runs the active evaluation model (HAIKU or SONNET) for each location/date combination.
      * This is a recovery mechanism for when scheduled jobs fail.
      *
      * <p>If the request body is absent or its fields are {@code null}, defaults apply:
      * {@code dates} defaults to today only; {@code location} defaults to all configured locations.
      *
      * @param request optional run parameters (dates and/or location)
+     * @param maxDays maximum number of days to forecast (optional; if null, uses all dates)
+     * @param maxLocations maximum number of locations to process (optional; if null, uses all)
      * @return all saved evaluation entities produced by the run (Sonnet + Haiku)
      * @throws IllegalArgumentException if the specified location name is not configured,
      *                                  or if any date string is not a valid ISO date
@@ -144,60 +132,45 @@ public class ForecastController {
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runForecast(
-            @RequestBody(required = false) ForecastRunRequest request) {
-        List<LocalDate> dates = (request != null
+            @RequestBody(required = false) ForecastRunRequest request,
+            @RequestParam(required = false) Integer maxDays,
+            @RequestParam(required = false) Integer maxLocations) {
+        // Build dates list with optional limit
+        List<LocalDate> allDates = (request != null
                 && request.dates() != null
                 && !request.dates().isEmpty())
                 ? request.dates().stream().map(LocalDate::parse).toList()
                 : List.of(LocalDate.now(ZoneOffset.UTC));
+        final List<LocalDate> dates = (maxDays != null && maxDays > 0)
+                ? allDates.stream().limit(maxDays).toList()
+                : allDates;
 
-        List<LocationEntity> locations;
+        // Build locations list with optional limit
+        List<LocationEntity> allLocations;
         if (request != null && request.location() != null) {
-            locations = locationService.findAll().stream()
+            allLocations = locationService.findAll().stream()
                     .filter(l -> l.getName().equals(request.location()))
                     .toList();
-            if (locations.isEmpty()) {
+            if (allLocations.isEmpty()) {
                 throw new IllegalArgumentException(
                         "No configured location named '" + request.location() + "'");
             }
         } else {
-            locations = locationService.findAll();
+            allLocations = locationService.findAll();
         }
+        final List<LocationEntity> locations = (maxLocations != null && maxLocations > 0)
+                ? allLocations.stream().limit(maxLocations).toList()
+                : allLocations;
 
-        TargetType targetType = (request != null) ? request.targetType() : null;
+        LOG.info("POST /api/forecast/run — dates={}, location={}, maxDays={}, maxLocations={}",
+                dates.size(), request != null ? request.location() : "all",
+                maxDays, maxLocations);
 
-        LOG.info("POST /api/forecast/run — dates={}, location={}, targetType={}",
-                dates,
-                request != null ? request.location() : null,
-                targetType);
+        // Use the active model (same logic as scheduled runs)
+        EvaluationModel activeModel = modelSelectionService.getActiveModel();
 
-        // Track as manual job run for metrics
-        JobRunEntity jobRun = jobRunService.startRun(JobName.SONNET);
-
-        List<ForecastEvaluationEntity> results = dates.stream()
-                .flatMap(date -> locations.stream()
-                        .flatMap(loc -> {
-                            if (isPureWildlife(loc)) {
-                                return forecastService.runForecasts(
-                                        loc.getName(), loc.getLat(), loc.getLon(),
-                                        loc.getId(), date, targetType, loc.getTideType(),
-                                        EvaluationModel.WILDLIFE, jobRun).stream();
-                            }
-                            List<ForecastEvaluationEntity> sonnetResults = forecastService
-                                    .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
-                                            loc.getId(), date, targetType, loc.getTideType(),
-                                            EvaluationModel.SONNET, jobRun);
-                            List<ForecastEvaluationEntity> haikuResults = forecastService
-                                    .runForecasts(loc.getName(), loc.getLat(), loc.getLon(),
-                                            loc.getId(), date, targetType, loc.getTideType(),
-                                            EvaluationModel.HAIKU, jobRun);
-                            return Stream.concat(
-                                    sonnetResults.stream(), haikuResults.stream());
-                        }))
-                .toList();
-
-        jobRunService.completeRun(jobRun, results.size(), 0);
-        return results;
+        // Delegate to ScheduledForecastService to use identical logic
+        return scheduledForecastService.runForecasts(activeModel, locations, dates);
     }
 
     /**
@@ -252,9 +225,4 @@ public class ForecastController {
      * @param auth the current authentication context
      * @return the appropriate {@link EvaluationModel}
      */
-    private EvaluationModel modelForAuth(Authentication auth) {
-        boolean isLite = auth.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_LITE_USER"));
-        return isLite ? EvaluationModel.HAIKU : EvaluationModel.SONNET;
-    }
 }

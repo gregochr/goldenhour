@@ -1,6 +1,6 @@
 CREATE TABLE actual_outcome
 (
-    id            BIGSERIAL    PRIMARY KEY,
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
     location_lat  DECIMAL(9,6) NOT NULL,
     location_lon  DECIMAL(9,6) NOT NULL,
     location_name VARCHAR(255) NOT NULL,

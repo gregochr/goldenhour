@@ -1,18 +1,22 @@
 import axios from 'axios';
 
-const healthAxios = axios.create({
-  baseURL: 'http://127.0.0.1:8082',
-});
-
 /**
- * Polls backend health status.
+ * Polls backend health status
  * @returns {Promise<string>} "UP" or "DOWN"
  */
 export async function getHealth() {
   try {
-    const response = await healthAxios.get('/actuator/health');
+    // In Docker/prod: backend is proxied, use relative path
+    // In dev: backend is on 8082, use explicit URL
+    const backendUrl = process.env.NODE_ENV === 'development'
+      ? 'http://localhost:8082/actuator/health'
+      : '/actuator/health';
+
+    const response = await axios.get(backendUrl, { timeout: 5000 });
+    console.log('[Health] Status:', response.data.status);
     return response.data.status;
-  } catch {
+  } catch (error) {
+    console.error('[Health] Error:', error.message, error.response?.status);
     return 'DOWN';
   }
 }

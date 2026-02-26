@@ -1,6 +1,6 @@
 -- Track each scheduled run (Sonnet, Haiku, Wildlife, Tide)
 CREATE TABLE job_run (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     job_name VARCHAR(20) NOT NULL,          -- SONNET, HAIKU, WILDLIFE, TIDE
     started_at TIMESTAMP NOT NULL,
     completed_at TIMESTAMP,                 -- null if still running
@@ -16,7 +16,7 @@ CREATE INDEX idx_job_run_name_started ON job_run (job_name, started_at DESC);
 
 -- Track individual API calls within a run
 CREATE TABLE api_call_log (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
     job_run_id BIGINT NOT NULL REFERENCES job_run(id) ON DELETE CASCADE,
     service VARCHAR(50) NOT NULL,           -- OPEN_METEO_FORECAST, ANTHROPIC, WORLD_TIDES, etc.
     called_at TIMESTAMP NOT NULL,
@@ -35,4 +35,4 @@ CREATE TABLE api_call_log (
 
 CREATE INDEX idx_api_call_log_job_run ON api_call_log (job_run_id);
 CREATE INDEX idx_api_call_log_service ON api_call_log (service);
-CREATE INDEX idx_api_call_log_failed ON api_call_log (succeeded) WHERE succeeded = FALSE;
+CREATE INDEX idx_api_call_log_failed ON api_call_log (succeeded);

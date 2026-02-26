@@ -2,7 +2,7 @@
 -- Refreshed weekly per coastal location. Used by ForecastService to classify
 -- tide state at the solar event time without calling the external API on every run.
 CREATE TABLE tide_extreme (
-    id            BIGSERIAL     PRIMARY KEY,
+    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
     location_id   BIGINT        NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
     event_time    TIMESTAMP     NOT NULL,
     height_metres DECIMAL(6, 3) NOT NULL,

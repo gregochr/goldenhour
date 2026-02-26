@@ -17,8 +17,8 @@ export function useHealthStatus() {
 
     poll();
 
-    // Then poll every 30 seconds
-    const interval = setInterval(poll, 30000);
+    // Then poll every 5 seconds
+    const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
   }, []);
 
