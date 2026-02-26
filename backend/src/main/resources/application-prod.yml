@@ -2,7 +2,7 @@ spring:
   autoconfigure:
     exclude: org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
   datasource:
-    url: jdbc:h2:file:/data/goldenhour;MODE=MySQL
+    url: jdbc:h2:file:/data/goldenhour
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -21,6 +21,7 @@ spring:
     enabled: true
     out-of-order: false
     baseline-on-migrate: true
+    clean-disabled: false
 
   mail:
     host: ${MAIL_HOST}
