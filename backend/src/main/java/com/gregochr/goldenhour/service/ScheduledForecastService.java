@@ -45,6 +45,7 @@ public class ScheduledForecastService {
     private final TideService tideService;
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
+    private final SolarService solarService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
@@ -54,15 +55,18 @@ public class ScheduledForecastService {
      * @param tideService     the service that fetches and stores tide extremes
      * @param jobRunService   the service for tracking job run metrics
      * @param modelSelectionService the service that provides the active evaluation model
+     * @param solarService    the service that calculates solar event times
      */
     public ScheduledForecastService(ForecastService forecastService,
             LocationService locationService, TideService tideService,
-            JobRunService jobRunService, ModelSelectionService modelSelectionService) {
+            JobRunService jobRunService, ModelSelectionService modelSelectionService,
+            SolarService solarService) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.tideService = tideService;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
+        this.solarService = solarService;
     }
 
     /**
@@ -205,6 +209,9 @@ public class ScheduledForecastService {
         int failed = 0;
 
         List<ForecastEvaluationEntity> results = new java.util.ArrayList<>();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(ZoneOffset.UTC);
+
         for (LocationEntity location : forecastLocations) {
             for (LocalDate targetDate : forecastDates) {
                 if (model == EvaluationModel.WILDLIFE) {
@@ -216,7 +223,8 @@ public class ScheduledForecastService {
                         failed++;
                     }
                 } else {
-                    if (locationService.shouldEvaluateSunrise(location)) {
+                    if (locationService.shouldEvaluateSunrise(location)
+                            && !shouldSkipEvent(targetDate, TargetType.SUNRISE, location, today, now)) {
                         var sunriseResults = runForecast(
                                 location, targetDate, TargetType.SUNRISE, model, jobRun);
                         if (sunriseResults != null && !sunriseResults.isEmpty()) {
@@ -226,7 +234,8 @@ public class ScheduledForecastService {
                             failed++;
                         }
                     }
-                    if (locationService.shouldEvaluateSunset(location)) {
+                    if (locationService.shouldEvaluateSunset(location)
+                            && !shouldSkipEvent(targetDate, TargetType.SUNSET, location, today, now)) {
                         var sunsetResults = runForecast(
                                 location, targetDate, TargetType.SUNSET, model, jobRun);
                         if (sunsetResults != null && !sunsetResults.isEmpty()) {
@@ -263,6 +272,30 @@ public class ScheduledForecastService {
                 .toList();
         // Delegate to public method with null dates (uses default T+0 to T+7)
         runForecasts(model, locations, null);
+    }
+
+    /**
+     * Checks if a sunrise or sunset event has already passed for today, and should be skipped.
+     *
+     * <p>Returns {@code true} if targetDate is today and current time is after the event time,
+     * indicating the forecast would not change if re-run. Returns {@code false} for future dates.
+     *
+     * @param targetDate the calendar date to check
+     * @param targetType SUNRISE or SUNSET
+     * @param location   the location to check event time for
+     * @param today      today's date in UTC
+     * @param now        current time in UTC
+     * @return {@code true} if the event has already passed and should be skipped
+     */
+    private boolean shouldSkipEvent(LocalDate targetDate, TargetType targetType,
+            LocationEntity location, LocalDate today, java.time.LocalDateTime now) {
+        if (!targetDate.equals(today)) {
+            return false;
+        }
+        java.time.LocalDateTime eventTime = targetType == TargetType.SUNRISE
+                ? solarService.sunriseUtc(location.getLat(), location.getLon(), targetDate)
+                : solarService.sunsetUtc(location.getLat(), location.getLon(), targetDate);
+        return now.isAfter(eventTime);
     }
 
     /**

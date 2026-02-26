@@ -46,6 +46,12 @@ class ScheduledForecastServiceTest {
     @Mock
     private JobRunService jobRunService;
 
+    @Mock
+    private ModelSelectionService modelSelectionService;
+
+    @Mock
+    private SolarService solarService;
+
     private ScheduledForecastService scheduledForecastService;
 
     private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET for BOTH_TIMES
@@ -75,8 +81,10 @@ class ScheduledForecastServiceTest {
         // lenient: only needed by forecast tests, not refreshTideExtremes tests
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
         scheduledForecastService = new ScheduledForecastService(
-                forecastService, locationService, tideService, jobRunService);
+                forecastService, locationService, tideService, jobRunService, modelSelectionService,
+                solarService);
     }
 
     @Test
@@ -156,8 +164,10 @@ class ScheduledForecastServiceTest {
         when(locationService.findAll()).thenReturn(List.of(durham(), wildlifeReserve()));
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
         scheduledForecastService = new ScheduledForecastService(
-                forecastService, locationService, tideService, jobRunService);
+                forecastService, locationService, tideService, jobRunService, modelSelectionService,
+                solarService);
 
         scheduledForecastService.runWildlifeForecasts();
 
@@ -180,8 +190,10 @@ class ScheduledForecastServiceTest {
         when(locationService.findAll()).thenReturn(List.of(durham(), wildlifeReserve()));
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
         scheduledForecastService = new ScheduledForecastService(
-                forecastService, locationService, tideService, jobRunService);
+                forecastService, locationService, tideService, jobRunService, modelSelectionService,
+                solarService);
 
         scheduledForecastService.runSonnetForecasts();
 
