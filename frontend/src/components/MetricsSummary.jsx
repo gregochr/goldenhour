@@ -27,7 +27,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
   const totalFailed = runs.reduce((sum, run) => sum + (run.failed || 0), 0);
   const totalEvaluations = totalSucceeded + totalFailed;
   const successRate = totalEvaluations > 0
-    ? Math.round((totalSucceeded / totalEvaluations) * 100)
+    ? (totalSucceeded / totalEvaluations) * 100
     : 0;
   const totalCostPence = runs.reduce((sum, run) => sum + (run.totalCostPence || 0), 0);
 
@@ -77,9 +77,9 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="text-sm font-medium text-gray-500">Success Rate</div>
         <p className="text-xs text-gray-400 mt-1">Percentage of location evaluations that completed without error. Failures may indicate API issues, bad data, or transient network problems</p>
-        <div className="mt-3 text-3xl font-bold text-gray-900">{successRate}%</div>
+        <div className="mt-3 text-3xl font-bold text-gray-900">{successRate.toFixed(3)}%</div>
         <div className="mt-2 text-xs text-gray-600">
-          {totalSucceeded} succeeded, {totalFailed} failed
+          {totalSucceeded.toLocaleString()} succeeded, {totalFailed.toLocaleString()} failed
         </div>
       </div>
 
@@ -90,7 +90,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
         {slowestService ? (
           <>
             <div className="mt-3 text-lg font-semibold text-gray-900">{slowestService.service}</div>
-            <div className="mt-1 text-sm text-orange-600">{slowestService.avgDuration}ms avg</div>
+            <div className="mt-1 text-sm text-orange-600">{(slowestService.avgDuration / 1000).toFixed(1)}s avg</div>
           </>
         ) : (
           <div className="mt-3 text-gray-500">No data</div>
@@ -100,8 +100,8 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Evaluation Count */}
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
         <div className="text-sm font-medium text-gray-500">Evaluations</div>
-        <p className="text-xs text-gray-400 mt-1">Total location-date-model combinations evaluated. One location across 8 days = 8 evaluations (SONNET + HAIKU)</p>
-        <div className="mt-3 text-3xl font-bold text-gray-900">{totalEvaluations}</div>
+        <p className="text-xs text-gray-400 mt-1">Total location-date combinations evaluated using the active model. One location across 8 days = 8 evaluations</p>
+        <div className="mt-3 text-3xl font-bold text-gray-900">{totalEvaluations.toLocaleString()}</div>
         <div className="mt-1 text-xs text-gray-600">in {totalRuns} runs</div>
       </div>
 
