@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -43,6 +44,7 @@ public class ScheduledForecastService {
     private final LocationService locationService;
     private final TideService tideService;
     private final JobRunService jobRunService;
+    private final ModelSelectionService modelSelectionService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
@@ -51,14 +53,16 @@ public class ScheduledForecastService {
      * @param locationService the service providing persisted locations
      * @param tideService     the service that fetches and stores tide extremes
      * @param jobRunService   the service for tracking job run metrics
+     * @param modelSelectionService the service that provides the active evaluation model
      */
     public ScheduledForecastService(ForecastService forecastService,
             LocationService locationService, TideService tideService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService, ModelSelectionService modelSelectionService) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.tideService = tideService;
         this.jobRunService = jobRunService;
+        this.modelSelectionService = modelSelectionService;
     }
 
     /**
@@ -72,13 +76,15 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs Haiku (1–5 rating) forecasts for all colour-type locations every 12 h.
+     * Runs forecasts using the active evaluation model every 12 h.
+     * The model (HAIKU or SONNET) is determined by {@link ModelSelectionService}.
      *
      * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.haiku.cron}.
      */
     @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
     public void runHaikuForecasts() {
-        runAll(EvaluationModel.HAIKU);
+        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        runAll(activeModel);
     }
 
     /**
@@ -157,7 +163,21 @@ public class ScheduledForecastService {
      *
      * @param model the evaluation model to use
      */
-    private void runAll(EvaluationModel model) {
+    /**
+     * Runs forecasts for a given model, optionally filtered by locations and dates.
+     *
+     * <p>Used by both scheduled jobs and manual on-demand runs to ensure identical logic.
+     *
+     * @param model the evaluation model to use (HAIKU, SONNET, or WILDLIFE)
+     * @param locations optional list of locations; if null, uses all configured locations
+     * @param dates optional list of dates; if null, uses today through T+7
+     * @return list of all forecast evaluation entities produced
+     */
+    public List<ForecastEvaluationEntity> runForecasts(
+            EvaluationModel model,
+            List<LocationEntity> locations,
+            List<LocalDate> dates) {
+        // Determine job name and location filter
         JobName jobName = switch (model) {
             case SONNET -> JobName.SONNET;
             case HAIKU -> JobName.HAIKU;
@@ -165,38 +185,53 @@ public class ScheduledForecastService {
         };
         JobRunEntity jobRun = jobRunService.startRun(jobName);
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocationEntity> locations = locationService.findAll().stream()
+        // Use provided dates or default to today through T+7
+        List<LocalDate> forecastDates = dates != null && !dates.isEmpty()
+                ? dates
+                : buildDefaultDates();
+
+        // Use provided locations or default to all configured locations
+        List<LocationEntity> forecastLocations = locations != null
+                ? locations
+                : locationService.findAll().stream()
                 .filter(loc -> model == EvaluationModel.WILDLIFE
                         ? isPureWildlife(loc)
                         : hasColourTypes(loc))
                 .toList();
-        LOG.info("Scheduled {} forecast run started — {} location(s), T+0 to T+{}",
-                model, locations.size(), FORECAST_HORIZON_DAYS);
+
+        LOG.info("Forecast run started — model={}, {} location(s), {} date(s)",
+                model, forecastLocations.size(), forecastDates.size());
         int succeeded = 0;
         int failed = 0;
 
-        for (LocationEntity location : locations) {
-            for (int daysAhead = 0; daysAhead <= FORECAST_HORIZON_DAYS; daysAhead++) {
-                LocalDate targetDate = today.plusDays(daysAhead);
+        List<ForecastEvaluationEntity> results = new java.util.ArrayList<>();
+        for (LocationEntity location : forecastLocations) {
+            for (LocalDate targetDate : forecastDates) {
                 if (model == EvaluationModel.WILDLIFE) {
-                    // Single call per day: runForecasts handles the hourly loop internally
-                    if (runForecast(location, targetDate, null, model, jobRun)) {
-                        succeeded++;
+                    var wildcardResults = runForecast(location, targetDate, null, model, jobRun);
+                    if (wildcardResults != null && !wildcardResults.isEmpty()) {
+                        results.addAll(wildcardResults);
+                        succeeded += wildcardResults.size();
                     } else {
                         failed++;
                     }
                 } else {
                     if (locationService.shouldEvaluateSunrise(location)) {
-                        if (runForecast(location, targetDate, TargetType.SUNRISE, model, jobRun)) {
-                            succeeded++;
+                        var sunriseResults = runForecast(
+                                location, targetDate, TargetType.SUNRISE, model, jobRun);
+                        if (sunriseResults != null && !sunriseResults.isEmpty()) {
+                            results.addAll(sunriseResults);
+                            succeeded += sunriseResults.size();
                         } else {
                             failed++;
                         }
                     }
                     if (locationService.shouldEvaluateSunset(location)) {
-                        if (runForecast(location, targetDate, TargetType.SUNSET, model, jobRun)) {
-                            succeeded++;
+                        var sunsetResults = runForecast(
+                                location, targetDate, TargetType.SUNSET, model, jobRun);
+                        if (sunsetResults != null && !sunsetResults.isEmpty()) {
+                            results.addAll(sunsetResults);
+                            succeeded += sunsetResults.size();
                         } else {
                             failed++;
                         }
@@ -206,8 +241,28 @@ public class ScheduledForecastService {
         }
 
         jobRunService.completeRun(jobRun, succeeded, failed);
-        LOG.info("Scheduled {} forecast run complete — {} succeeded, {} failed",
+        LOG.info("Forecast run complete — model={}, {} succeeded, {} failed",
                 model, succeeded, failed);
+
+        return results;
+    }
+
+    private List<LocalDate> buildDefaultDates() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        return java.util.stream.IntStream.rangeClosed(0, FORECAST_HORIZON_DAYS)
+                .mapToObj(today::plusDays)
+                .toList();
+    }
+
+    private void runAll(EvaluationModel model) {
+        // Filter locations based on model type
+        List<LocationEntity> locations = locationService.findAll().stream()
+                .filter(loc -> model == EvaluationModel.WILDLIFE
+                        ? isPureWildlife(loc)
+                        : hasColourTypes(loc))
+                .toList();
+        // Delegate to public method with null dates (uses default T+0 to T+7)
+        runForecasts(model, locations, null);
     }
 
     /**
@@ -215,22 +270,21 @@ public class ScheduledForecastService {
      *
      * @param location   the location to forecast
      * @param targetDate the calendar date to forecast
-     * @param targetType {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}
+     * @param targetType {@link TargetType#SUNRISE}, {@link TargetType#SUNSET}, or {@code null} for WILDLIFE
      * @param model      the evaluation model to use
      * @param jobRun     the parent job run for metrics tracking
-     * @return {@code true} if the forecast succeeded, {@code false} if it failed
+     * @return the saved {@link ForecastEvaluationEntity} list, or {@code null} if the forecast failed
      */
-    private boolean runForecast(LocationEntity location, LocalDate targetDate,
+    private List<ForecastEvaluationEntity> runForecast(LocationEntity location, LocalDate targetDate,
             TargetType targetType, EvaluationModel model, JobRunEntity jobRun) {
         try {
-            forecastService.runForecasts(
+            return forecastService.runForecasts(
                     location.getName(), location.getLat(), location.getLon(),
                     location.getId(), targetDate, targetType, location.getTideType(), model, jobRun);
-            return true;
         } catch (Exception e) {
             LOG.error("Forecast failed for {} {} on {} [{}]: {}",
                     location.getName(), targetType, targetDate, model, e.getMessage(), e);
-            return false;
+            return null;
         }
     }
 }
