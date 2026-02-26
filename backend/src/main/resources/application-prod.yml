@@ -1,4 +1,6 @@
 spring:
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
   datasource:
     url: jdbc:h2:file:/data/goldenhour;MODE=MySQL
     driver-class-name: org.h2.Driver
@@ -18,6 +20,7 @@ spring:
   flyway:
     enabled: true
     out-of-order: false
+    baseline-on-migrate: true
 
   mail:
     host: ${MAIL_HOST}
@@ -269,8 +272,8 @@ forecast:
       lon: -1.5849
   schedule:
     sonnet:
-      # Every 6 hours: 0, 6, 12, 18 UTC
-      cron: "${FORECAST_SONNET_CRON:0 0 0,6,12,18 * * *}"
+      # Every 6 hours: 0, 6, 18 UTC (12 UTC run disabled)
+      cron: "${FORECAST_SONNET_CRON:0 0 0,6,18 * * *}"
     haiku:
       # Every 12 hours: 6, 18 UTC
       cron: "${FORECAST_HAIKU_CRON:0 0 6,18 * * *}"
