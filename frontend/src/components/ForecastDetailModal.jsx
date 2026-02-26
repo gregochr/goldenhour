@@ -19,7 +19,6 @@ import { formatEventTimeUk, formatGeneratedAt } from '../utils/conversions.js';
  */
 export default function ForecastDetailModal({ forecast, type, locationName, onClose }) {
   const { role } = useAuth();
-  console.log('ForecastDetailModal: role =', role, 'showing scores:', role !== 'LITE_USER');
   const isSunrise = type === 'SUNRISE';
   const accentColor = isSunrise ? 'text-orange-400' : 'text-purple-400';
   const typeLabel = isSunrise ? '🌅 Sunrise' : '🌇 Sunset';
