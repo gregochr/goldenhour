@@ -7,6 +7,7 @@ import WindIndicator from './WindIndicator.jsx';
 import VisibilityIndicator from './VisibilityIndicator.jsx';
 import OutcomeModal from './OutcomeModal.jsx';
 import TideIndicator from './TideIndicator.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { formatEventTimeUk, formatGeneratedAt, formatShiftedEventTimeUk } from '../utils/conversions.js';
 
 /**
@@ -36,6 +37,8 @@ export default function ForecastCard({
 }) {
   const [showModal, setShowModal] = useState(false);
   const [isRerunning, setIsRerunning] = useState(false);
+  const { role } = useAuth();
+  if (typeof window !== 'undefined') window.DEBUG_ROLE = role;
 
   const isSunrise = type === 'SUNRISE';
   const accentColor = isSunrise ? 'text-orange-400' : 'text-purple-400';
@@ -117,13 +120,17 @@ export default function ForecastCard({
                   </span>
                 )}
               </p>
-              {forecast.rating != null ? (
+              {role === 'LITE_USER' ? (
                 <StarRating
                   rating={forecast.rating}
                   testId={`${testIdSuffix}-rating`}
                 />
               ) : (
                 <>
+                  <StarRating
+                    rating={forecast.rating}
+                    testId={`${testIdSuffix}-rating`}
+                  />
                   <ScoreBar
                     label="Fiery Sky"
                     score={forecast.fierySkyPotential}

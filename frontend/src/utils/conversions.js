@@ -10,6 +10,30 @@ const COMPASS_POINTS_FINE = [
 const MS_TO_MPH = 2.23694;
 
 /**
+ * Formats milliseconds as a human-readable duration string.
+ *
+ * Examples: "45s", "2m 5s", "1h 23m 10s"
+ *
+ * @param {number} milliseconds - Duration in milliseconds.
+ * @returns {string} Formatted duration string.
+ */
+export function formatDuration(milliseconds) {
+  if (!milliseconds || milliseconds < 0) return '0s';
+  const totalSeconds = Math.round(milliseconds / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
+/**
  * Converts metres per second to miles per hour.
  *
  * @param {number} mps - Speed in metres per second.

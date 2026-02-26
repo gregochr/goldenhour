@@ -73,22 +73,45 @@ public class ScheduledForecastService {
      * Runs Sonnet (dual 0–100 score) forecasts for all configured locations every 6 h.
      *
      * <p>Cron defaults to 0, 6, 12, 18 UTC. Override via {@code forecast.schedule.sonnet.cron}.
+     * DISABLED for cost optimization — only Haiku runs on schedule.
      */
-    @Scheduled(cron = "${forecast.schedule.sonnet.cron:0 0 0,6,12,18 * * *}")
+    // @Scheduled(cron = "${forecast.schedule.sonnet.cron:0 0 0,6,12,18 * * *}")
     public void runSonnetForecasts() {
         runAll(EvaluationModel.SONNET);
     }
 
     /**
-     * Runs forecasts using the active evaluation model every 12 h.
-     * The model (HAIKU or SONNET) is determined by {@link ModelSelectionService}.
+     * Runs near-term forecasts (T, T+1, T+2) twice daily at 6 AM and 6 PM UTC.
+     * Near-term forecasts are more valuable as weather updates change predictions.
      *
      * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.haiku.cron}.
      */
     @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
-    public void runHaikuForecasts() {
+    public void runNearTermForecasts() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> nearTermDates = List.of(
+                today,
+                today.plusDays(1),
+                today.plusDays(2)
+        );
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
-        runAll(activeModel);
+        runForecasts(activeModel, null, nearTermDates);
+    }
+
+    /**
+     * Runs distant forecasts (T+3 through T+7) once daily at 6 AM UTC.
+     * Distant forecasts are less sensitive to frequent updates; once daily is sufficient.
+     *
+     * <p>Cron defaults to 6 AM UTC only. Override via {@code forecast.schedule.haiku.distant.cron}.
+     */
+    @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 6 * * *}")
+    public void runDistantForecasts() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> distantDates = today.plusDays(3)
+                .datesUntil(today.plusDays(FORECAST_HORIZON_DAYS + 1))
+                .toList();
+        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        runForecasts(activeModel, null, distantDates);
     }
 
     /**

@@ -4,6 +4,7 @@ import ScoreBar from './ScoreBar.jsx';
 import StarRating from './StarRating.jsx';
 import AzimuthIndicator from './AzimuthIndicator.jsx';
 import TideIndicator from './TideIndicator.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 import { formatEventTimeUk, formatGeneratedAt } from '../utils/conversions.js';
 
 /**
@@ -17,6 +18,8 @@ import { formatEventTimeUk, formatGeneratedAt } from '../utils/conversions.js';
  * @param {function} props.onClose - Called when the modal should close.
  */
 export default function ForecastDetailModal({ forecast, type, locationName, onClose }) {
+  const { role } = useAuth();
+  console.log('ForecastDetailModal: role =', role, 'showing scores:', role !== 'LITE_USER');
   const isSunrise = type === 'SUNRISE';
   const accentColor = isSunrise ? 'text-orange-400' : 'text-purple-400';
   const typeLabel = isSunrise ? '🌅 Sunrise' : '🌇 Sunset';
@@ -78,10 +81,11 @@ export default function ForecastDetailModal({ forecast, type, locationName, onCl
               </span>
             )}
           </p>
-          {forecast.rating != null ? (
+          {role === 'LITE_USER' ? (
             <StarRating rating={forecast.rating} />
           ) : (
             <>
+              <StarRating rating={forecast.rating} />
               <ScoreBar label="Fiery Sky" score={forecast.fierySkyPotential} />
               <ScoreBar label="Golden Hour" score={forecast.goldenHourPotential} />
             </>

@@ -9,7 +9,7 @@ export default function HealthIndicator({ status }) {
   const isUp = status === 'UP';
   return (
     <div
-      className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full ${
+      className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-medium ${
         isUp
           ? 'bg-green-900/30 border border-green-700 text-green-400'
           : 'bg-red-900/30 border border-red-700 text-red-400'
@@ -17,9 +17,9 @@ export default function HealthIndicator({ status }) {
       data-testid="health-indicator"
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${isUp ? 'bg-green-400' : 'bg-red-400'}`}
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${isUp ? 'bg-green-400' : 'bg-red-400'}`}
       />
-      {status}
+      <span className="flex-shrink-0">{status}</span>
     </div>
   );
 }

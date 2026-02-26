@@ -19,9 +19,10 @@ spring:
 
   flyway:
     enabled: true
-    out-of-order: false
+    out-of-order: true
     baseline-on-migrate: true
     clean-disabled: false
+    validate-on-migrate: false
 
   mail:
     host: ${MAIL_HOST}

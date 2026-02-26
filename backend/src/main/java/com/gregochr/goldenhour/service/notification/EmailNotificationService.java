@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -30,9 +31,11 @@ public class EmailNotificationService {
      * Constructs an {@code EmailNotificationService}.
      *
      * @param properties notification configuration
-     * @param mailSender Spring mail sender
+     * @param mailSender Spring mail sender (optional, required=false)
      */
-    public EmailNotificationService(NotificationProperties properties, JavaMailSender mailSender) {
+    public EmailNotificationService(
+            NotificationProperties properties,
+            @Autowired(required = false) JavaMailSender mailSender) {
         this.properties = properties;
         this.mailSender = mailSender;
     }
@@ -47,8 +50,12 @@ public class EmailNotificationService {
      */
     public void notify(SunsetEvaluation evaluation, String locationName,
             TargetType targetType, LocalDate date) {
-        if (!properties.getEmail().isEnabled()) {
-            LOG.debug("Email notifications disabled — skipping {} {} {}", locationName, targetType, date);
+        boolean emailDisabled = !properties.getEmail().isEnabled();
+        if (emailDisabled || mailSender == null) {
+            LOG.debug(
+                    "Email notifications disabled or mail sender not configured "
+                            + "— skipping {} {} {}",
+                    locationName, targetType, date);
             return;
         }
         SimpleMailMessage message = new SimpleMailMessage();

@@ -5,6 +5,7 @@ import { runForecast, fetchLocations, addLocation } from '../api/forecastApi.js'
 import { formatDateLabel } from '../utils/conversions.js';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
+import ModelSelectionView from './ModelSelectionView.jsx';
 
 const FORECAST_DAYS = 8; // T through T+7
 
@@ -220,7 +221,7 @@ export default function ManageView({ onComplete }) {
 
       {/* Sub-tabs */}
       <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-0.5 gap-0.5 self-start">
-        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }, { value: 'metrics', label: 'Job Runs' }].map((tab) => (
+        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }, { value: 'metrics', label: 'Job Runs' }, { value: 'models', label: 'Models' }].map((tab) => (
           <button
             key={tab.value}
             onClick={() => setManageTab(tab.value)}
@@ -551,6 +552,11 @@ export default function ManageView({ onComplete }) {
           <p className="text-sm font-semibold text-gray-100">Job Run Metrics</p>
           <JobRunsMetricsView />
         </div>
+      )}
+
+      {/* ── Models tab ── */}
+      {manageTab === 'models' && (
+        <ModelSelectionView />
       )}
 
     </div>
