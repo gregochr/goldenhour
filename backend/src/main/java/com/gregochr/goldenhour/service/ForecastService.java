@@ -163,7 +163,7 @@ public class ForecastService {
                 throw new WeatherDataFetchException(msg, locationName, type.name(), e);
             }
 
-            // Validate weather data was successfully retrieved
+            // Validate weather data was successfully retrieved (null can be returned without exception)
             if (baseData == null) {
                 String msg = "Weather service returned null for " + locationName + " " + type;
                 LOG.error(msg);

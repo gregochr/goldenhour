@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,6 +56,9 @@ class ScheduledForecastServiceTest {
     @Mock
     private SolarService solarService;
 
+    @Mock
+    private ForecastEvaluationRepository forecastRepository;
+
     private ScheduledForecastService scheduledForecastService;
 
     private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET for BOTH_TIMES
@@ -88,10 +94,13 @@ class ScheduledForecastServiceTest {
                 .thenReturn(LocalDateTime.MAX);
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                 .thenReturn(LocalDateTime.MAX);
+        // Return empty list so long-term forecasts are not skipped by default
+        lenient().when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                any(), any(), any())).thenReturn(List.of());
         // Use a synchronous executor so tests run deterministically without thread pools
         scheduledForecastService = new ScheduledForecastService(
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
-                solarService, Runnable::run);
+                solarService, Runnable::run, forecastRepository);
     }
 
     @Test
@@ -187,9 +196,11 @@ class ScheduledForecastServiceTest {
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
+        lenient().when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                any(), any(), any())).thenReturn(List.of());
         scheduledForecastService = new ScheduledForecastService(
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
-                solarService, Runnable::run);
+                solarService, Runnable::run, forecastRepository);
 
         scheduledForecastService.runWeatherForecasts();
 
@@ -213,9 +224,11 @@ class ScheduledForecastServiceTest {
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
+        lenient().when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                any(), any(), any())).thenReturn(List.of());
         scheduledForecastService = new ScheduledForecastService(
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
-                solarService, Runnable::run);
+                solarService, Runnable::run, forecastRepository);
 
         scheduledForecastService.runSonnetForecasts();
 
@@ -305,5 +318,72 @@ class ScheduledForecastServiceTest {
 
         // Scarborough should still be processed despite Durham failure
         verify(tideService, times(2)).fetchAndStoreTideExtremes(any(), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Long-term forecast optimization: skip T+3+ if exists, always run T, T+1, T+2
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("runNearTermForecasts() always runs for T, T+1, T+2 even if forecasts already exist")
+    void runNearTermForecasts_alwaysRuns_evenIfExistingForecasts() {
+        // No repository stubbing needed — shouldSkipLongTermForecast() exits early for daysAhead < 3
+        // so the repository is never queried for near-term dates. This is the key assertion:
+        // near-term forecasts bypass the existing-forecast check entirely.
+
+        scheduledForecastService.runNearTermForecasts();
+
+        // Despite existing forecasts, all 6 calls (3 days × 2 types) should happen
+        int nearTermDays = 3; // T, T+1, T+2
+        int expectedCalls = nearTermDays * EXPECTED_CALLS_PER_DAY;
+        verify(forecastService, times(expectedCalls))
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.HAIKU), any());
+    }
+
+    @Test
+    @DisplayName("runDistantForecasts() skips T+3+ dates where forecasts already exist")
+    void runDistantForecasts_skipsExistingLongTermForecasts() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate t5 = today.plusDays(5);
+        LocalDate t7 = today.plusDays(7);
+
+        // Mock: T+5 and T+7 already exist, but T+3, T+4, T+6 do not
+        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                eq("Durham UK"), eq(t5), any()))
+                .thenReturn(List.of(
+                        ForecastEvaluationEntity.builder()
+                                .id(1L)
+                                .locationName("Durham UK")
+                                .targetDate(t5)
+                                .targetType(TargetType.SUNRISE)
+                                .forecastRunAt(LocalDateTime.now().minusDays(1))
+                                .build()
+                ));
+        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                eq("Durham UK"), eq(t7), any()))
+                .thenReturn(List.of(
+                        ForecastEvaluationEntity.builder()
+                                .id(2L)
+                                .locationName("Durham UK")
+                                .targetDate(t7)
+                                .targetType(TargetType.SUNRISE)
+                                .forecastRunAt(LocalDateTime.now().minusDays(1))
+                                .build()
+                ));
+        // All other dates return empty (will be generated)
+        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                eq("Durham UK"), argThat(d -> !d.equals(t5) && !d.equals(t7)), any()))
+                .thenReturn(List.of());
+
+        scheduledForecastService.runDistantForecasts();
+
+        // Should call forecastService 6 times:
+        // T+3 (2), T+4 (2), T+5 SKIPPED (both events), T+6 (2), T+7 SKIPPED (both events) = 6 calls
+        verify(forecastService, times(6))
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.HAIKU), any());
     }
 }
