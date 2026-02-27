@@ -1,9 +1,13 @@
-# Frontend: Nginx server for React static files
+# Stage 1: Build React app
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Stage 2: Serve with Nginx
 FROM nginx:alpine
-
-# Copy built React app to Nginx
-COPY dist /usr/share/nginx/html
-
-# Nginx config will be mounted via docker-compose volume
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
