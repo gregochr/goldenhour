@@ -135,7 +135,7 @@ const JobRunsMetricsView = () => {
             disabled={anyRunning}
             data-testid="run-very-short-term-btn"
           >
-            {runningVeryShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Very Short-Term (T, T+1)'}
+            {runningVeryShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Optimise Very Short-Term (T, T+1)'}
           </button>
           <button
             className="btn-primary text-sm"
