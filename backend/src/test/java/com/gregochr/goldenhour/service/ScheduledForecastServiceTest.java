@@ -19,6 +19,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -385,5 +386,93 @@ class ScheduledForecastServiceTest {
                 .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
                         any(), any(LocalDate.class), any(TargetType.class), any(),
                         eq(EvaluationModel.HAIKU), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Opus optimisation: skip low-rated or missing prior evaluations
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Opus run proceeds when prior evaluation has rating >= 3")
+    void opusRun_withHighPriorRating_doesNotSkip() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today);
+
+        ForecastEvaluationEntity prior = ForecastEvaluationEntity.builder()
+                .id(1L).locationName("Durham UK").targetDate(today)
+                .targetType(TargetType.SUNRISE).rating(4)
+                .forecastRunAt(LocalDateTime.now().minusHours(2))
+                .build();
+        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq("Durham UK"), eq(today), any()))
+                .thenReturn(Optional.of(prior));
+
+        scheduledForecastService.runForecasts(EvaluationModel.OPUS, List.of(durham()), dates, true);
+
+        // Both SUNRISE and SUNSET should be evaluated (prior has rating 4)
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), eq(today), any(TargetType.class), any(),
+                        eq(EvaluationModel.OPUS), any());
+    }
+
+    @Test
+    @DisplayName("Opus run skips when prior evaluation has rating < 3")
+    void opusRun_withLowPriorRating_skips() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today);
+
+        ForecastEvaluationEntity prior = ForecastEvaluationEntity.builder()
+                .id(1L).locationName("Durham UK").targetDate(today)
+                .targetType(TargetType.SUNRISE).rating(2)
+                .forecastRunAt(LocalDateTime.now().minusHours(2))
+                .build();
+        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq("Durham UK"), eq(today), any()))
+                .thenReturn(Optional.of(prior));
+
+        scheduledForecastService.runForecasts(EvaluationModel.OPUS, List.of(durham()), dates, true);
+
+        verify(forecastService, never())
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), eq(today), any(TargetType.class), any(),
+                        eq(EvaluationModel.OPUS), any());
+    }
+
+    @Test
+    @DisplayName("Opus run skips when no prior evaluation exists")
+    void opusRun_withNoPriorEvaluation_skips() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today);
+
+        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq("Durham UK"), eq(today), any()))
+                .thenReturn(Optional.empty());
+
+        scheduledForecastService.runForecasts(EvaluationModel.OPUS, List.of(durham()), dates, true);
+
+        verify(forecastService, never())
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), eq(today), any(TargetType.class), any(),
+                        eq(EvaluationModel.OPUS), any());
+    }
+
+    @Test
+    @DisplayName("Haiku run never triggers Opus skip logic")
+    void haikuRun_neverSkipsViaOpusLogic() {
+        // Default setUp has no findTop... stubbing, so if it were called it would return empty.
+        // For Haiku the check should be bypassed entirely.
+        scheduledForecastService.runNearTermForecasts();
+
+        // All 6 calls (3 days × 2 types) should proceed
+        int expectedCalls = 3 * EXPECTED_CALLS_PER_DAY;
+        verify(forecastService, times(expectedCalls))
+                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
+                        any(), any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.HAIKU), any());
+        // The findTop query should never be called for non-Opus models
+        verify(forecastRepository, never())
+                .findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                        any(), any(), any());
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository for {@link ForecastEvaluationEntity} persistence operations.
@@ -58,5 +59,17 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      * @return evaluations ordered by forecast_run_at ascending
      */
     List<ForecastEvaluationEntity> findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+            String locationName, LocalDate targetDate, TargetType targetType);
+
+    /**
+     * Returns the most recent evaluation for a given location, date, and target type.
+     * Used to check prior ratings before deciding whether an Opus optimisation run is worthwhile.
+     *
+     * @param locationName the configured location name
+     * @param targetDate   the date being forecast
+     * @param targetType   SUNRISE or SUNSET
+     * @return the most recent evaluation, if any
+     */
+    Optional<ForecastEvaluationEntity> findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
             String locationName, LocalDate targetDate, TargetType targetType);
 }
