@@ -230,6 +230,11 @@ function PopupScoreRow({ label, score }) {
   );
 }
 
+PopupScoreRow.propTypes = {
+  label: PropTypes.string.isRequired,
+  score: PropTypes.number,
+};
+
 /**
  * Map view showing all locations as score markers for a given date.
  * Selecting a marker draws orange (sunrise) and purple (sunset) azimuth lines.

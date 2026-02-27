@@ -85,7 +85,10 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
               <div key={run.id}>
                 <div
                   className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}
+                  onKeyDown={(e) => e.key === 'Enter' && setExpandedId(expandedId === run.id ? null : run.id)}
                   data-testid={`job-run-row-${run.id}`}
                 >
                   <div className="flex justify-between items-center">
