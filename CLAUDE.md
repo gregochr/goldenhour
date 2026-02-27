@@ -20,6 +20,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Multi-location support with map view (Leaflet/OpenStreetMap)
 - Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH_TIDE/LOW_TIDE/ANY_TIDE/MID_TIDE/NOT_COASTAL), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
 - Sunrise/sunset azimuth lines on map
+- **Opus optimisation gate** ✓ — Opus very-short-term runs skip slots with prior rating < 3 stars or no prior evaluation, avoiding wasted spend on low-value forecasts
 - **Per-run-type model config** ✓ — three independent model configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Flat evaluation strategy hierarchy: Haiku, Sonnet, Opus all extend `AbstractEvaluationStrategy` directly with shared prompts; differentiation is purely which Anthropic model is used
 - Wildlife location UI: pure-WILDLIFE locations get hourly comfort rows (temp/wind/rain) between sunrise and sunset, green 🦅 marker; no Claude call
