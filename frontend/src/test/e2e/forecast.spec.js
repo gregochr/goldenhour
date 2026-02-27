@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * End-to-end tests for the Golden Hour forecast timeline.
+ * End-to-end tests for the Golden Hour map-based forecast UI.
  *
  * These tests require both the React dev server (port 5173) and the Spring Boot
  * backend (port 8082) to be running.
@@ -26,133 +26,128 @@ async function loginAsAdmin(page) {
   }, { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt });
 }
 
-test.describe('Forecast timeline', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');        // establishes the origin (shows login page)
-    await loginAsAdmin(page);    // inject tokens into localStorage
-    await page.goto('/');        // reload — now authenticated
-    await page.getByRole('button', { name: 'By Location' }).click();
+// ---------------------------------------------------------------------------
+// Login flow
+// ---------------------------------------------------------------------------
+test.describe('Login flow', () => {
+  test('renders login form with username and password fields', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('login-username')).toBeVisible();
+    await expect(page.getByTestId('login-password')).toBeVisible();
+    await expect(page.getByTestId('login-submit')).toBeVisible();
   });
 
-  test('page loads and shows app header', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /Golden Hour/ })).toBeVisible();
-    await page.waitForSelector('[data-testid="forecast-card"]', { timeout: 10000 });
-    await expect(page.getByTestId('forecast-card').first()).toBeVisible();
-  });
-
-  test('shows Today and Tomorrow labels', async ({ page }) => {
-    await expect(page.getByText('Today')).toBeVisible();
-    await expect(page.getByText('Tomorrow')).toBeVisible();
-  });
-
-  test('renders at least 8 forecast cards', async ({ page }) => {
-    await page.waitForSelector('[data-testid="forecast-card"]', { timeout: 10000 });
-    const cards = page.getByTestId('forecast-card');
-    const count = await cards.count();
-    expect(count).toBeGreaterThanOrEqual(8);
-  });
-
-  test('sunrise and sunset ratings are visible', async ({ page }) => {
-    await page.waitForSelector('[data-testid="sunrise-rating"]', { timeout: 10000 });
-    await expect(page.getByTestId('sunrise-rating').first()).toBeVisible();
-    await expect(page.getByTestId('sunset-rating').first()).toBeVisible();
-  });
-
-  test('Windy data visualisations render', async ({ page }) => {
-    await page.waitForSelector('[data-testid="cloud-cover-bars"]', { timeout: 10000 });
-    await expect(page.getByTestId('cloud-cover-bars').first()).toBeVisible();
-    await expect(page.getByTestId('wind-indicator').first()).toBeVisible();
-    await expect(page.getByTestId('visibility-indicator').first()).toBeVisible();
+  test('logs in successfully and shows app header', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('login-username').fill('admin');
+    await page.getByTestId('login-password').fill('golden2026');
+    await page.getByTestId('login-submit').click();
+    await expect(page.getByRole('heading', { name: /Golden Hour/ })).toBeVisible({ timeout: 10000 });
   });
 });
 
-test.describe('Outcome recording flow', () => {
+// ---------------------------------------------------------------------------
+// Map view — core
+// ---------------------------------------------------------------------------
+test.describe('Map view — core', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
-    await page.getByRole('button', { name: 'By Location' }).click();
   });
 
-  test('opens outcome form on button click', async ({ page }) => {
-    await page.waitForSelector('[data-testid="record-outcome-button"]', { timeout: 10000 });
-    await page.getByTestId('record-outcome-button').first().click();
-    await expect(page.getByTestId('outcome-form')).toBeVisible();
-  });
-
-  test('submits outcome form successfully', async ({ page }) => {
-    await page.waitForSelector('[data-testid="record-outcome-button"]', { timeout: 10000 });
-    await page.getByTestId('record-outcome-button').first().click();
-
-    await page.getByTestId('actual-rating-3').click();
-    await page.getByTestId('went-out-yes').click();
-    await page.getByTestId('outcome-notes').fill('Beautiful warm light on the cathedral.');
-    await page.getByTestId('outcome-submit').click();
-
-    await expect(page.getByTestId('outcome-saved-message')).toBeVisible({ timeout: 5000 });
-  });
-});
-
-test.describe('By Date view', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await loginAsAdmin(page);
-    await page.goto('/');
-    await page.getByRole('button', { name: 'By Date' }).click();
-  });
-
-  test('renders date strip for date-based view', async ({ page }) => {
-    await page.waitForSelector('[data-testid="date-strip"]', { timeout: 10000 });
+  test('renders map container and date strip after login', async ({ page }) => {
+    await expect(page.getByTestId('map-container')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('date-strip')).toBeVisible();
   });
 
-  test('allows clicking date buttons to change selected date', async ({ page }) => {
+  test('renders Leaflet map with location markers', async ({ page }) => {
+    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+    await expect(page.locator('.leaflet-container').first()).toBeVisible();
+    // At least one marker should be rendered for configured locations
+    await page.waitForSelector('.leaflet-marker-icon', { timeout: 10000 });
+    const markers = page.locator('.leaflet-marker-icon');
+    const count = await markers.count();
+    expect(count).toBeGreaterThanOrEqual(1);
+  });
+
+  test('date strip chips are clickable and change selection styling', async ({ page }) => {
     await page.waitForSelector('[data-testid="date-strip"] button', { timeout: 10000 });
     const dateButtons = page.locator('[data-testid="date-strip"] button');
     const count = await dateButtons.count();
-    if (count > 1) {
-      const secondButton = dateButtons.nth(1);
-      await secondButton.click();
-      // Verify the click succeeded by checking it now has the active styling
-      await expect(secondButton).toHaveClass(/bg-gray-100/);
-    }
+    expect(count).toBeGreaterThanOrEqual(2);
+
+    // Click the second date chip
+    const secondButton = dateButtons.nth(1);
+    await secondButton.click();
+    // The selected chip should gain a distinguishing style (not the muted/inactive style)
+    await expect(secondButton).not.toHaveClass(/text-gray-500/);
   });
 });
 
-test.describe('Map view', () => {
+// ---------------------------------------------------------------------------
+// Map view — marker interaction
+// ---------------------------------------------------------------------------
+test.describe('Map view — marker interaction', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
-    await page.getByRole('button', { name: 'Map' }).click();
+    await page.waitForSelector('.leaflet-marker-icon', { timeout: 10000 });
   });
 
-  test('renders map and date strip', async ({ page }) => {
-    await page.waitForSelector('[data-testid="map-container"]', { timeout: 10000 });
-    await expect(page.getByTestId('map-container')).toBeVisible();
-    await expect(page.getByTestId('date-strip')).toBeVisible();
+  test('clicking a marker opens a popup', async ({ page }) => {
+    // Custom marker icons have child divs that intercept pointer events; use force click
+    await page.locator('.leaflet-marker-icon').first().click({ force: true });
+    await expect(page.locator('.leaflet-popup')).toBeVisible({ timeout: 5000 });
   });
 
-  test('renders map with markers for locations', async ({ page }) => {
-    // Map is rendered if we can see the Leaflet container div
-    const mapDiv = await page.locator('.leaflet-container').first();
-    await expect(mapDiv).toBeVisible({ timeout: 5000 });
-  });
+  test('popup contains location name and forecast summary', async ({ page }) => {
+    await page.locator('.leaflet-marker-icon').first().click({ force: true });
+    await page.waitForSelector('.leaflet-popup', { timeout: 5000 });
 
-  test('allows date selection on map view', async ({ page }) => {
-    await page.waitForSelector('[data-testid="date-strip"] button', { timeout: 10000 });
-    const dateButtons = page.locator('[data-testid="date-strip"] button');
-    const count = await dateButtons.count();
-    if (count > 1) {
-      await dateButtons.nth(1).click();
-      await expect(page.getByTestId('map-container')).toBeVisible();
-    }
+    const popupContent = page.locator('.leaflet-popup-content');
+    // The popup should contain non-empty text (location name is rendered as bold text)
+    const text = await popupContent.textContent();
+    expect(text.length).toBeGreaterThan(0);
   });
 });
 
+// ---------------------------------------------------------------------------
+// Manage view — ADMIN
+// ---------------------------------------------------------------------------
+test.describe('Manage view — ADMIN', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await loginAsAdmin(page);
+    await page.goto('/');
+  });
+
+  test('Manage tab is visible for admin and shows sub-tabs', async ({ page }) => {
+    const manageButton = page.getByRole('button', { name: 'Manage' });
+    await expect(manageButton).toBeVisible();
+    await manageButton.click();
+
+    // Sub-tabs should be visible
+    await expect(page.getByTestId('manage-tab-users')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('manage-tab-locations')).toBeVisible();
+    await expect(page.getByTestId('manage-tab-metrics')).toBeVisible();
+    await expect(page.getByTestId('manage-tab-models')).toBeVisible();
+  });
+
+  test('Locations sub-tab shows location cards with coordinates', async ({ page }) => {
+    await page.getByRole('button', { name: 'Manage' }).click();
+    await page.getByTestId('manage-tab-locations').click();
+    // Location cards contain lat/lon coordinates text (e.g. "54.7753° N, 1.5849° W")
+    await expect(page.locator('text=/\\d+\\.\\d+° [NS]/').first()).toBeVisible({ timeout: 10000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
 test.describe('Error handling', () => {
-  test('shows friendly error message when API is unavailable', async ({ page }) => {
-    // Login first, then abort API calls to simulate the backend going down
+  test('shows error message when API calls are aborted', async ({ page }) => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.route('/api/**', (route) => route.abort());
