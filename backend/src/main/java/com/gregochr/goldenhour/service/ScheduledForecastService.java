@@ -146,12 +146,12 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs comfort-only (no Claude) forecasts for pure WILDLIFE locations every 12 h.
+     * Runs comfort-only (no Claude) weather forecasts for pure WILDLIFE locations every 12 h.
      *
-     * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.wildlife.cron}.
+     * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.weather.cron}.
      */
-    @Scheduled(cron = "${forecast.schedule.wildlife.cron:0 0 6,18 * * *}")
-    public void runWildlifeForecasts() {
+    @Scheduled(cron = "${forecast.schedule.weather.cron:0 0 6,18 * * *}")
+    public void runWeatherForecasts() {
         runAll(EvaluationModel.WILDLIFE);
     }
 
@@ -164,7 +164,7 @@ public class ScheduledForecastService {
      */
     @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
     public void refreshTideExtremes() {
-        JobRunEntity jobRun = jobRunService.startRun(JobName.TIDE);
+        JobRunEntity jobRun = jobRunService.startRun(JobName.TIDE, false);
         List<LocationEntity> coastal = locationService.findAll().stream()
                 .filter(locationService::isCoastal)
                 .toList();
@@ -252,13 +252,32 @@ public class ScheduledForecastService {
             List<LocationEntity> locations,
             List<LocalDate> dates,
             boolean dryRun) {
+        return runForecasts(model, locations, dates, dryRun, false);
+    }
+
+    /**
+     * Runs forecasts with optional dry-run mode and explicit manual/scheduler flag.
+     *
+     * @param model evaluation model (HAIKU, SONNET, WILDLIFE)
+     * @param locations optional location filter (null = all locations)
+     * @param dates optional date range (null = today through T+7)
+     * @param dryRun if {@code true}, skip actual API calls
+     * @param triggeredManually whether this run was manual (true) or scheduled (false)
+     * @return all saved evaluation entities produced by the run
+     */
+    public List<ForecastEvaluationEntity> runForecasts(
+            EvaluationModel model,
+            List<LocationEntity> locations,
+            List<LocalDate> dates,
+            boolean dryRun,
+            boolean triggeredManually) {
         // Determine job name and location filter
         JobName jobName = switch (model) {
             case SONNET -> JobName.SONNET;
             case HAIKU -> JobName.HAIKU;
-            case WILDLIFE -> JobName.WILDLIFE;
+            case WILDLIFE -> JobName.WEATHER;
         };
-        JobRunEntity jobRun = jobRunService.startRun(jobName);
+        JobRunEntity jobRun = jobRunService.startRun(jobName, triggeredManually);
 
         // Use provided dates or default to today through T+7
         List<LocalDate> forecastDates = dates != null && !dates.isEmpty()
@@ -336,7 +355,7 @@ public class ScheduledForecastService {
             }
         }
 
-        jobRunService.completeRun(jobRun, succeeded.get(), failed.get());
+        jobRunService.completeRun(jobRun, succeeded.get(), failed.get(), forecastDates);
         LOG.info("Forecast run complete — model={}, {} succeeded, {} failed",
                 model, succeeded.get(), failed.get());
 

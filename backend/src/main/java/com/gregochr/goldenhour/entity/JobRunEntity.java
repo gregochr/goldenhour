@@ -71,6 +71,18 @@ public class JobRunEntity {
     @Column(name = "total_cost_pence")
     private Integer totalCostPence;
 
+    /** Whether this run was triggered manually (via API) or by the scheduler. */
+    @Column(name = "triggered_manually", nullable = false)
+    private Boolean triggeredManually;
+
+    /** Earliest target date for forecast evaluations in this run. */
+    @Column(name = "min_target_date")
+    private java.time.LocalDate minTargetDate;
+
+    /** Latest target date for forecast evaluations in this run. */
+    @Column(name = "max_target_date")
+    private java.time.LocalDate maxTargetDate;
+
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;

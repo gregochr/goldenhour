@@ -169,7 +169,8 @@ public class ForecastController {
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
 
         // Delegate to ScheduledForecastService to use identical logic
-        return scheduledForecastService.runForecasts(activeModel, locations, dates);
+        // Pass triggeredManually: true since this is a manual API call
+        return scheduledForecastService.runForecasts(activeModel, locations, dates, false, true);
     }
 
     /**
@@ -185,7 +186,10 @@ public class ForecastController {
     public List<ForecastEvaluationEntity> runShortTermForecast(
             @RequestParam(defaultValue = "false") boolean dryRun) {
         LOG.info("POST /api/forecast/run/short-term triggered by admin (dryRun={})", dryRun);
-        return scheduledForecastService.runNearTermForecasts(dryRun);
+        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> nearTermDates = List.of(today, today.plusDays(1), today.plusDays(2));
+        return scheduledForecastService.runForecasts(activeModel, null, nearTermDates, dryRun, true);
     }
 
     /**
@@ -201,7 +205,12 @@ public class ForecastController {
     public List<ForecastEvaluationEntity> runLongTermForecast(
             @RequestParam(defaultValue = "false") boolean dryRun) {
         LOG.info("POST /api/forecast/run/long-term triggered by admin (dryRun={})", dryRun);
-        return scheduledForecastService.runDistantForecasts(dryRun);
+        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> distantDates = today.plusDays(3)
+                .datesUntil(today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS + 1))
+                .toList();
+        return scheduledForecastService.runForecasts(activeModel, null, distantDates, dryRun, true);
     }
 
     /**
