@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -51,6 +52,7 @@ public class ScheduledForecastService {
     private final ModelSelectionService modelSelectionService;
     private final SolarService solarService;
     private final Executor forecastExecutor;
+    private final ForecastEvaluationRepository forecastRepository;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
@@ -62,11 +64,13 @@ public class ScheduledForecastService {
      * @param modelSelectionService the service that provides the active evaluation model
      * @param solarService          the service that calculates solar event times
      * @param forecastExecutor      the executor used to run forecast calls in parallel
+     * @param forecastRepository    the repository for querying existing forecasts
      */
     public ScheduledForecastService(ForecastService forecastService,
             LocationService locationService, TideService tideService,
             JobRunService jobRunService, ModelSelectionService modelSelectionService,
-            SolarService solarService, Executor forecastExecutor) {
+            SolarService solarService, Executor forecastExecutor,
+            ForecastEvaluationRepository forecastRepository) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.tideService = tideService;
@@ -74,6 +78,7 @@ public class ScheduledForecastService {
         this.modelSelectionService = modelSelectionService;
         this.solarService = solarService;
         this.forecastExecutor = forecastExecutor;
+        this.forecastRepository = forecastRepository;
     }
 
     /**
@@ -317,10 +322,14 @@ public class ScheduledForecastService {
                                 forecastExecutor));
                     }
                 } else {
+                    int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(today, targetDate);
+                    String locName = location.getName();
+
                     if (locationService.shouldEvaluateSunrise(location)
-                            && !shouldSkipEvent(targetDate, TargetType.SUNRISE, location, today, now)) {
+                            && !shouldSkipEvent(targetDate, TargetType.SUNRISE, location, today, now)
+                            && !shouldSkipLongTermForecast(locName, targetDate, TargetType.SUNRISE, daysAhead)) {
                         if (dryRun) {
-                            LOG.info("[DRY RUN] Would evaluate {} SUNRISE on {}", location.getName(), targetDate);
+                            LOG.info("[DRY RUN] Would evaluate {} SUNRISE on {}", locName, targetDate);
                             succeeded.incrementAndGet();
                         } else {
                             futures.add(CompletableFuture.supplyAsync(
@@ -329,9 +338,10 @@ public class ScheduledForecastService {
                         }
                     }
                     if (locationService.shouldEvaluateSunset(location)
-                            && !shouldSkipEvent(targetDate, TargetType.SUNSET, location, today, now)) {
+                            && !shouldSkipEvent(targetDate, TargetType.SUNSET, location, today, now)
+                            && !shouldSkipLongTermForecast(locName, targetDate, TargetType.SUNSET, daysAhead)) {
                         if (dryRun) {
-                            LOG.info("[DRY RUN] Would evaluate {} SUNSET on {}", location.getName(), targetDate);
+                            LOG.info("[DRY RUN] Would evaluate {} SUNSET on {}", locName, targetDate);
                             succeeded.incrementAndGet();
                         } else {
                             futures.add(CompletableFuture.supplyAsync(
@@ -402,6 +412,40 @@ public class ScheduledForecastService {
                 ? solarService.sunriseUtc(location.getLat(), location.getLon(), targetDate)
                 : solarService.sunsetUtc(location.getLat(), location.getLon(), targetDate);
         return now.isAfter(eventTime);
+    }
+
+    /**
+     * Checks if a long-term forecast (T+3 or later) already exists and should be skipped.
+     *
+     * <p>Long-term forecasts are less likely to change significantly over time, so we only
+     * generate them once. This method returns {@code true} if a forecast already exists for
+     * the given location, date, and target type and the date is T+3 or beyond.
+     *
+     * @param locationName the location name to check
+     * @param targetDate   the calendar date to check
+     * @param targetType   SUNRISE or SUNSET
+     * @param daysAhead    number of days from today to targetDate
+     * @return {@code true} if the forecast already exists and is long-term (T+3+), false otherwise
+     */
+    private boolean shouldSkipLongTermForecast(String locationName, LocalDate targetDate,
+            TargetType targetType, int daysAhead) {
+        // Only skip long-term forecasts (T+3 and beyond)
+        if (daysAhead < 3) {
+            return false;
+        }
+        // Check if a forecast already exists for this location/date/type
+        List<ForecastEvaluationEntity> existing = forecastRepository
+                .findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                        locationName, targetDate, targetType);
+        if (!existing.isEmpty()) {
+            LOG.info("Skipping long-term forecast for {} {} on {} (T+{}) — already exists from {}",
+                    locationName, targetType, targetDate, daysAhead,
+                    existing.get(0).getForecastRunAt());
+            return true;
+        }
+        LOG.debug("Generating long-term forecast for {} {} on {} (T+{}) — no existing forecast found",
+                locationName, targetType, targetDate, daysAhead);
+        return false;
     }
 
     /**

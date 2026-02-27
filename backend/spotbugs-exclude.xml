@@ -98,6 +98,17 @@
     </Match>
 
     <!--
+        ForecastService.runForecasts() performs a null check on baseData after the
+        try-catch block. SpotBugs considers it redundant because the catch always
+        rethrows, but openMeteoService.getAtmosphericData() can return null without
+        throwing — the null check is necessary and tested.
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.service.ForecastService"/>
+        <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE"/>
+    </Match>
+
+    <!--
         Spring services store injected dependencies (Spring-managed singletons) via
         constructor injection. EI_EXPOSE_REP2 fires because the fields are mutable
         object references, but this is the standard and correct Spring DI pattern.
