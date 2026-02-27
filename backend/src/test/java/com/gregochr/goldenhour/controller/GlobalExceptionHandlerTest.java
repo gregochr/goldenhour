@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.DisplayName;
@@ -100,5 +101,20 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("WeatherDataFetchException is mapped to 500 Internal Server Error")
+    void handleWeatherDataFetchException_returns500() throws Exception {
+        when(scheduledForecastService.runForecasts(any(), any(), any()))
+                .thenThrow(new WeatherDataFetchException(
+                        "Weather data fetch failed for Durham SUNRISE: API timeout",
+                        "Durham", "SUNRISE", new RuntimeException("API timeout")));
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").exists())
+                .andExpect(jsonPath("$.error").value("Weather data fetch failed for Durham SUNRISE: API timeout"));
     }
 }

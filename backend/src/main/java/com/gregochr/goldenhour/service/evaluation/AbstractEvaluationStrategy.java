@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -147,10 +148,15 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             if (jobRun != null && jobRunService != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
                         "POST", "https://api.anthropic.com/v1/messages", null,
-                        durationMs, statusCode, null, true, null, getEvaluationModel());
+                        durationMs, statusCode, null, true, null, getEvaluationModel(),
+                        data.solarEventTime().toLocalDate(), data.targetType());
             }
 
             return result;
+        } catch (WeatherDataFetchException e) {
+            // Weather data fetch failed — Anthropic evaluation was blocked
+            LOG.error("Skipping Anthropic evaluation — weather data unavailable: {}", e.getMessage());
+            throw e;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             errorMessage = e.getMessage();
@@ -158,11 +164,13 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                 statusCode = httpEx.getStatusCode().value();
             }
 
-            // Log failed API call to metrics if jobRun is available
+            // Log failed Anthropic API call to metrics if jobRun is available
+            LOG.error("Anthropic evaluation failed: {}", e.getMessage(), e);
             if (jobRun != null && jobRunService != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
                         "POST", "https://api.anthropic.com/v1/messages", null,
-                        durationMs, statusCode, errorMessage, false, errorMessage, getEvaluationModel());
+                        durationMs, statusCode, errorMessage, false, errorMessage, getEvaluationModel(),
+                        data.solarEventTime().toLocalDate(), data.targetType());
             }
 
             throw e;

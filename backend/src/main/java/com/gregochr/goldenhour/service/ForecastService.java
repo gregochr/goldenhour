@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -151,7 +152,24 @@ public class ForecastService {
                     : solarService.sunsetUtc(lat, lon, date);
 
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
-            AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
+
+            // Fetch weather data with explicit error handling
+            AtmosphericData baseData;
+            try {
+                baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
+            } catch (Exception e) {
+                String msg = "Weather data fetch failed for " + locationName + " " + type + ": " + e.getMessage();
+                LOG.error(msg);
+                throw new WeatherDataFetchException(msg, locationName, type.name(), e);
+            }
+
+            // Validate weather data was successfully retrieved
+            if (baseData == null) {
+                String msg = "Weather service returned null for " + locationName + " " + type;
+                LOG.error(msg);
+                throw new WeatherDataFetchException(msg, locationName, type.name(), null);
+            }
+
             AtmosphericData forecastData = augmentWithTideData(baseData, locationId, eventTime, tideTypes);
 
             int azimuth = type == TargetType.SUNRISE
