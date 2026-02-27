@@ -151,6 +151,14 @@ jwt:
 | V17 | `fiery_sky_potential`, `golden_hour_potential` score columns on `forecast_evaluation` |
 | V18 | `rating` column on `forecast_evaluation` (1–5 Haiku rating) |
 | V19 | `temperature_celsius`, `apparent_temperature_celsius`, `precipitation_probability_percent` on `forecast_evaluation` |
+| V20 | `job_run` + `api_call_log` tables — job run metrics and API call logging |
+| V21 | `consecutive_failures`, `last_failure_at`, `disabled_reason` on `location` |
+| V22 | `model_selection` table |
+| V23 | `triggered_manually` on `job_run` |
+| V24 | Rename `job_name` WILDLIFE → WEATHER |
+| V25 | `target_date_range` on `job_run` |
+| V26 | `model` + `target` on `api_call_log` |
+| V27 | `email VARCHAR(255)` (nullable) on `app_user` |
 
 ---
 
@@ -180,9 +188,13 @@ jwt:
 | `GET` | `/api/locations` | Bearer | All locations |
 | `POST` | `/api/locations` | Bearer | Add location |
 | `GET` | `/api/users` | ADMIN | List users |
-| `POST` | `/api/users` | ADMIN | Create user |
+| `POST` | `/api/users` | ADMIN | Create user (requires email) |
 | `PUT` | `/api/users/{id}/enabled` | ADMIN | Enable/disable user |
 | `PUT` | `/api/users/{id}/role` | ADMIN | Change user role |
+| `PUT` | `/api/users/{id}/reset-password` | ADMIN | Generate temp password, set passwordChangeRequired |
+| `GET` | `/api/metrics/job-runs` | ADMIN | Pageable job run history |
+| `GET` | `/api/metrics/api-calls` | ADMIN | API call log with costs |
+| `PUT` | `/api/locations/{name}/reset-failures` | ADMIN | Re-enable auto-disabled location |
 | `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
 | `POST` | `/api/push/subscribe` | Bearer | Save a push subscription |
 | `DELETE` | `/api/push/subscribe` | Bearer | Remove a push subscription |
@@ -357,7 +369,7 @@ Track performance of scheduled forecast runs and external API calls, stored in H
 - Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
 - Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 271 backend tests, all passing with ≥80% JaCoCo coverage
+- 319 backend tests, all passing with ≥80% JaCoCo coverage
 
 **UX Note (potential enhancement)**: Job runs are named after the evaluation model (SONNET/HAIKU/WILDLIFE/TIDE), which is architecturally correct but may not be intuitive to end users. Users might expect a single "Forecast Run" or "Evaluation Run" label instead of separate job names per model. Consider either:
 1. Unifying the UI to show "Forecast Run" with model breakdown inside, or
