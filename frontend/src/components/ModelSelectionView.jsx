@@ -66,6 +66,13 @@ export default function ModelSelectionView() {
       speed: 'Moderate',
       recommended: false,
     },
+    OPUS: {
+      name: 'Opus',
+      description: 'Highest accuracy model. Returns detailed 0-100 scores with the deepest reasoning.',
+      costPerRun: '~£30',
+      speed: 'Slower',
+      recommended: false,
+    },
   };
 
   if (loading) {
