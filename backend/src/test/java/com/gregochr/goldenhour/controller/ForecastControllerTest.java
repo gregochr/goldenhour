@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,8 +22,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -49,15 +48,17 @@ class ForecastControllerTest {
     @MockBean
     private ForecastService forecastService;
 
+    @MockBean
+    private ScheduledForecastService scheduledForecastService;
+
     @Test
     @WithMockUser
-    @DisplayName("GET /api/forecast returns 200 with SONNET evaluations for a standard user")
+    @DisplayName("GET /api/forecast returns 200 with evaluations for all configured locations")
     void getForecasts_returnsEvaluationsForConfiguredLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 20));
         when(forecastEvaluationRepository
-                .findByLocationAndDateRangeAndModel(
-                        eq("Durham UK"), any(LocalDate.class), any(LocalDate.class),
-                        eq(EvaluationModel.SONNET)))
+                .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq("Durham UK"), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
 
         mockMvc.perform(get("/api/forecast"))
@@ -96,22 +97,15 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run as ADMIN with no body runs both models for all configured locations")
+    @DisplayName("POST /api/forecast/run as ADMIN with no body runs the active model")
     void runForecast_asAdmin_noBody_runsBothModels() throws Exception {
-        ForecastEvaluationEntity sonnetEntity = buildEntity("Durham UK", LocalDate.of(2026, 2, 20));
         ForecastEvaluationEntity haikuEntity = buildHaikuEntity("Durham UK", LocalDate.of(2026, 2, 20));
-        when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(), any(LocalDate.class), any(),
-                        any(), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(List.of(sonnetEntity));
-        when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(), any(LocalDate.class), any(),
-                        any(), eq(EvaluationModel.HAIKU), any()))
+        when(scheduledForecastService.runForecasts(any(EvaluationModel.class), any(), any()))
                 .thenReturn(List.of(haikuEntity));
 
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2));
+                .andExpect(jsonPath("$.length()").value(1));
     }
 
     @Test
@@ -135,34 +129,19 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with multiple dates runs both models for each date")
+    @DisplayName("POST /api/forecast/run with multiple dates runs the active model for each date")
     void runForecast_multipleDates_runsBothModelsForEachDate() throws Exception {
-        ForecastEvaluationEntity day1Sonnet = buildEntity("Durham UK", LocalDate.of(2026, 3, 1));
         ForecastEvaluationEntity day1Haiku = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1));
-        ForecastEvaluationEntity day2Sonnet = buildEntity("Durham UK", LocalDate.of(2026, 3, 2));
         ForecastEvaluationEntity day2Haiku = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 2));
-        when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 1)), any(), any(), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(List.of(day1Sonnet));
-        when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 1)), any(), any(), eq(EvaluationModel.HAIKU), any()))
-                .thenReturn(List.of(day1Haiku));
-        when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 2)), any(), any(), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(List.of(day2Sonnet));
-        when(forecastService.runForecasts(
-                        anyString(), anyDouble(), anyDouble(), any(),
-                        eq(LocalDate.of(2026, 3, 2)), any(), any(), eq(EvaluationModel.HAIKU), any()))
-                .thenReturn(List.of(day2Haiku));
+        // Active model is HAIKU; returns 2 entities (one per date)
+        when(scheduledForecastService.runForecasts(any(EvaluationModel.class), any(), any()))
+                .thenReturn(List.of(day1Haiku, day2Haiku));
 
         mockMvc.perform(post("/api/forecast/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4));
+                .andExpect(jsonPath("$.length()").value(2));
     }
 
     @Test
@@ -192,6 +171,90 @@ class ForecastControllerTest {
         mockMvc.perform(get("/api/forecast/compare")
                         .param("location", "Durham UK"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/short-term as ADMIN triggers near-term forecast run")
+    void runShortTermForecast_asAdmin_triggersNearTermRun() throws Exception {
+        when(scheduledForecastService.runNearTermForecasts(false))
+                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
+
+        mockMvc.perform(post("/api/forecast/run/short-term"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/forecast/run/short-term as non-admin returns 403")
+    void runShortTermForecast_asNonAdmin_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/short-term"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/long-term as ADMIN triggers distant forecast run")
+    void runLongTermForecast_asAdmin_triggersDistantRun() throws Exception {
+        when(scheduledForecastService.runDistantForecasts(false))
+                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now().plusDays(5))));
+
+        mockMvc.perform(post("/api/forecast/run/long-term"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/forecast/run/long-term as non-admin returns 403")
+    void runLongTermForecast_asNonAdmin_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/long-term"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/history returns 200 for all locations when no location filter is given")
+    void getHistory_validRange_noLocation_returnsEvaluationsForAllLocations() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 1, 15));
+        when(forecastEvaluationRepository
+                .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq("Durham UK"), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-01-31"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run with maxDays limits the dates processed")
+    void runForecast_withMaxDays_limitsDates() throws Exception {
+        when(scheduledForecastService.runForecasts(any(EvaluationModel.class), any(), any()))
+                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
+
+        mockMvc.perform(post("/api/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\",\"2026-03-03\"]}")
+                        .param("maxDays", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run with maxLocations limits the locations processed")
+    void runForecast_withMaxLocations_limitsLocations() throws Exception {
+        when(scheduledForecastService.runForecasts(any(EvaluationModel.class), any(), any()))
+                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
+
+        mockMvc.perform(post("/api/forecast/run")
+                        .param("maxLocations", "1"))
+                .andExpect(status().isOk());
     }
 
     private ForecastEvaluationEntity buildEntity(String locationName, LocalDate targetDate) {

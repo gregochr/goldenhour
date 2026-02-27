@@ -37,7 +37,6 @@ public class SecurityConfig {
     private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final RequestLoggingInterceptor requestLoggingInterceptor;
 
     /**
      * Configures the security filter chain.
@@ -65,7 +64,6 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
-                .addFilterBefore(requestLoggingInterceptor, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class);
 

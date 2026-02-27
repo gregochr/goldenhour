@@ -58,10 +58,11 @@ class HaikuEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("getPromptSuffix() returns 1-5 rate instruction")
+    @DisplayName("getPromptSuffix() returns 1-5 rate instruction with dual score request")
     void getPromptSuffix_returnsCorrectString() {
         assertThat(strategy.getPromptSuffix())
-                .isEqualTo("Rate 1-5 and explain in 1-2 sentences.");
+                .isEqualTo("Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), "
+                        + "then explain in 1-2 sentences.");
     }
 
     @Test
@@ -72,11 +73,12 @@ class HaikuEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluate() end-to-end with mocked Claude returns Haiku rating evaluation")
+    @DisplayName("evaluate() end-to-end with mocked Claude returns all three Haiku scores")
     void evaluate_endToEnd_returnsHaikuRatingEvaluation() {
         AtmosphericData data = buildAtmosphericData();
         Message response = buildMessage(
-                "{\"rating\": 3, \"summary\": \"Some cloud cover limits potential.\"}");
+                "{\"rating\": 3, \"fiery_sky\": 45, \"golden_hour\": 60,"
+                + " \"summary\": \"Some cloud cover limits potential.\"}");
 
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
@@ -84,21 +86,22 @@ class HaikuEvaluationStrategyTest {
         SunsetEvaluation result = strategy.evaluate(data);
 
         assertThat(result.rating()).isEqualTo(3);
-        assertThat(result.fierySkyPotential()).isNull();
-        assertThat(result.goldenHourPotential()).isNull();
+        assertThat(result.fierySkyPotential()).isEqualTo(45);
+        assertThat(result.goldenHourPotential()).isEqualTo(60);
         assertThat(result.summary()).isEqualTo("Some cloud cover limits potential.");
     }
 
     @Test
-    @DisplayName("parseEvaluation() extracts rating and summary from valid JSON")
+    @DisplayName("parseEvaluation() extracts rating, dual scores, and summary from valid JSON")
     void parseEvaluation_validJson_returnsEvaluation() {
         SunsetEvaluation result = strategy.parseEvaluation(
-                "{\"rating\": 4, \"summary\": \"Good mid-level cloud above a clear horizon.\"}",
+                "{\"rating\": 4, \"fiery_sky\": 65, \"golden_hour\": 75,"
+                + " \"summary\": \"Good mid-level cloud above a clear horizon.\"}",
                 objectMapper);
 
         assertThat(result.rating()).isEqualTo(4);
-        assertThat(result.fierySkyPotential()).isNull();
-        assertThat(result.goldenHourPotential()).isNull();
+        assertThat(result.fierySkyPotential()).isEqualTo(65);
+        assertThat(result.goldenHourPotential()).isEqualTo(75);
         assertThat(result.summary()).isEqualTo("Good mid-level cloud above a clear horizon.");
     }
 
@@ -114,10 +117,13 @@ class HaikuEvaluationStrategyTest {
     @DisplayName("parseEvaluation() strips markdown code block wrapper")
     void parseEvaluation_codeBlockWrapped_returnsEvaluation() {
         SunsetEvaluation result = strategy.parseEvaluation(
-                "```json\n{\"rating\": 5, \"summary\": \"Exceptional conditions.\"}\n```",
+                "```json\n{\"rating\": 5, \"fiery_sky\": 90, \"golden_hour\": 85,"
+                + " \"summary\": \"Exceptional conditions.\"}\n```",
                 objectMapper);
 
         assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.fierySkyPotential()).isEqualTo(90);
+        assertThat(result.goldenHourPotential()).isEqualTo(85);
         assertThat(result.summary()).isEqualTo("Exceptional conditions.");
     }
 
@@ -125,10 +131,13 @@ class HaikuEvaluationStrategyTest {
     @DisplayName("parseEvaluation() falls back to regex when summary contains unescaped quotes")
     void parseEvaluation_unescapedQuotesInSummary_returnsEvaluation() {
         SunsetEvaluation result = strategy.parseEvaluation(
-                "{\"rating\": 2, \"summary\": \"A \"dull\" outlook with heavy overcast.\"}",
+                "{\"rating\": 2, \"fiery_sky\": 20, \"golden_hour\": 25,"
+                + " \"summary\": \"A \"dull\" outlook with heavy overcast.\"}",
                 objectMapper);
 
         assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.fierySkyPotential()).isEqualTo(20);
+        assertThat(result.goldenHourPotential()).isEqualTo(25);
         assertThat(result.summary()).isEqualTo("A \"dull\" outlook with heavy overcast.");
     }
 
