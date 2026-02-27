@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -24,8 +25,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -242,6 +245,60 @@ class ForecastServiceTest {
         assertThat(saved.getFierySkyPotential()).isNull();
         assertThat(saved.getGoldenHourPotential()).isNull();
         assertThat(saved.getSummary()).isNull();
+    }
+
+    @Test
+    @DisplayName("runForecasts() when weather fetch fails with exception throws WeatherDataFetchException")
+    void runForecasts_weatherFetchFails_throwsWeatherDataFetchException() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException("Network error: API timeout"));
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
+                EvaluationModel.SONNET))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining("Weather data fetch failed for " + DURHAM + " SUNRISE");
+    }
+
+    @Test
+    @DisplayName("runForecasts() when weather fetch fails, EvaluationService is never called")
+    void runForecasts_weatherFetchFails_neverCallsEvaluationService() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException("Connection refused"));
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
+                EvaluationModel.SONNET))
+                .isInstanceOf(WeatherDataFetchException.class);
+
+        verify(evaluationService, never()).evaluate(any(), any(EvaluationModel.class), any());
+    }
+
+    @Test
+    @DisplayName("runForecasts() when weather fetch returns null throws WeatherDataFetchException")
+    void runForecasts_weatherFetchReturnsNull_throwsWeatherDataFetchException() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
+                .thenReturn(null);
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
+                EvaluationModel.SONNET))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining("Weather service returned null");
+
+        verify(evaluationService, never()).evaluate(any(), any(EvaluationModel.class), any());
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {
