@@ -135,6 +135,49 @@ git reset --hard origin/main
 - H2 Console: http://localhost:8082/h2-console
 - Spring Actuator Health: http://localhost:8082/actuator/health
 - Playwright HTML Report: `frontend/test-results/` (after running E2E tests)
+- **Production frontend**: https://app.photocast.online
+- **Production API**: https://api.photocast.online
+
+## Docker (Production)
+
+```bash
+# Build and start both containers
+docker compose build --no-cache
+docker compose up -d
+
+# Check status
+docker compose ps
+docker logs goldenhour-backend --tail 50
+docker logs goldenhour-frontend --tail 20
+
+# Restart after code changes
+docker compose build --no-cache && docker compose up -d
+
+# Health check
+curl http://localhost:8082/actuator/health
+```
+
+Data is persisted at `/Users/gregochr/goldenhour-data/goldenhour.mv.db`.
+
+## Cloudflare Tunnel
+
+```bash
+# Check the tunnel service is running
+sudo launchctl list | grep cloudflare   # should show a PID
+
+# View tunnel logs
+tail -f /Library/Logs/com.cloudflare.cloudflared.out.log
+tail -f /Library/Logs/com.cloudflare.cloudflared.err.log
+
+# Restart the tunnel service
+sudo launchctl stop com.cloudflare.cloudflared
+sudo launchctl start com.cloudflare.cloudflared
+
+# Tunnel details
+# Name: photocast
+# ID:   714c39a4-880f-44d7-a6e9-0a339b5224ac
+# Config: ~/.cloudflared/config.yml
+```
 
 ## Quick Restart Both Services
 

@@ -1,9 +1,17 @@
 # Changelog
 
-All notable changes to Golden Hour are documented here.
+All notable changes to Photo Cast are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
+
+### Added (Feb 27, 2026)
+- **Cloudflare Tunnel** — app publicly live at `https://app.photocast.online` and `https://api.photocast.online`; installed as macOS launchd service, starts at boot
+- **Email field on users** — `V27` migration adds `email` column to `app_user`; required when creating a user (basic format validation front and back); displayed in the Users table in ManageView
+- **Admin password reset** — `PUT /api/users/{id}/reset-password` generates a secure 12-char temporary password server-side, sets `passwordChangeRequired = true`, returns the raw password once; ManageView shows a modal with copy-to-clipboard
+- **Photo Cast rebrand** — app name updated from Golden Hour to Photo Cast; subtitle updated to "AI Driven Sunrise and Sunset Forecasting"; browser tab title updated
+- **Username validation** — changed from "must be an email address" to "at least 5 characters" (email is now a separate required field)
+- 319 backend tests, all passing
 
 ### Added (Feb 25, 2026)
 - **Job Run Metrics** — persistent tracking of scheduled forecast runs and API call timings
