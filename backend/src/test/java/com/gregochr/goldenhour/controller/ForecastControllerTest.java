@@ -102,7 +102,7 @@ class ForecastControllerTest {
     void runForecast_asAdmin_noBody_runsBothModels() throws Exception {
         ForecastEvaluationEntity haikuEntity = buildHaikuEntity("Durham UK", LocalDate.of(2026, 2, 20));
         when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean(), anyBoolean()))
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
                 .thenReturn(List.of(haikuEntity));
 
         mockMvc.perform(post("/api/forecast/run"))
@@ -137,7 +137,7 @@ class ForecastControllerTest {
         ForecastEvaluationEntity day2Haiku = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 2));
         // Active model is HAIKU; returns 2 entities (one per date)
         when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean(), anyBoolean()))
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
                 .thenReturn(List.of(day1Haiku, day2Haiku));
 
         mockMvc.perform(post("/api/forecast/run")
@@ -181,7 +181,7 @@ class ForecastControllerTest {
     @DisplayName("POST /api/forecast/run/short-term as ADMIN triggers near-term forecast run")
     void runShortTermForecast_asAdmin_triggersNearTermRun() throws Exception {
         when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean(), anyBoolean()))
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
 
         mockMvc.perform(post("/api/forecast/run/short-term"))
@@ -202,7 +202,7 @@ class ForecastControllerTest {
     @DisplayName("POST /api/forecast/run/long-term as ADMIN triggers distant forecast run")
     void runLongTermForecast_asAdmin_triggersDistantRun() throws Exception {
         when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean(), anyBoolean()))
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now().plusDays(5))));
 
         mockMvc.perform(post("/api/forecast/run/long-term"))
@@ -240,7 +240,7 @@ class ForecastControllerTest {
     @DisplayName("POST /api/forecast/run with maxDays limits the dates processed")
     void runForecast_withMaxDays_limitsDates() throws Exception {
         when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean(), anyBoolean()))
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
 
         mockMvc.perform(post("/api/forecast/run")
@@ -256,7 +256,7 @@ class ForecastControllerTest {
     @DisplayName("POST /api/forecast/run with maxLocations limits the locations processed")
     void runForecast_withMaxLocations_limitsLocations() throws Exception {
         when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean(), anyBoolean()))
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
 
         mockMvc.perform(post("/api/forecast/run")

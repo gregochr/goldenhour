@@ -170,7 +170,7 @@ public class ForecastController {
 
         // Delegate to ScheduledForecastService to use identical logic
         // Pass triggeredManually: true since this is a manual API call
-        return scheduledForecastService.runForecasts(activeModel, locations, dates, false, true);
+        return scheduledForecastService.runForecasts(activeModel, locations, dates, true);
     }
 
     /**
