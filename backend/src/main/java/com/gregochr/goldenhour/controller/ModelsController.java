@@ -33,9 +33,10 @@ public class ModelsController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
-        // Only expose HAIKU and SONNET for user selection
-        // WILDLIFE is handled automatically for pure-wildlife locations
-        EvaluationModel[] selectableModels = { EvaluationModel.HAIKU, EvaluationModel.SONNET };
+        // WILDLIFE is handled automatically for pure-wildlife locations and is not user-selectable
+        EvaluationModel[] selectableModels = {
+            EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS
+        };
         return ResponseEntity.ok(Map.of(
                 "available", selectableModels,
                 "active", activeModel

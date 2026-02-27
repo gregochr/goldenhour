@@ -231,6 +231,7 @@ public class ScheduledForecastService {
         JobName jobName = switch (model) {
             case SONNET -> JobName.SONNET;
             case HAIKU -> JobName.HAIKU;
+            case OPUS -> JobName.OPUS;
             case WILDLIFE -> JobName.WEATHER;
         };
         JobRunEntity jobRun = jobRunService.startRun(jobName, triggeredManually);

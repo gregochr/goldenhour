@@ -15,6 +15,9 @@ public enum EvaluationModel {
     /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
     SONNET,
 
+    /** Claude Opus — highest accuracy, dual 0–100 score output. */
+    OPUS,
+
     /** No Claude call — raw comfort weather data only (temperature, wind, rain). */
     WILDLIFE
 }
