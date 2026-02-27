@@ -214,6 +214,8 @@ class AbstractEvaluationStrategyTest {
                 any(),
                 eq(true),
                 any(),
+                any(),
+                any(),
                 any());
 
         assertThat(jobRunIdCaptor.getValue()).isEqualTo(1L);
@@ -256,6 +258,8 @@ class AbstractEvaluationStrategyTest {
                 eq(429),
                 any(),
                 succeededCaptor.capture(),
+                any(),
+                any(),
                 any(),
                 any());
 
