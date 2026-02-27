@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
+import { runShortTermForecast, runLongTermForecast } from '../api/forecastApi';
+import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
 
@@ -12,6 +14,7 @@ import JobRunsGrid from './JobRunsGrid';
  * - Per-run API call details
  */
 const JobRunsMetricsView = () => {
+  const { isAdmin } = useAuth();
   const [runs, setRuns] = useState([]);
   const [allApiCalls, setAllApiCalls] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,7 +22,9 @@ const JobRunsMetricsView = () => {
   const [page, setPage] = useState(0);
   const [jobNameFilter, setJobNameFilter] = useState(undefined);
   const [hasMore, setHasMore] = useState(true);
-
+  const [runningShortTerm, setRunningShortTerm] = useState(false);
+  const [runningLongTerm, setRunningLongTerm] = useState(false);
+  const [runStatus, setRunStatus] = useState(null); // { type: 'success'|'error', message: string }
   const PAGE_SIZE = 20;
 
   useEffect(() => {
@@ -66,8 +71,62 @@ const JobRunsMetricsView = () => {
     loadJobRuns(page);
   };
 
+  const handleRunShortTerm = async () => {
+    setRunningShortTerm(true);
+    setRunStatus(null);
+    try {
+      const results = await runShortTermForecast();
+      setRunStatus({ type: 'success', message: `Short-term run complete — ${results.length} evaluation(s) saved.` });
+      loadJobRuns(0);
+    } catch {
+      setRunStatus({ type: 'error', message: 'Short-term run failed. Check the logs.' });
+    } finally {
+      setRunningShortTerm(false);
+    }
+  };
+
+  const handleRunLongTerm = async () => {
+    setRunningLongTerm(true);
+    setRunStatus(null);
+    try {
+      const results = await runLongTermForecast();
+      setRunStatus({ type: 'success', message: `Long-term run complete — ${results.length} evaluation(s) saved.` });
+      loadJobRuns(0);
+    } catch {
+      setRunStatus({ type: 'error', message: 'Long-term run failed. Check the logs.' });
+    } finally {
+      setRunningLongTerm(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {isAdmin && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="btn-primary text-sm"
+            onClick={handleRunShortTerm}
+            disabled={runningShortTerm || runningLongTerm}
+            data-testid="run-short-term-btn"
+          >
+            {runningShortTerm ? '⟳ Running…' : '⟳ Run Short-Term (T, T+1, T+2)'}
+          </button>
+          <button
+            className="btn-secondary text-sm"
+            onClick={handleRunLongTerm}
+            disabled={runningShortTerm || runningLongTerm}
+            data-testid="run-long-term-btn"
+          >
+            {runningLongTerm ? '⟳ Running…' : '⟳ Run Long-Term (T+3 – T+7)'}
+          </button>
+          {runStatus && (
+            <p className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {runStatus.message}
+            </p>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <p className="text-red-800 text-sm">{error}</p>
