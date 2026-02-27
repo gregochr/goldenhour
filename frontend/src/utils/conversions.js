@@ -3,10 +3,6 @@
  */
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-const COMPASS_POINTS_FINE = [
-  'N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-  'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW',
-];
 const MS_TO_MPH = 2.23694;
 
 /**
@@ -62,19 +58,6 @@ export function metresToKm(metres) {
 export function degreesToCompass(degrees) {
   const index = Math.round(parseFloat(degrees) / 45) % 8;
   return COMPASS_POINTS[(index + 8) % 8];
-}
-
-/**
- * Converts a compass bearing in degrees to a 16-point compass abbreviation.
- *
- * Suitable for solar azimuth where finer granularity is meaningful (ENE vs NE).
- *
- * @param {number} degrees - Bearing in degrees (0–360).
- * @returns {string} 16-point compass abbreviation (e.g. "ENE", "SSW").
- */
-export function degreesToCompassFine(degrees) {
-  const index = Math.round(parseFloat(degrees) / 22.5) % 16;
-  return COMPASS_POINTS_FINE[(index + 16) % 16];
 }
 
 /**
@@ -143,32 +126,6 @@ export function formatEventTimeUk(utcDateTimeStr) {
     minute: '2-digit',
     timeZone: 'Europe/London',
   });
-}
-
-/**
- * Formats a UTC forecast run timestamp as a compact UK local datetime string.
- *
- * Returns a string like "22 Feb 15:33" for display alongside the forecast rating.
- * Returns null for falsy input.
- *
- * @param {string|null} utcDateTimeStr - ISO-like datetime string without timezone suffix (e.g. "2026-02-22T15:33:00").
- * @returns {string|null} Formatted string like "22 Feb 15:33", or null.
- */
-export function formatGeneratedAt(utcDateTimeStr) {
-  if (!utcDateTimeStr) return null;
-  const utcDate = new Date(utcDateTimeStr + 'Z');
-  if (isNaN(utcDate.getTime())) return null;
-  const date = utcDate.toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    timeZone: 'Europe/London',
-  });
-  const time = utcDate.toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Europe/London',
-  });
-  return `${date} ${time}`;
 }
 
 /**
