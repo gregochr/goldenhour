@@ -1,7 +1,7 @@
--- Track each scheduled run (Sonnet, Haiku, Wildlife, Tide)
+-- Track each scheduled run (Sonnet, Haiku, Weather, Tide)
 CREATE TABLE job_run (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_name VARCHAR(20) NOT NULL,          -- SONNET, HAIKU, WILDLIFE, TIDE
+    job_name VARCHAR(20) NOT NULL,          -- SONNET, HAIKU, WEATHER, TIDE
     started_at TIMESTAMP NOT NULL,
     completed_at TIMESTAMP,                 -- null if still running
     duration_ms BIGINT,                     -- null if still running

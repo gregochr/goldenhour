@@ -79,12 +79,15 @@ public class JobRunService {
      * @param succeeded      true if the call succeeded
      * @param errorMessage   brief error message if failed, or null
      * @param model          evaluation model for Anthropic calls (HAIKU or SONNET), or null
+     * @param targetDate     target date for forecast evaluations, or null
+     * @param targetType     target type (SUNRISE/SUNSET) for forecast evaluations, or null
      * @return the newly created API call log entity
      */
     public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
             String requestMethod, String requestUrl, String requestBody,
             long durationMs, Integer statusCode, String responseBody,
-            boolean succeeded, String errorMessage, EvaluationModel model) {
+            boolean succeeded, String errorMessage, EvaluationModel model,
+            LocalDate targetDate, com.gregochr.goldenhour.entity.TargetType targetType) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         int costPence = costCalculator.calculateCost(service, model);
 
@@ -103,8 +106,35 @@ public class JobRunService {
                 .errorMessage(errorMessage)
                 .costPence(costPence)
                 .createdAt(now)
+                .evaluationModel(model)
+                .targetDate(targetDate)
+                .targetType(targetType)
                 .build();
         return apiCallLogRepository.save(log);
+    }
+
+    /**
+     * Records a single API call made during a job run (legacy overload without target date/type).
+     *
+     * @param jobRunId       the job run ID
+     * @param service        the service name
+     * @param requestMethod  HTTP method (GET, POST, etc.) or null
+     * @param requestUrl     full request URL
+     * @param requestBody    request body (JSON) or null
+     * @param durationMs     duration in milliseconds
+     * @param statusCode     HTTP status code or null
+     * @param responseBody   response body on error, or null on success
+     * @param succeeded      true if the call succeeded
+     * @param errorMessage   brief error message if failed, or null
+     * @param model          evaluation model for Anthropic calls (HAIKU or SONNET), or null
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
+            String requestMethod, String requestUrl, String requestBody,
+            long durationMs, Integer statusCode, String responseBody,
+            boolean succeeded, String errorMessage, EvaluationModel model) {
+        return logApiCall(jobRunId, service, requestMethod, requestUrl, requestBody,
+                durationMs, statusCode, responseBody, succeeded, errorMessage, model, null, null);
     }
 
     /**

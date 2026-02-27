@@ -14,6 +14,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -91,4 +92,18 @@ public class ApiCallLogEntity {
     /** UTC timestamp when this log entry was created. */
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    /** Evaluation model (HAIKU or SONNET) for Anthropic API calls; null for other services. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "evaluation_model", length = 10)
+    private EvaluationModel evaluationModel;
+
+    /** Target date for forecast evaluations; null for non-forecast API calls. */
+    @Column(name = "target_date")
+    private LocalDate targetDate;
+
+    /** Target type (SUNRISE or SUNSET) for forecast evaluations; null for non-forecast API calls. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "target_type", length = 10)
+    private TargetType targetType;
 }
