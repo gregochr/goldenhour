@@ -30,12 +30,3 @@ export const getJobRuns = (jobName = undefined, page = 0, size = 20) => {
 export const getApiCalls = (jobRunId) => {
   return axios.get(`/api/metrics/api-calls?jobRunId=${jobRunId}`);
 };
-
-/**
- * Fetch service health metrics (average response times, error rates, etc.).
- *
- * @returns {Promise} Service health statistics
- */
-export const getServiceHealth = () => {
-  return axios.get('/api/metrics/service-health');
-};
