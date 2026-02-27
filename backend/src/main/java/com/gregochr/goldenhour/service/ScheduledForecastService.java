@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -280,7 +281,8 @@ public class ScheduledForecastService {
 
                     for (TargetType targetType : applicableTypes) {
                         if (!shouldSkipEvent(targetDate, targetType, location, today, now)
-                                && !shouldSkipLongTermForecast(locName, targetDate, targetType, daysAhead)) {
+                                && !shouldSkipLongTermForecast(locName, targetDate, targetType, daysAhead)
+                                && !shouldSkipOpusOptimisation(locName, targetDate, targetType, model)) {
                             futures.add(CompletableFuture.supplyAsync(
                                     () -> runForecast(location, targetDate, targetType, model, jobRun),
                                     forecastExecutor));
@@ -382,6 +384,45 @@ public class ScheduledForecastService {
         }
         LOG.debug("Generating long-term forecast for {} {} on {} (T+{}) — no existing forecast found",
                 locationName, targetType, targetDate, daysAhead);
+        return false;
+    }
+
+    /** Minimum star rating from a prior run required to justify an Opus optimisation pass. */
+    private static final int OPUS_MIN_RATING = 3;
+
+    /**
+     * Checks if an Opus optimisation run should be skipped for this slot.
+     *
+     * <p>Opus is significantly more expensive and slower than Haiku/Sonnet. The "Optimise
+     * Very Short-Term" feature is designed to re-evaluate only high-value forecasts with
+     * the best model. If no prior evaluation exists, or the most recent rating is below
+     * {@value #OPUS_MIN_RATING} stars, the slot is skipped.
+     *
+     * @param locationName the location name
+     * @param targetDate   the calendar date
+     * @param targetType   SUNRISE or SUNSET
+     * @param model        the evaluation model for the current run
+     * @return {@code true} if this slot should be skipped
+     */
+    private boolean shouldSkipOpusOptimisation(String locationName, LocalDate targetDate,
+            TargetType targetType, EvaluationModel model) {
+        if (model != EvaluationModel.OPUS) {
+            return false;
+        }
+        Optional<ForecastEvaluationEntity> latest = forecastRepository
+                .findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                        locationName, targetDate, targetType);
+        if (latest.isEmpty()) {
+            LOG.info("Skipping Opus optimisation for {} {} on {} — no prior evaluation",
+                    locationName, targetType, targetDate);
+            return true;
+        }
+        Integer rating = latest.get().getRating();
+        if (rating == null || rating < OPUS_MIN_RATING) {
+            LOG.info("Skipping Opus optimisation for {} {} on {} — prior rating {} below threshold {}",
+                    locationName, targetType, targetDate, rating, OPUS_MIN_RATING);
+            return true;
+        }
         return false;
     }
 
