@@ -7,7 +7,6 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,12 +26,12 @@ public class EvaluationService {
     /**
      * Constructs an {@code EvaluationService}.
      *
-     * @param haikuStrategy  the Haiku evaluation strategy (1–5 rating)
-     * @param sonnetStrategy the Sonnet evaluation strategy (dual 0–100 scores)
-     * @param opusStrategy   the Opus evaluation strategy (dual 0–100 scores, highest accuracy)
+     * @param haikuStrategy  the Haiku evaluation strategy
+     * @param sonnetStrategy the Sonnet evaluation strategy
+     * @param opusStrategy   the Opus evaluation strategy
      */
     public EvaluationService(HaikuEvaluationStrategy haikuStrategy,
-            @Qualifier("sonnetEvaluationStrategy") SonnetEvaluationStrategy sonnetStrategy,
+            SonnetEvaluationStrategy sonnetStrategy,
             OpusEvaluationStrategy opusStrategy) {
         this.haikuStrategy = haikuStrategy;
         this.sonnetStrategy = sonnetStrategy;
@@ -43,8 +42,7 @@ public class EvaluationService {
      * Evaluates the colour potential for a solar event using the specified model.
      *
      * @param data  the atmospheric forecast data to evaluate
-     * @param model which Claude model to use — HAIKU returns a 1–5 rating,
-     *              SONNET returns dual 0–100 scores
+     * @param model which Claude model to use
      * @return Claude's colour potential evaluation and plain-English explanation
      */
     public SunsetEvaluation evaluate(AtmosphericData data, EvaluationModel model) {
@@ -55,8 +53,7 @@ public class EvaluationService {
      * Evaluates the colour potential for a solar event using the specified model.
      *
      * @param data   the atmospheric forecast data to evaluate
-     * @param model  which Claude model to use — HAIKU returns a 1–5 rating,
-     *               SONNET returns dual 0–100 scores
+     * @param model  which Claude model to use
      * @param jobRun the parent job run for metrics tracking, or {@code null} if not from scheduled run
      * @return Claude's colour potential evaluation and plain-English explanation
      */

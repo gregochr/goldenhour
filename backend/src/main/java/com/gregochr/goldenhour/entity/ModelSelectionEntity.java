@@ -17,8 +17,8 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * Stores the currently active evaluation model for forecast runs.
- * Single-row table that persists across restarts.
+ * Stores the active evaluation model for a specific run type.
+ * One row per {@link ModelConfigType} (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM).
  */
 @Entity
 @Table(name = "model_selection")
@@ -34,10 +34,15 @@ public class ModelSelectionEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Currently active evaluation model (HAIKU or SONNET). */
+    /** Currently active evaluation model (HAIKU, SONNET, or OPUS). */
     @Enumerated(EnumType.STRING)
     @Column(name = "active_model", nullable = false, length = 10)
     private EvaluationModel activeModel;
+
+    /** Which run type this configuration applies to. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "config_type", nullable = false, length = 20)
+    private ModelConfigType configType;
 
     /** UTC timestamp when this selection was last updated. */
     @Column(name = "updated_at", nullable = false)

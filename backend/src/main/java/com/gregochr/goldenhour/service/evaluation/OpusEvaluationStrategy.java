@@ -9,11 +9,10 @@ import com.gregochr.goldenhour.service.JobRunService;
 /**
  * Evaluation strategy using Claude Opus for maximum accuracy.
  *
- * <p>Produces the same dual 0–100 scores ({@code fierySkyPotential} and
- * {@code goldenHourPotential}) as {@link SonnetEvaluationStrategy}, using the
- * same prompt and response format. Only the underlying model differs.
+ * <p>Uses the shared system prompt and response format from
+ * {@link AbstractEvaluationStrategy}. Only the underlying model differs.
  */
-public class OpusEvaluationStrategy extends SonnetEvaluationStrategy {
+public class OpusEvaluationStrategy extends AbstractEvaluationStrategy {
 
     /**
      * Constructs an {@code OpusEvaluationStrategy}.

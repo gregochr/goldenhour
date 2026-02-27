@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,5 +41,13 @@ class EvaluationConfigTest {
         EvaluationStrategy strategy = config.sonnetEvaluationStrategy(client, properties, objectMapper, jobRunService);
 
         assertThat(strategy).isInstanceOf(SonnetEvaluationStrategy.class);
+    }
+
+    @Test
+    @DisplayName("opusEvaluationStrategy() returns an OpusEvaluationStrategy")
+    void opusEvaluationStrategy_returnsOpusEvaluationStrategy() {
+        EvaluationStrategy strategy = config.opusEvaluationStrategy(client, properties, objectMapper, jobRunService);
+
+        assertThat(strategy).isInstanceOf(OpusEvaluationStrategy.class);
     }
 }

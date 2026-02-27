@@ -252,7 +252,7 @@ export default function ManageView({ onComplete }) {
 
       {/* Sub-tabs */}
       <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-0.5 gap-0.5 self-start">
-        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }, { value: 'metrics', label: 'Job Runs' }, { value: 'models', label: 'Models' }].map((tab) => (
+        {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }, { value: 'metrics', label: 'Job Runs' }, { value: 'models', label: 'Model Config' }].map((tab) => (
           <button
             key={tab.value}
             onClick={() => setManageTab(tab.value)}

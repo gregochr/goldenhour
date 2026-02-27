@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.ModelConfigType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
@@ -165,8 +166,8 @@ public class ForecastController {
                 dates.size(), request != null ? request.location() : "all",
                 maxDays, maxLocations);
 
-        // Use the active model (same logic as scheduled runs)
-        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        // Use the short-term config model by default for generic runs
+        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM);
 
         // Delegate to ScheduledForecastService to use identical logic
         // Pass triggeredManually: true since this is a manual API call
@@ -174,9 +175,26 @@ public class ForecastController {
     }
 
     /**
-     * Triggers an on-demand run of near-term forecasts (today, T+1, T+2). Restricted to ADMIN only.
+     * Triggers an on-demand run of very-short-term forecasts (today, T+1). Restricted to ADMIN only.
      *
-     * <p>Uses the same logic as the scheduled near-term job ({@code forecast.schedule.haiku.cron}).
+     * <p>Uses the model configured under {@code VERY_SHORT_TERM}.
+     *
+     * @return all saved evaluation entities produced by the run
+     */
+    @PostMapping("/run/very-short-term")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<ForecastEvaluationEntity> runVeryShortTermForecast() {
+        LOG.info("POST /api/forecast/run/very-short-term triggered by admin");
+        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.VERY_SHORT_TERM);
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today, today.plusDays(1));
+        return scheduledForecastService.runForecasts(activeModel, null, dates, true);
+    }
+
+    /**
+     * Triggers an on-demand run of short-term forecasts (today, T+1, T+2). Restricted to ADMIN only.
+     *
+     * <p>Uses the model configured under {@code SHORT_TERM}.
      *
      * @return all saved evaluation entities produced by the run
      */
@@ -184,16 +202,16 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runShortTermForecast() {
         LOG.info("POST /api/forecast/run/short-term triggered by admin");
-        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> nearTermDates = List.of(today, today.plusDays(1), today.plusDays(2));
         return scheduledForecastService.runForecasts(activeModel, null, nearTermDates, true);
     }
 
     /**
-     * Triggers an on-demand run of distant forecasts (T+3 through T+7). Restricted to ADMIN only.
+     * Triggers an on-demand run of long-term forecasts (T+3 through T+7). Restricted to ADMIN only.
      *
-     * <p>Uses the same logic as the scheduled distant job ({@code forecast.schedule.haiku.distant.cron}).
+     * <p>Uses the model configured under {@code LONG_TERM}.
      *
      * @return all saved evaluation entities produced by the run
      */
@@ -201,7 +219,7 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runLongTermForecast() {
         LOG.info("POST /api/forecast/run/long-term triggered by admin");
-        EvaluationModel activeModel = modelSelectionService.getActiveModel();
+        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.LONG_TERM);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> distantDates = today.plusDays(3)
                 .datesUntil(today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS + 1))

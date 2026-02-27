@@ -10,7 +10,6 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -100,7 +99,7 @@ public class ScheduledForecastService {
      *
      * @return all saved evaluation entities produced by the run
      */
-    @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
+    // @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
     public List<ForecastEvaluationEntity> runNearTermForecasts() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> nearTermDates = List.of(
@@ -120,7 +119,7 @@ public class ScheduledForecastService {
      *
      * @return all saved evaluation entities produced by the run
      */
-    @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 1 * * *}")
+    // @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 1 * * *}")
     public List<ForecastEvaluationEntity> runDistantForecasts() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> distantDates = today.plusDays(3)
@@ -135,7 +134,7 @@ public class ScheduledForecastService {
      *
      * <p>Cron defaults to 6, 18 UTC. Override via {@code forecast.schedule.weather.cron}.
      */
-    @Scheduled(cron = "${forecast.schedule.weather.cron:0 0 6,18 * * *}")
+    // @Scheduled(cron = "${forecast.schedule.weather.cron:0 0 6,18 * * *}")
     public void runWeatherForecasts() {
         runAll(EvaluationModel.WILDLIFE);
     }
@@ -147,7 +146,7 @@ public class ScheduledForecastService {
      * {@code tide.schedule.cron}. Exceptions per location are caught and logged.
      * Metrics are recorded in the job_run table.
      */
-    @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
+    // @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
     public void refreshTideExtremes() {
         JobRunEntity jobRun = jobRunService.startRun(JobName.TIDE, false);
         List<LocationEntity> coastal = locationService.findAll().stream()
