@@ -179,7 +179,7 @@ const JobRunDetail = ({ jobRun }) => {
                   const { date, event, model, count } = breakdown[key];
                   return (
                     <div key={key} className="bg-white p-2 rounded border border-gray-200 text-xs">
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-4 gap-2">
                         <div>
                           <div className="text-gray-600 text-xs">Date</div>
                           <div className="font-semibold text-gray-900">{date}</div>
@@ -191,6 +191,10 @@ const JobRunDetail = ({ jobRun }) => {
                         <div>
                           <div className="text-gray-600 text-xs">Model</div>
                           <div className="font-semibold text-gray-900">{model}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-600 text-xs">Count</div>
+                          <div className="font-semibold text-gray-900">{count}</div>
                         </div>
                       </div>
                     </div>
