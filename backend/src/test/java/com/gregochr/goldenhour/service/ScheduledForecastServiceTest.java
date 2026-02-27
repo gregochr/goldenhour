@@ -181,8 +181,8 @@ class ScheduledForecastServiceTest {
     }
 
     @Test
-    @DisplayName("runWildlifeForecasts() calls forecastService with WILDLIFE only for pure-WILDLIFE locations")
-    void runWildlifeForecasts_callsForecastService_withWildlifeModel_forWildlifeLocations() {
+    @DisplayName("runWeatherForecasts() calls forecastService with WILDLIFE only for pure-WILDLIFE locations")
+    void runWeatherForecasts_callsForecastService_withWildlifeModel_forWildlifeLocations() {
         when(locationService.findAll()).thenReturn(List.of(durham(), wildlifeReserve()));
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
@@ -191,7 +191,7 @@ class ScheduledForecastServiceTest {
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
                 solarService, Runnable::run);
 
-        scheduledForecastService.runWildlifeForecasts();
+        scheduledForecastService.runWeatherForecasts();
 
         // WILDLIFE model: one call per day (null targetType — hourly runs handled internally)
         int daysInHorizon = ScheduledForecastService.FORECAST_HORIZON_DAYS + 1;

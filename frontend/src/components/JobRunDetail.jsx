@@ -140,6 +140,68 @@ const JobRunDetail = ({ jobRun }) => {
         </div>
       )}
 
+      {/* Anthropic breakdown by model, day, and event */}
+      {apiCalls.some((call) => call.service === 'ANTHROPIC') && (
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <h5 className="font-medium text-gray-900 text-xs mb-2">Anthropic Evaluation Breakdown</h5>
+          {(() => {
+            const anthropicCalls = apiCalls.filter((call) => call.service === 'ANTHROPIC');
+            const breakdown = anthropicCalls.reduce((acc, call) => {
+              if (!call.targetDate || !call.targetType || !call.evaluationModel) {
+                return acc;
+              }
+              const key = `${call.targetDate}|${call.targetType}|${call.evaluationModel}`;
+              if (!acc[key]) {
+                acc[key] = {
+                  date: call.targetDate,
+                  event: call.targetType,
+                  model: call.evaluationModel,
+                  count: 0,
+                };
+              }
+              acc[key].count += 1;
+              return acc;
+            }, {});
+
+            const sortedKeys = Object.keys(breakdown)
+              .sort((a, b) => {
+                const [dateA, eventA, modelA] = a.split('|');
+                const [dateB, eventB, modelB] = b.split('|');
+                // Sort by date, then event, then model
+                if (dateA !== dateB) return dateA.localeCompare(dateB);
+                if (eventA !== eventB) return eventA.localeCompare(eventB);
+                return modelA.localeCompare(modelB);
+              });
+
+            return (
+              <div className="space-y-1">
+                {sortedKeys.map((key) => {
+                  const { date, event, model, count } = breakdown[key];
+                  return (
+                    <div key={key} className="bg-white p-2 rounded border border-gray-200 text-xs">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <div className="text-gray-600 text-xs">Date</div>
+                          <div className="font-semibold text-gray-900">{date}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-600 text-xs">Event</div>
+                          <div className="font-semibold text-gray-900">{event}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-600 text-xs">Model</div>
+                          <div className="font-semibold text-gray-900">{model}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Failed calls detail */}
       {apiCalls.some((call) => !call.succeeded) && (
         <div className="mt-3 pt-3 border-t border-gray-200">

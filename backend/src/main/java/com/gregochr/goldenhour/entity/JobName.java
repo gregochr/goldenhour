@@ -10,8 +10,8 @@ public enum JobName {
     /** Haiku (1–5 rating) evaluation job — runs every 12 h. */
     HAIKU,
 
-    /** Wildlife (comfort-only) evaluation job — runs every 12 h. */
-    WILDLIFE,
+    /** Weather (comfort-only meteorological data) evaluation job — runs every 12 h. */
+    WEATHER,
 
     /** Tide extremes refresh job — runs weekly. */
     TIDE
