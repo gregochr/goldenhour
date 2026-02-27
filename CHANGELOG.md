@@ -6,6 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Feb 27, 2026)
+- **Opus optimisation gate** — Opus very-short-term runs now skip slots where the most recent prior rating is below 3 stars (or no prior evaluation exists), saving cost and time on low-value forecasts
 - **Per-run-type model configuration** — each run type (Very Short-Term, Short-Term, Long-Term) has an independently configurable Anthropic model (Haiku, Sonnet, Opus)
   - `ModelConfigType` enum: `VERY_SHORT_TERM`, `SHORT_TERM`, `LONG_TERM`
   - `V28` migration adds `config_type` column to `model_selection` and seeds one row per type
