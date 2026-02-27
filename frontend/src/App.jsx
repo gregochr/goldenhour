@@ -54,7 +54,7 @@ function AppInner() {
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-100 flex items-center gap-3">
-              <img src="/logo.svg" alt="" className="h-10 w-10" />
+              <img src="/logo.png" alt="" className="h-10 w-10" />
               Golden Hour
             </h1>
             <p className="text-base text-gray-400 mt-1">
