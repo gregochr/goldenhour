@@ -10,6 +10,7 @@ import com.anthropic.models.messages.Usage;
 import com.anthropic.services.blocking.MessageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -58,17 +59,30 @@ class HaikuEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("getPromptSuffix() returns 1-5 rate instruction with dual score request")
+    @DisplayName("getEvaluationModel() returns HAIKU")
+    void getEvaluationModel_returnsHaiku() {
+        assertThat(strategy.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("getModelName() returns claude-haiku-4-5")
+    void getModelName_returnsHaikuModelId() {
+        assertThat(strategy.getModelName()).isEqualTo("claude-haiku-4-5");
+    }
+
+    @Test
+    @DisplayName("getPromptSuffix() returns shared prompt suffix with rating instruction")
     void getPromptSuffix_returnsCorrectString() {
         assertThat(strategy.getPromptSuffix())
-                .isEqualTo("Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), "
-                        + "then explain in 1-2 sentences.");
+                .contains("Rate 1-5")
+                .contains("Fiery Sky Potential")
+                .contains("Golden Hour Potential");
     }
 
     @Test
     @DisplayName("getSystemPrompt() contains rating scale instruction")
     void getSystemPrompt_containsRatingScaleInstruction() {
-        assertThat(strategy.getSystemPrompt()).contains("1-5");
+        assertThat(strategy.getSystemPrompt()).contains("1\u20135");
         assertThat(strategy.getSystemPrompt()).contains("rating");
     }
 

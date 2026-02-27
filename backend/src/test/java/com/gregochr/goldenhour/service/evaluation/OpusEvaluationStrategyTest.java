@@ -70,19 +70,20 @@ class OpusEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluate() end-to-end with mocked Claude returns dual-score evaluation")
-    void evaluate_endToEnd_returnsDualScoreEvaluation() {
+    @DisplayName("evaluate() end-to-end with mocked Claude returns all three scores")
+    void evaluate_endToEnd_returnsAllThreeScores() {
         AtmosphericData data = buildAtmosphericData();
         Message response = buildMessage(
-                "{\"fiery_sky\": 82, \"golden_hour\": 76, \"summary\": \"Outstanding cloud canvas "
-                + "with clear low horizon. Dust aerosols amplify warm red tones.\"}");
+                "{\"rating\": 4, \"fiery_sky\": 82, \"golden_hour\": 76,"
+                + " \"summary\": \"Outstanding cloud canvas with clear low horizon."
+                + " Dust aerosols amplify warm red tones.\"}");
 
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
 
         SunsetEvaluation result = strategy.evaluate(data);
 
-        assertThat(result.rating()).isNull();
+        assertThat(result.rating()).isEqualTo(4);
         assertThat(result.fierySkyPotential()).isEqualTo(82);
         assertThat(result.goldenHourPotential()).isEqualTo(76);
         assertThat(result.summary()).contains("Outstanding cloud canvas");

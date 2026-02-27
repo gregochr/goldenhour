@@ -2,10 +2,13 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ModelConfigType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,7 +53,16 @@ class ForecastControllerTest {
     private ForecastService forecastService;
 
     @MockBean
+    private ModelSelectionService modelSelectionService;
+
+    @MockBean
     private ScheduledForecastService scheduledForecastService;
+
+    @BeforeEach
+    void setUp() {
+        when(modelSelectionService.getActiveModel(any(ModelConfigType.class)))
+                .thenReturn(EvaluationModel.HAIKU);
+    }
 
     @Test
     @WithMockUser
@@ -174,6 +186,27 @@ class ForecastControllerTest {
         mockMvc.perform(get("/api/forecast/compare")
                         .param("location", "Durham UK"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/very-short-term as ADMIN triggers very-short-term run")
+    void runVeryShortTermForecast_asAdmin_triggersRun() throws Exception {
+        when(scheduledForecastService.runForecasts(
+                any(EvaluationModel.class), any(), any(), anyBoolean()))
+                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
+
+        mockMvc.perform(post("/api/forecast/run/very-short-term"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/forecast/run/very-short-term as non-admin returns 403")
+    void runVeryShortTermForecast_asNonAdmin_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/very-short-term"))
+                .andExpect(status().isForbidden());
     }
 
     @Test

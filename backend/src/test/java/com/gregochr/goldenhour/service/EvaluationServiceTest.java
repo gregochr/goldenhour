@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class EvaluationServiceTest {
     @Mock
     private SonnetEvaluationStrategy sonnetStrategy;
 
+    @Mock
+    private OpusEvaluationStrategy opusStrategy;
+
     @InjectMocks
     private EvaluationService evaluationService;
 
@@ -40,7 +44,7 @@ class EvaluationServiceTest {
     @DisplayName("evaluate() with SONNET delegates to the Sonnet strategy")
     void evaluate_sonnet_delegatesToSonnetStrategy() {
         AtmosphericData data = buildAtmosphericData();
-        SunsetEvaluation expected = new SunsetEvaluation(null, 70, 75, "Promising conditions.");
+        SunsetEvaluation expected = new SunsetEvaluation(4, 70, 75, "Promising conditions.");
         when(sonnetStrategy.evaluate(data, null)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.SONNET);
@@ -48,19 +52,36 @@ class EvaluationServiceTest {
         assertThat(result).isSameAs(expected);
         verify(sonnetStrategy).evaluate(data, null);
         verifyNoInteractions(haikuStrategy);
+        verifyNoInteractions(opusStrategy);
     }
 
     @Test
     @DisplayName("evaluate() with HAIKU delegates to the Haiku strategy")
     void evaluate_haiku_delegatesToHaikuStrategy() {
         AtmosphericData data = buildAtmosphericData();
-        SunsetEvaluation expected = new SunsetEvaluation(4, null, null, "Good conditions.");
+        SunsetEvaluation expected = new SunsetEvaluation(4, 65, 70, "Good conditions.");
         when(haikuStrategy.evaluate(data, null)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.HAIKU);
 
         assertThat(result).isSameAs(expected);
         verify(haikuStrategy).evaluate(data, null);
+        verifyNoInteractions(sonnetStrategy);
+        verifyNoInteractions(opusStrategy);
+    }
+
+    @Test
+    @DisplayName("evaluate() with OPUS delegates to the Opus strategy")
+    void evaluate_opus_delegatesToOpusStrategy() {
+        AtmosphericData data = buildAtmosphericData();
+        SunsetEvaluation expected = new SunsetEvaluation(5, 85, 80, "Outstanding conditions.");
+        when(opusStrategy.evaluate(data, null)).thenReturn(expected);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.OPUS);
+
+        assertThat(result).isSameAs(expected);
+        verify(opusStrategy).evaluate(data, null);
+        verifyNoInteractions(haikuStrategy);
         verifyNoInteractions(sonnetStrategy);
     }
 

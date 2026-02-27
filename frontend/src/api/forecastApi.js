@@ -89,7 +89,19 @@ export async function runForecast(date, location, targetType) {
 }
 
 /**
+ * Triggers an on-demand run of very-short-term forecasts (today, T+1).
+ * Uses the model configured under VERY_SHORT_TERM.
+ *
+ * @returns {Promise<Array<object>>} Saved evaluation entities.
+ */
+export async function runVeryShortTermForecast() {
+  const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`);
+  return response.data;
+}
+
+/**
  * Triggers an on-demand run of near-term forecasts (today, T+1, T+2).
+ * Uses the model configured under SHORT_TERM.
  *
  * @returns {Promise<Array<object>>} Saved evaluation entities.
  */
@@ -100,6 +112,7 @@ export async function runShortTermForecast(dryRun = false) {
 
 /**
  * Triggers an on-demand run of distant forecasts (T+3 through T+7).
+ * Uses the model configured under LONG_TERM.
  *
  * @returns {Promise<Array<object>>} Saved evaluation entities.
  */

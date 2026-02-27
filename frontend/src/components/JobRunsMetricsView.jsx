@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runShortTermForecast, runLongTermForecast } from '../api/forecastApi';
+import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast } from '../api/forecastApi';
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
@@ -22,6 +22,7 @@ const JobRunsMetricsView = () => {
   const [page, setPage] = useState(0);
   const [jobNameFilter, setJobNameFilter] = useState(undefined);
   const [hasMore, setHasMore] = useState(true);
+  const [runningVeryShortTerm, setRunningVeryShortTerm] = useState(false);
   const [runningShortTerm, setRunningShortTerm] = useState(false);
   const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runStatus, setRunStatus] = useState(null); // { type: 'success'|'error', message: string }
@@ -71,6 +72,25 @@ const JobRunsMetricsView = () => {
     loadJobRuns(page);
   };
 
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm;
+
+  const handleRunVeryShortTerm = async () => {
+    if (!window.confirm('Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
+      return;
+    }
+    setRunningVeryShortTerm(true);
+    setRunStatus(null);
+    try {
+      const results = await runVeryShortTermForecast();
+      setRunStatus({ type: 'success', message: `Very-short-term run complete \u2014 ${results.length} evaluation(s) saved.` });
+      loadJobRuns(0);
+    } catch {
+      setRunStatus({ type: 'error', message: 'Very-short-term run failed. Check the logs.' });
+    } finally {
+      setRunningVeryShortTerm(false);
+    }
+  };
+
   const handleRunShortTerm = async () => {
     if (!window.confirm('Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
       return;
@@ -111,19 +131,27 @@ const JobRunsMetricsView = () => {
         <div className="flex flex-wrap items-center gap-3">
           <button
             className="btn-primary text-sm"
+            onClick={handleRunVeryShortTerm}
+            disabled={anyRunning}
+            data-testid="run-very-short-term-btn"
+          >
+            {runningVeryShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Very Short-Term (T, T+1)'}
+          </button>
+          <button
+            className="btn-primary text-sm"
             onClick={handleRunShortTerm}
-            disabled={runningShortTerm || runningLongTerm}
+            disabled={anyRunning}
             data-testid="run-short-term-btn"
           >
-            {runningShortTerm ? '⟳ Running…' : '⟳ Run Short-Term (T, T+1, T+2)'}
+            {runningShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Short-Term (T, T+1, T+2)'}
           </button>
           <button
             className="btn-secondary text-sm"
             onClick={handleRunLongTerm}
-            disabled={runningShortTerm || runningLongTerm}
+            disabled={anyRunning}
             data-testid="run-long-term-btn"
           >
-            {runningLongTerm ? '⟳ Running…' : '⟳ Run Long-Term (T+3 – T+7)'}
+            {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Long-Term (T+3 \u2013 T+7)'}
           </button>
           {runStatus && (
             <p className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
@@ -155,6 +183,7 @@ const JobRunsMetricsView = () => {
           <option value="">All Jobs</option>
           <option value="SONNET">SONNET</option>
           <option value="HAIKU">HAIKU</option>
+          <option value="OPUS">OPUS</option>
           <option value="WILDLIFE">WILDLIFE</option>
           <option value="TIDE">TIDE</option>
         </select>

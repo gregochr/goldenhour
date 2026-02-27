@@ -8,9 +8,9 @@ import com.anthropic.models.messages.Model;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.services.blocking.MessageService;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -46,14 +46,13 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link AbstractEvaluationStrategy}.
  *
  * <p>Uses a concrete {@code TestEvaluationStrategy} inner class to test
- * the shared logic in the abstract base (user message construction and Claude API call).
- * Parse-specific tests live in {@link SonnetEvaluationStrategyTest} and
- * {@link HaikuEvaluationStrategyTest}.
+ * the shared logic in the abstract base (user message construction, Claude API
+ * call, and response parsing).
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractEvaluationStrategyTest {
 
-    private static final String TEST_SUFFIX = "Score both dimensions and explain in 2-3 sentences.";
+    private static final String TEST_SUFFIX = "Test suffix.";
 
     @Mock
     private AnthropicClient anthropicClient;
@@ -74,18 +73,19 @@ class AbstractEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluate() calls Claude and returns parsed evaluation")
+    @DisplayName("evaluate() calls Claude and returns parsed evaluation with all scores")
     void evaluate_callsClaude_returnsParsedEvaluation() {
         AtmosphericData data = buildAtmosphericData();
         Message response = buildMessage(
-                "{\"fiery_sky\": 70, \"golden_hour\": 75, \"summary\": \"Promising conditions.\"}");
+                "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Promising conditions.\"}");
 
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
 
         SunsetEvaluation result = strategy.evaluate(data);
 
-        assertThat(result.rating()).isNull();
+        assertThat(result.rating()).isEqualTo(4);
         assertThat(result.fierySkyPotential()).isEqualTo(70);
         assertThat(result.goldenHourPotential()).isEqualTo(75);
         assertThat(result.summary()).isEqualTo("Promising conditions.");
@@ -164,7 +164,8 @@ class AbstractEvaluationStrategyTest {
     void evaluate_retries529_succeeds() {
         AtmosphericData data = buildAtmosphericData();
         Message successResponse = buildMessage(
-                "{\"fiery_sky\": 70, \"golden_hour\": 75, \"summary\": \"Promising conditions.\"}");
+                "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Promising conditions.\"}");
 
         // Create a mock 529 exception (Anthropic overloaded)
         HttpServerErrorException overloadedException = mock(HttpServerErrorException.class);
@@ -180,6 +181,7 @@ class AbstractEvaluationStrategyTest {
 
         SunsetEvaluation result = strategy.evaluate(data);
 
+        assertThat(result.rating()).isEqualTo(4);
         assertThat(result.fierySkyPotential()).isEqualTo(70);
         assertThat(result.goldenHourPotential()).isEqualTo(75);
     }
@@ -190,7 +192,8 @@ class AbstractEvaluationStrategyTest {
         AtmosphericData data = buildAtmosphericData();
         JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
         Message response = buildMessage(
-                "{\"fiery_sky\": 70, \"golden_hour\": 75, \"summary\": \"Good conditions.\"}");
+                "{\"rating\": 3, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Good conditions.\"}");
 
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
@@ -266,6 +269,18 @@ class AbstractEvaluationStrategyTest {
         assertThat(succeededCaptor.getValue()).isFalse();
     }
 
+    @Test
+    @DisplayName("parseEvaluation() handles missing rating field gracefully")
+    void parseEvaluation_missingRating_returnsNullRating() {
+        SunsetEvaluation result = strategy.parseEvaluation(
+                "{\"fiery_sky\": 50, \"golden_hour\": 60, \"summary\": \"Moderate conditions.\"}",
+                new ObjectMapper());
+
+        assertThat(result.rating()).isNull();
+        assertThat(result.fierySkyPotential()).isEqualTo(50);
+        assertThat(result.goldenHourPotential()).isEqualTo(60);
+    }
+
     private AtmosphericData buildAtmosphericData() {
         return new AtmosphericData(
                 "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
@@ -279,20 +294,13 @@ class AbstractEvaluationStrategyTest {
 
     /**
      * Concrete test implementation of the abstract strategy.
-     * Uses Sonnet-style parsing so evaluate() tests can assert on score fields.
+     * Overrides prompt suffix for test isolation; inherits parseEvaluation() from base.
      */
     private static class TestEvaluationStrategy extends AbstractEvaluationStrategy {
-
-        private static final String TEST_SYSTEM_PROMPT = "Test system prompt.";
 
         TestEvaluationStrategy(AnthropicClient client, AnthropicProperties properties,
                 ObjectMapper objectMapper, JobRunService jobRunService) {
             super(client, properties, objectMapper, jobRunService);
-        }
-
-        @Override
-        protected String getSystemPrompt() {
-            return TEST_SYSTEM_PROMPT;
         }
 
         @Override
@@ -301,31 +309,13 @@ class AbstractEvaluationStrategyTest {
         }
 
         @Override
-        protected com.gregochr.goldenhour.entity.EvaluationModel getEvaluationModel() {
-            return com.gregochr.goldenhour.entity.EvaluationModel.SONNET;
+        protected EvaluationModel getEvaluationModel() {
+            return EvaluationModel.SONNET;
         }
 
         @Override
         protected String getModelName() {
             return "claude-sonnet-4-5-20250929";
-        }
-
-        @Override
-        protected SunsetEvaluation parseEvaluation(String text, ObjectMapper objectMapper) {
-            // Delegate to Sonnet-style parsing for test purposes
-            try {
-                String cleaned = text.trim()
-                        .replaceAll("(?s)^```(?:json)?\\s*", "")
-                        .replaceAll("(?s)\\s*```$", "")
-                        .trim();
-                JsonNode node = objectMapper.readTree(cleaned);
-                int fierySky = node.get("fiery_sky").asInt();
-                int goldenHour = node.get("golden_hour").asInt();
-                String summary = node.get("summary").asText();
-                return new SunsetEvaluation(null, fierySky, goldenHour, summary);
-            } catch (Exception e) {
-                throw new IllegalArgumentException("Failed to parse test response: " + text, e);
-            }
         }
     }
 }

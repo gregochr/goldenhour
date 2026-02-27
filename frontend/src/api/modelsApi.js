@@ -1,9 +1,10 @@
 import axios from 'axios';
 
 /**
- * Fetch available evaluation models and the currently active one.
+ * Fetch available evaluation models and active model per config type.
  *
- * @returns {Promise<{available: string[], active: string}>} available models and active model
+ * @returns {Promise<{available: string[], configs: Object<string, string>}>}
+ *   available models and per-config-type active models
  */
 export async function getAvailableModels() {
   try {
@@ -16,14 +17,15 @@ export async function getAvailableModels() {
 }
 
 /**
- * Set the active evaluation model (admin only).
+ * Set the active evaluation model for a specific config type (admin only).
  *
- * @param {string} model - model name (HAIKU or SONNET)
- * @returns {Promise<{active: string}>} the newly activated model
+ * @param {string} configType - config type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM)
+ * @param {string} model - model name (HAIKU, SONNET, or OPUS)
+ * @returns {Promise<{configType: string, active: string}>} the updated config
  */
-export async function setActiveModel(model) {
+export async function setActiveModel(configType, model) {
   try {
-    const response = await axios.put('/api/models/active', { model });
+    const response = await axios.put('/api/models/active', { configType, model });
     return response.data;
   } catch (error) {
     console.error('Failed to set active model:', error);

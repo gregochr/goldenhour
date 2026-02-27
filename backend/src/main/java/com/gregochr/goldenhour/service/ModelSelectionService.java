@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ModelConfigType;
 import com.gregochr.goldenhour.entity.ModelSelectionEntity;
 import com.gregochr.goldenhour.repository.ModelSelectionRepository;
 import lombok.RequiredArgsConstructor;
@@ -10,9 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
- * Manages the currently active evaluation model for forecast runs.
+ * Manages the active evaluation model for each run type (config type).
  */
 @Service
 @RequiredArgsConstructor
@@ -22,38 +25,75 @@ public class ModelSelectionService {
     private final ModelSelectionRepository modelSelectionRepository;
 
     /**
-     * Get the currently active evaluation model.
-     * Defaults to HAIKU if no selection exists.
+     * Get the active model for a specific run type.
+     * Defaults to HAIKU if no selection exists for that config type.
      *
-     * @return the active evaluation model (HAIKU or SONNET)
+     * @param configType which run type to look up
+     * @return the active evaluation model for that run type
      */
     @Transactional(readOnly = true)
-    public EvaluationModel getActiveModel() {
+    public EvaluationModel getActiveModel(ModelConfigType configType) {
         return modelSelectionRepository
-                .findFirstByOrderByUpdatedAtDesc()
+                .findByConfigType(configType)
                 .map(ModelSelectionEntity::getActiveModel)
                 .orElse(EvaluationModel.HAIKU);
     }
 
     /**
-     * Set the active evaluation model.
-     * Updates the timestamp so getActiveModel() returns the latest.
+     * Get the active model using the default config type (SHORT_TERM).
+     * Kept for backward compatibility with scheduled jobs.
      *
-     * @param model the evaluation model to activate (HAIKU or SONNET)
+     * @return the active evaluation model for the SHORT_TERM config
+     */
+    @Transactional(readOnly = true)
+    public EvaluationModel getActiveModel() {
+        return getActiveModel(ModelConfigType.SHORT_TERM);
+    }
+
+    /**
+     * Set the active model for a specific run type.
+     *
+     * @param configType which run type to update
+     * @param model      the evaluation model to activate
+     * @return the newly activated model
+     */
+    @Transactional
+    public EvaluationModel setActiveModel(ModelConfigType configType, EvaluationModel model) {
+        ModelSelectionEntity selection = modelSelectionRepository
+                .findByConfigType(configType)
+                .orElse(ModelSelectionEntity.builder().configType(configType).build());
+
+        selection.setActiveModel(model);
+        selection.setUpdatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        modelSelectionRepository.save(selection);
+
+        log.info("Active evaluation model for {} set to: {}", configType, model);
+        return model;
+    }
+
+    /**
+     * Set the active model using the default config type (SHORT_TERM).
+     * Kept for backward compatibility.
+     *
+     * @param model the evaluation model to activate
      * @return the newly activated model
      */
     @Transactional
     public EvaluationModel setActiveModel(EvaluationModel model) {
-        // Delete old selection(s) and create new one (singleton pattern)
-        modelSelectionRepository.deleteAll();
+        return setActiveModel(ModelConfigType.SHORT_TERM, model);
+    }
 
-        ModelSelectionEntity selection = ModelSelectionEntity.builder()
-                .activeModel(model)
-                .updatedAt(LocalDateTime.now(ZoneOffset.UTC))
-                .build();
-
-        modelSelectionRepository.save(selection);
-        log.info("Active evaluation model set to: {}", model);
-        return model;
+    /**
+     * Get all model configurations as a map from config type to active model.
+     *
+     * @return map of config type to active evaluation model
+     */
+    @Transactional(readOnly = true)
+    public Map<ModelConfigType, EvaluationModel> getAllConfigs() {
+        Map<ModelConfigType, EvaluationModel> configs = new EnumMap<>(ModelConfigType.class);
+        for (ModelConfigType type : ModelConfigType.values()) {
+            configs.put(type, getActiveModel(type));
+        }
+        return configs;
     }
 }
