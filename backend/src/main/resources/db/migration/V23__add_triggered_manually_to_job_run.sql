@@ -1,0 +1,1 @@
+ALTER TABLE job_run ADD COLUMN triggered_manually BOOLEAN NOT NULL DEFAULT FALSE;

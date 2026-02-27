@@ -63,8 +63,39 @@ const JobRunDetail = ({ jobRun }) => {
   // Calculate grand total cost
   const totalCostPence = Object.values(serviceStats).reduce((sum, stats) => sum + stats.totalCost, 0);
 
+  // Calculate evaluation summary
+  const locationsProcessed = jobRun.locationsProcessed || 0;
+  const minDate = jobRun.minTargetDate;
+  const maxDate = jobRun.maxTargetDate;
+  const daysCount = minDate && maxDate
+    ? Math.floor((new Date(maxDate) - new Date(minDate)) / (1000 * 60 * 60 * 24)) + 1
+    : 0;
+
   return (
     <div className="mt-4 space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+      {/* Evaluation Summary */}
+      {(locationsProcessed > 0 || daysCount > 0) && (
+        <div className="mb-4 pb-4 border-b border-gray-200">
+          <h4 className="font-semibold text-gray-900 text-sm mb-2">Evaluation Summary</h4>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {locationsProcessed > 0 && (
+              <div className="bg-white p-2 rounded border border-gray-200">
+                <div className="text-gray-600 text-xs">Locations</div>
+                <div className="font-semibold text-gray-900">{locationsProcessed}</div>
+              </div>
+            )}
+            {daysCount > 0 && (
+              <div className="bg-white p-2 rounded border border-gray-200">
+                <div className="text-gray-600 text-xs">Days</div>
+                <div className="font-semibold text-gray-900">
+                  {daysCount} <span className="text-gray-500 text-xs">({minDate} to {maxDate})</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <h4 className="font-semibold text-gray-900 text-sm">API Call Breakdown</h4>
 
       {Object.entries(serviceStats).length === 0 ? (
@@ -142,6 +173,9 @@ const JobRunDetail = ({ jobRun }) => {
 JobRunDetail.propTypes = {
   jobRun: PropTypes.shape({
     id: PropTypes.number.isRequired,
+    locationsProcessed: PropTypes.number,
+    minTargetDate: PropTypes.string,
+    maxTargetDate: PropTypes.string,
   }).isRequired,
 };
 

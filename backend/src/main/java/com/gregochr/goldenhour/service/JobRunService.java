@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -48,15 +49,18 @@ public class JobRunService {
      * Starts a new job run with the given name.
      *
      * @param jobName the name of the job
+     * @param triggeredManually whether this run was triggered manually (true) or by scheduler (false)
      * @return the newly created job run entity
      */
-    public JobRunEntity startRun(JobName jobName) {
+    public JobRunEntity startRun(JobName jobName, boolean triggeredManually) {
         JobRunEntity jobRun = JobRunEntity.builder()
                 .jobName(jobName)
                 .startedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .locationsProcessed(0)
                 .succeeded(0)
                 .failed(0)
+                .totalCostPence(0)
+                .triggeredManually(triggeredManually)
                 .build();
         return jobRunRepository.save(jobRun);
     }
@@ -134,8 +138,9 @@ public class JobRunService {
      * @param jobRun   the job run to complete
      * @param succeeded number of successful evaluations
      * @param failed   number of failed evaluations
+     * @param dates    list of target dates evaluated in this run (for date range tracking)
      */
-    public void completeRun(JobRunEntity jobRun, int succeeded, int failed) {
+    public void completeRun(JobRunEntity jobRun, int succeeded, int failed, List<LocalDate> dates) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         long durationMs = ChronoUnit.MILLIS.between(jobRun.getStartedAt(), now);
 
@@ -145,12 +150,31 @@ public class JobRunService {
                 .map(ApiCallLogEntity::getCostPence)
                 .reduce(0, Integer::sum);
 
+        // Set date range if dates are provided
+        if (dates != null && !dates.isEmpty()) {
+            LocalDate minDate = dates.stream().min(LocalDate::compareTo).orElse(null);
+            LocalDate maxDate = dates.stream().max(LocalDate::compareTo).orElse(null);
+            jobRun.setMinTargetDate(minDate);
+            jobRun.setMaxTargetDate(maxDate);
+        }
+
         jobRun.setCompletedAt(now);
         jobRun.setDurationMs(durationMs);
         jobRun.setSucceeded(succeeded);
         jobRun.setFailed(failed);
         jobRun.setTotalCostPence(totalCostPence);
         jobRunRepository.save(jobRun);
+    }
+
+    /**
+     * Completes a job run with success and failure counts (legacy overload without date tracking).
+     *
+     * @param jobRun   the job run to complete
+     * @param succeeded number of successful evaluations
+     * @param failed   number of failed evaluations
+     */
+    public void completeRun(JobRunEntity jobRun, int succeeded, int failed) {
+        completeRun(jobRun, succeeded, failed, null);
     }
 
     /**

@@ -51,7 +51,7 @@ class JobRunServiceTest {
                 .build();
         when(jobRunRepository.save(any())).thenReturn(mockEntity);
 
-        JobRunEntity result = jobRunService.startRun(JobName.SONNET);
+        JobRunEntity result = jobRunService.startRun(JobName.SONNET, false);
 
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getJobName()).isEqualTo(JobName.SONNET);
@@ -106,16 +106,16 @@ class JobRunServiceTest {
     @Test
     @DisplayName("getRecentRuns() returns paginated results for job type")
     void getRecentRuns_returnsPaginatedResults() {
-        when(jobRunRepository.findByJobNameOrderByStartedAtDesc(eq(JobName.WILDLIFE), any()))
+        when(jobRunRepository.findByJobNameOrderByStartedAtDesc(eq(JobName.WEATHER), any()))
                 .thenReturn(java.util.List.of(
-                        JobRunEntity.builder().id(1L).jobName(JobName.WILDLIFE).build(),
-                        JobRunEntity.builder().id(2L).jobName(JobName.WILDLIFE).build()
+                        JobRunEntity.builder().id(1L).jobName(JobName.WEATHER).build(),
+                        JobRunEntity.builder().id(2L).jobName(JobName.WEATHER).build()
                 ));
 
-        java.util.List<JobRunEntity> result = jobRunService.getRecentRuns(JobName.WILDLIFE, 10);
+        java.util.List<JobRunEntity> result = jobRunService.getRecentRuns(JobName.WEATHER, 10);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getJobName()).isEqualTo(JobName.WILDLIFE);
+        assertThat(result.get(0).getJobName()).isEqualTo(JobName.WEATHER);
     }
 
     @Test
