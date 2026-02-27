@@ -70,6 +70,9 @@ jwt:
   access-token-expiry-hours: 24
   refresh-token-expiry-days: 30
 
+cors:
+  extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
+
 server:
   port: 8081
 
