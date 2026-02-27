@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -19,6 +20,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -37,6 +39,10 @@ public class SecurityConfig {
     private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    /** Additional allowed CORS origins (e.g. public production frontend URLs). Comma-separated. */
+    @Value("${cors.extra-origins:}")
+    private List<String> extraCorsOrigins;
 
     /**
      * Configures the security filter chain.
@@ -85,12 +91,16 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
         // Allows any localhost port (Vite picks dynamically) and any LAN IP.
-        // In production, replace with your actual deployed frontend URL.
-        config.setAllowedOriginPatterns(List.of(
+        // cors.extra-origin in application-prod.yml adds the public frontend URL.
+        List<String> patterns = new ArrayList<>(List.of(
                 "http://localhost:*",
                 "http://192.168.*.*:*",
                 "http://10.*.*.*:*"
         ));
+        if (extraCorsOrigins != null) {
+            extraCorsOrigins.stream().filter(o -> !o.isBlank()).forEach(patterns::add);
+        }
+        config.setAllowedOriginPatterns(patterns);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

@@ -76,6 +76,9 @@ jwt:
   access-token-expiry-hours: 24
   refresh-token-expiry-days: 30
 
+cors:
+  extra-origins: https://app.photocast.online
+
 server:
   port: 8082
   servlet:
