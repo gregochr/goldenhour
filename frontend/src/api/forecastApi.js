@@ -89,6 +89,26 @@ export async function runForecast(date, location, targetType) {
 }
 
 /**
+ * Triggers an on-demand run of near-term forecasts (today, T+1, T+2).
+ *
+ * @returns {Promise<Array<object>>} Saved evaluation entities.
+ */
+export async function runShortTermForecast(dryRun = false) {
+  const response = await axios.post(`${BASE_URL}/forecast/run/short-term?dryRun=${dryRun}`);
+  return response.data;
+}
+
+/**
+ * Triggers an on-demand run of distant forecasts (T+3 through T+7).
+ *
+ * @returns {Promise<Array<object>>} Saved evaluation entities.
+ */
+export async function runLongTermForecast() {
+  const response = await axios.post(`${BASE_URL}/forecast/run/long-term`);
+  return response.data;
+}
+
+/**
  * Fetches all persisted locations ordered alphabetically by name.
  *
  * @returns {Promise<Array<{id: number, name: string, lat: number, lon: number}>>} Location list.

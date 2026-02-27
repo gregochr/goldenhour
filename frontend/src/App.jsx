@@ -106,7 +106,7 @@ function AppInner() {
           </div>
         )}
 
-        {!loading && !error && sortedLocations.length === 0 && (
+        {!loading && !error && sortedLocations.length === 0 && viewMode !== 'manage' && (
           <div className="card border border-gray-800 text-center py-16">
             <p className="text-gray-400 text-lg mb-4">No forecasts available</p>
             <p className="text-gray-500 text-sm mb-6">Add locations in the Manage tab to get started</p>
@@ -117,6 +117,15 @@ function AppInner() {
               Go to Manage
             </button>
           </div>
+        )}
+
+        {!loading && !error && sortedLocations.length === 0 && viewMode === 'manage' && (
+          <>
+            <div className="mb-6">
+              <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
+            </div>
+            <ManageView onComplete={refresh} />
+          </>
         )}
 
         {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && (

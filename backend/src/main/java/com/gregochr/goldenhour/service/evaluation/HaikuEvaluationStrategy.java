@@ -26,10 +26,10 @@ public class HaikuEvaluationStrategy extends AbstractEvaluationStrategy {
     static final Pattern RATING_PATTERN = Pattern.compile("\"rating\"\\s*:\\s*(\\d+)");
 
     /** Extracts the Fiery Sky Potential (0–100) from Claude's response. */
-    static final Pattern FIERY_SKY_PATTERN = Pattern.compile("\"fiery_sky_potential\"\\s*:\\s*(\\d+)");
+    static final Pattern FIERY_SKY_PATTERN = Pattern.compile("\"fiery_sky\"\\s*:\\s*(\\d+)");
 
     /** Extracts the Golden Hour Potential (0–100) from Claude's response. */
-    static final Pattern GOLDEN_HOUR_PATTERN = Pattern.compile("\"golden_hour_potential\"\\s*:\\s*(\\d+)");
+    static final Pattern GOLDEN_HOUR_PATTERN = Pattern.compile("\"golden_hour\"\\s*:\\s*(\\d+)");
 
     /** System prompt instructing Haiku to return a 1–5 rating and dual 0–100 scores. */
     static final String SYSTEM_PROMPT =
@@ -38,17 +38,43 @@ public class HaikuEvaluationStrategy extends AbstractEvaluationStrategy {
             + "  1. Rating: 1–5 scale (overall potential)\n"
             + "  2. Fiery Sky Potential: 0–100 (dramatic colour, vivid reds/oranges)\n"
             + "  3. Golden Hour Potential: 0–100 (overall light quality, softness)\n\n"
-            + "Key criteria: clear horizon critical (high low cloud >70% = poor); "
-            + "mid/high cloud above clear horizon = ideal canvas; "
-            + "post-rain clearing often vivid; "
-            + "moderate aerosol/dust (AOD 0.1-0.25) enhances red scattering; "
-            + "high humidity (>80%) mutes colours; "
-            + "low boundary layer traps aerosols near surface.\n\n"
-            + "For coastal locations, tide data may be provided. Factor it briefly.\n\n"
-            + "Respond ONLY with raw JSON (no code fences):\n"
-            + "{\"rating\": <1-5>, \"fiery_sky_potential\": <0-100>,\n"
-            + "\"golden_hour_potential\": <0-100>, \"summary\": \"<1-2 sentences>\"}\n"
-            + "Do not use double-quote characters within the summary text.";
+            //+ "Key criteria: clear horizon critical (high low cloud >70% = poor); "
+            //+ "mid/high cloud above clear horizon = ideal canvas; "
+            //+ "post-rain clearing often vivid; "
+            //+ "moderate aerosol/dust (AOD 0.1-0.25) enhances red scattering; "
+            //+ "high humidity (>80%) mutes colours; "
+            //+ "low boundary layer traps aerosols near surface.\n\n"
+            //+ "For coastal locations, tide data may be provided. Factor it briefly.\n\n"
+                    + "Key criteria: clear horizon critical (high low cloud >70% = poor for fiery sky); "
+                    + "mid/high cloud above clear horizon = ideal canvas for fiery sky; "
+                    + "post-rain clearing often vivid; "
+                    + "moderate aerosol/dust (AOD 0.1-0.25) enhances red scattering; "
+                    + "high humidity (>80%) mutes colours; "
+                    + "low boundary layer traps aerosols near surface.\n\n"
+                    + "Solar/antisolar horizon model: at sunset the sun is west — the solar horizon "
+                    + "(west) must be clear for light penetration, while mid/high cloud on the antisolar "
+                    + "side (east) at 20-60% catches and reflects colour. Sunrise is the reverse. "
+                    + "Since data is non-directional, use altitude as proxy: low cloud (0-3km) sits near "
+                    + "the horizon and blocks light; mid (3-8km) and high (8+km) cloud sits above and "
+                    + "catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
+                    + "For coastal locations, tide data may be provided. When available:\n"
+                    + "- High tide can expose dramatic rock formations and alter water colour\n"
+                    + "- Low tide may reveal sand patterns and new horizon details\n"
+                    + "- If the tide aligns with the photographer's preference, factor this favourably\n"
+                    + "- If not aligned, briefly mention the tide limitation but don't heavily penalise"
+                    + " unless extreme\n\n"
+                    + "Respond ONLY with raw JSON (no code fences):\n"
+                    + "{\"rating\": <1-5>,\"fiery_sky\": <0-100>, \"golden_hour\": <0-100>,"
+                    + " \"summary\": \"<2 sentences>\"}\n\n"
+                    + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
+                    + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
+                    + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
+                    + "Clear + low humidity + moderate aerosol = 65-85. Overcast = 10-30. Haze = varies.\n"
+                    + "Do not use double-quote characters within the summary text."
+                    + "Respond ONLY with raw JSON (no code fences):\n";
+            //+ "{\"rating\": <1-5>, \"fiery_sky_potential\": <0-100>,\n"
+            //+ "\"golden_hour_potential\": <0-100>, \"summary\": \"<1-2 sentences>\"}\n"
+            //+ "Do not use double-quote characters within the summary text.";
 
     /** Prompt suffix requesting three scores and a brief explanation. */
     static final String PROMPT_SUFFIX =
@@ -108,8 +134,8 @@ public class HaikuEvaluationStrategy extends AbstractEvaluationStrategy {
         try {
             JsonNode node = objectMapper.readTree(cleaned);
             int rating = node.get("rating").asInt();
-            int fierySky = node.get("fiery_sky_potential").asInt();
-            int goldenHour = node.get("golden_hour_potential").asInt();
+            int fierySky = node.get("fiery_sky").asInt();
+            int goldenHour = node.get("golden_hour").asInt();
             String summary = node.get("summary").asText();
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary);
         } catch (Exception jsonException) {

@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,9 +83,15 @@ class ScheduledForecastServiceTest {
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
+        // Return MAX so shouldSkipEvent() never skips (now.isAfter(MAX) == false)
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
+                .thenReturn(LocalDateTime.MAX);
+        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                .thenReturn(LocalDateTime.MAX);
+        // Use a synchronous executor so tests run deterministically without thread pools
         scheduledForecastService = new ScheduledForecastService(
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
-                solarService);
+                solarService, Runnable::run);
     }
 
     @Test
@@ -182,7 +189,7 @@ class ScheduledForecastServiceTest {
         lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
         scheduledForecastService = new ScheduledForecastService(
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
-                solarService);
+                solarService, Runnable::run);
 
         scheduledForecastService.runWildlifeForecasts();
 
@@ -208,7 +215,7 @@ class ScheduledForecastServiceTest {
         lenient().when(modelSelectionService.getActiveModel()).thenReturn(EvaluationModel.HAIKU);
         scheduledForecastService = new ScheduledForecastService(
                 forecastService, locationService, tideService, jobRunService, modelSelectionService,
-                solarService);
+                solarService, Runnable::run);
 
         scheduledForecastService.runSonnetForecasts();
 

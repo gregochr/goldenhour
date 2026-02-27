@@ -2,10 +2,14 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.WebClient;
+
+import java.util.concurrent.Executor;
 
 /**
  * Core Spring application configuration.
@@ -30,6 +34,26 @@ public class AppConfig {
     @Bean
     public WebClient webClient(WebClient.Builder builder) {
         return builder.build();
+    }
+
+    /**
+     * Executor used to run forecast evaluations in parallel.
+     *
+     * <p>Pool size is configurable via {@code forecast.parallelism} (default: 8).
+     * Spring manages lifecycle — the pool is shut down cleanly on application stop.
+     *
+     * @param parallelism maximum number of concurrent forecast calls
+     * @return a configured thread pool executor
+     */
+    @Bean
+    public Executor forecastExecutor(@Value("${forecast.parallelism:8}") int parallelism) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(parallelism);
+        executor.setMaxPoolSize(parallelism);
+        executor.setThreadNamePrefix("forecast-worker-");
+        executor.setDaemon(true);
+        executor.initialize();
+        return executor;
     }
 
     /**

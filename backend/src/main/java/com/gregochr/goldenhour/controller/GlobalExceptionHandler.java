@@ -1,7 +1,11 @@
 package com.gregochr.goldenhour.controller;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -17,6 +21,8 @@ import java.util.NoSuchElementException;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
      * JSON body returned for all error responses.
@@ -48,6 +54,40 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(IllegalArgumentException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link MissingServletRequestParameterException} to HTTP 400.
+     *
+     * <p>Without this handler the catch-all below would intercept it and return 500.
+     *
+     * @param ex the exception
+     * @return a 400 response with the missing parameter name
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleMissingParam(MissingServletRequestParameterException ex) {
+        return new ErrorResponse("Missing required parameter: " + ex.getParameterName());
+    }
+
+    /**
+     * Catch-all for unhandled runtime exceptions — logs the full stack trace and returns 500.
+     *
+     * <p>{@link AccessDeniedException} is re-thrown so Spring Security's filter chain
+     * can convert it to a 403 response.
+     *
+     * @param ex the exception
+     * @return a 500 response with a structured error body
+     * @throws AccessDeniedException if the exception is a security authorisation failure
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) throws AccessDeniedException {
+        if (ex instanceof AccessDeniedException ade) {
+            throw ade;
+        }
+        LOG.error("Unhandled exception: {}", ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Internal error: " + ex.getMessage()));
     }
 
     /**
