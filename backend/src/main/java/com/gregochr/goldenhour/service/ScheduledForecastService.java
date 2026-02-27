@@ -125,7 +125,7 @@ public class ScheduledForecastService {
      *
      * @return all saved evaluation entities produced by the run
      */
-    @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 6 * * *}")
+    @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 1 * * *}")
     public List<ForecastEvaluationEntity> runDistantForecasts() {
         return runDistantForecasts(false);
     }
