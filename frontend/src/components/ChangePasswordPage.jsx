@@ -74,9 +74,9 @@ export default function ChangePasswordPage() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight text-gray-100 flex items-center justify-center gap-3">
             <img src="/logo.png" alt="" className="h-10 w-10" />
-            Golden Hour
+            Photo Cast
           </h1>
-          <p className="text-base text-gray-400 mt-2">Sunrise &amp; Sunset Colour Forecast</p>
+          <p className="text-base text-gray-400 mt-2">AI Driven Sunrise and Sunset Forecasting</p>
         </div>
 
         <form

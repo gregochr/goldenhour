@@ -42,7 +42,7 @@ test.describe('Login flow', () => {
     await page.getByTestId('login-username').fill('admin');
     await page.getByTestId('login-password').fill('golden2026');
     await page.getByTestId('login-submit').click();
-    await expect(page.getByRole('heading', { name: /Golden Hour/ })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /Photo Cast/ })).toBeVisible({ timeout: 10000 });
   });
 });
 

@@ -55,10 +55,10 @@ function AppInner() {
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight text-gray-100 flex items-center gap-3">
               <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
-              Golden Hour
+              Photo Cast
             </h1>
             <p className="text-base text-gray-400 mt-1">
-              Sunrise &amp; Sunset Colour Forecast
+              AI Driven Sunrise and Sunset Forecasting
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
