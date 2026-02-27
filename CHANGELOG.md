@@ -6,12 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Feb 27, 2026)
+- **Per-run-type model configuration** — each run type (Very Short-Term, Short-Term, Long-Term) has an independently configurable Anthropic model (Haiku, Sonnet, Opus)
+  - `ModelConfigType` enum: `VERY_SHORT_TERM`, `SHORT_TERM`, `LONG_TERM`
+  - `V28` migration adds `config_type` column to `model_selection` and seeds one row per type
+  - `ModelSelectionService` rewritten with per-config-type get/set and `getAllConfigs()`
+  - `GET /api/models` now returns `{ available: [...], configs: { VERY_SHORT_TERM: "HAIKU", ... } }`
+  - `PUT /api/models/active` now accepts `{ configType: "...", model: "..." }`
+  - Frontend "Model Config" tab split into three sub-tabs with independent model pickers
+- **Very-short-term forecast run** — new `POST /api/forecast/run/very-short-term` endpoint (T, T+1) using the VERY_SHORT_TERM model config; new run button in Job Runs dashboard
+- **Flat evaluation strategy hierarchy** — Haiku, Sonnet, and Opus all extend `AbstractEvaluationStrategy` directly (Opus previously extended Sonnet); shared `SYSTEM_PROMPT` and `PROMPT_SUFFIX` in the abstract class; strategy differentiation is purely which Anthropic model is used
 - **Cloudflare Tunnel** — app publicly live at `https://app.photocast.online` and `https://api.photocast.online`; installed as macOS launchd service, starts at boot
 - **Email field on users** — `V27` migration adds `email` column to `app_user`; required when creating a user (basic format validation front and back); displayed in the Users table in ManageView
 - **Admin password reset** — `PUT /api/users/{id}/reset-password` generates a secure 12-char temporary password server-side, sets `passwordChangeRequired = true`, returns the raw password once; ManageView shows a modal with copy-to-clipboard
 - **Photo Cast rebrand** — app name updated from Golden Hour to Photo Cast; subtitle updated to "AI Driven Sunrise and Sunset Forecasting"; browser tab title updated
 - **Username validation** — changed from "must be an email address" to "at least 5 characters" (email is now a separate required field)
-- 319 backend tests, all passing
+- 332 backend tests, all passing
 
 ### Added (Feb 25, 2026)
 - **Job Run Metrics** — persistent tracking of scheduled forecast runs and API call timings
