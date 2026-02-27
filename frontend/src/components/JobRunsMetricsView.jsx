@@ -72,6 +72,9 @@ const JobRunsMetricsView = () => {
   };
 
   const handleRunShortTerm = async () => {
+    if (!window.confirm('Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
+      return;
+    }
     setRunningShortTerm(true);
     setRunStatus(null);
     try {
@@ -86,6 +89,9 @@ const JobRunsMetricsView = () => {
   };
 
   const handleRunLongTerm = async () => {
+    if (!window.confirm('Run long-term forecast (T+3 through T+7)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
+      return;
+    }
     setRunningLongTerm(true);
     setRunStatus(null);
     try {
