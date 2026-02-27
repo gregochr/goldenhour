@@ -65,6 +65,10 @@ public class AppUserEntity implements UserDetails {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    /** Email address for notifications and identification. */
+    @Column(length = 255)
+    private String email;
+
     /** Whether the user must change their password before accessing the app. */
     @Column(nullable = false, columnDefinition = "BOOLEAN NOT NULL DEFAULT FALSE")
     private boolean passwordChangeRequired;

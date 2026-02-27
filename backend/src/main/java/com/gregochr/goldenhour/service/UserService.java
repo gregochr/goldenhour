@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -32,6 +33,14 @@ public class UserService implements UserDetailsService {
 
     private static final String DEFAULT_ADMIN_USERNAME = "admin";
     private static final String DEFAULT_ADMIN_PASSWORD = "golden2026";
+
+    private static final String TEMP_PW_UPPER   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    private static final String TEMP_PW_LOWER   = "abcdefghijklmnopqrstuvwxyz";
+    private static final String TEMP_PW_DIGITS  = "0123456789";
+    private static final String TEMP_PW_SPECIAL = "!@#$%&*-_+=?";
+    private static final String TEMP_PW_ALL     = TEMP_PW_UPPER + TEMP_PW_LOWER + TEMP_PW_DIGITS + TEMP_PW_SPECIAL;
+    private static final int    TEMP_PW_LENGTH  = 12;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -75,14 +84,15 @@ public class UserService implements UserDetailsService {
     /**
      * Creates a new user with a BCrypt-hashed password.
      *
-     * @param username    the desired login name (must be unique)
+     * @param username    the desired login name (must be unique, at least 5 characters)
      * @param rawPassword the plain-text password to be hashed
      * @param role        the role to assign
+     * @param email       the user's email address
      * @return the persisted {@link AppUserEntity}
      * @throws IllegalArgumentException if the username is already taken
      */
     @Transactional
-    public AppUserEntity createUser(String username, String rawPassword, UserRole role) {
+    public AppUserEntity createUser(String username, String rawPassword, UserRole role, String email) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Username already exists: " + username);
         }
@@ -90,6 +100,7 @@ public class UserService implements UserDetailsService {
                 .username(username)
                 .password(passwordEncoder.encode(rawPassword))
                 .role(role)
+                .email(email)
                 .enabled(true)
                 .createdAt(LocalDateTime.now())
                 .passwordChangeRequired(true)
@@ -122,6 +133,29 @@ public class UserService implements UserDetailsService {
     }
 
     /**
+     * Resets a user's password to a securely generated temporary password and sets
+     * {@code passwordChangeRequired = true} so the user must choose a new password on next login.
+     *
+     * <p>The raw temporary password is returned to the caller (admin) exactly once and is
+     * never stored — only the BCrypt hash is persisted.
+     *
+     * @param id the user's primary key
+     * @return the raw temporary password (show once to the admin, then discard)
+     * @throws IllegalArgumentException if no user with that id exists
+     */
+    @Transactional
+    public String resetPassword(Long id) {
+        AppUserEntity user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        String rawPassword = generateTempPassword();
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        user.setPasswordChangeRequired(true);
+        userRepository.save(user);
+        LOG.info("Password reset for user id={}, username={}", id, user.getUsername());
+        return rawPassword;
+    }
+
+    /**
      * Changes the role of an existing user.
      *
      * @param id   the user's primary key
@@ -134,5 +168,26 @@ public class UserService implements UserDetailsService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
         user.setRole(role);
         userRepository.save(user);
+    }
+
+    /** Generates a 12-character random password containing upper, lower, digit, and special chars. */
+    private String generateTempPassword() {
+        char[] pw = new char[TEMP_PW_LENGTH];
+        // Guarantee at least one character from each category.
+        pw[0] = TEMP_PW_UPPER.charAt(SECURE_RANDOM.nextInt(TEMP_PW_UPPER.length()));
+        pw[1] = TEMP_PW_LOWER.charAt(SECURE_RANDOM.nextInt(TEMP_PW_LOWER.length()));
+        pw[2] = TEMP_PW_DIGITS.charAt(SECURE_RANDOM.nextInt(TEMP_PW_DIGITS.length()));
+        pw[3] = TEMP_PW_SPECIAL.charAt(SECURE_RANDOM.nextInt(TEMP_PW_SPECIAL.length()));
+        for (int i = 4; i < TEMP_PW_LENGTH; i++) {
+            pw[i] = TEMP_PW_ALL.charAt(SECURE_RANDOM.nextInt(TEMP_PW_ALL.length()));
+        }
+        // Fisher-Yates shuffle to avoid predictable positions.
+        for (int i = TEMP_PW_LENGTH - 1; i > 0; i--) {
+            int j = SECURE_RANDOM.nextInt(i + 1);
+            char tmp = pw[i];
+            pw[i] = pw[j];
+            pw[j] = tmp;
+        }
+        return new String(pw);
     }
 }
