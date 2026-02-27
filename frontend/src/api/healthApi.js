@@ -8,7 +8,7 @@ export async function getHealth() {
   try {
     // In Docker/prod: backend is proxied, use relative path
     // In dev: backend is on 8082, use explicit URL
-    const backendUrl = process.env.NODE_ENV === 'development'
+    const backendUrl = import.meta.env.DEV
       ? 'http://localhost:8082/actuator/health'
       : '/actuator/health';
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runShortTermForecast, runLongTermForecast } from '../api/forecastApi';
 import { useAuth } from '../context/AuthContext';
@@ -27,13 +27,7 @@ const JobRunsMetricsView = () => {
   const [runStatus, setRunStatus] = useState(null); // { type: 'success'|'error', message: string }
   const PAGE_SIZE = 20;
 
-  useEffect(() => {
-    setPage(0);
-    setRuns([]);
-    loadJobRuns(0);
-  }, [jobNameFilter]);
-
-  const loadJobRuns = async (pageNum) => {
+  const loadJobRuns = useCallback(async (pageNum) => {
     try {
       setLoading(true);
       const response = await getJobRuns(jobNameFilter, pageNum, PAGE_SIZE);
@@ -65,7 +59,13 @@ const JobRunsMetricsView = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [jobNameFilter]);
+
+  useEffect(() => {
+    setPage(0);
+    setRuns([]);
+    loadJobRuns(0);
+  }, [jobNameFilter, loadJobRuns]);
 
   const handleLoadMore = () => {
     loadJobRuns(page);
@@ -144,8 +144,9 @@ const JobRunsMetricsView = () => {
 
       {/* Job name filter */}
       <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Job</label>
+        <label htmlFor="job-filter-select" className="block text-sm font-medium text-gray-700 mb-2">Filter by Job</label>
         <select
+          id="job-filter-select"
           value={jobNameFilter || ''}
           onChange={(e) => setJobNameFilter(e.target.value || undefined)}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"

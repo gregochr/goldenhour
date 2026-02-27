@@ -102,16 +102,6 @@ public class ScheduledForecastService {
      */
     @Scheduled(cron = "${forecast.schedule.haiku.cron:0 0 6,18 * * *}")
     public List<ForecastEvaluationEntity> runNearTermForecasts() {
-        return runNearTermForecasts(false);
-    }
-
-    /**
-     * Runs near-term forecasts, optionally in dry-run mode (no API calls).
-     *
-     * @param dryRun if {@code true}, skip actual API calls and only log what would be evaluated
-     * @return all saved evaluation entities produced by the run (empty list when dryRun is true)
-     */
-    public List<ForecastEvaluationEntity> runNearTermForecasts(boolean dryRun) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> nearTermDates = List.of(
                 today,
@@ -119,7 +109,7 @@ public class ScheduledForecastService {
                 today.plusDays(2)
         );
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
-        return runForecasts(activeModel, null, nearTermDates, dryRun);
+        return runForecasts(activeModel, null, nearTermDates, false);
     }
 
     /**
@@ -132,22 +122,12 @@ public class ScheduledForecastService {
      */
     @Scheduled(cron = "${forecast.schedule.haiku.distant.cron:0 0 1 * * *}")
     public List<ForecastEvaluationEntity> runDistantForecasts() {
-        return runDistantForecasts(false);
-    }
-
-    /**
-     * Runs distant forecasts, optionally in dry-run mode (no API calls).
-     *
-     * @param dryRun if {@code true}, skip actual API calls and only log what would be evaluated
-     * @return all saved evaluation entities produced by the run (empty list when dryRun is true)
-     */
-    public List<ForecastEvaluationEntity> runDistantForecasts(boolean dryRun) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> distantDates = today.plusDays(3)
                 .datesUntil(today.plusDays(FORECAST_HORIZON_DAYS + 1))
                 .toList();
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
-        return runForecasts(activeModel, null, distantDates, dryRun);
+        return runForecasts(activeModel, null, distantDates, false);
     }
 
     /**
@@ -217,16 +197,6 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs forecasts for locations relevant to the given model and all dates using that model.
-     *
-     * <p>WILDLIFE model runs only on pure-WILDLIFE locations. HAIKU and SONNET models run
-     * on colour-type locations (LANDSCAPE, SEASCAPE, untyped, or mixed).
-     *
-     * <p>Metrics are recorded in the job_run and api_call_log tables.
-     *
-     * @param model the evaluation model to use
-     */
-    /**
      * Runs forecasts for a given model, optionally filtered by locations and dates.
      *
      * <p>Used by both scheduled jobs and manual on-demand runs to ensure identical logic.
@@ -246,27 +216,9 @@ public class ScheduledForecastService {
     /**
      * Runs forecasts for a given model, optionally filtered by locations and dates.
      *
-     * @param model   the evaluation model to use (HAIKU, SONNET, or WILDLIFE)
-     * @param locations optional list of locations; if null, uses all configured locations
-     * @param dates   optional list of dates; if null, uses today through T+7
-     * @param dryRun  if {@code true}, skip actual API calls and only log what would be evaluated
-     * @return list of all forecast evaluation entities produced
-     */
-    public List<ForecastEvaluationEntity> runForecasts(
-            EvaluationModel model,
-            List<LocationEntity> locations,
-            List<LocalDate> dates,
-            boolean dryRun) {
-        return runForecasts(model, locations, dates, dryRun, false);
-    }
-
-    /**
-     * Runs forecasts with optional dry-run mode and explicit manual/scheduler flag.
-     *
      * @param model evaluation model (HAIKU, SONNET, WILDLIFE)
      * @param locations optional location filter (null = all locations)
      * @param dates optional date range (null = today through T+7)
-     * @param dryRun if {@code true}, skip actual API calls
      * @param triggeredManually whether this run was manual (true) or scheduled (false)
      * @return all saved evaluation entities produced by the run
      */
@@ -274,7 +226,6 @@ public class ScheduledForecastService {
             EvaluationModel model,
             List<LocationEntity> locations,
             List<LocalDate> dates,
-            boolean dryRun,
             boolean triggeredManually) {
         // Determine job name and location filter
         JobName jobName = switch (model) {
@@ -298,54 +249,40 @@ public class ScheduledForecastService {
                         : hasColourTypes(loc))
                 .toList();
 
-        LOG.info("Forecast run started — model={}, {} location(s), {} date(s), dryRun={}",
-                model, forecastLocations.size(), forecastDates.size(), dryRun);
+        LOG.info("Forecast run started — model={}, {} location(s), {} date(s)",
+                model, forecastLocations.size(), forecastDates.size());
         AtomicInteger succeeded = new AtomicInteger(0);
         AtomicInteger failed = new AtomicInteger(0);
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         java.time.LocalDateTime now = java.time.LocalDateTime.now(ZoneOffset.UTC);
 
-        // Build the list of tasks to run (one per location/date/targetType combination).
-        // Dry-run tasks log synchronously; live tasks are submitted to the executor in parallel.
+        // Build the list of tasks — one per location/date/targetType combination.
         List<CompletableFuture<List<ForecastEvaluationEntity>>> futures = new ArrayList<>();
 
         for (LocationEntity location : forecastLocations) {
             for (LocalDate targetDate : forecastDates) {
                 if (model == EvaluationModel.WILDLIFE) {
-                    if (dryRun) {
-                        LOG.info("[DRY RUN] Would evaluate {} WILDLIFE on {}", location.getName(), targetDate);
-                        succeeded.incrementAndGet();
-                    } else {
-                        futures.add(CompletableFuture.supplyAsync(
-                                () -> runForecast(location, targetDate, null, model, jobRun),
-                                forecastExecutor));
-                    }
+                    futures.add(CompletableFuture.supplyAsync(
+                            () -> runForecast(location, targetDate, null, model, jobRun),
+                            forecastExecutor));
                 } else {
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(today, targetDate);
                     String locName = location.getName();
 
-                    if (locationService.shouldEvaluateSunrise(location)
-                            && !shouldSkipEvent(targetDate, TargetType.SUNRISE, location, today, now)
-                            && !shouldSkipLongTermForecast(locName, targetDate, TargetType.SUNRISE, daysAhead)) {
-                        if (dryRun) {
-                            LOG.info("[DRY RUN] Would evaluate {} SUNRISE on {}", locName, targetDate);
-                            succeeded.incrementAndGet();
-                        } else {
-                            futures.add(CompletableFuture.supplyAsync(
-                                    () -> runForecast(location, targetDate, TargetType.SUNRISE, model, jobRun),
-                                    forecastExecutor));
-                        }
+                    List<TargetType> applicableTypes = new ArrayList<>();
+                    if (locationService.shouldEvaluateSunrise(location)) {
+                        applicableTypes.add(TargetType.SUNRISE);
                     }
-                    if (locationService.shouldEvaluateSunset(location)
-                            && !shouldSkipEvent(targetDate, TargetType.SUNSET, location, today, now)
-                            && !shouldSkipLongTermForecast(locName, targetDate, TargetType.SUNSET, daysAhead)) {
-                        if (dryRun) {
-                            LOG.info("[DRY RUN] Would evaluate {} SUNSET on {}", locName, targetDate);
-                            succeeded.incrementAndGet();
-                        } else {
+                    if (locationService.shouldEvaluateSunset(location)) {
+                        applicableTypes.add(TargetType.SUNSET);
+                    }
+
+                    for (TargetType targetType : applicableTypes) {
+                        if (!shouldSkipEvent(targetDate, targetType, location, today, now)
+                                && !shouldSkipLongTermForecast(locName, targetDate, targetType, daysAhead)) {
                             futures.add(CompletableFuture.supplyAsync(
-                                    () -> runForecast(location, targetDate, TargetType.SUNSET, model, jobRun),
+                                    () -> runForecast(location, targetDate, targetType, model, jobRun),
                                     forecastExecutor));
                         }
                     }

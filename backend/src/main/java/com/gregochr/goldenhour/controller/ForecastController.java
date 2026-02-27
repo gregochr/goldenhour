@@ -178,18 +178,16 @@ public class ForecastController {
      *
      * <p>Uses the same logic as the scheduled near-term job ({@code forecast.schedule.haiku.cron}).
      *
-     * @param dryRun if {@code true}, skip actual API calls and only log what would be evaluated
      * @return all saved evaluation entities produced by the run
      */
     @PostMapping("/run/short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<ForecastEvaluationEntity> runShortTermForecast(
-            @RequestParam(defaultValue = "false") boolean dryRun) {
-        LOG.info("POST /api/forecast/run/short-term triggered by admin (dryRun={})", dryRun);
+    public List<ForecastEvaluationEntity> runShortTermForecast() {
+        LOG.info("POST /api/forecast/run/short-term triggered by admin");
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> nearTermDates = List.of(today, today.plusDays(1), today.plusDays(2));
-        return scheduledForecastService.runForecasts(activeModel, null, nearTermDates, dryRun, true);
+        return scheduledForecastService.runForecasts(activeModel, null, nearTermDates, true);
     }
 
     /**
@@ -197,20 +195,18 @@ public class ForecastController {
      *
      * <p>Uses the same logic as the scheduled distant job ({@code forecast.schedule.haiku.distant.cron}).
      *
-     * @param dryRun if {@code true}, skip actual API calls and only log what would be evaluated
      * @return all saved evaluation entities produced by the run
      */
     @PostMapping("/run/long-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<ForecastEvaluationEntity> runLongTermForecast(
-            @RequestParam(defaultValue = "false") boolean dryRun) {
-        LOG.info("POST /api/forecast/run/long-term triggered by admin (dryRun={})", dryRun);
+    public List<ForecastEvaluationEntity> runLongTermForecast() {
+        LOG.info("POST /api/forecast/run/long-term triggered by admin");
         EvaluationModel activeModel = modelSelectionService.getActiveModel();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> distantDates = today.plusDays(3)
                 .datesUntil(today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS + 1))
                 .toList();
-        return scheduledForecastService.runForecasts(activeModel, null, distantDates, dryRun, true);
+        return scheduledForecastService.runForecasts(activeModel, null, distantDates, true);
     }
 
     /**

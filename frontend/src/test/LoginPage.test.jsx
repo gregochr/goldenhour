@@ -32,7 +32,7 @@ describe('LoginPage', () => {
   });
 
   it('calls login with username and password on form submit', async () => {
-    AuthApi.login = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(AuthApi, 'login').mockResolvedValue(undefined);
     renderWithAuth(<LoginPage />);
 
     fireEvent.change(screen.getByTestId('login-username'), {
@@ -49,7 +49,7 @@ describe('LoginPage', () => {
   });
 
   it('shows error message when login fails', async () => {
-    AuthApi.login = vi.fn().mockRejectedValue(new Error('Invalid credentials'));
+    vi.spyOn(AuthApi, 'login').mockRejectedValue(new Error('Invalid credentials'));
     renderWithAuth(<LoginPage />);
 
     fireEvent.change(screen.getByTestId('login-username'), {
@@ -66,7 +66,7 @@ describe('LoginPage', () => {
   });
 
   it('disables submit button while loading', async () => {
-    AuthApi.login = vi.fn(() => new Promise(() => {})); // never resolves
+    vi.spyOn(AuthApi, 'login').mockReturnValue(new Promise(() => {})); // never resolves
     renderWithAuth(<LoginPage />);
 
     fireEvent.change(screen.getByTestId('login-username'), {

@@ -56,7 +56,7 @@ describe('ChangePasswordPage', () => {
   });
 
   it('calls changePassword API when form is submitted', async () => {
-    AuthApi.changePassword = vi.fn().mockResolvedValue({});
+    vi.spyOn(AuthApi, 'changePassword').mockResolvedValue({});
     renderWithAuth(<ChangePasswordPage />);
 
     fireEvent.change(screen.getByTestId('cp-new-password'), {
@@ -74,7 +74,7 @@ describe('ChangePasswordPage', () => {
   });
 
   it('shows error message on API failure', async () => {
-    AuthApi.changePassword = vi.fn().mockRejectedValue({
+    vi.spyOn(AuthApi, 'changePassword').mockRejectedValue({
       response: { data: { message: 'Failed to update password.' } },
     });
     renderWithAuth(<ChangePasswordPage />);
