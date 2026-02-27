@@ -64,7 +64,7 @@ class UserServiceTest {
         AppUserEntity saved = buildUser(2L, "bob", UserRole.LITE_USER);
         when(userRepository.save(any())).thenReturn(saved);
 
-        AppUserEntity result = userService.createUser("bob", "pass", UserRole.LITE_USER);
+        AppUserEntity result = userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
 
         assertThat(result.getUsername()).isEqualTo("bob");
         verify(passwordEncoder).encode("pass");
@@ -75,7 +75,7 @@ class UserServiceTest {
     void createUser_duplicateUsername_throwsException() {
         when(userRepository.existsByUsername("alice")).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.createUser("alice", "pass", UserRole.LITE_USER))
+        assertThatThrownBy(() -> userService.createUser("alice", "pass", UserRole.LITE_USER, "alice@example.com"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("alice");
     }
@@ -131,6 +131,32 @@ class UserServiceTest {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> userService.setRole(99L, UserRole.ADMIN))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("99");
+    }
+
+    @Test
+    @DisplayName("resetPassword returns a non-null temporary password and sets passwordChangeRequired")
+    void resetPassword_existingUser_returnsRawPasswordAndSetsFlag() {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(passwordEncoder.encode(any(String.class))).thenReturn("hashed-temp");
+        when(userRepository.save(any())).thenReturn(user);
+
+        String rawPassword = userService.resetPassword(1L);
+
+        assertThat(rawPassword).isNotNull().isNotBlank().hasSize(12);
+        assertThat(user.isPasswordChangeRequired()).isTrue();
+        verify(passwordEncoder).encode(rawPassword);
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("resetPassword throws IllegalArgumentException when user is not found")
+    void resetPassword_missingUser_throwsException() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.resetPassword(99L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("99");
     }

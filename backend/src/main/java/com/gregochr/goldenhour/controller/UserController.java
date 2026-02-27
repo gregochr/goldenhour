@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * REST controller for admin user management.
@@ -29,6 +32,10 @@ import java.util.Map;
 @PreAuthorize("hasRole('ADMIN')")
 @RequiredArgsConstructor
 public class UserController {
+
+    private static final Logger LOG = LoggerFactory.getLogger(UserController.class);
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final UserService userService;
 
@@ -55,13 +62,20 @@ public class UserController {
     public ResponseEntity<Object> createUser(@RequestBody Map<String, String> body) {
         String username = body.get("username");
         String password = body.get("password");
-        String roleStr = body.get("role");
+        String roleStr  = body.get("role");
+        String email    = body.get("email");
 
         if (username == null || username.isBlank()
                 || password == null || password.isBlank()
-                || roleStr == null || roleStr.isBlank()) {
+                || roleStr == null || roleStr.isBlank()
+                || email == null || email.isBlank()) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "username, password, and role are required"));
+                    .body(Map.of("error", "username, password, role, and email are required"));
+        }
+
+        if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid email address: " + email));
         }
 
         UserRole role;
@@ -73,7 +87,7 @@ public class UserController {
         }
 
         try {
-            AppUserEntity created = userService.createUser(username, password, role);
+            AppUserEntity created = userService.createUser(username, password, role, email.trim());
             return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
@@ -134,6 +148,27 @@ public class UserController {
     }
 
     /**
+     * Resets a user's password to a server-generated temporary password and forces a
+     * password change on next login.
+     *
+     * <p>The temporary password is returned in the response body exactly once. The admin
+     * must communicate it to the user out-of-band; it is never stored in plain text.
+     *
+     * @param id the user's primary key
+     * @return 200 with {@code {"temporaryPassword": "..."}} on success, or 400 if not found
+     */
+    @PutMapping("/{id}/reset-password")
+    public ResponseEntity<Object> resetPassword(@PathVariable Long id) {
+        try {
+            String tempPassword = userService.resetPassword(id);
+            LOG.info("Admin reset password for user id={}", id);
+            return ResponseEntity.ok(Map.of("temporaryPassword", tempPassword));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
      * Converts an {@link AppUserEntity} to a safe summary map that excludes the password.
      *
      * @param user the entity to convert
@@ -144,6 +179,7 @@ public class UserController {
         return Map.of(
                 "id", user.getId(),
                 "username", user.getUsername(),
+                "email", user.getEmail() != null ? user.getEmail() : "",
                 "role", user.getRole().name(),
                 "enabled", user.isEnabled(),
                 "createdAt", createdAt != null ? createdAt.toString() : "");

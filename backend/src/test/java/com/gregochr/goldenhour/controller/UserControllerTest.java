@@ -71,12 +71,13 @@ class UserControllerTest {
     @DisplayName("ADMIN can POST /api/users to create a new user and receives 201")
     void createUser_asAdmin_returns201() throws Exception {
         AppUserEntity created = buildUser(2L, "bob", UserRole.LITE_USER);
-        when(userService.createUser(anyString(), anyString(), any(UserRole.class)))
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
                 .thenReturn(created);
 
         mockMvc.perform(post("/api/users")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"bob\",\"password\":\"pass123\",\"role\":\"LITE_USER\"}"))
+                        .content("{\"username\":\"bob\",\"password\":\"pass123\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"bob@example.com\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.username").value("bob"));
     }
@@ -119,21 +120,35 @@ class UserControllerTest {
     void createUser_invalidRole_returns400() throws Exception {
         mockMvc.perform(post("/api/users")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"bob\",\"password\":\"pass\",\"role\":\"SUPERUSER\"}"))
+                        .content("{\"username\":\"bob\",\"password\":\"pass\","
+                                + "\"role\":\"SUPERUSER\",\"email\":\"bob@example.com\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Invalid role: SUPERUSER"));
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users returns 400 when email is invalid")
+    void createUser_invalidEmail_returns400() throws Exception {
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid email address: not-an-email"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/users returns 400 when username already exists")
     void createUser_duplicateUsername_returns400() throws Exception {
-        when(userService.createUser(anyString(), anyString(), any(UserRole.class)))
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
                 .thenThrow(new IllegalArgumentException("Username already exists"));
 
         mockMvc.perform(post("/api/users")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"alice\",\"password\":\"pass\",\"role\":\"LITE_USER\"}"))
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Username already exists"));
     }
@@ -208,6 +223,43 @@ class UserControllerTest {
                         .content("{\"role\":\"PRO_USER\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("User not found"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/reset-password returns 200 with temporaryPassword for ADMIN")
+    void resetPassword_asAdmin_returns200WithTemporaryPassword() throws Exception {
+        when(userService.resetPassword(1L)).thenReturn("Abc1!xyz9Qr2");
+
+        mockMvc.perform(put("/api/users/1/reset-password"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.temporaryPassword").value("Abc1!xyz9Qr2"));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("PUT /api/users/{id}/reset-password returns 403 for LITE_USER")
+    void resetPassword_asLiteUser_returns403() throws Exception {
+        mockMvc.perform(put("/api/users/1/reset-password"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PUT /api/users/{id}/reset-password returns 401 when unauthenticated")
+    void resetPassword_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(put("/api/users/1/reset-password"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/reset-password returns 400 when user does not exist")
+    void resetPassword_userNotFound_returns400() throws Exception {
+        when(userService.resetPassword(99L)).thenThrow(new IllegalArgumentException("User not found: 99"));
+
+        mockMvc.perform(put("/api/users/99/reset-password"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found: 99"));
     }
 
     private AppUserEntity buildUser(Long id, String username, UserRole role) {

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import axios from 'axios';
 import { runForecast, fetchLocations, addLocation } from '../api/forecastApi.js';
+import { resetUserPassword } from '../api/userApi.js';
 import { formatDateLabel } from '../utils/conversions.js';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -61,10 +62,16 @@ export default function ManageView({ onComplete }) {
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState('LITE_USER');
   const [addUserError, setAddUserError] = useState('');
   const [addUserSaving, setAddUserSaving] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+
+  // Reset-password state
+  const [resetPasswordLoadingId, setResetPasswordLoadingId] = useState(null);
+  const [tempPasswordModal, setTempPasswordModal] = useState(null); // { username, password } | null
+  const [resetPasswordError, setResetPasswordError] = useState('');
 
   async function refreshLocations() {
     try {
@@ -177,13 +184,21 @@ export default function ManageView({ onComplete }) {
 
   async function handleAddUser() {
     const trimmedUsername = newUsername.trim();
+    const trimmedEmail    = newEmail.trim();
     if (!trimmedUsername || !newPassword.trim()) {
       setAddUserError('Username and password are required.');
       return;
     }
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedUsername);
-    if (trimmedUsername !== 'admin' && !isEmail) {
-      setAddUserError('Username must be "admin" or a valid email address.');
+    if (trimmedUsername.length < 5) {
+      setAddUserError('Username must be at least 5 characters.');
+      return;
+    }
+    if (!trimmedEmail) {
+      setAddUserError('Email address is required.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setAddUserError('Please enter a valid email address.');
       return;
     }
     setAddUserError('');
@@ -192,10 +207,12 @@ export default function ManageView({ onComplete }) {
       await axios.post('/api/users', {
         username: trimmedUsername,
         password: newPassword,
+        email: trimmedEmail,
         role: newRole,
       });
       setNewUsername('');
       setNewPassword('');
+      setNewEmail('');
       setNewRole('LITE_USER');
       setShowNewPassword(false);
       setShowAddUserForm(false);
@@ -213,6 +230,20 @@ export default function ManageView({ onComplete }) {
       await fetchUsers();
     } catch {
       // Silently ignore
+    }
+  }
+
+  async function handleResetPassword(user) {
+    if (!window.confirm(`Reset password for ${user.username}?`)) return;
+    setResetPasswordLoadingId(user.id);
+    setResetPasswordError('');
+    try {
+      const data = await resetUserPassword(user.id);
+      setTempPasswordModal({ username: user.username, password: data.temporaryPassword });
+    } catch {
+      setResetPasswordError(`Failed to reset password for ${user.username}.`);
+    } finally {
+      setResetPasswordLoadingId(null);
     }
   }
 
@@ -252,7 +283,7 @@ export default function ManageView({ onComplete }) {
 
           {showAddUserForm && (
             <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
                   <label htmlFor="add-user-username" className="block text-xs text-gray-400 mb-1">Username</label>
                   <input
@@ -260,9 +291,21 @@ export default function ManageView({ onComplete }) {
                     type="text"
                     autoComplete="off"
                     className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    placeholder="e.g. jane"
+                    placeholder="e.g. janesmith"
                     value={newUsername}
                     onChange={(e) => setNewUsername(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="add-user-email" className="block text-xs text-gray-400 mb-1">Email</label>
+                  <input
+                    id="add-user-email"
+                    type="email"
+                    autoComplete="off"
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    placeholder="jane@example.com"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
                   />
                 </div>
                 <div>
@@ -336,20 +379,27 @@ export default function ManageView({ onComplete }) {
             <p className="text-sm text-gray-500 animate-pulse">Loading users…</p>
           )}
 
+          {resetPasswordError && (
+            <p className="text-xs text-red-400">{resetPasswordError}</p>
+          )}
+
           {!usersLoading && users.length > 0 && (
             <table className="w-full text-sm text-left">
               <thead>
                 <tr className="text-xs text-gray-500 border-b border-gray-800">
                   <th className="pb-2 font-medium">Username</th>
+                  <th className="pb-2 font-medium">Email</th>
                   <th className="pb-2 font-medium">Role</th>
                   <th className="pb-2 font-medium">Created</th>
                   <th className="pb-2 font-medium">Enabled</th>
+                  <th className="pb-2 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {users.map((user) => (
                   <tr key={user.id} className="border-b border-gray-900 last:border-0">
                     <td className="py-2 text-gray-200">{user.username}</td>
+                    <td className="py-2 text-gray-400 text-xs">{user.email || '—'}</td>
                     <td className="py-2">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         user.role === 'ADMIN'
@@ -372,6 +422,16 @@ export default function ManageView({ onComplete }) {
                         onClick={() => handleToggleEnabled(user.id, user.enabled)}
                       >
                         {user.enabled ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </td>
+                    <td className="py-2">
+                      <button
+                        data-testid={`reset-password-${user.id}`}
+                        className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={() => handleResetPassword(user)}
+                        disabled={resetPasswordLoadingId === user.id}
+                      >
+                        {resetPasswordLoadingId === user.id ? 'Resetting…' : 'Reset Password'}
                       </button>
                     </td>
                   </tr>
@@ -557,6 +617,48 @@ export default function ManageView({ onComplete }) {
       {/* ── Models tab ── */}
       {manageTab === 'models' && (
         <ModelSelectionView />
+      )}
+
+      {/* ── Temp Password Modal ── */}
+      {tempPasswordModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Temporary password"
+          data-testid="temp-password-modal"
+        >
+          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+            <p className="text-sm font-semibold text-gray-100">
+              Temporary password for <span className="text-amber-400">{tempPasswordModal.username}</span>
+            </p>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 font-mono text-base bg-gray-800 border border-gray-700 rounded px-3 py-2 text-green-300 tracking-widest select-all"
+                data-testid="temp-password-value"
+              >
+                {tempPasswordModal.password}
+              </code>
+              <button
+                className="btn-secondary text-xs shrink-0"
+                onClick={() => navigator.clipboard.writeText(tempPasswordModal.password)}
+                data-testid="copy-temp-password"
+              >
+                Copy
+              </button>
+            </div>
+            <p className="text-xs text-gray-400">
+              The user will be required to change this password on next login.
+            </p>
+            <button
+              className="btn-primary text-sm self-end"
+              onClick={() => setTempPasswordModal(null)}
+              data-testid="close-temp-password-modal"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
 
     </div>
