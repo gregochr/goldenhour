@@ -33,7 +33,7 @@ export default function LoginPage() {
             <img src="/logo.png" alt="" className="h-10 w-10" />
             Photo Cast
           </h1>
-          <p className="text-base text-plex-text-secondary mt-2">AI Driven Sunrise and Sunset Forecasting</p>
+          <p className="text-base text-plex-text-secondary mt-2">AI Forecasts for Fiery Skies & Golden Light</p>
         </div>
 
         <form
