@@ -117,17 +117,21 @@ const JobRunDetail = ({ jobRun }) => {
                     Cost: £{(stats.totalCost / 1000).toFixed(3)}
                   </div>
                   {stats.errorCount > 0 && (
-                    <div className="text-xs text-red-400 mt-1">
-                      {stats.errorCount} failures ({Math.round((stats.errorCount / stats.count) * 100)}%)
+                    <div className={`text-xs mt-1 ${(stats.errorCount / stats.count) < 0.05 ? 'text-yellow-400' : 'text-red-400'}`}>
+                      {stats.errorCount} failures ({((stats.errorCount / stats.count) * 100).toFixed(2)}%)
                     </div>
                   )}
                 </div>
                 <div className="flex gap-1">
-                  {stats.errorCount > 0 && (
-                    <span className="inline-block px-2 py-1 rounded-full bg-red-900/30 text-red-400 text-xs font-medium">
-                      {stats.errorCount} errors
-                    </span>
-                  )}
+                  {stats.errorCount > 0 && (() => {
+                    const failRate = stats.errorCount / stats.count;
+                    const isAmber = failRate < 0.05;
+                    return (
+                      <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${isAmber ? 'bg-yellow-900/30 text-yellow-400' : 'bg-red-900/30 text-red-400'}`}>
+                        {stats.errorCount} errors
+                      </span>
+                    );
+                  })()}
                   {stats.errorCount === 0 && (
                     <span className="inline-block px-2 py-1 rounded-full bg-green-900/30 text-green-400 text-xs font-medium">
                       All OK
