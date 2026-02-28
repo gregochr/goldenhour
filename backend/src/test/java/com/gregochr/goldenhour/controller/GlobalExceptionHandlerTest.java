@@ -1,6 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,13 +39,13 @@ class GlobalExceptionHandlerTest {
     private ForecastService forecastService;
 
     @MockBean
-    private ForecastCommandExecutor commandExecutor;
+    private ForecastCommandFactory commandFactory;
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("WebClientResponseException is mapped to 502 Bad Gateway")
     void handleUpstreamError_returns502() throws Exception {
-        when(commandExecutor.execute(any()))
+        when(commandFactory.create(any(), any(boolean.class), any(), any()))
                 .thenThrow(WebClientResponseException.create(
                         HttpStatus.SERVICE_UNAVAILABLE.value(),
                         "Service Unavailable",
@@ -60,7 +60,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("NoSuchElementException is mapped to 404 Not Found")
     void handleNotFound_returns404() throws Exception {
-        when(commandExecutor.execute(any()))
+        when(commandFactory.create(any(), any(boolean.class), any(), any()))
                 .thenThrow(new NoSuchElementException("Location not found"));
 
         mockMvc.perform(post("/api/forecast/run"))
@@ -72,7 +72,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("IllegalArgumentException is mapped to 400 Bad Request")
     void handleBadRequest_returns400() throws Exception {
-        when(commandExecutor.execute(any()))
+        when(commandFactory.create(any(), any(boolean.class), any(), any()))
                 .thenThrow(new IllegalArgumentException("Invalid location coordinates"));
 
         mockMvc.perform(post("/api/forecast/run"))
@@ -94,7 +94,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Unexpected RuntimeException is mapped to 500 Internal Server Error")
     void handleUnexpected_returns500() throws Exception {
-        when(commandExecutor.execute(any()))
+        when(commandFactory.create(any(), any(boolean.class), any(), any()))
                 .thenThrow(new RuntimeException("Unexpected failure"));
 
         mockMvc.perform(post("/api/forecast/run"))

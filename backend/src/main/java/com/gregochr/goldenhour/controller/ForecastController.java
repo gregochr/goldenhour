@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.service.ForecastCommand;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -25,6 +26,11 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 /**
  * REST controller for forecast evaluation data.
@@ -42,22 +48,26 @@ public class ForecastController {
     private final LocationService locationService;
     private final ForecastCommandFactory commandFactory;
     private final ForecastCommandExecutor commandExecutor;
+    private final ScheduledForecastService scheduledForecastService;
 
     /**
      * Constructs a {@code ForecastController}.
      *
-     * @param repository       the forecast evaluation repository
-     * @param locationService  the service for persisted locations
-     * @param commandFactory   builds forecast commands from run types
-     * @param commandExecutor  executes forecast commands
+     * @param repository                the forecast evaluation repository
+     * @param locationService           the service for persisted locations
+     * @param commandFactory            builds forecast commands from run types
+     * @param commandExecutor           executes forecast commands
+     * @param scheduledForecastService  the scheduled forecast service (for tide refresh)
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService, ForecastCommandFactory commandFactory,
-            ForecastCommandExecutor commandExecutor) {
+            ForecastCommandExecutor commandExecutor,
+            ScheduledForecastService scheduledForecastService) {
         this.repository = repository;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
+        this.scheduledForecastService = scheduledForecastService;
     }
 
     /**
@@ -125,13 +135,13 @@ public class ForecastController {
      * @param request optional run parameters (dates and/or location)
      * @param maxDays maximum number of days to forecast (optional; if null, uses all dates)
      * @param maxLocations maximum number of locations to process (optional; if null, uses all)
-     * @return all saved evaluation entities produced by the run (Sonnet + Haiku)
+     * @return 202 Accepted with status message
      * @throws IllegalArgumentException if the specified location name is not configured,
      *                                  or if any date string is not a valid ISO date
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<ForecastEvaluationEntity> runForecast(
+    public ResponseEntity<Map<String, String>> runForecast(
             @RequestBody(required = false) ForecastRunRequest request,
             @RequestParam(required = false) Integer maxDays,
             @RequestParam(required = false) Integer maxLocations) {
@@ -167,7 +177,9 @@ public class ForecastController {
                 maxDays, maxLocations);
 
         ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, locations, dates);
-        return commandExecutor.execute(cmd);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "Forecast run started", "runType", "SHORT_TERM"));
     }
 
     /**
@@ -175,14 +187,16 @@ public class ForecastController {
      *
      * <p>Uses the model configured under {@code VERY_SHORT_TERM}.
      *
-     * @return all saved evaluation entities produced by the run
+     * @return 202 Accepted with status message
      */
     @PostMapping("/run/very-short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<ForecastEvaluationEntity> runVeryShortTermForecast() {
+    public ResponseEntity<Map<String, String>> runVeryShortTermForecast() {
         LOG.info("POST /api/forecast/run/very-short-term triggered by admin");
         ForecastCommand cmd = commandFactory.create(RunType.VERY_SHORT_TERM, true);
-        return commandExecutor.execute(cmd);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "Forecast run started", "runType", "VERY_SHORT_TERM"));
     }
 
     /**
@@ -190,14 +204,16 @@ public class ForecastController {
      *
      * <p>Uses the model configured under {@code SHORT_TERM}.
      *
-     * @return all saved evaluation entities produced by the run
+     * @return 202 Accepted with status message
      */
     @PostMapping("/run/short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<ForecastEvaluationEntity> runShortTermForecast() {
+    public ResponseEntity<Map<String, String>> runShortTermForecast() {
         LOG.info("POST /api/forecast/run/short-term triggered by admin");
         ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true);
-        return commandExecutor.execute(cmd);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "Forecast run started", "runType", "SHORT_TERM"));
     }
 
     /**
@@ -205,14 +221,35 @@ public class ForecastController {
      *
      * <p>Uses the model configured under {@code LONG_TERM}.
      *
-     * @return all saved evaluation entities produced by the run
+     * @return 202 Accepted with status message
      */
     @PostMapping("/run/long-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public List<ForecastEvaluationEntity> runLongTermForecast() {
+    public ResponseEntity<Map<String, String>> runLongTermForecast() {
         LOG.info("POST /api/forecast/run/long-term triggered by admin");
         ForecastCommand cmd = commandFactory.create(RunType.LONG_TERM, true);
-        return commandExecutor.execute(cmd);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "Forecast run started", "runType", "LONG_TERM"));
+    }
+
+    /**
+     * Triggers a manual refresh of tide extreme data for all coastal locations.
+     * Restricted to ADMIN only.
+     *
+     * <p>Delegates to {@link ScheduledForecastService#refreshTideExtremes()}, which
+     * fetches 14 days of high/low extremes from WorldTides and stores them in the
+     * {@code tide_extreme} table. The run is tracked as a TIDE {@code JobRunEntity}.
+     *
+     * @return 202 Accepted with status message
+     */
+    @PostMapping("/run/tide")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, String>> refreshTideData() {
+        LOG.info("POST /api/forecast/run/tide triggered by admin");
+        CompletableFuture.runAsync(() -> scheduledForecastService.refreshTideExtremes());
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "Tide refresh started", "runType", "TIDE"));
     }
 
     /**

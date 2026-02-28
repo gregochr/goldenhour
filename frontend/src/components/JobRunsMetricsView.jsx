@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast } from '../api/forecastApi';
+import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData } from '../api/forecastApi';
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
@@ -25,6 +25,7 @@ const JobRunsMetricsView = () => {
   const [runningVeryShortTerm, setRunningVeryShortTerm] = useState(false);
   const [runningShortTerm, setRunningShortTerm] = useState(false);
   const [runningLongTerm, setRunningLongTerm] = useState(false);
+  const [runningTide, setRunningTide] = useState(false);
   const [runStatus, setRunStatus] = useState(null); // { type: 'success'|'error', message: string }
   const PAGE_SIZE = 20;
 
@@ -72,7 +73,7 @@ const JobRunsMetricsView = () => {
     loadJobRuns(page);
   };
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm;
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide;
 
   const handleRunVeryShortTerm = async () => {
     if (!window.confirm('Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
@@ -81,9 +82,9 @@ const JobRunsMetricsView = () => {
     setRunningVeryShortTerm(true);
     setRunStatus(null);
     try {
-      const results = await runVeryShortTermForecast();
-      setRunStatus({ type: 'success', message: `Very-short-term run complete \u2014 ${results.length} evaluation(s) saved.` });
-      loadJobRuns(0);
+      const result = await runVeryShortTermForecast();
+      setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+      setTimeout(() => loadJobRuns(0), 3000);
     } catch {
       setRunStatus({ type: 'error', message: 'Very-short-term run failed. Check the logs.' });
     } finally {
@@ -98,9 +99,9 @@ const JobRunsMetricsView = () => {
     setRunningShortTerm(true);
     setRunStatus(null);
     try {
-      const results = await runShortTermForecast();
-      setRunStatus({ type: 'success', message: `Short-term run complete — ${results.length} evaluation(s) saved.` });
-      loadJobRuns(0);
+      const result = await runShortTermForecast();
+      setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+      setTimeout(() => loadJobRuns(0), 3000);
     } catch {
       setRunStatus({ type: 'error', message: 'Short-term run failed. Check the logs.' });
     } finally {
@@ -115,13 +116,30 @@ const JobRunsMetricsView = () => {
     setRunningLongTerm(true);
     setRunStatus(null);
     try {
-      const results = await runLongTermForecast();
-      setRunStatus({ type: 'success', message: `Long-term run complete — ${results.length} evaluation(s) saved.` });
-      loadJobRuns(0);
+      const result = await runLongTermForecast();
+      setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+      setTimeout(() => loadJobRuns(0), 3000);
     } catch {
       setRunStatus({ type: 'error', message: 'Long-term run failed. Check the logs.' });
     } finally {
       setRunningLongTerm(false);
+    }
+  };
+
+  const handleRefreshTide = async () => {
+    if (!window.confirm('Refresh tide data for all coastal locations? This will call the WorldTides API.')) {
+      return;
+    }
+    setRunningTide(true);
+    setRunStatus(null);
+    try {
+      const result = await refreshTideData();
+      setRunStatus({ type: 'success', message: result.status || 'Tide refresh started.' });
+      setTimeout(() => loadJobRuns(0), 3000);
+    } catch {
+      setRunStatus({ type: 'error', message: 'Tide refresh failed. Check the logs.' });
+    } finally {
+      setRunningTide(false);
     }
   };
 
@@ -152,6 +170,14 @@ const JobRunsMetricsView = () => {
             data-testid="run-long-term-btn"
           >
             {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Long-Term (T+3 \u2013 T+7)'}
+          </button>
+          <button
+            className="btn-secondary text-sm"
+            onClick={handleRefreshTide}
+            disabled={anyRunning}
+            data-testid="refresh-tide-btn"
+          >
+            {runningTide ? '\u27F3 Running\u2026' : '\u27F3 Refresh Tide Data'}
           </button>
           {runStatus && (
             <p className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>

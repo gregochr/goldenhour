@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Feb 28, 2026)
+- **Today label on date strip** — current date chip now shows "Today · Fri 28 Feb" with a trailing fade gradient to hint at scrollable overflow
+- **Progressive disclosure popup** — map marker popup shows star rating + Claude summary at first glance; location metadata, score bars, and comfort data behind a "More details" toggle
+- **Improved information hierarchy** — Claude summary promoted above score bars in the popup layout
+- **Score bar tooltips** — Fiery Sky and Golden Hour labels show descriptive tooltips on hover (e.g. "Dramatic colour from clouds catching light")
+- **SVG weather icons** — replaced emoji icons with inline SVG thermometer, wind, rain cloud, and droplet icons in both wildlife hourly table and colour comfort rows
+
+### Fixed (Feb 28, 2026)
+- **Map popup score labels** — removed `cursor: help` style that was showing a confusing `?` cursor on hover over Fiery Sky / Golden Hour labels
+
 ### Refactored (Feb 28, 2026)
 - **Command + Strategy pattern refactoring** — GoF patterns applied to forecast run pipeline
   - `ForecastCommand` record encapsulates run parameters (run type, dates, locations, strategy, manual flag)
