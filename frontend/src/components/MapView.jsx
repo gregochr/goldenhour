@@ -5,6 +5,44 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../context/AuthContext.jsx';
 
+/** Inline SVG weather icons for comfort rows. */
+const ICON_STYLE = { width: '14px', height: '14px', verticalAlign: 'middle', marginRight: '3px', flexShrink: 0 };
+
+function ThermometerIcon() {
+  return (
+    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" />
+    </svg>
+  );
+}
+
+function WindIcon() {
+  return (
+    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" />
+      <path d="M9.6 4.6A2 2 0 1 1 11 8H2" />
+      <path d="M12.6 19.4A2 2 0 1 0 14 16H2" />
+    </svg>
+  );
+}
+
+function RainIcon() {
+  return (
+    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+      <path d="M16 14v6" /><path d="M8 14v6" /><path d="M12 16v6" />
+    </svg>
+  );
+}
+
+function DropletIcon() {
+  return (
+    <svg style={ICON_STYLE} viewBox="0 0 24 24" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />
+    </svg>
+  );
+}
+
 // Override Leaflet popup width
 const popupStyles = `
   .leaflet-popup-content-wrapper {
@@ -209,6 +247,11 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
  * @param {string} props.label
  * @param {number|null} props.score
  */
+const SCORE_TOOLTIPS = {
+  'Fiery Sky': 'Dramatic colour from clouds catching light',
+  'Golden Hour': 'Overall light quality — can score high even with clear sky',
+};
+
 function PopupScoreRow({ label, score }) {
   const pct = score != null ? Math.min(100, Math.max(0, score)) : null;
   const barColour =
@@ -218,9 +261,9 @@ function PopupScoreRow({ label, score }) {
     pct > 25     ? '#A06E00' :
                    '#6B6B6B';
   return (
-    <div style={{ marginBottom: '4px' }}>
+    <div style={{ marginBottom: '4px' }} title={SCORE_TOOLTIPS[label] ?? ''}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#A0A0A0', marginBottom: '2px' }}>
-        <span>{label}</span>
+        <span style={{ cursor: 'help', borderBottom: '1px dotted #6B6B6B' }}>{label}</span>
         <span style={{ fontWeight: '600', color: '#EBEBEB' }}>{pct != null ? pct : '—'}</span>
       </div>
       <div style={{ height: '6px', background: '#3A3D45', borderRadius: '9999px', overflow: 'hidden' }}>
@@ -255,6 +298,7 @@ export default function MapView({ locations, date }) {
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
+  const [expandedPopup, setExpandedPopup] = useState(null);
 
   // Inject popup width styles
   useEffect(() => {
@@ -435,7 +479,7 @@ export default function MapView({ locations, date }) {
                 icon={icon}
                 eventHandlers={{
                   click:      () => setSelectedLocationName(loc.name),
-                  popupclose: () => setSelectedLocationName(null),
+                  popupclose: () => { setSelectedLocationName(null); setExpandedPopup(null); },
                 }}
               >
                 <Popup maxWidth={600} maxHeight={600}>
@@ -458,76 +502,7 @@ export default function MapView({ locations, date }) {
                       )}
                     </div>
 
-                    {/* Row 2: Location type pills */}
-                    {locTypes.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
-                        {locTypes.map((t) => {
-                          const m = POPUP_LOC_TYPE_META[t];
-                          return (
-                            <span key={t} style={{ ...POPUP_PILL, background: '#252830', color: '#EBEBEB', border: '1px solid #374151' }}>
-                              {m.emoji} {m.label}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Row 2.5: Golden hour type */}
-                    {loc.goldenHourType && POPUP_GOLDEN_HOUR_META[loc.goldenHourType] && (() => {
-                      const m = POPUP_GOLDEN_HOUR_META[loc.goldenHourType];
-                      return (
-                        <div style={{ marginBottom: '6px' }}>
-                          <span style={{ ...POPUP_PILL, background: '#431407', color: '#fcd34d', border: '1px solid rgba(146,64,14,0.5)' }}>
-                            {m.emoji} {m.label}
-                          </span>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Row 3: Tide pills — hidden if none */}
-                    {coastalTides.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
-                        {coastalTides.map((t) => (
-                          <span key={t} style={{ ...POPUP_PILL, background: '#083344', color: '#67e8f9', border: '1px solid rgba(22,163,190,0.4)' }}>
-                            🌊 {POPUP_TIDE_META[t]}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Row 3.5: Daily tide schedule (coastal only, fetched from API) */}
-                    <TideIndicator locationName={loc.name} date={date} />
-
-                    {/* Row 4: Golden / Blue hour pills */}
-                    {forecast && goldenStart && blueStart && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
-                        {isSunrise ? (
-                          <>
-                            <span style={bluePillStyle}>
-                              <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Blue</span>
-                              {blueStart}–{blueEnd}
-                            </span>
-                            <span style={goldenPillStyle}>
-                              <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Golden</span>
-                              {goldenStart}–{goldenEnd}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span style={goldenPillStyle}>
-                              <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Golden</span>
-                              {goldenStart}–{goldenEnd}
-                            </span>
-                            <span style={bluePillStyle}>
-                              <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Blue</span>
-                              {blueStart}–{blueEnd}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Scores / summary / comfort OR hourly wildlife timeline */}
+                    {/* First glance: star rating + summary */}
                     {locIsPureWildlife ? (
                       hourlyData.length > 0 ? (
                         <div>
@@ -541,13 +516,13 @@ export default function MapView({ locations, date }) {
                                   {formatEventTimeUk(h.solarEventTime)}
                                 </div>
                                 <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                                  🌡 {h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C` : '—'}
+                                  <span style={{ display: 'inline-flex', alignItems: 'center' }}><ThermometerIcon />{h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C` : '—'}</span>
                                 </div>
                                 <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                                  💨 {h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}
+                                  <span style={{ display: 'inline-flex', alignItems: 'center' }}><WindIcon />{h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}</span>
                                 </div>
                                 <div style={{ display: 'table-cell', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
-                                  🌧 {h.precipitationProbabilityPercent != null ? `${h.precipitationProbabilityPercent}%` : '—'}
+                                  <span style={{ display: 'inline-flex', alignItems: 'center' }}><RainIcon />{h.precipitationProbabilityPercent != null ? `${h.precipitationProbabilityPercent}%` : '—'}</span>
                                 </div>
                               </div>
                             ))}
@@ -569,41 +544,128 @@ export default function MapView({ locations, date }) {
                               </span>
                             </div>
                           )}
-                          {role !== 'LITE_USER' && forecast.fierySkyPotential != null && (
-                            <>
-                              <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />
-                              <PopupScoreRow label="Golden Hour" score={forecast.goldenHourPotential} />
-                            </>
-                          )}
                         </div>
                         {forecast.summary && (
-                          <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#3A3D45', marginBottom: '6px' }}>
+                          <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#3A3D45', marginBottom: '8px' }}>
                             {forecast.summary}
                           </div>
                         )}
 
-                        {/* Comfort rows — shown on colour popups when data is available */}
-                        {forecast.temperatureCelsius != null && (
-                          <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: '#3A3D45', lineHeight: '1.8' }}>
-                            <div>🌡 <strong>{Math.round(forecast.temperatureCelsius)}°C</strong> · feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
-                            <div>💨 <strong>{mpsToMph(forecast.windSpeed)} mph</strong> {degreesToCompass(forecast.windDirection)}</div>
-                            <div>🌧 <strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong> rain chance</div>
-                            {parseFloat(forecast.precipitation ?? 0) > 0 && (
-                              <div>💧 <strong>{parseFloat(forecast.precipitation).toFixed(1)} mm</strong> precip</div>
+                        {/* "More details" toggle */}
+                        <button
+                          onClick={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+                            fontSize: '11px', fontWeight: '600', color: '#6366f1',
+                            display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px',
+                          }}
+                        >
+                          {expandedPopup === loc.name ? '▾ Less details' : '▸ More details'}
+                        </button>
+
+                        {expandedPopup === loc.name && (
+                          <>
+                            {/* Location type pills */}
+                            {locTypes.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                                {locTypes.map((t) => {
+                                  const m = POPUP_LOC_TYPE_META[t];
+                                  return (
+                                    <span key={t} style={{ ...POPUP_PILL, background: '#252830', color: '#EBEBEB', border: '1px solid #374151' }}>
+                                      {m.emoji} {m.label}
+                                    </span>
+                                  );
+                                })}
+                              </div>
                             )}
-                          </div>
+
+                            {/* Golden hour type */}
+                            {loc.goldenHourType && POPUP_GOLDEN_HOUR_META[loc.goldenHourType] && (() => {
+                              const m = POPUP_GOLDEN_HOUR_META[loc.goldenHourType];
+                              return (
+                                <div style={{ marginBottom: '6px' }}>
+                                  <span style={{ ...POPUP_PILL, background: '#431407', color: '#fcd34d', border: '1px solid rgba(146,64,14,0.5)' }}>
+                                    {m.emoji} {m.label}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+
+                            {/* Tide pills */}
+                            {coastalTides.length > 0 && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                                {coastalTides.map((t) => (
+                                  <span key={t} style={{ ...POPUP_PILL, background: '#083344', color: '#67e8f9', border: '1px solid rgba(22,163,190,0.4)' }}>
+                                    🌊 {POPUP_TIDE_META[t]}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Daily tide schedule */}
+                            <TideIndicator locationName={loc.name} date={date} />
+
+                            {/* Golden / Blue hour pills */}
+                            {goldenStart && blueStart && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                                {isSunrise ? (
+                                  <>
+                                    <span style={bluePillStyle}>
+                                      <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Blue</span>
+                                      {blueStart}–{blueEnd}
+                                    </span>
+                                    <span style={goldenPillStyle}>
+                                      <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Golden</span>
+                                      {goldenStart}–{goldenEnd}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span style={goldenPillStyle}>
+                                      <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Golden</span>
+                                      {goldenStart}–{goldenEnd}
+                                    </span>
+                                    <span style={bluePillStyle}>
+                                      <span style={{ fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Blue</span>
+                                      {blueStart}–{blueEnd}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Score bars */}
+                            {role !== 'LITE_USER' && forecast.fierySkyPotential != null && (
+                              <div style={{ marginBottom: '6px' }}>
+                                <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />
+                                <PopupScoreRow label="Golden Hour" score={forecast.goldenHourPotential} />
+                              </div>
+                            )}
+
+                            {/* Comfort rows */}
+                            {forecast.temperatureCelsius != null && (
+                              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: '#3A3D45', lineHeight: '1.8' }}>
+                                <div style={{ display: 'flex', alignItems: 'center' }}><ThermometerIcon /><strong>{Math.round(forecast.temperatureCelsius)}°C</strong>&nbsp;· feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
+                                <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{degreesToCompass(forecast.windDirection)}</div>
+                                <div style={{ display: 'flex', alignItems: 'center' }}><RainIcon /><strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong>&nbsp;rain chance</div>
+                                {parseFloat(forecast.precipitation ?? 0) > 0 && (
+                                  <div style={{ display: 'flex', alignItems: 'center' }}><DropletIcon /><strong>{parseFloat(forecast.precipitation).toFixed(1)} mm</strong>&nbsp;precip</div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Footer: generated at */}
+                            {forecast?.forecastRunAt && (
+                              <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
+                                Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
+                              </div>
+                            )}
+                          </>
                         )}
                       </>
                     ) : (
                       <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
                         No forecast available
-                      </div>
-                    )}
-
-                    {/* Footer: generated at (colour forecasts only) */}
-                    {!locIsPureWildlife && forecast?.forecastRunAt && (
-                      <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
-                        Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
                       </div>
                     )}
                   </div>
