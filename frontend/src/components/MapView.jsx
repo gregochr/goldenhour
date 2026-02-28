@@ -603,7 +603,7 @@ export default function MapView({ locations, date }) {
                     {/* Footer: generated at (colour forecasts only) */}
                     {!locIsPureWildlife && forecast?.forecastRunAt && (
                       <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
-                        Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}
+                        Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
                       </div>
                     )}
                   </div>
