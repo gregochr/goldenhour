@@ -19,15 +19,16 @@ describe('ViewToggle', () => {
     expect(screen.getByRole('button', { name: 'Manage' })).toBeInTheDocument();
   });
 
-  it('highlights the active view', () => {
+  it('highlights the active view with gold underline', () => {
     const onChange = vi.fn();
     render(<ViewToggle value="map" onChange={onChange} isAdmin={true} />);
 
     const mapButton = screen.getByRole('button', { name: 'Map' });
     const manageButton = screen.getByRole('button', { name: 'Manage' });
 
-    expect(mapButton).toHaveClass('bg-gray-700');
-    expect(manageButton).not.toHaveClass('bg-gray-700');
+    expect(mapButton).toHaveClass('text-plex-gold');
+    expect(mapButton).toHaveClass('border-plex-gold');
+    expect(manageButton).not.toHaveClass('text-plex-gold');
   });
 
   it('calls onChange with new view value when button is clicked', () => {
@@ -38,14 +39,14 @@ describe('ViewToggle', () => {
     expect(onChange).toHaveBeenCalledWith('manage');
   });
 
-  it('active button has bg-gray-700, inactive has text-gray-500', () => {
+  it('active button has gold text, inactive has secondary text', () => {
     const onChange = vi.fn();
     render(<ViewToggle value="manage" onChange={onChange} isAdmin={true} />);
 
     const mapButton = screen.getByRole('button', { name: 'Map' });
     const manageButton = screen.getByRole('button', { name: 'Manage' });
 
-    expect(manageButton).toHaveClass('bg-gray-700');
-    expect(mapButton).toHaveClass('text-gray-500');
+    expect(manageButton).toHaveClass('text-plex-gold');
+    expect(mapButton).toHaveClass('text-plex-text-secondary');
   });
 });

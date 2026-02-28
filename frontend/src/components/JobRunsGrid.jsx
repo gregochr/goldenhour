@@ -35,19 +35,19 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
 
     const successRate = (run.succeeded / total) * 100;
     if (successRate === 100) {
-      return <span className="inline-block px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">All OK</span>;
+      return <span className="inline-block px-2 py-1 rounded-full bg-green-900/30 text-green-400 text-xs font-medium">All OK</span>;
     }
     if (successRate >= 80) {
-      return <span className="inline-block px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium">Partial</span>;
+      return <span className="inline-block px-2 py-1 rounded-full bg-yellow-900/30 text-yellow-400 text-xs font-medium">Partial</span>;
     }
-    return <span className="inline-block px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-medium">Failed</span>;
+    return <span className="inline-block px-2 py-1 rounded-full bg-red-900/30 text-red-400 text-xs font-medium">Failed</span>;
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+    <div className="card">
       {/* Sort controls */}
-      <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="font-semibold text-gray-900">Job Runs ({runs.length})</h3>
+      <div className="p-4 border-b border-plex-border flex justify-between items-center">
+        <h3 className="font-semibold text-plex-text">Job Runs ({runs.length})</h3>
         <div className="flex gap-2">
           {[
             { value: 'date', label: 'Date', tooltip: 'Sort by start time (Descending — newest first)' },
@@ -59,15 +59,15 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
                 onClick={() => setSortBy(option.value)}
                 className={`px-3 py-1 text-sm rounded ${
                   sortBy === option.value
-                    ? 'bg-blue-100 text-blue-700 font-medium'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    ? 'bg-plex-gold/20 text-plex-gold font-medium'
+                    : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border'
                 }`}
                 data-testid={`sort-${option.value}`}
               >
                 {option.label}
               </button>
               {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-plex-text bg-plex-surface rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                 {option.tooltip}
               </div>
             </div>
@@ -76,15 +76,15 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
       </div>
 
       {/* Runs table */}
-      <div className="divide-y divide-gray-200">
+      <div className="divide-y divide-plex-border">
         {sortedRuns.length === 0 ? (
-          <div className="p-4 text-gray-500 text-sm">No job runs available</div>
+          <div className="p-4 text-plex-text-muted text-sm">No job runs available</div>
         ) : (
           <>
             {sortedRuns.map((run) => (
               <div key={run.id}>
                 <div
-                  className="p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                  className="p-4 hover:bg-plex-surface-light cursor-pointer transition-colors"
                   role="button"
                   tabIndex={0}
                   onClick={() => setExpandedId(expandedId === run.id ? null : run.id)}
@@ -93,28 +93,28 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
                 >
                   <div className="flex justify-between items-center">
                     <div className="flex-1">
-                      <div className="font-medium text-gray-900 flex items-center gap-2">
+                      <div className="font-medium text-plex-text flex items-center gap-2">
                         {run.jobName}
                         {getStatusBadge(run)}
                       </div>
-                      <div className="text-xs text-gray-600 mt-1">
+                      <div className="text-xs text-plex-text-muted mt-1">
                         {new Date(run.startedAt).toLocaleString()} · {formatDuration(run.durationMs)}
                       </div>
                       {run.totalCostPence > 0 && (
-                        <div className="text-xs text-blue-600 mt-1 font-semibold">
+                        <div className="text-xs text-plex-gold mt-1 font-semibold">
                           Cost: £{(run.totalCostPence / 1000).toFixed(3)}
                         </div>
                       )}
                     </div>
                     <div className="text-right flex-shrink-0 ml-4">
-                      <div className="text-sm font-semibold text-gray-900">
+                      <div className="text-sm font-semibold text-plex-text">
                         {run.succeeded}/{(run.succeeded || 0) + (run.failed || 0)}
                       </div>
-                      <div className="text-xs text-gray-600">
-                        {run.failed > 0 && <span className="text-red-600">{run.failed} failed</span>}
+                      <div className="text-xs text-plex-text-muted">
+                        {run.failed > 0 && <span className="text-red-400">{run.failed} failed</span>}
                       </div>
                     </div>
-                    <div className="ml-4 text-gray-400">
+                    <div className="ml-4 text-plex-text-secondary">
                       {expandedId === run.id ? '▼' : '▶'}
                     </div>
                   </div>
@@ -122,7 +122,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
 
                 {/* Expanded detail */}
                 {expandedId === run.id && (
-                  <div className="p-4 bg-gray-50 border-t border-gray-200">
+                  <div className="p-4 bg-plex-surface border-t border-plex-border">
                     <JobRunDetail jobRun={run} />
                   </div>
                 )}
@@ -134,11 +134,11 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
 
       {/* Load more */}
       {hasMore && (
-        <div className="p-4 border-t border-gray-200 text-center">
+        <div className="p-4 border-t border-plex-border text-center">
           <button
             onClick={onLoadMore}
             disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400"
+            className="px-4 py-2 text-sm font-medium text-plex-gold hover:text-plex-gold-light disabled:text-plex-text-muted"
             data-testid="load-more-btn"
           >
             {loading ? 'Loading...' : 'Load More'}

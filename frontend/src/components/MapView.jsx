@@ -31,21 +31,21 @@ import TideIndicator from './TideIndicator.jsx';
  * @returns {string} hex colour
  */
 function scoreColour(avg) {
-  if (avg == null) return '#374151';
-  if (avg > 80)   return '#fbbf24'; // gold
-  if (avg > 60)   return '#f59e0b'; // amber
-  if (avg > 40)   return '#d97706'; // orange
-  if (avg > 20)   return '#92400e'; // brown
-  return '#6b7280';                 // grey
+  if (avg == null) return '#3A3D45';
+  if (avg > 80)   return '#E5A00D'; // plex gold
+  if (avg > 60)   return '#CC8A00'; // plex gold-dark
+  if (avg > 40)   return '#A06E00'; // warm bronze
+  if (avg > 20)   return '#6B5000'; // dark bronze
+  return '#6B6B6B';                 // muted
 }
 
 /** Maps a 1–5 Haiku rating to a marker colour. */
 const RATING_COLOURS = {
-  1: '#6b7280',
-  2: '#92400e',
-  3: '#d97706',
-  4: '#f59e0b',
-  5: '#fbbf24',
+  1: '#6B6B6B',
+  2: '#6B5000',
+  3: '#A06E00',
+  4: '#CC8A00',
+  5: '#E5A00D',
 };
 
 const SUNRISE_LINE_COLOUR = '#f97316';
@@ -159,7 +159,7 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
     colour = '#4ade80'; // green
     label = '🦅';
   } else if (rating != null) {
-    colour = RATING_COLOURS[rating] ?? '#6b7280';
+    colour = RATING_COLOURS[rating] ?? '#6B6B6B';
     label = `${rating}★`;
   } else {
     const avg = (fierySky != null && goldenHour != null)
@@ -212,18 +212,18 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
 function PopupScoreRow({ label, score }) {
   const pct = score != null ? Math.min(100, Math.max(0, score)) : null;
   const barColour =
-    pct == null  ? '#6b7280' :
-    pct > 75     ? '#fbbf24' :
-    pct > 50     ? '#f97316' :
-    pct > 25     ? '#b45309' :
-                   '#6b7280';
+    pct == null  ? '#6B6B6B' :
+    pct > 75     ? '#E5A00D' :
+    pct > 50     ? '#CC8A00' :
+    pct > 25     ? '#A06E00' :
+                   '#6B6B6B';
   return (
     <div style={{ marginBottom: '4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#A0A0A0', marginBottom: '2px' }}>
         <span>{label}</span>
-        <span style={{ fontWeight: '600', color: '#374151' }}>{pct != null ? pct : '—'}</span>
+        <span style={{ fontWeight: '600', color: '#EBEBEB' }}>{pct != null ? pct : '—'}</span>
       </div>
-      <div style={{ height: '6px', background: '#e5e7eb', borderRadius: '9999px', overflow: 'hidden' }}>
+      <div style={{ height: '6px', background: '#3A3D45', borderRadius: '9999px', overflow: 'hidden' }}>
         <div style={{ height: '100%', width: pct != null ? `${pct}%` : '0%', background: barColour, borderRadius: '9999px' }} />
       </div>
     </div>
@@ -289,7 +289,7 @@ export default function MapView({ locations, date }) {
 
   if (!date || locations.length === 0) {
     return (
-      <p className="text-gray-500 text-sm text-center py-8">
+      <p className="text-plex-text-muted text-sm text-center py-8">
         No forecast data available.
       </p>
     );
@@ -306,15 +306,15 @@ export default function MapView({ locations, date }) {
     <div className="flex flex-col gap-4">
       {/* Location type filter toggles */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-gray-500 mr-1">Filter:</span>
+        <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
         {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
           <button
             key={type}
             onClick={() => toggleTypeFilter(type)}
             className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
               activeTypeFilters.has(type)
-                ? 'bg-gray-600 border-gray-500 text-gray-100'
-                : 'bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200'
+                ? 'bg-plex-border border-plex-border-light text-plex-text'
+                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
             }`}
           >
             {emoji} {label}
@@ -323,7 +323,7 @@ export default function MapView({ locations, date }) {
         {activeTypeFilters.size > 0 && (
           <button
             onClick={() => setActiveTypeFilters(new Set())}
-            className="px-3 py-1 text-xs font-medium rounded-full border border-gray-700 text-gray-500 hover:text-gray-300 transition-colors"
+            className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
           >
             Clear
           </button>
@@ -332,18 +332,18 @@ export default function MapView({ locations, date }) {
 
       {/* Sunrise / Sunset radio toggle */}
       <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+        <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer select-none">
           <input
             type="radio"
             name="map-event-type"
             value="SUNRISE"
             checked={eventType === 'SUNRISE'}
             onChange={() => setEventType('SUNRISE')}
-            className="accent-orange-400"
+            className="accent-[#E5A00D]"
           />
           🌅 Sunrise
         </label>
-        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
+        <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer select-none">
           <input
             type="radio"
             name="map-event-type"
@@ -439,7 +439,7 @@ export default function MapView({ locations, date }) {
                 }}
               >
                 <Popup maxWidth={600} maxHeight={600}>
-                  <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+                  <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
 
                     {/* Row 1: Title + event time pill */}
                     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '8px' }}>
@@ -464,7 +464,7 @@ export default function MapView({ locations, date }) {
                         {locTypes.map((t) => {
                           const m = POPUP_LOC_TYPE_META[t];
                           return (
-                            <span key={t} style={{ ...POPUP_PILL, background: '#1f2937', color: '#d1d5db', border: '1px solid #374151' }}>
+                            <span key={t} style={{ ...POPUP_PILL, background: '#252830', color: '#EBEBEB', border: '1px solid #374151' }}>
                               {m.emoji} {m.label}
                             </span>
                           );
@@ -537,7 +537,7 @@ export default function MapView({ locations, date }) {
                           <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
                             {hourlyData.map((h) => (
                               <div key={h.solarEventTime} style={{ display: 'table-row' }}>
-                                <div style={{ display: 'table-cell', color: '#6b7280', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'table-cell', color: '#6B6B6B', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
                                   {formatEventTimeUk(h.solarEventTime)}
                                 </div>
                                 <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
@@ -562,9 +562,9 @@ export default function MapView({ locations, date }) {
                       <>
                         <div style={{ marginBottom: '6px' }}>
                           {forecast.rating != null && (
-                            <div style={{ fontSize: '14px', color: '#f59e0b', letterSpacing: '2px', marginBottom: '4px' }}>
+                            <div style={{ fontSize: '14px', color: '#E5A00D', letterSpacing: '2px', marginBottom: '4px' }}>
                               {'★'.repeat(forecast.rating)}{'☆'.repeat(5 - forecast.rating)}
-                              <span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '6px', letterSpacing: 0 }}>
+                              <span style={{ fontSize: '11px', color: '#6B6B6B', marginLeft: '6px', letterSpacing: 0 }}>
                                 {forecast.rating}/5
                               </span>
                             </div>
@@ -577,14 +577,14 @@ export default function MapView({ locations, date }) {
                           )}
                         </div>
                         {forecast.summary && (
-                          <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#374151', marginBottom: '6px' }}>
+                          <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#3A3D45', marginBottom: '6px' }}>
                             {forecast.summary}
                           </div>
                         )}
 
                         {/* Comfort rows — shown on colour popups when data is available */}
                         {forecast.temperatureCelsius != null && (
-                          <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: '#374151', lineHeight: '1.8' }}>
+                          <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: '#3A3D45', lineHeight: '1.8' }}>
                             <div>🌡 <strong>{Math.round(forecast.temperatureCelsius)}°C</strong> · feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
                             <div>💨 <strong>{mpsToMph(forecast.windSpeed)} mph</strong> {degreesToCompass(forecast.windDirection)}</div>
                             <div>🌧 <strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong> rain chance</div>

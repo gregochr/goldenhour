@@ -35,13 +35,13 @@ export default function TideIndicator({ locationName, date }) {
   return (
     <div
       data-testid="tide-indicator"
-      className="flex items-center flex-wrap gap-x-3 gap-y-1 pt-2 border-t border-gray-800"
+      className="flex items-center flex-wrap gap-x-3 gap-y-1 pt-2 border-t border-plex-border"
     >
       {tides.map((tide) => (
-        <span key={tide.id} className="text-xs text-gray-400 whitespace-nowrap">
+        <span key={tide.id} className="text-xs text-plex-text-secondary whitespace-nowrap">
           {tide.type === 'HIGH' ? '↑' : '↓'}{' '}
           {formatEventTimeUk(tide.eventTime)}{' '}
-          <span className="text-gray-500">{parseFloat(tide.heightMetres).toFixed(1)}m</span>
+          <span className="text-plex-text-muted">{parseFloat(tide.heightMetres).toFixed(1)}m</span>
         </span>
       ))}
     </div>

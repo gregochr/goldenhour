@@ -26,7 +26,7 @@ export default function StarRating({ rating, label, testId }) {
         {[1, 2, 3, 4, 5].map((star) => (
           <span
             key={star}
-            className={star <= clamped ? 'text-amber-400' : 'text-gray-600'}
+            className={star <= clamped ? 'text-plex-gold' : 'text-plex-border'}
             style={{ fontSize: '18px', lineHeight: 1 }}
             aria-hidden="true"
           >
@@ -35,7 +35,7 @@ export default function StarRating({ rating, label, testId }) {
         ))}
       </div>
       {rating != null && (
-        <span className="text-sm text-gray-400">{clamped}/5</span>
+        <span className="text-sm text-plex-text-secondary">{clamped}/5</span>
       )}
     </div>
   );

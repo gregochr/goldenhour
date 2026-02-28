@@ -15,7 +15,7 @@ export default function WindIndicator({ windSpeed, windDirection }) {
 
   return (
     <div data-testid="wind-indicator" className="flex flex-col items-center gap-1">
-      <p className="text-xs text-gray-500">Wind</p>
+      <p className="text-xs text-plex-text-muted">Wind</p>
       <div
         className="text-xl leading-none"
         style={{ transform: `rotate(${windDirection}deg)` }}
@@ -24,7 +24,7 @@ export default function WindIndicator({ windSpeed, windDirection }) {
       >
         ↑
       </div>
-      <p className="text-sm font-medium text-gray-200">
+      <p className="text-sm font-medium text-plex-text">
         {mph} mph {compass}
       </p>
     </div>

@@ -13,21 +13,21 @@ export default function ScoreBar({ label, score, testId }) {
   const pct = score != null ? Math.min(100, Math.max(0, score)) : null;
 
   const barColour =
-    pct == null  ? 'bg-gray-600' :
-    pct >= 75    ? 'bg-amber-400' :
-    pct >= 50    ? 'bg-orange-500' :
-    pct >= 25    ? 'bg-orange-700' :
-                   'bg-gray-500';
+    pct == null  ? 'bg-plex-text-muted' :
+    pct >= 75    ? 'bg-plex-gold' :
+    pct >= 50    ? 'bg-plex-gold-dark' :
+    pct >= 25    ? 'bg-amber-700' :
+                   'bg-plex-text-muted';
 
   return (
     <div data-testid={testId} className="flex flex-col gap-1">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-gray-400">{label}</span>
-        <span className="font-semibold text-gray-200">
+        <span className="text-plex-text-secondary">{label}</span>
+        <span className="font-semibold text-plex-text">
           {pct != null ? `${pct}` : '—'}
         </span>
       </div>
-      <div className="h-2 rounded-full bg-gray-700 overflow-hidden">
+      <div className="h-2 rounded-full bg-plex-border overflow-hidden">
         <div
           className={`h-full rounded-full transition-all ${barColour}`}
           style={{ width: pct != null ? `${pct}%` : '0%' }}

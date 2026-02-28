@@ -40,8 +40,8 @@ export default function LocationAlerts({ locations, onReenabledLocation }) {
         {failingLocations.map((loc) => (
           <div key={loc.name} className="flex items-start justify-between gap-3 p-3 bg-amber-900/10 rounded border border-amber-700/30">
             <div className="flex-1 min-w-0">
-              <div className="font-medium text-gray-100">{loc.name}</div>
-              <div className="text-xs text-gray-400 mt-1">
+              <div className="font-medium text-plex-text">{loc.name}</div>
+              <div className="text-xs text-plex-text-secondary mt-1">
                 {loc.disabledReason ? (
                   <>
                     <div>{loc.disabledReason}</div>

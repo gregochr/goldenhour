@@ -64,7 +64,7 @@ export default function OutcomeModal({
       aria-labelledby="outcome-modal-title"
     >
       <div data-testid="outcome-form" className="card w-full max-w-md mx-4">
-        <h2 id="outcome-modal-title" className="text-lg font-semibold text-gray-100 mb-4">
+        <h2 id="outcome-modal-title" className="text-lg font-semibold text-plex-text mb-4">
           Record {type.charAt(0) + type.slice(1).toLowerCase()} Outcome — {date}
         </h2>
 
@@ -80,7 +80,7 @@ export default function OutcomeModal({
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <fieldset>
-              <legend className="text-sm text-gray-400 mb-2">Did you go out?</legend>
+              <legend className="text-sm text-plex-text-secondary mb-2">Did you go out?</legend>
               <div className="flex gap-3">
                 <button
                   type="button"
@@ -102,7 +102,7 @@ export default function OutcomeModal({
             </fieldset>
 
             <div>
-              <label htmlFor="fiery-sky-actual" className="text-sm text-gray-400 block mb-1">
+              <label htmlFor="fiery-sky-actual" className="text-sm text-plex-text-secondary block mb-1">
                 Fiery Sky (0–100)
               </label>
               <input
@@ -113,11 +113,11 @@ export default function OutcomeModal({
                 max="100"
                 value={fierySkyActual !== '' ? fierySkyActual : 0}
                 onChange={(e) => setFierySkyActual(e.target.value)}
-                className="w-full accent-amber-400"
+                className="w-full accent-[#E5A00D]"
               />
-              <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+              <div className="flex justify-between text-xs text-plex-text-muted mt-0.5">
                 <span>0</span>
-                <span className="font-semibold text-gray-200">
+                <span className="font-semibold text-plex-text">
                   {fierySkyActual !== '' ? fierySkyActual : '—'}
                 </span>
                 <span>100</span>
@@ -125,7 +125,7 @@ export default function OutcomeModal({
             </div>
 
             <div>
-              <label htmlFor="golden-hour-actual" className="text-sm text-gray-400 block mb-1">
+              <label htmlFor="golden-hour-actual" className="text-sm text-plex-text-secondary block mb-1">
                 Golden Hour (0–100)
               </label>
               <input
@@ -136,11 +136,11 @@ export default function OutcomeModal({
                 max="100"
                 value={goldenHourActual !== '' ? goldenHourActual : 0}
                 onChange={(e) => setGoldenHourActual(e.target.value)}
-                className="w-full accent-amber-400"
+                className="w-full accent-[#E5A00D]"
               />
-              <div className="flex justify-between text-xs text-gray-500 mt-0.5">
+              <div className="flex justify-between text-xs text-plex-text-muted mt-0.5">
                 <span>0</span>
-                <span className="font-semibold text-gray-200">
+                <span className="font-semibold text-plex-text">
                   {goldenHourActual !== '' ? goldenHourActual : '—'}
                 </span>
                 <span>100</span>
@@ -148,13 +148,13 @@ export default function OutcomeModal({
             </div>
 
             <div>
-              <label htmlFor="outcome-notes" className="text-sm text-gray-400 block mb-1">
+              <label htmlFor="outcome-notes" className="text-sm text-plex-text-secondary block mb-1">
                 Notes (optional)
               </label>
               <textarea
                 id="outcome-notes"
                 data-testid="outcome-notes"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-sm text-gray-100 resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full bg-plex-surface-light border border-plex-border rounded-lg p-2 text-sm text-plex-text resize-none focus:outline-none focus:ring-2 focus:ring-plex-gold"
                 rows={3}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

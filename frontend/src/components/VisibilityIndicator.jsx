@@ -33,13 +33,13 @@ export default function VisibilityIndicator({ visibility }) {
 
   return (
     <div data-testid="visibility-indicator" className="flex flex-col items-center gap-1">
-      <p className="text-xs text-gray-500">Visibility</p>
+      <p className="text-xs text-plex-text-muted">Visibility</p>
       {unavailable ? (
-        <p className="text-sm font-medium text-gray-600">N/A</p>
+        <p className="text-sm font-medium text-plex-text-muted">N/A</p>
       ) : (
         <>
           <p className={`text-sm font-medium ${color}`}>{km} km</p>
-          <p className="text-xs text-gray-400">{label}</p>
+          <p className="text-xs text-plex-text-secondary">{label}</p>
         </>
       )}
     </div>

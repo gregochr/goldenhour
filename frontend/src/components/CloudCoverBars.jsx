@@ -25,16 +25,16 @@ export default function CloudCoverBars({ lowCloud = 0, midCloud = 0, highCloud =
 
   return (
     <div data-testid="cloud-cover-bars" className="w-full">
-      <p className="text-xs text-gray-500 mb-1">Cloud cover</p>
+      <p className="text-xs text-plex-text-muted mb-1">Cloud cover</p>
       <ResponsiveContainer width="100%" height={64}>
         <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: -24 }}>
-          <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#A0A0A0' }} axisLine={false} tickLine={false} />
+          <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#A0A0A0' }} axisLine={false} tickLine={false} />
           <Tooltip
             formatter={(value) => [`${value}%`]}
-            contentStyle={{ background: '#1f2937', border: '1px solid #374151', borderRadius: '6px', fontSize: '11px', padding: '6px 10px' }}
-            labelStyle={{ color: '#9ca3af' }}
-            itemStyle={{ color: '#f3f4f6' }}
+            contentStyle={{ background: '#252830', border: '1px solid #3A3D45', borderRadius: '6px', fontSize: '11px', padding: '6px 10px' }}
+            labelStyle={{ color: '#A0A0A0' }}
+            itemStyle={{ color: '#EBEBEB' }}
             cursor={{ fill: 'rgba(255,255,255,0.04)' }}
           />
           <Bar dataKey="value" radius={[2, 2, 0, 0]}>
