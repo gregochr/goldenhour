@@ -32,11 +32,11 @@ const JobRunDetail = ({ jobRun }) => {
   }, [jobRun.id]);
 
   if (loading) {
-    return <div className="text-gray-500 text-sm">Loading...</div>;
+    return <div className="text-plex-text-muted text-sm">Loading...</div>;
   }
 
   if (error) {
-    return <div className="text-red-600 text-sm">Error: {error}</div>;
+    return <div className="text-red-400 text-sm">Error: {error}</div>;
   }
 
   // Group API calls by service
@@ -72,23 +72,23 @@ const JobRunDetail = ({ jobRun }) => {
     : 0;
 
   return (
-    <div className="mt-4 space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+    <div className="mt-4 space-y-3 bg-plex-bg p-4 rounded-lg border border-plex-border">
       {/* Evaluation Summary */}
       {(locationsProcessed > 0 || daysCount > 0) && (
-        <div className="mb-4 pb-4 border-b border-gray-200">
-          <h4 className="font-semibold text-gray-900 text-sm mb-2">Evaluation Summary</h4>
+        <div className="mb-4 pb-4 border-b border-plex-border">
+          <h4 className="font-semibold text-plex-text text-sm mb-2">Evaluation Summary</h4>
           <div className="grid grid-cols-2 gap-3 text-sm">
             {locationsProcessed > 0 && (
-              <div className="bg-white p-2 rounded border border-gray-200">
-                <div className="text-gray-600 text-xs">Locations</div>
-                <div className="font-semibold text-gray-900">{locationsProcessed}</div>
+              <div className="bg-plex-surface p-2 rounded border border-plex-border">
+                <div className="text-plex-text-muted text-xs">Locations</div>
+                <div className="font-semibold text-plex-text">{locationsProcessed}</div>
               </div>
             )}
             {daysCount > 0 && (
-              <div className="bg-white p-2 rounded border border-gray-200">
-                <div className="text-gray-600 text-xs">Days</div>
-                <div className="font-semibold text-gray-900">
-                  {daysCount} <span className="text-gray-500 text-xs">({minDate} to {maxDate})</span>
+              <div className="bg-plex-surface p-2 rounded border border-plex-border">
+                <div className="text-plex-text-muted text-xs">Days</div>
+                <div className="font-semibold text-plex-text">
+                  {daysCount} <span className="text-plex-text-muted text-xs">({minDate} to {maxDate})</span>
                 </div>
               </div>
             )}
@@ -96,40 +96,40 @@ const JobRunDetail = ({ jobRun }) => {
         </div>
       )}
 
-      <h4 className="font-semibold text-gray-900 text-sm">API Call Breakdown</h4>
+      <h4 className="font-semibold text-plex-text text-sm">API Call Breakdown</h4>
 
       {Object.entries(serviceStats).length === 0 ? (
-        <p className="text-gray-500 text-sm">No API calls recorded</p>
+        <p className="text-plex-text-muted text-sm">No API calls recorded</p>
       ) : (
         <div className="space-y-2">
           {Object.entries(serviceStats).map(([service, stats]) => (
             <div
               key={service}
-              className="bg-white p-3 rounded border border-gray-200 text-sm"
+              className="bg-plex-surface p-3 rounded border border-plex-border text-sm"
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="font-medium text-gray-900">{service}</div>
-                  <div className="text-xs text-gray-600 mt-1">
+                  <div className="font-medium text-plex-text">{service}</div>
+                  <div className="text-xs text-plex-text-muted mt-1">
                     {stats.count} calls, avg {Math.round(stats.totalDuration / stats.count)}ms
                   </div>
-                  <div className="text-xs text-blue-600 mt-1 font-semibold">
+                  <div className="text-xs text-plex-gold mt-1 font-semibold">
                     Cost: £{(stats.totalCost / 1000).toFixed(3)}
                   </div>
                   {stats.errorCount > 0 && (
-                    <div className="text-xs text-red-600 mt-1">
+                    <div className="text-xs text-red-400 mt-1">
                       {stats.errorCount} failures ({Math.round((stats.errorCount / stats.count) * 100)}%)
                     </div>
                   )}
                 </div>
                 <div className="flex gap-1">
                   {stats.errorCount > 0 && (
-                    <span className="inline-block px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-medium">
+                    <span className="inline-block px-2 py-1 rounded-full bg-red-900/30 text-red-400 text-xs font-medium">
                       {stats.errorCount} errors
                     </span>
                   )}
                   {stats.errorCount === 0 && (
-                    <span className="inline-block px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                    <span className="inline-block px-2 py-1 rounded-full bg-green-900/30 text-green-400 text-xs font-medium">
                       All OK
                     </span>
                   )}
@@ -142,8 +142,8 @@ const JobRunDetail = ({ jobRun }) => {
 
       {/* Anthropic breakdown by model, day, and event */}
       {apiCalls.some((call) => call.service === 'ANTHROPIC') && (
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <h5 className="font-medium text-gray-900 text-xs mb-2">Anthropic Evaluation Breakdown</h5>
+        <div className="mt-3 pt-3 border-t border-plex-border">
+          <h5 className="font-medium text-plex-text text-xs mb-2">Anthropic Evaluation Breakdown</h5>
           {(() => {
             const anthropicCalls = apiCalls.filter((call) => call.service === 'ANTHROPIC');
             const breakdown = anthropicCalls.reduce((acc, call) => {
@@ -178,23 +178,23 @@ const JobRunDetail = ({ jobRun }) => {
                 {sortedKeys.map((key) => {
                   const { date, event, model, count } = breakdown[key];
                   return (
-                    <div key={key} className="bg-white p-2 rounded border border-gray-200 text-xs">
+                    <div key={key} className="bg-plex-surface p-2 rounded border border-plex-border text-xs">
                       <div className="grid grid-cols-4 gap-2">
                         <div>
-                          <div className="text-gray-600 text-xs">Date</div>
-                          <div className="font-semibold text-gray-900">{date}</div>
+                          <div className="text-plex-text-muted text-xs">Date</div>
+                          <div className="font-semibold text-plex-text">{date}</div>
                         </div>
                         <div>
-                          <div className="text-gray-600 text-xs">Event</div>
-                          <div className="font-semibold text-gray-900">{event}</div>
+                          <div className="text-plex-text-muted text-xs">Event</div>
+                          <div className="font-semibold text-plex-text">{event}</div>
                         </div>
                         <div>
-                          <div className="text-gray-600 text-xs">Model</div>
-                          <div className="font-semibold text-gray-900">{model}</div>
+                          <div className="text-plex-text-muted text-xs">Model</div>
+                          <div className="font-semibold text-plex-text">{model}</div>
                         </div>
                         <div>
-                          <div className="text-gray-600 text-xs">Count</div>
-                          <div className="font-semibold text-gray-900">{count}</div>
+                          <div className="text-plex-text-muted text-xs">Count</div>
+                          <div className="font-semibold text-plex-text">{count}</div>
                         </div>
                       </div>
                     </div>
@@ -208,15 +208,15 @@ const JobRunDetail = ({ jobRun }) => {
 
       {/* Failed calls detail */}
       {apiCalls.some((call) => !call.succeeded) && (
-        <div className="mt-3 pt-3 border-t border-gray-200">
-          <h5 className="font-medium text-gray-900 text-xs mb-2">Failed Calls</h5>
+        <div className="mt-3 pt-3 border-t border-plex-border">
+          <h5 className="font-medium text-plex-text text-xs mb-2">Failed Calls</h5>
           <div className="space-y-1">
             {apiCalls
               .filter((call) => !call.succeeded)
               .map((call) => (
-                <div key={call.id} className="text-xs text-red-600 bg-red-50 p-2 rounded">
+                <div key={call.id} className="text-xs text-red-400 bg-red-900/20 p-2 rounded">
                   <div className="font-medium">{call.service}</div>
-                  <div className="text-red-700">{call.errorMessage}</div>
+                  <div className="text-red-400">{call.errorMessage}</div>
                 </div>
               ))}
           </div>
@@ -225,10 +225,10 @@ const JobRunDetail = ({ jobRun }) => {
 
       {/* Total cost */}
       {totalCostPence > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-200">
+        <div className="mt-3 pt-3 border-t border-plex-border">
           <div className="flex justify-between items-center">
-            <span className="font-medium text-gray-900 text-sm">Total Cost</span>
-            <span className="text-lg font-bold text-blue-600">£{(totalCostPence / 1000).toFixed(3)}</span>
+            <span className="font-medium text-plex-text text-sm">Total Cost</span>
+            <span className="text-lg font-bold text-plex-gold">£{(totalCostPence / 1000).toFixed(3)}</span>
           </div>
         </div>
       )}

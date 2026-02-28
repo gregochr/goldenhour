@@ -19,8 +19,8 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
           onClick={() => onSelect(date)}
           className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
             date === selectedDate
-              ? 'bg-gray-100 text-gray-900'
-              : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              ? 'bg-plex-gold text-gray-900'
+              : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text'
           }`}
         >
           {formatDateLabel(date)}

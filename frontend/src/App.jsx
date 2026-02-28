@@ -49,15 +49,15 @@ function AppInner() {
     : allDates[0] ?? null;
 
   return (
-    <div className="min-h-screen bg-gray-950">
-      <header className="border-b border-gray-800 px-4 py-6">
+    <div className="min-h-screen bg-plex-bg">
+      <header className="border-b border-plex-border px-4 py-6">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-extrabold tracking-tight text-gray-100 flex items-center gap-3">
+            <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center gap-3">
               <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
               Photo Cast
             </h1>
-            <p className="text-base text-gray-400 mt-1">
+            <p className="text-base text-plex-text-secondary mt-1">
               AI Driven Sunrise and Sunset Forecasting
             </p>
           </div>
@@ -71,7 +71,7 @@ function AppInner() {
               Sign out
             </button>
             {isAdmin && sessionDaysRemaining !== null && (
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-plex-text-muted">
                 Session: {sessionDaysRemaining}d
               </p>
             )}
@@ -84,18 +84,18 @@ function AppInner() {
       <main className="max-w-4xl mx-auto px-4 py-6">
         {loading && (
           <div className="flex justify-center py-16">
-            <p className="text-gray-400 animate-pulse">Loading forecast…</p>
+            <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
           </div>
         )}
 
         {!loading && error && (
           <div
             data-testid="error-message"
-            className="card border border-red-900/50 text-center py-8"
+            className="card border-red-900/50 text-center py-8"
             role="alert"
           >
             <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
-            <p className="text-gray-400 text-sm mb-4">{error}</p>
+            <p className="text-plex-text-secondary text-sm mb-4">{error}</p>
             <button
               className="btn-primary"
               onClick={refresh}
@@ -108,9 +108,9 @@ function AppInner() {
         )}
 
         {!loading && !error && sortedLocations.length === 0 && viewMode !== 'manage' && (
-          <div className="card border border-gray-800 text-center py-16">
-            <p className="text-gray-400 text-lg mb-4">No forecasts available</p>
-            <p className="text-gray-500 text-sm mb-6">Add locations in the Manage tab to get started</p>
+          <div className="card text-center py-16">
+            <p className="text-plex-text-secondary text-lg mb-4">No forecasts available</p>
+            <p className="text-plex-text-muted text-sm mb-6">Add locations in the Manage tab to get started</p>
             <button
               className="btn-primary"
               onClick={() => setViewMode('manage')}
@@ -130,9 +130,9 @@ function AppInner() {
         )}
 
         {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && (
-          <div className="card border border-gray-800 text-center py-16">
-            <p className="text-gray-400 text-lg mb-4">No forecasts loaded yet</p>
-            <p className="text-gray-500 text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
+          <div className="card text-center py-16">
+            <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
+            <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
             <button className="btn-primary" onClick={refresh}>
               Refresh
             </button>
@@ -164,15 +164,15 @@ function AppInner() {
         )}
       </main>
 
-      <footer className="border-t border-gray-800 px-4 py-4 mt-8">
-        <div className="max-w-4xl mx-auto text-center text-xs text-gray-600">
+      <footer className="border-t border-plex-border px-4 py-4 mt-8">
+        <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
           <p>
             Made with ☕ by Chris —{' '}
             <a
               href="https://buymeacoffee.com/gregorychris"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-500 hover:text-gray-300 underline"
+              className="text-plex-text-secondary hover:text-plex-text underline"
             >
               Buy me a coffee
             </a>

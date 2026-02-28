@@ -42,7 +42,7 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
         <span
           title={goldenMeta.label}
           className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
-            bg-amber-950 text-amber-300 border border-amber-800/60"
+            bg-plex-gold/10 text-plex-gold border border-plex-gold/30"
         >
           {goldenMeta.emoji} <span className="font-medium">{goldenMeta.label}</span>
         </span>
@@ -55,7 +55,7 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
             key={type}
             title={meta.label}
             className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
-              bg-gray-800 text-gray-300 border border-gray-700"
+              bg-plex-surface-light text-plex-text-secondary border border-plex-border"
           >
             {meta.emoji} <span className="font-medium">{meta.label}</span>
           </span>

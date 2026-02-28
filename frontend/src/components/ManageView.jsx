@@ -26,8 +26,8 @@ function buildDateRange() {
 const DATES = buildDateRange();
 
 const CHIP_STYLE = {
-  idle:    'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 cursor-pointer',
-  running: 'bg-gray-700 text-amber-400 cursor-not-allowed',
+  idle:    'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text cursor-pointer',
+  running: 'bg-plex-border text-plex-gold cursor-not-allowed',
   done:    'bg-green-900/50 text-green-400 ring-1 ring-inset ring-green-700/40 hover:bg-green-900/70 cursor-pointer',
   error:   'bg-red-900/50 text-red-400 ring-1 ring-inset ring-red-700/40 hover:bg-red-900/70 cursor-pointer',
 };
@@ -301,15 +301,15 @@ export default function ManageView({ onComplete }) {
     <div className="flex flex-col gap-5">
 
       {/* Sub-tabs */}
-      <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-0.5 gap-0.5 self-start">
+      <div className="flex gap-6 border-b border-plex-border">
         {[{ value: 'users', label: 'Users' }, { value: 'locations', label: 'Locations' }, { value: 'metrics', label: 'Job Runs' }, { value: 'models', label: 'Model Config' }].map((tab) => (
           <button
             key={tab.value}
             onClick={() => setManageTab(tab.value)}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
               manageTab === tab.value
-                ? 'bg-gray-700 text-gray-100'
-                : 'text-gray-500 hover:text-gray-300'
+                ? 'text-plex-gold border-plex-gold'
+                : 'text-plex-text-secondary hover:text-plex-text border-transparent'
             }`}
             data-testid={`manage-tab-${tab.value}`}
           >
@@ -320,9 +320,9 @@ export default function ManageView({ onComplete }) {
 
       {/* ── Users tab ── */}
       {manageTab === 'users' && (
-        <div className="card border border-gray-800 flex flex-col gap-4">
+        <div className="card flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
-            <p className="text-sm font-semibold text-gray-100">User Management</p>
+            <p className="text-sm font-semibold text-plex-text">User Management</p>
             <button
               className="btn-secondary text-xs shrink-0"
               onClick={() => setShowAddUserForm((v) => !v)}
@@ -335,37 +335,37 @@ export default function ManageView({ onComplete }) {
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
-                  <label htmlFor="add-user-username" className="block text-xs text-gray-400 mb-1">Username</label>
+                  <label htmlFor="add-user-username" className="block text-xs text-plex-text-secondary mb-1">Username</label>
                   <input
                     id="add-user-username"
                     type="text"
                     autoComplete="off"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. janesmith"
                     value={newUsername}
                     onChange={(e) => setNewUsername(e.target.value)}
                   />
                 </div>
                 <div>
-                  <label htmlFor="add-user-email" className="block text-xs text-gray-400 mb-1">Email</label>
+                  <label htmlFor="add-user-email" className="block text-xs text-plex-text-secondary mb-1">Email</label>
                   <input
                     id="add-user-email"
                     type="email"
                     autoComplete="off"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                     placeholder="jane@example.com"
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
                   />
                 </div>
                 <div>
-                  <label htmlFor="add-user-password" className="block text-xs text-gray-400 mb-1">Password</label>
+                  <label htmlFor="add-user-password" className="block text-xs text-plex-text-secondary mb-1">Password</label>
                   <div className="relative">
                     <input
                       id="add-user-password"
                       type={showNewPassword ? 'text' : 'password'}
                       autoComplete="new-password"
-                      className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 pr-10 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                       placeholder="Temporary password"
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
@@ -374,7 +374,7 @@ export default function ManageView({ onComplete }) {
                       type="button"
                       aria-label={showNewPassword ? 'Hide password' : 'Show password'}
                       onClick={() => setShowNewPassword((v) => !v)}
-                      className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-200"
+                      className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
                     >
                       {showNewPassword ? (
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -390,10 +390,10 @@ export default function ManageView({ onComplete }) {
                   </div>
                 </div>
                 <div>
-                  <label htmlFor="add-user-role" className="block text-xs text-gray-400 mb-1">Role</label>
+                  <label htmlFor="add-user-role" className="block text-xs text-plex-text-secondary mb-1">Role</label>
                   <select
                     id="add-user-role"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold"
                     value={newRole}
                     onChange={(e) => setNewRole(e.target.value)}
                   >
@@ -426,7 +426,7 @@ export default function ManageView({ onComplete }) {
           )}
 
           {usersLoading && (
-            <p className="text-sm text-gray-500 animate-pulse">Loading users…</p>
+            <p className="text-sm text-plex-text-muted animate-pulse">Loading users…</p>
           )}
 
           {resetPasswordError && (
@@ -440,7 +440,7 @@ export default function ManageView({ onComplete }) {
           {!usersLoading && users.length > 0 && (
             <table className="w-full text-sm text-left">
               <thead>
-                <tr className="text-xs text-gray-500 border-b border-gray-800">
+                <tr className="text-xs text-plex-text-muted border-b border-plex-border">
                   <th className="pb-2 font-medium">Username</th>
                   <th className="pb-2 font-medium">Email</th>
                   <th className="pb-2 font-medium">Role</th>
@@ -453,26 +453,26 @@ export default function ManageView({ onComplete }) {
                 {users.map((user) => {
                   const isEditing = editingUserId === user.id;
                   return (
-                    <tr key={user.id} className="border-b border-gray-900 last:border-0">
-                      <td className="py-2 text-gray-200">{user.username}</td>
+                    <tr key={user.id} className="border-b border-plex-surface last:border-0">
+                      <td className="py-2 text-plex-text">{user.username}</td>
                       <td className="py-2">
                         {isEditing ? (
                           <input
                             data-testid={`edit-email-${user.id}`}
                             type="email"
-                            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            className="w-full bg-plex-surface-light border border-plex-border rounded px-2 py-1 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold"
                             value={editEmail}
                             onChange={(e) => setEditEmail(e.target.value)}
                           />
                         ) : (
-                          <span className="text-gray-400 text-xs">{user.email || '—'}</span>
+                          <span className="text-plex-text-secondary text-xs">{user.email || '—'}</span>
                         )}
                       </td>
                       <td className="py-2">
                         {isEditing ? (
                           <select
                             data-testid={`edit-role-${user.id}`}
-                            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            className="bg-plex-surface-light border border-plex-border rounded px-2 py-1 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold"
                             value={editRole}
                             onChange={(e) => setEditRole(e.target.value)}
                           >
@@ -483,14 +483,14 @@ export default function ManageView({ onComplete }) {
                         ) : (
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
                             user.role === 'ADMIN'
-                              ? 'bg-amber-900/50 text-amber-400'
-                              : 'bg-gray-800 text-gray-400'
+                              ? 'bg-plex-gold/20 text-plex-gold'
+                              : 'bg-plex-surface-light text-plex-text-secondary'
                           }`}>
                             {user.role}
                           </span>
                         )}
                       </td>
-                      <td className="py-2 text-gray-500 text-xs">
+                      <td className="py-2 text-plex-text-muted text-xs">
                         {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
                       </td>
                       <td className="py-2">
@@ -500,7 +500,7 @@ export default function ManageView({ onComplete }) {
                             type="checkbox"
                             checked={editEnabled}
                             onChange={(e) => setEditEnabled(e.target.checked)}
-                            className="accent-amber-500"
+                            className="accent-plex-gold"
                           />
                         ) : (
                           <span className={`text-xs px-2 py-0.5 rounded ${
@@ -517,7 +517,7 @@ export default function ManageView({ onComplete }) {
                           <div className="flex gap-1">
                             <button
                               data-testid={`save-edit-${user.id}`}
-                              className="text-xs px-2 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="text-xs px-2 py-0.5 rounded bg-plex-gold text-gray-900 hover:bg-plex-gold-light disabled:opacity-50 disabled:cursor-not-allowed"
                               onClick={() => handleSaveEdit(user)}
                               disabled={editSaving}
                             >
@@ -525,7 +525,7 @@ export default function ManageView({ onComplete }) {
                             </button>
                             <button
                               data-testid={`cancel-edit-${user.id}`}
-                              className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+                              className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
                               onClick={handleCancelEdit}
                               disabled={editSaving}
                             >
@@ -536,7 +536,7 @@ export default function ManageView({ onComplete }) {
                           <div className="flex gap-1">
                             <button
                               data-testid={`edit-user-${user.id}`}
-                              className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+                              className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
                               onClick={() => handleStartEdit(user)}
                               disabled={editingUserId !== null}
                             >
@@ -544,7 +544,7 @@ export default function ManageView({ onComplete }) {
                             </button>
                             <button
                               data-testid={`reset-password-${user.id}`}
-                              className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text disabled:opacity-50 disabled:cursor-not-allowed"
                               onClick={() => handleResetPassword(user)}
                               disabled={resetPasswordLoadingId === user.id || editingUserId !== null}
                             >
@@ -572,14 +572,14 @@ export default function ManageView({ onComplete }) {
       />
 
       {/* Global re-run */}
-      <div className="card border border-gray-800 flex items-center justify-between gap-4">
+      <div className="card flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-gray-100">Re-run all locations × all dates</p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-sm font-semibold text-plex-text">Re-run all locations × all dates</p>
+          <p className="text-xs text-plex-text-muted mt-0.5">
             {manageLocations.length} location{manageLocations.length !== 1 ? 's' : ''} × {DATES.length} days × sunrise + sunset
           </p>
           {anyRunning && (
-            <p className="text-xs text-amber-400 mt-1 animate-pulse">
+            <p className="text-xs text-plex-gold mt-1 animate-pulse">
               {doneCount} / {totalCount} date-locations complete…
             </p>
           )}
@@ -604,39 +604,39 @@ export default function ManageView({ onComplete }) {
 
       {/* Add location form */}
       {showAddForm && (
-        <div className="card border border-gray-700 flex flex-col gap-4">
-          <p className="text-sm font-semibold text-gray-100">Add location</p>
+        <div className="card flex flex-col gap-4">
+          <p className="text-sm font-semibold text-plex-text">Add location</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-1">
-              <label htmlFor="add-location-name" className="block text-xs text-gray-400 mb-1">Location name</label>
+              <label htmlFor="add-location-name" className="block text-xs text-plex-text-secondary mb-1">Location name</label>
               <input
                 id="add-location-name"
                 type="text"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 placeholder="e.g. Durham UK"
                 value={addName}
                 onChange={(e) => setAddName(e.target.value)}
               />
             </div>
             <div>
-              <label htmlFor="add-location-lat" className="block text-xs text-gray-400 mb-1">Latitude</label>
+              <label htmlFor="add-location-lat" className="block text-xs text-plex-text-secondary mb-1">Latitude</label>
               <input
                 id="add-location-lat"
                 type="number"
                 step="any"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 placeholder="e.g. 54.7753"
                 value={addLat}
                 onChange={(e) => setAddLat(e.target.value)}
               />
             </div>
             <div>
-              <label htmlFor="add-location-lon" className="block text-xs text-gray-400 mb-1">Longitude</label>
+              <label htmlFor="add-location-lon" className="block text-xs text-plex-text-secondary mb-1">Longitude</label>
               <input
                 id="add-location-lon"
                 type="number"
                 step="any"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 placeholder="e.g. -1.5849"
                 value={addLon}
                 onChange={(e) => setAddLon(e.target.value)}
@@ -667,7 +667,7 @@ export default function ManageView({ onComplete }) {
 
       {/* Loading state */}
       {locationsLoading && (
-        <p className="text-sm text-gray-500 animate-pulse">Loading locations…</p>
+        <p className="text-sm text-plex-text-muted animate-pulse">Loading locations…</p>
       )}
 
       {/* Per-location cards */}
@@ -676,17 +676,17 @@ export default function ManageView({ onComplete }) {
         const locDone    = DATES.filter((d) => getStatus(loc.name, d) === 'done').length;
 
         return (
-          <div key={loc.name} className="card border border-gray-800 flex flex-col gap-4">
+          <div key={loc.name} className="card flex flex-col gap-4">
 
             {/* Location header */}
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-base font-semibold text-gray-100">{loc.name}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-base font-semibold text-plex-text">{loc.name}</p>
+                <p className="text-xs text-plex-text-muted">
                   {loc.lat}° N, {Math.abs(loc.lon)}° {loc.lon < 0 ? 'W' : 'E'}
                 </p>
                 {locRunning && (
-                  <p className="text-xs text-amber-400 mt-0.5 animate-pulse">
+                  <p className="text-xs text-plex-gold mt-0.5 animate-pulse">
                     {locDone} / {DATES.length} dates complete…
                   </p>
                 )}
@@ -728,8 +728,8 @@ export default function ManageView({ onComplete }) {
 
       {/* ── Metrics tab ── */}
       {manageTab === 'metrics' && (
-        <div className="card border border-gray-800 flex flex-col gap-4">
-          <p className="text-sm font-semibold text-gray-100">Job Run Metrics</p>
+        <div className="card flex flex-col gap-4">
+          <p className="text-sm font-semibold text-plex-text">Job Run Metrics</p>
           <JobRunsMetricsView />
         </div>
       )}
@@ -748,13 +748,13 @@ export default function ManageView({ onComplete }) {
           aria-label="Temporary password"
           data-testid="temp-password-modal"
         >
-          <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
-            <p className="text-sm font-semibold text-gray-100">
-              Temporary password for <span className="text-amber-400">{tempPasswordModal.username}</span>
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">
+              Temporary password for <span className="text-plex-gold">{tempPasswordModal.username}</span>
             </p>
             <div className="flex items-center gap-2">
               <code
-                className="flex-1 font-mono text-base bg-gray-800 border border-gray-700 rounded px-3 py-2 text-green-300 tracking-widest select-all"
+                className="flex-1 font-mono text-base bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-green-300 tracking-widest select-all"
                 data-testid="temp-password-value"
               >
                 {tempPasswordModal.password}
@@ -767,7 +767,7 @@ export default function ManageView({ onComplete }) {
                 Copy
               </button>
             </div>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-plex-text-secondary">
               The user will be required to change this password on next login.
             </p>
             <button

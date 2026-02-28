@@ -14,9 +14,9 @@ import PropTypes from 'prop-types';
 const MetricsSummary = ({ runs, apiCalls }) => {
   if (!runs || runs.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">7-Day Summary</h3>
-        <p className="text-gray-500">No job runs in the past 7 days</p>
+      <div className="card">
+        <h3 className="text-lg font-semibold text-plex-text mb-4">7-Day Summary</h3>
+        <p className="text-plex-text-secondary">No job runs in the past 7 days</p>
       </div>
     );
   }
@@ -62,11 +62,11 @@ const MetricsSummary = ({ runs, apiCalls }) => {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       {/* Total Runs */}
-      <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <div className="text-sm font-medium text-gray-500">Total Runs</div>
-        <p className="text-xs text-gray-400 mt-1">Number of forecast job runs over the last 7 days, grouped by job type (SONNET, HAIKU, WILDLIFE, TIDE)</p>
-        <div className="mt-3 text-3xl font-bold text-gray-900">{totalRuns}</div>
-        <div className="mt-2 text-xs text-gray-600">
+      <div className="card">
+        <div className="text-sm font-medium text-plex-text-secondary">Total Runs</div>
+        <p className="text-xs text-plex-text-muted mt-1">Number of forecast job runs over the last 7 days, grouped by job type (SONNET, HAIKU, WILDLIFE, TIDE)</p>
+        <div className="mt-3 text-3xl font-bold text-plex-text">{totalRuns}</div>
+        <div className="mt-2 text-xs text-plex-text-muted">
           {Object.entries(runsByType).map(([type, count]) => (
             <div key={type}>{type}: {count}</div>
           ))}
@@ -74,44 +74,44 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       </div>
 
       {/* Success Rate */}
-      <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <div className="text-sm font-medium text-gray-500">Success Rate</div>
-        <p className="text-xs text-gray-400 mt-1">Percentage of location evaluations that completed without error. Failures may indicate API issues, bad data, or transient network problems</p>
-        <div className="mt-3 text-3xl font-bold text-gray-900">{successRate.toFixed(3)}%</div>
-        <div className="mt-2 text-xs text-gray-600">
+      <div className="card">
+        <div className="text-sm font-medium text-plex-text-secondary">Success Rate</div>
+        <p className="text-xs text-plex-text-muted mt-1">Percentage of location evaluations that completed without error. Failures may indicate API issues, bad data, or transient network problems</p>
+        <div className="mt-3 text-3xl font-bold text-plex-text">{successRate.toFixed(3)}%</div>
+        <div className="mt-2 text-xs text-plex-text-muted">
           {totalSucceeded.toLocaleString()} succeeded, {totalFailed.toLocaleString()} failed
         </div>
       </div>
 
       {/* Slowest Service */}
-      <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <div className="text-sm font-medium text-gray-500">Slowest Service</div>
-        <p className="text-xs text-gray-400 mt-1">External service with the highest average response time. Long latencies may indicate API rate limits, degradation, or geographic latency</p>
+      <div className="card">
+        <div className="text-sm font-medium text-plex-text-secondary">Slowest Service</div>
+        <p className="text-xs text-plex-text-muted mt-1">External service with the highest average response time. Long latencies may indicate API rate limits, degradation, or geographic latency</p>
         {slowestService ? (
           <>
-            <div className="mt-3 text-lg font-semibold text-gray-900">{slowestService.service}</div>
-            <div className="mt-1 text-sm text-orange-600">{(slowestService.avgDuration / 1000).toFixed(1)}s avg</div>
+            <div className="mt-3 text-lg font-semibold text-plex-text">{slowestService.service}</div>
+            <div className="mt-1 text-sm text-plex-gold">{(slowestService.avgDuration / 1000).toFixed(1)}s avg</div>
           </>
         ) : (
-          <div className="mt-3 text-gray-500">No data</div>
+          <div className="mt-3 text-plex-text-muted">No data</div>
         )}
       </div>
 
       {/* Evaluation Count */}
-      <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <div className="text-sm font-medium text-gray-500">Evaluations</div>
-        <p className="text-xs text-gray-400 mt-1">Total location-date combinations evaluated using the active model. One location across 8 days = 8 evaluations</p>
-        <div className="mt-3 text-3xl font-bold text-gray-900">{totalEvaluations.toLocaleString()}</div>
-        <div className="mt-1 text-xs text-gray-600">in {totalRuns} runs</div>
+      <div className="card">
+        <div className="text-sm font-medium text-plex-text-secondary">Evaluations</div>
+        <p className="text-xs text-plex-text-muted mt-1">Total location-date combinations evaluated using the active model. One location across 8 days = 8 evaluations</p>
+        <div className="mt-3 text-3xl font-bold text-plex-text">{totalEvaluations.toLocaleString()}</div>
+        <div className="mt-1 text-xs text-plex-text-muted">in {totalRuns} runs</div>
       </div>
 
       {/* Total Cost */}
       {totalCostPence > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-          <div className="text-sm font-medium text-gray-500">Total Cost</div>
-          <p className="text-xs text-gray-400 mt-1">Operational cost of API calls over the past 7 days. Anthropic (Haiku 0.5p, Sonnet 1.3p), WorldTides (0.2p), Open-Meteo (free)</p>
-          <div className="mt-3 text-3xl font-bold text-blue-600">£{(totalCostPence / 1000).toFixed(3)}</div>
-          <div className="mt-2 text-xs text-gray-600">
+        <div className="card">
+          <div className="text-sm font-medium text-plex-text-secondary">Total Cost</div>
+          <p className="text-xs text-plex-text-muted mt-1">Operational cost of API calls over the past 7 days. Anthropic (Haiku 0.5p, Sonnet 1.3p), WorldTides (0.2p), Open-Meteo (free)</p>
+          <div className="mt-3 text-3xl font-bold text-plex-gold">£{(totalCostPence / 1000).toFixed(3)}</div>
+          <div className="mt-2 text-xs text-plex-text-muted">
             {totalRuns} runs, {totalEvaluations} evaluations
           </div>
         </div>

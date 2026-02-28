@@ -162,8 +162,8 @@ const JobRunsMetricsView = () => {
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800 text-sm">{error}</p>
+        <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
+          <p className="text-red-400 text-sm">{error}</p>
         </div>
       )}
 
@@ -171,13 +171,13 @@ const JobRunsMetricsView = () => {
       <MetricsSummary runs={runs} apiCalls={allApiCalls} />
 
       {/* Job name filter */}
-      <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <label htmlFor="job-filter-select" className="block text-sm font-medium text-gray-700 mb-2">Filter by Job</label>
+      <div className="card">
+        <label htmlFor="job-filter-select" className="block text-sm font-medium text-plex-text-secondary mb-2">Filter by Job</label>
         <select
           id="job-filter-select"
           value={jobNameFilter || ''}
           onChange={(e) => setJobNameFilter(e.target.value || undefined)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 bg-plex-surface-light border border-plex-border rounded-lg text-plex-text focus:ring-2 focus:ring-plex-gold focus:border-transparent"
           data-testid="job-filter-select"
         >
           <option value="">All Jobs</option>
@@ -198,8 +198,8 @@ const JobRunsMetricsView = () => {
       />
 
       {runs.length === 0 && !loading && (
-        <div className="bg-gray-50 rounded-lg p-8 text-center border border-gray-200">
-          <p className="text-gray-600">No job runs available</p>
+        <div className="bg-plex-surface rounded-lg p-8 text-center border border-plex-border">
+          <p className="text-plex-text-muted">No job runs available</p>
         </div>
       )}
     </div>

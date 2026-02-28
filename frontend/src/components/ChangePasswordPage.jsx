@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 /** Checks a single complexity rule and returns a styled list item. */
 function CheckItem({ ok, label }) {
   return (
-    <li className={`flex items-center gap-1.5 text-xs ${ok ? 'text-green-400' : 'text-gray-500'}`}>
+    <li className={`flex items-center gap-1.5 text-xs ${ok ? 'text-green-400' : 'text-plex-text-muted'}`}>
       <span className="w-3 text-center">{ok ? '✓' : '✗'}</span>
       {label}
     </li>
@@ -69,29 +69,29 @@ export default function ChangePasswordPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-plex-bg flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight text-gray-100 flex items-center justify-center gap-3">
+          <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center justify-center gap-3">
             <img src="/logo.png" alt="" className="h-10 w-10" />
             Photo Cast
           </h1>
-          <p className="text-base text-gray-400 mt-2">AI Driven Sunrise and Sunset Forecasting</p>
+          <p className="text-base text-plex-text-secondary mt-2">AI Driven Sunrise and Sunset Forecasting</p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="card border border-gray-800 flex flex-col gap-4"
+          className="card flex flex-col gap-4"
         >
           <div>
-            <p className="text-sm font-semibold text-gray-200">Change your password</p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-sm font-semibold text-plex-text">Change your password</p>
+            <p className="text-xs text-plex-text-secondary mt-1">
               You must set a new password before accessing the app.
             </p>
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-1" htmlFor="cp-new">
+            <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="cp-new">
               New password
             </label>
             <div className="relative">
@@ -100,7 +100,7 @@ export default function ChangePasswordPage() {
                 type={showNew ? 'text' : 'password'}
                 data-testid="cp-new-password"
                 autoComplete="new-password"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 pr-10 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 disabled={loading}
@@ -110,7 +110,7 @@ export default function ChangePasswordPage() {
                 type="button"
                 aria-label={showNew ? 'Hide password' : 'Show password'}
                 onClick={() => setShowNew((v) => !v)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-200"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
               >
                 {showNew ? EyeSlash : EyeOpen}
               </button>
@@ -118,7 +118,7 @@ export default function ChangePasswordPage() {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-400 mb-1" htmlFor="cp-confirm">
+            <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="cp-confirm">
               Confirm new password
             </label>
             <div className="relative">
@@ -127,7 +127,7 @@ export default function ChangePasswordPage() {
                 type={showConfirm ? 'text' : 'password'}
                 data-testid="cp-confirm-password"
                 autoComplete="new-password"
-                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 pr-10 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={loading}
@@ -137,7 +137,7 @@ export default function ChangePasswordPage() {
                 type="button"
                 aria-label={showConfirm ? 'Hide password' : 'Show password'}
                 onClick={() => setShowConfirm((v) => !v)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-200"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
               >
                 {showConfirm ? EyeSlash : EyeOpen}
               </button>
@@ -167,7 +167,7 @@ export default function ChangePasswordPage() {
 
           <button
             type="button"
-            className="text-xs text-gray-500 hover:text-gray-300 text-center"
+            className="text-xs text-plex-text-muted hover:text-plex-text text-center"
             onClick={logout}
           >
             Sign out

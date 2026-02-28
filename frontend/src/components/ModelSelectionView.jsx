@@ -86,8 +86,8 @@ export default function ModelSelectionView() {
 
   if (loading) {
     return (
-      <div className="card border border-gray-800">
-        <p className="text-gray-400">Loading models...</p>
+      <div className="card">
+        <p className="text-plex-text-secondary">Loading models...</p>
       </div>
     );
   }
@@ -106,22 +106,22 @@ export default function ModelSelectionView() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-gray-100 mb-2">Model Configuration</h2>
-        <p className="text-sm text-gray-400 mb-4">
+        <h2 className="text-xl font-bold text-plex-text mb-2">Model Configuration</h2>
+        <p className="text-sm text-plex-text-secondary mb-4">
           Choose which Claude model to use for each forecast run type.
         </p>
       </div>
 
       {/* Config type sub-tabs */}
-      <div className="inline-flex rounded-lg border border-gray-700 bg-gray-900 p-0.5 gap-0.5 self-start flex-wrap">
+      <div className="flex gap-6 border-b border-plex-border flex-wrap">
         {CONFIG_TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
               activeTab === tab.key
-                ? 'bg-gray-700 text-gray-100'
-                : 'text-gray-500 hover:text-gray-300'
+                ? 'text-plex-gold border-plex-gold'
+                : 'text-plex-text-secondary hover:text-plex-text border-transparent'
             }`}
             data-testid={`config-tab-${tab.key}`}
           >
@@ -157,15 +157,15 @@ export default function ModelSelectionView() {
               key={model}
               className={`card border-2 transition-colors ${
                 isActive
-                  ? 'border-orange-500 bg-orange-900/10'
-                  : 'border-gray-700 hover:border-gray-600'
+                  ? 'border-plex-gold bg-plex-gold/5'
+                  : 'border-plex-border hover:border-plex-border-light'
               }`}
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-100">{info.name}</h3>
+                  <h3 className="text-lg font-semibold text-plex-text">{info.name}</h3>
                   {info.recommended && (
-                    <span className="text-xs bg-orange-600/30 text-orange-300 px-2 py-1 rounded mt-1 inline-block">
+                    <span className="text-xs bg-plex-gold/20 text-plex-gold px-2 py-1 rounded mt-1 inline-block">
                       Recommended
                     </span>
                   )}
@@ -177,9 +177,9 @@ export default function ModelSelectionView() {
                 )}
               </div>
 
-              <p className="text-sm text-gray-300 mb-3">{info.description}</p>
+              <p className="text-sm text-plex-text-secondary mb-3">{info.description}</p>
 
-              <div className="space-y-2 mb-4 text-sm text-gray-400">
+              <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
                   <span className="font-medium">Cost per run:</span> {info.costPerRun}
                 </div>
@@ -193,8 +193,8 @@ export default function ModelSelectionView() {
                 disabled={isActive || switching}
                 className={`w-full py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-gray-700 text-gray-500 cursor-default'
-                    : 'bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50'
+                    ? 'bg-plex-border text-plex-text-muted cursor-default'
+                    : 'bg-plex-gold hover:bg-plex-gold-light text-gray-900 disabled:opacity-50'
                 }`}
                 data-testid={`switch-${activeTab}-${model}`}
               >
@@ -205,8 +205,8 @@ export default function ModelSelectionView() {
         })}
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-sm text-gray-300">
-        <p className="font-medium text-gray-100 mb-2">About model configuration</p>
+      <div className="bg-plex-surface border border-plex-border rounded-lg p-4 text-sm text-plex-text-secondary">
+        <p className="font-medium text-plex-text mb-2">About model configuration</p>
         <ul className="space-y-1 text-xs">
           <li>Each run type can use a different Claude model independently</li>
           <li>Use a more accurate model (Opus/Sonnet) for imminent forecasts, cheaper (Haiku) for distant ones</li>
