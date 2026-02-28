@@ -1,9 +1,134 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
+import PropTypes from 'prop-types';
 import axios from 'axios';
 import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled } from '../api/userApi.js';
 
 /**
- * User management view with list/add/edit modes and consistent card pattern.
+ * Sortable, filterable header cell for data tables.
+ *
+ * @param {object} props
+ * @param {string} props.label - Column header label.
+ * @param {string} props.sortKey - Key used for sorting.
+ * @param {string} props.currentSortKey - Currently active sort key.
+ * @param {'asc'|'desc'} props.currentSortDir - Current sort direction.
+ * @param {function} props.onSort - Called with the sort key when clicked.
+ * @param {string} props.filterValue - Current filter value.
+ * @param {function} props.onFilter - Called with new filter value.
+ * @param {string} [props.filterPlaceholder] - Placeholder for filter input.
+ */
+function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder }) {
+  const active = currentSortKey === sortKey;
+  const arrow = active ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  return (
+    <th className="pb-1 font-medium align-bottom">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
+      >
+        {label}{arrow}
+      </button>
+      <div className="mt-1">
+        <input
+          type="text"
+          value={filterValue}
+          onChange={(e) => onFilter(e.target.value)}
+          placeholder={filterPlaceholder || 'Filter…'}
+          className="w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+          data-testid={`filter-${sortKey}`}
+        />
+      </div>
+    </th>
+  );
+}
+
+SortableHeader.propTypes = {
+  label: PropTypes.string.isRequired,
+  sortKey: PropTypes.string.isRequired,
+  currentSortKey: PropTypes.string.isRequired,
+  currentSortDir: PropTypes.string.isRequired,
+  onSort: PropTypes.func.isRequired,
+  filterValue: PropTypes.string.isRequired,
+  onFilter: PropTypes.func.isRequired,
+  filterPlaceholder: PropTypes.string,
+};
+
+/**
+ * Generic sort/filter hook for table data.
+ *
+ * @param {string} defaultSortKey - Initial sort column.
+ * @param {'asc'|'desc'} defaultSortDir - Initial sort direction.
+ * @param {Object<string, function>} accessors - Map of sort key to value accessor function.
+ * @returns {object} Sort/filter state and handlers.
+ */
+function useSortAndFilter(defaultSortKey, defaultSortDir, accessors) {
+  const [sortKey, setSortKey] = useState(defaultSortKey);
+  const [sortDir, setSortDir] = useState(defaultSortDir);
+  const [filters, setFilters] = useState({});
+
+  function handleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function setFilter(key, value) {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function getFilterValue(key) {
+    return filters[key] || '';
+  }
+
+  function apply(items) {
+    let result = [...items];
+
+    // Filter
+    for (const [key, value] of Object.entries(filters)) {
+      if (!value) continue;
+      const accessor = accessors[key];
+      if (!accessor) continue;
+      const lower = value.toLowerCase();
+      result = result.filter((item) => {
+        const val = accessor(item);
+        return val != null && String(val).toLowerCase().includes(lower);
+      });
+    }
+
+    // Sort
+    const accessor = accessors[sortKey];
+    if (accessor) {
+      result.sort((a, b) => {
+        const va = accessor(a);
+        const vb = accessor(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (typeof va === 'string') {
+          const cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
+          return sortDir === 'asc' ? cmp : -cmp;
+        }
+        if (typeof va === 'boolean') {
+          const cmp = (va === vb) ? 0 : (va ? -1 : 1);
+          return sortDir === 'asc' ? cmp : -cmp;
+        }
+        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }
+
+  return { sortKey, sortDir, handleSort, setFilter, getFilterValue, apply };
+}
+
+/**
+ * User management view with list/add/edit modes, sorting, filtering, and consistent card pattern.
  */
 export default function UserManagementView() {
   const [users, setUsers] = useState([]);
@@ -30,6 +155,18 @@ export default function UserManagementView() {
   const [resetPasswordLoadingId, setResetPasswordLoadingId] = useState(null);
   const [tempPasswordModal, setTempPasswordModal] = useState(null);
   const [resetPasswordError, setResetPasswordError] = useState('');
+
+  const userAccessors = useMemo(() => ({
+    username: (u) => u.username,
+    email: (u) => u.email || '',
+    role: (u) => u.role,
+    created: (u) => u.createdAt || '',
+    status: (u) => u.enabled ? 'Enabled' : 'Disabled',
+  }), []);
+
+  const sf = useSortAndFilter('username', 'asc', userAccessors);
+
+  const filteredUsers = useMemo(() => sf.apply(users), [sf, users]);
 
   async function fetchUsers() {
     try {
@@ -195,16 +332,18 @@ export default function UserManagementView() {
               <table className="w-full text-sm text-left" data-testid="users-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <th className="pb-2 font-medium">Username</th>
-                    <th className="pb-2 font-medium">Email</th>
-                    <th className="pb-2 font-medium">Role</th>
-                    <th className="pb-2 font-medium">Created</th>
-                    <th className="pb-2 font-medium">Status</th>
-                    <th className="pb-2 font-medium">Actions</th>
+                    <SortableHeader label="Username" sortKey="username" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
+                    <SortableHeader label="Email" sortKey="email" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
+                    <SortableHeader label="Role" sortKey="role" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
+                    <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
+                      <span className="whitespace-nowrap">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((user) => (
+                  {filteredUsers.map((user) => (
                     <tr key={user.id} className={`border-b border-plex-surface last:border-0 ${!user.enabled ? 'opacity-50' : ''}`}>
                       <td className="py-2 text-plex-text">{user.username}</td>
                       <td className="py-2 text-plex-text-secondary text-xs">{user.email || '—'}</td>
@@ -248,12 +387,19 @@ export default function UserManagementView() {
                             disabled={resetPasswordLoadingId === user.id}
                             data-testid={`reset-password-${user.id}`}
                           >
-                            {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Reset'}
+                            {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Password Reset'}
                           </button>
                         </div>
                       </td>
                     </tr>
                   ))}
+                  {filteredUsers.length === 0 && users.length > 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-4 text-center text-xs text-plex-text-muted">
+                        No users match the current filters.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

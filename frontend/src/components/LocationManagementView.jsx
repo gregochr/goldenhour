@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -78,7 +78,131 @@ function firstOrDefault(set, fallback) {
 }
 
 /**
- * Location management view with list/add/edit modes and geocoding.
+ * Sortable, filterable header cell for data tables.
+ *
+ * @param {object} props
+ * @param {string} props.label - Column header label.
+ * @param {string} props.sortKey - Key used for sorting.
+ * @param {string} props.currentSortKey - Currently active sort key.
+ * @param {'asc'|'desc'} props.currentSortDir - Current sort direction.
+ * @param {function} props.onSort - Called with the sort key when clicked.
+ * @param {string} props.filterValue - Current filter value.
+ * @param {function} props.onFilter - Called with new filter value.
+ * @param {string} [props.filterPlaceholder] - Placeholder for filter input.
+ */
+function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder }) {
+  const active = currentSortKey === sortKey;
+  const arrow = active ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  return (
+    <th className="pb-1 font-medium align-bottom">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
+      >
+        {label}{arrow}
+      </button>
+      <div className="mt-1">
+        <input
+          type="text"
+          value={filterValue}
+          onChange={(e) => onFilter(e.target.value)}
+          placeholder={filterPlaceholder || 'Filter…'}
+          className="w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+          data-testid={`filter-${sortKey}`}
+        />
+      </div>
+    </th>
+  );
+}
+
+SortableHeader.propTypes = {
+  label: PropTypes.string.isRequired,
+  sortKey: PropTypes.string.isRequired,
+  currentSortKey: PropTypes.string.isRequired,
+  currentSortDir: PropTypes.string.isRequired,
+  onSort: PropTypes.func.isRequired,
+  filterValue: PropTypes.string.isRequired,
+  onFilter: PropTypes.func.isRequired,
+  filterPlaceholder: PropTypes.string,
+};
+
+/**
+ * Generic sort/filter hook for table data.
+ *
+ * @param {string} defaultSortKey - Initial sort column.
+ * @param {'asc'|'desc'} defaultSortDir - Initial sort direction.
+ * @param {Object<string, function>} accessors - Map of sort key to value accessor function.
+ * @returns {object} Sort/filter state and handlers.
+ */
+function useSortAndFilter(defaultSortKey, defaultSortDir, accessors) {
+  const [sortKey, setSortKey] = useState(defaultSortKey);
+  const [sortDir, setSortDir] = useState(defaultSortDir);
+  const [filters, setFilters] = useState({});
+
+  function handleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function setFilter(key, value) {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function getFilterValue(key) {
+    return filters[key] || '';
+  }
+
+  function apply(items) {
+    let result = [...items];
+
+    // Filter
+    for (const [key, value] of Object.entries(filters)) {
+      if (!value) continue;
+      const accessor = accessors[key];
+      if (!accessor) continue;
+      const lower = value.toLowerCase();
+      result = result.filter((item) => {
+        const val = accessor(item);
+        return val != null && String(val).toLowerCase().includes(lower);
+      });
+    }
+
+    // Sort
+    const accessor = accessors[sortKey];
+    if (accessor) {
+      result.sort((a, b) => {
+        const va = accessor(a);
+        const vb = accessor(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (typeof va === 'string') {
+          const cmp = va.localeCompare(vb, undefined, { sensitivity: 'base' });
+          return sortDir === 'asc' ? cmp : -cmp;
+        }
+        if (typeof va === 'boolean') {
+          const cmp = (va === vb) ? 0 : (va ? -1 : 1);
+          return sortDir === 'asc' ? cmp : -cmp;
+        }
+        const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }
+
+  return { sortKey, sortDir, handleSort, setFilter, getFilterValue, apply };
+}
+
+/**
+ * Location management view with list/add/edit modes, sorting, filtering, and geocoding.
  *
  * @param {object} props
  * @param {function} props.onLocationsChanged - Called when locations are added/updated/toggled.
@@ -109,6 +233,19 @@ export default function LocationManagementView({ onLocationsChanged }) {
   // Save state
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const locationAccessors = useMemo(() => ({
+    name: (loc) => loc.name,
+    type: (loc) => formatLocationType(loc.locationType),
+    solar: (loc) => formatGoldenHourType(loc.goldenHourType),
+    tide: (loc) => formatTideType(loc.tideType),
+    created: (loc) => loc.createdAt || '',
+    status: (loc) => loc.enabled ? 'Enabled' : 'Disabled',
+  }), []);
+
+  const sf = useSortAndFilter('name', 'asc', locationAccessors);
+
+  const filteredLocations = useMemo(() => sf.apply(locations), [sf, locations]);
 
   async function refreshLocations() {
     try {
@@ -290,17 +427,22 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <table className="w-full text-sm text-left" data-testid="locations-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <th className="pb-2 font-medium">Name</th>
-                    <th className="pb-2 font-medium">Coords</th>
-                    <th className="pb-2 font-medium">Type</th>
-                    <th className="pb-2 font-medium">Solar</th>
-                    <th className="pb-2 font-medium">Tide</th>
-                    <th className="pb-2 font-medium">Status</th>
-                    <th className="pb-2 font-medium">Actions</th>
+                    <SortableHeader label="Name" sortKey="name" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
+                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
+                      <span className="whitespace-nowrap">Coords</span>
+                    </th>
+                    <SortableHeader label="Type" sortKey="type" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('type')} onFilter={(v) => sf.setFilter('type', v)} />
+                    <SortableHeader label="Solar" sortKey="solar" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
+                    <SortableHeader label="Tide" sortKey="tide" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('tide')} onFilter={(v) => sf.setFilter('tide', v)} />
+                    <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
+                      <span className="whitespace-nowrap">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {locations.map((loc) => (
+                  {filteredLocations.map((loc) => (
                     <tr
                       key={loc.id}
                       className={`border-b border-plex-surface last:border-0 ${!loc.enabled ? 'opacity-50' : ''}`}
@@ -328,6 +470,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       <td className="py-2 text-plex-text-secondary text-xs">
                         {formatTideType(loc.tideType)}
                       </td>
+                      <td className="py-2 text-plex-text-muted text-xs">
+                        {loc.createdAt ? loc.createdAt.slice(0, 10) : '—'}
+                      </td>
                       <td className="py-2">
                         <button
                           onClick={() => handleToggleEnabled(loc)}
@@ -352,6 +497,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       </td>
                     </tr>
                   ))}
+                  {filteredLocations.length === 0 && locations.length > 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-4 text-center text-xs text-plex-text-muted">
+                        No locations match the current filters.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
