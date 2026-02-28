@@ -11,8 +11,9 @@ import { formatEventTimeUk } from '../utils/conversions.js';
  * @param {object} props
  * @param {string} props.locationName - The configured location name.
  * @param {string} props.date - Target date in ISO format (YYYY-MM-DD).
+ * @param {function} [props.onFetchedAt] - Called with the fetchedAt timestamp when tide data loads.
  */
-export default function TideIndicator({ locationName, date }) {
+export default function TideIndicator({ locationName, date, onFetchedAt }) {
   const [tides, setTides] = useState(null);
 
   useEffect(() => {
@@ -21,7 +22,12 @@ export default function TideIndicator({ locationName, date }) {
     let cancelled = false;
     fetchTidesForDate(locationName, date)
       .then((data) => {
-        if (!cancelled) setTides(data);
+        if (!cancelled) {
+          setTides(data);
+          if (onFetchedAt && data.length > 0 && data[0].fetchedAt) {
+            onFetchedAt(data[0].fetchedAt);
+          }
+        }
       })
       .catch(() => {
         if (!cancelled) setTides([]);
@@ -51,4 +57,5 @@ export default function TideIndicator({ locationName, date }) {
 TideIndicator.propTypes = {
   locationName: PropTypes.string.isRequired,
   date: PropTypes.string.isRequired,
+  onFetchedAt: PropTypes.func,
 };

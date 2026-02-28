@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Frontend run buttons** — success messages now show "Forecast run started" instead of waiting for completion; job runs grid refreshes after 3-second delay to pick up the new run
 
 ### Fixed (Feb 28, 2026)
+- **Today label duplication** — date strip was showing "Today · Today" instead of "Today · Sat 28 Feb"; `formatDateLabel` now accepts a `skipRelative` flag
+- **Map popup footer always visible for ADMIN** — forecast generation timestamp (and tide data fetch timestamp for seascape locations) now shows outside the collapsible "More details" section for admin users
 - **Map popup score labels** — removed `cursor: help` style that was showing a confusing `?` cursor on hover over Fiery Sky / Golden Hour labels
 
 ### Refactored (Feb 28, 2026)

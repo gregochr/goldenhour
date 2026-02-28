@@ -299,6 +299,7 @@ export default function MapView({ locations, date }) {
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   const [expandedPopup, setExpandedPopup] = useState(null);
+  const [tideFetchedAt, setTideFetchedAt] = useState({});
 
   // Inject popup width styles
   useEffect(() => {
@@ -603,7 +604,7 @@ export default function MapView({ locations, date }) {
                             )}
 
                             {/* Daily tide schedule */}
-                            <TideIndicator locationName={loc.name} date={date} />
+                            <TideIndicator locationName={loc.name} date={date} onFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))} />
 
                             {/* Golden / Blue hour pills */}
                             {goldenStart && blueStart && (
@@ -654,13 +655,23 @@ export default function MapView({ locations, date }) {
                               </div>
                             )}
 
-                            {/* Footer: generated at */}
-                            {forecast?.forecastRunAt && (
+                            {/* Footer: generated at (non-admin only — admin sees it always below) */}
+                            {role !== 'ADMIN' && forecast?.forecastRunAt && (
                               <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
                                 Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
                               </div>
                             )}
                           </>
+                        )}
+
+                        {/* Footer: always visible for ADMIN */}
+                        {role === 'ADMIN' && forecast?.forecastRunAt && (
+                          <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
+                            Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
+                            {tideFetchedAt[loc.name] && (
+                              <div>Tide data fetched: {formatGeneratedAtFull(tideFetchedAt[loc.name])}</div>
+                            )}
+                          </div>
                         )}
                       </>
                     ) : (
