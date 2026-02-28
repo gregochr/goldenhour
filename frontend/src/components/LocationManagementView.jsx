@@ -233,7 +233,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
     try {
       await setLocationEnabled(loc.id, !loc.enabled);
       await refreshLocations();
-      onLocationsChanged();
     } catch (err) {
       console.error('Failed to toggle location enabled:', err);
     }
