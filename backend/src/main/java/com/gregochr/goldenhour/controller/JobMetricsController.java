@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
-import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.JobRunService;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -37,9 +37,9 @@ public class JobMetricsController {
     }
 
     /**
-     * Retrieves recent job runs, optionally filtered by job name.
+     * Retrieves recent job runs, optionally filtered by run type.
      *
-     * @param jobName the job name filter (optional; if provided, must be SONNET, HAIKU, WILDLIFE, or TIDE)
+     * @param runType the run type filter (optional; e.g. VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE)
      * @param page    the page index (default 0)
      * @param size    the page size (default 20)
      * @return a page of job runs
@@ -47,15 +47,15 @@ public class JobMetricsController {
     @GetMapping("/job-runs")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> getJobRuns(
-            @RequestParam(required = false) String jobName,
+            @RequestParam(required = false) String runType,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         try {
             List<JobRunEntity> runs;
 
-            if (jobName != null && !jobName.isEmpty()) {
-                JobName jn = JobName.valueOf(jobName.toUpperCase());
-                runs = jobRunService.getRecentRuns(jn, size * (page + 1)).stream()
+            if (runType != null && !runType.isEmpty()) {
+                RunType rt = RunType.valueOf(runType.toUpperCase());
+                runs = jobRunService.getRecentRuns(rt, size * (page + 1)).stream()
                         .skip((long) page * size)
                         .limit(size)
                         .toList();
@@ -65,7 +65,7 @@ public class JobMetricsController {
 
             return ResponseEntity.ok(new PageImpl<>(runs, PageRequest.of(page, size), runs.size()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("Invalid job name: " + jobName);
+            return ResponseEntity.badRequest().body("Invalid run type: " + runType);
         }
     }
 

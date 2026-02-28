@@ -2,8 +2,8 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -46,15 +46,18 @@ public class JobRunService {
     }
 
     /**
-     * Starts a new job run with the given name.
+     * Starts a new job run with the given run type and optional evaluation model.
      *
-     * @param jobName the name of the job
+     * @param runType           the type of forecast run
      * @param triggeredManually whether this run was triggered manually (true) or by scheduler (false)
+     * @param evaluationModel   the Claude model used (null for WEATHER/TIDE)
      * @return the newly created job run entity
      */
-    public JobRunEntity startRun(JobName jobName, boolean triggeredManually) {
+    public JobRunEntity startRun(RunType runType, boolean triggeredManually,
+            EvaluationModel evaluationModel) {
         JobRunEntity jobRun = JobRunEntity.builder()
-                .jobName(jobName)
+                .runType(runType)
+                .evaluationModel(evaluationModel)
                 .startedAt(LocalDateTime.now(ZoneOffset.UTC))
                 .locationsProcessed(0)
                 .succeeded(0)
@@ -78,7 +81,7 @@ public class JobRunService {
      * @param responseBody   response body on error, or null on success
      * @param succeeded      true if the call succeeded
      * @param errorMessage   brief error message if failed, or null
-     * @param model          evaluation model for Anthropic calls (HAIKU or SONNET), or null
+     * @param model          evaluation model for Anthropic calls, or null
      * @param targetDate     target date for forecast evaluations, or null
      * @param targetType     target type (SUNRISE/SUNSET) for forecast evaluations, or null
      * @return the newly created API call log entity
@@ -114,7 +117,7 @@ public class JobRunService {
     }
 
     /**
-     * Records a single API call made during a job run (legacy overload without target date/type).
+     * Records a single API call made during a job run (overload without target date/type).
      *
      * @param jobRunId       the job run ID
      * @param service        the service name
@@ -126,7 +129,7 @@ public class JobRunService {
      * @param responseBody   response body on error, or null on success
      * @param succeeded      true if the call succeeded
      * @param errorMessage   brief error message if failed, or null
-     * @param model          evaluation model for Anthropic calls (HAIKU or SONNET), or null
+     * @param model          evaluation model for Anthropic calls, or null
      * @return the newly created API call log entity
      */
     public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
@@ -197,7 +200,7 @@ public class JobRunService {
     }
 
     /**
-     * Completes a job run with success and failure counts (legacy overload without date tracking).
+     * Completes a job run with success and failure counts (overload without date tracking).
      *
      * @param jobRun   the job run to complete
      * @param succeeded number of successful evaluations
@@ -208,14 +211,14 @@ public class JobRunService {
     }
 
     /**
-     * Retrieves recent job runs for a given job name, ordered by start time descending.
+     * Retrieves recent job runs for a given run type, ordered by start time descending.
      *
-     * @param jobName the job name to filter by
+     * @param runType the run type to filter by
      * @param limit   maximum number of runs to return
      * @return list of recent job runs
      */
-    public List<JobRunEntity> getRecentRuns(JobName jobName, int limit) {
-        return jobRunRepository.findByJobNameOrderByStartedAtDesc(jobName,
+    public List<JobRunEntity> getRecentRuns(RunType runType, int limit) {
+        return jobRunRepository.findByRunTypeOrderByStartedAtDesc(runType,
                 PageRequest.of(0, Math.max(limit, 1)));
     }
 
@@ -230,9 +233,9 @@ public class JobRunService {
     }
 
     /**
-     * Retrieves recent job runs by all job names, ordered by start time descending.
+     * Retrieves recent job runs by all run types, ordered by start time descending.
      *
-     * @param limit maximum number of runs to return (across all job types)
+     * @param limit maximum number of runs to return (across all run types)
      * @return list of recent job runs
      */
     public List<JobRunEntity> getRecentRunsAllTypes(int limit) {

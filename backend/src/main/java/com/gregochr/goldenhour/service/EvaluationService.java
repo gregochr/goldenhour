@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.springframework.stereotype.Service;
@@ -13,8 +14,8 @@ import org.springframework.stereotype.Service;
  * Evaluates sunrise/sunset colour potential by delegating to the appropriate
  * {@link com.gregochr.goldenhour.service.evaluation.EvaluationStrategy}.
  *
- * <p>All three strategies (Haiku, Sonnet, Opus) are injected; the caller selects which to use
- * by passing an {@link EvaluationModel} to {@link #evaluate(AtmosphericData, EvaluationModel)}.
+ * <p>All strategies are injected; the caller selects which to use by passing an
+ * {@link EvaluationModel} to {@link #evaluate(AtmosphericData, EvaluationModel)}.
  */
 @Service
 public class EvaluationService {
@@ -22,6 +23,7 @@ public class EvaluationService {
     private final HaikuEvaluationStrategy haikuStrategy;
     private final SonnetEvaluationStrategy sonnetStrategy;
     private final OpusEvaluationStrategy opusStrategy;
+    private final NoOpEvaluationStrategy noOpStrategy;
 
     /**
      * Constructs an {@code EvaluationService}.
@@ -29,13 +31,16 @@ public class EvaluationService {
      * @param haikuStrategy  the Haiku evaluation strategy
      * @param sonnetStrategy the Sonnet evaluation strategy
      * @param opusStrategy   the Opus evaluation strategy
+     * @param noOpStrategy   the no-op strategy for wildlife locations
      */
     public EvaluationService(HaikuEvaluationStrategy haikuStrategy,
             SonnetEvaluationStrategy sonnetStrategy,
-            OpusEvaluationStrategy opusStrategy) {
+            OpusEvaluationStrategy opusStrategy,
+            NoOpEvaluationStrategy noOpStrategy) {
         this.haikuStrategy = haikuStrategy;
         this.sonnetStrategy = sonnetStrategy;
         this.opusStrategy = opusStrategy;
+        this.noOpStrategy = noOpStrategy;
     }
 
     /**
@@ -58,11 +63,11 @@ public class EvaluationService {
      * @return Claude's colour potential evaluation and plain-English explanation
      */
     public SunsetEvaluation evaluate(AtmosphericData data, EvaluationModel model, JobRunEntity jobRun) {
-        if (model == EvaluationModel.HAIKU) {
-            return haikuStrategy.evaluate(data, jobRun);
-        } else if (model == EvaluationModel.OPUS) {
-            return opusStrategy.evaluate(data, jobRun);
-        }
-        return sonnetStrategy.evaluate(data, jobRun);
+        return switch (model) {
+            case HAIKU -> haikuStrategy.evaluate(data, jobRun);
+            case OPUS -> opusStrategy.evaluate(data, jobRun);
+            case WILDLIFE -> noOpStrategy.evaluate(data, jobRun);
+            case SONNET -> sonnetStrategy.evaluate(data, jobRun);
+        };
     }
 }

@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -43,18 +43,20 @@ class JobRunServiceTest {
     private JobRunService jobRunService;
 
     @Test
-    @DisplayName("startRun() creates a job run with correct job name")
-    void startRun_createsJobRunWithJobName() {
+    @DisplayName("startRun() creates a job run with correct run type and evaluation model")
+    void startRun_createsJobRunWithRunType() {
         JobRunEntity mockEntity = JobRunEntity.builder()
                 .id(1L)
-                .jobName(JobName.SONNET)
+                .runType(RunType.SHORT_TERM)
+                .evaluationModel(EvaluationModel.SONNET)
                 .build();
         when(jobRunRepository.save(any())).thenReturn(mockEntity);
 
-        JobRunEntity result = jobRunService.startRun(JobName.SONNET, false);
+        JobRunEntity result = jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.SONNET);
 
         assertThat(result.getId()).isEqualTo(1L);
-        assertThat(result.getJobName()).isEqualTo(JobName.SONNET);
+        assertThat(result.getRunType()).isEqualTo(RunType.SHORT_TERM);
+        assertThat(result.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
         verify(jobRunRepository, times(1)).save(any());
     }
 
@@ -64,7 +66,7 @@ class JobRunServiceTest {
         ArgumentCaptor<com.gregochr.goldenhour.entity.ApiCallLogEntity> captor =
                 ArgumentCaptor.forClass(com.gregochr.goldenhour.entity.ApiCallLogEntity.class);
         when(apiCallLogRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(costCalculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).thenReturn(13);  // 1.3p
+        when(costCalculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).thenReturn(13);
 
         jobRunService.logApiCall(
                 1L, ServiceName.ANTHROPIC, "POST",
@@ -87,7 +89,7 @@ class JobRunServiceTest {
         LocalDateTime startTime = LocalDateTime.now().minus(1, ChronoUnit.SECONDS);
         JobRunEntity jobRun = JobRunEntity.builder()
                 .id(1L)
-                .jobName(JobName.HAIKU)
+                .runType(RunType.SHORT_TERM)
                 .startedAt(startTime)
                 .build();
         when(jobRunRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -104,18 +106,18 @@ class JobRunServiceTest {
     }
 
     @Test
-    @DisplayName("getRecentRuns() returns paginated results for job type")
+    @DisplayName("getRecentRuns() returns paginated results for run type")
     void getRecentRuns_returnsPaginatedResults() {
-        when(jobRunRepository.findByJobNameOrderByStartedAtDesc(eq(JobName.WEATHER), any()))
+        when(jobRunRepository.findByRunTypeOrderByStartedAtDesc(eq(RunType.WEATHER), any()))
                 .thenReturn(java.util.List.of(
-                        JobRunEntity.builder().id(1L).jobName(JobName.WEATHER).build(),
-                        JobRunEntity.builder().id(2L).jobName(JobName.WEATHER).build()
+                        JobRunEntity.builder().id(1L).runType(RunType.WEATHER).build(),
+                        JobRunEntity.builder().id(2L).runType(RunType.WEATHER).build()
                 ));
 
-        java.util.List<JobRunEntity> result = jobRunService.getRecentRuns(JobName.WEATHER, 10);
+        java.util.List<JobRunEntity> result = jobRunService.getRecentRuns(RunType.WEATHER, 10);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getJobName()).isEqualTo(JobName.WEATHER);
+        assertThat(result.get(0).getRunType()).isEqualTo(RunType.WEATHER);
     }
 
     @Test

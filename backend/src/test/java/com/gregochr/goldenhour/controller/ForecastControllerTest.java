@@ -2,12 +2,11 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
-import com.gregochr.goldenhour.entity.ModelConfigType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,7 +24,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -53,15 +51,21 @@ class ForecastControllerTest {
     private ForecastService forecastService;
 
     @MockBean
-    private ModelSelectionService modelSelectionService;
+    private ForecastCommandFactory commandFactory;
 
     @MockBean
-    private ScheduledForecastService scheduledForecastService;
+    private ForecastCommandExecutor commandExecutor;
 
     @BeforeEach
     void setUp() {
-        when(modelSelectionService.getActiveModel(any(ModelConfigType.class)))
-                .thenReturn(EvaluationModel.HAIKU);
+        when(commandFactory.create(any(), any(boolean.class)))
+                .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
+                        com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
+                        List.of(), null, null, true));
+        when(commandFactory.create(any(), any(boolean.class), any(), any()))
+                .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
+                        com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
+                        List.of(), null, null, true));
     }
 
     @Test
@@ -110,12 +114,10 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run as ADMIN with no body runs the active model")
-    void runForecast_asAdmin_noBody_runsBothModels() throws Exception {
-        ForecastEvaluationEntity haikuEntity = buildHaikuEntity("Durham UK", LocalDate.of(2026, 2, 20));
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
-                .thenReturn(List.of(haikuEntity));
+    @DisplayName("POST /api/forecast/run as ADMIN with no body runs via command executor")
+    void runForecast_asAdmin_noBody_runsViaExecutor() throws Exception {
+        ForecastEvaluationEntity entity = buildHaikuEntity("Durham UK", LocalDate.of(2026, 2, 20));
+        when(commandExecutor.execute(any())).thenReturn(List.of(entity));
 
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isOk())
@@ -143,14 +145,11 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with multiple dates runs the active model for each date")
-    void runForecast_multipleDates_runsBothModelsForEachDate() throws Exception {
-        ForecastEvaluationEntity day1Haiku = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1));
-        ForecastEvaluationEntity day2Haiku = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 2));
-        // Active model is HAIKU; returns 2 entities (one per date)
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
-                .thenReturn(List.of(day1Haiku, day2Haiku));
+    @DisplayName("POST /api/forecast/run with multiple dates runs via command executor")
+    void runForecast_multipleDates_runsViaExecutor() throws Exception {
+        ForecastEvaluationEntity day1 = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1));
+        ForecastEvaluationEntity day2 = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 2));
+        when(commandExecutor.execute(any())).thenReturn(List.of(day1, day2));
 
         mockMvc.perform(post("/api/forecast/run")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -192,8 +191,7 @@ class ForecastControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run/very-short-term as ADMIN triggers very-short-term run")
     void runVeryShortTermForecast_asAdmin_triggersRun() throws Exception {
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
+        when(commandExecutor.execute(any()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
 
         mockMvc.perform(post("/api/forecast/run/very-short-term"))
@@ -213,8 +211,7 @@ class ForecastControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run/short-term as ADMIN triggers near-term forecast run")
     void runShortTermForecast_asAdmin_triggersNearTermRun() throws Exception {
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
+        when(commandExecutor.execute(any()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
 
         mockMvc.perform(post("/api/forecast/run/short-term"))
@@ -234,8 +231,7 @@ class ForecastControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run/long-term as ADMIN triggers distant forecast run")
     void runLongTermForecast_asAdmin_triggersDistantRun() throws Exception {
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
+        when(commandExecutor.execute(any()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now().plusDays(5))));
 
         mockMvc.perform(post("/api/forecast/run/long-term"))
@@ -272,8 +268,7 @@ class ForecastControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run with maxDays limits the dates processed")
     void runForecast_withMaxDays_limitsDates() throws Exception {
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
+        when(commandExecutor.execute(any()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
 
         mockMvc.perform(post("/api/forecast/run")
@@ -288,8 +283,7 @@ class ForecastControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run with maxLocations limits the locations processed")
     void runForecast_withMaxLocations_limitsLocations() throws Exception {
-        when(scheduledForecastService.runForecasts(
-                any(EvaluationModel.class), any(), any(), anyBoolean()))
+        when(commandExecutor.execute(any()))
                 .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
 
         mockMvc.perform(post("/api/forecast/run")

@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
-import com.gregochr.goldenhour.entity.ModelConfigType;
 import com.gregochr.goldenhour.entity.ModelSelectionEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -23,8 +23,8 @@ public interface ModelSelectionRepository extends JpaRepository<ModelSelectionEn
     /**
      * Get the model selection for a specific run type.
      *
-     * @param configType the run type (VERY_SHORT_TERM, SHORT_TERM, or LONG_TERM)
-     * @return the model selection for that config type, or empty if not seeded
+     * @param runType the run type (VERY_SHORT_TERM, SHORT_TERM, or LONG_TERM)
+     * @return the model selection for that run type, or empty if not seeded
      */
-    Optional<ModelSelectionEntity> findByConfigType(ModelConfigType configType);
+    Optional<ModelSelectionEntity> findByRunType(RunType runType);
 }

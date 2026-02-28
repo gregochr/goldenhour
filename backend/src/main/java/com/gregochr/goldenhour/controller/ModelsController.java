@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ModelConfigType;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,11 +29,10 @@ public class ModelsController {
     /**
      * Get available evaluation models and the active model for each run type.
      *
-     * @return response containing available models and per-config-type active models
+     * @return response containing available models and per-run-type active models
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
-        // WILDLIFE is handled automatically for pure-wildlife locations and is not user-selectable
         EvaluationModel[] selectableModels = {
             EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS
         };
@@ -46,18 +45,22 @@ public class ModelsController {
     /**
      * Set the active evaluation model for a specific run type (ADMIN only).
      *
-     * @param request body containing "configType" and "model" fields
-     * @return response containing the updated config type and model
+     * <p>Accepts either "runType" or legacy "configType" in the request body.
+     *
+     * @param request body containing "runType" (or "configType") and "model" fields
+     * @return response containing the updated run type and model
      */
     @PutMapping("/active")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> setActiveModel(
             @RequestBody Map<String, String> request) {
         String modelName = request.get("model");
-        String configTypeName = request.get("configType");
+        // Accept both "runType" and legacy "configType"
+        String runTypeName = request.getOrDefault("runType",
+                request.get("configType"));
         EvaluationModel model = EvaluationModel.valueOf(modelName.toUpperCase());
-        ModelConfigType configType = ModelConfigType.valueOf(configTypeName.toUpperCase());
-        EvaluationModel active = modelSelectionService.setActiveModel(configType, model);
-        return ResponseEntity.ok(Map.of("configType", configType, "active", active));
+        RunType runType = RunType.valueOf(runTypeName.toUpperCase());
+        EvaluationModel active = modelSelectionService.setActiveModel(runType, model);
+        return ResponseEntity.ok(Map.of("runType", runType, "active", active));
     }
 }

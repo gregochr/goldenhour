@@ -19,9 +19,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * JPA entity representing a single scheduled job run (Sonnet, Haiku, Wildlife, or Tide).
+ * JPA entity representing a single scheduled job run.
  *
- * <p>Tracks overall job timing and success/failure counts. Child {@link ApiCallLogEntity}
+ * <p>Tracks the run type (what was requested), the evaluation model used (if any),
+ * overall timing, and success/failure counts. Child {@link ApiCallLogEntity}
  * records detail which individual API calls occurred during this run.
  */
 @Entity
@@ -38,10 +39,15 @@ public class JobRunEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Name of the scheduled job that ran. */
+    /** The type of forecast run (what was requested). */
     @Enumerated(EnumType.STRING)
-    @Column(name = "job_name", nullable = false, length = 20)
-    private JobName jobName;
+    @Column(name = "run_type", nullable = false, length = 20)
+    private RunType runType;
+
+    /** Which Claude model was used for evaluation (null for WEATHER/TIDE). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "evaluation_model", length = 10)
+    private EvaluationModel evaluationModel;
 
     /** UTC timestamp when the job started. */
     @Column(name = "started_at", nullable = false)

@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
-import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -14,13 +14,13 @@ import java.util.List;
 public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
 
     /**
-     * Finds recent job runs by name, ordered by start time descending.
+     * Finds recent job runs by run type, ordered by start time descending.
      *
-     * @param jobName the job name to filter by
+     * @param runType  the run type to filter by
      * @param pageable pagination configuration
      * @return list of job runs
      */
-    List<JobRunEntity> findByJobNameOrderByStartedAtDesc(JobName jobName, Pageable pageable);
+    List<JobRunEntity> findByRunTypeOrderByStartedAtDesc(RunType runType, Pageable pageable);
 
     /**
      * Finds all job runs that started after a given time, ordered descending.

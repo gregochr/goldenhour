@@ -20,7 +20,7 @@ const JobRunsMetricsView = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [page, setPage] = useState(0);
-  const [jobNameFilter, setJobNameFilter] = useState(undefined);
+  const [runTypeFilter, setRunTypeFilter] = useState(undefined);
   const [hasMore, setHasMore] = useState(true);
   const [runningVeryShortTerm, setRunningVeryShortTerm] = useState(false);
   const [runningShortTerm, setRunningShortTerm] = useState(false);
@@ -31,7 +31,7 @@ const JobRunsMetricsView = () => {
   const loadJobRuns = useCallback(async (pageNum) => {
     try {
       setLoading(true);
-      const response = await getJobRuns(jobNameFilter, pageNum, PAGE_SIZE);
+      const response = await getJobRuns(runTypeFilter, pageNum, PAGE_SIZE);
       const newRuns = response.data?.content || [];
 
       if (pageNum === 0) {
@@ -60,13 +60,13 @@ const JobRunsMetricsView = () => {
     } finally {
       setLoading(false);
     }
-  }, [jobNameFilter]);
+  }, [runTypeFilter]);
 
   useEffect(() => {
     setPage(0);
     setRuns([]);
     loadJobRuns(0);
-  }, [jobNameFilter, loadJobRuns]);
+  }, [runTypeFilter, loadJobRuns]);
 
   const handleLoadMore = () => {
     loadJobRuns(page);
@@ -170,22 +170,22 @@ const JobRunsMetricsView = () => {
       {/* Summary cards */}
       <MetricsSummary runs={runs} apiCalls={allApiCalls} />
 
-      {/* Job name filter */}
+      {/* Run type filter */}
       <div className="card">
-        <label htmlFor="job-filter-select" className="block text-sm font-medium text-plex-text-secondary mb-2">Filter by Job</label>
+        <label htmlFor="run-type-filter-select" className="block text-sm font-medium text-plex-text-secondary mb-2">Filter by Run Type</label>
         <select
-          id="job-filter-select"
-          value={jobNameFilter || ''}
-          onChange={(e) => setJobNameFilter(e.target.value || undefined)}
+          id="run-type-filter-select"
+          value={runTypeFilter || ''}
+          onChange={(e) => setRunTypeFilter(e.target.value || undefined)}
           className="w-full px-3 py-2 bg-plex-surface-light border border-plex-border rounded-lg text-plex-text focus:ring-2 focus:ring-plex-gold focus:border-transparent"
-          data-testid="job-filter-select"
+          data-testid="run-type-filter-select"
         >
-          <option value="">All Jobs</option>
-          <option value="SONNET">SONNET</option>
-          <option value="HAIKU">HAIKU</option>
-          <option value="OPUS">OPUS</option>
-          <option value="WILDLIFE">WILDLIFE</option>
-          <option value="TIDE">TIDE</option>
+          <option value="">All Run Types</option>
+          <option value="VERY_SHORT_TERM">Very Short-Term</option>
+          <option value="SHORT_TERM">Short-Term</option>
+          <option value="LONG_TERM">Long-Term</option>
+          <option value="WEATHER">Weather</option>
+          <option value="TIDE">Tide</option>
         </select>
       </div>
 

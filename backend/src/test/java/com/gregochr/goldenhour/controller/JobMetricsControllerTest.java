@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.JobName;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +50,7 @@ class JobMetricsControllerTest {
     void getJobRuns_returnsJobRunsForAdmin() throws Exception {
         JobRunEntity run = JobRunEntity.builder()
                 .id(1L)
-                .jobName(JobName.SONNET)
+                .runType(RunType.SHORT_TERM)
                 .startedAt(LocalDateTime.now())
                 .succeeded(10)
                 .failed(0)
@@ -60,31 +60,31 @@ class JobMetricsControllerTest {
         mockMvc.perform(get("/api/metrics/job-runs")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].jobName").value("SONNET"))
+                .andExpect(jsonPath("$.content[0].runType").value("SHORT_TERM"))
                 .andExpect(jsonPath("$.content[0].succeeded").value(10));
     }
 
     @Test
-    @DisplayName("GET /api/metrics/job-runs filters by job name")
+    @DisplayName("GET /api/metrics/job-runs filters by run type")
     @WithMockUser(roles = "ADMIN")
-    void getJobRuns_filtersByJobName() throws Exception {
+    void getJobRuns_filtersByRunType() throws Exception {
         JobRunEntity run = JobRunEntity.builder()
                 .id(1L)
-                .jobName(JobName.HAIKU)
+                .runType(RunType.WEATHER)
                 .build();
-        when(jobRunService.getRecentRuns(eq(JobName.HAIKU), eq(20))).thenReturn(List.of(run));
+        when(jobRunService.getRecentRuns(eq(RunType.WEATHER), eq(20))).thenReturn(List.of(run));
 
-        mockMvc.perform(get("/api/metrics/job-runs?jobName=HAIKU")
+        mockMvc.perform(get("/api/metrics/job-runs?runType=WEATHER")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].jobName").value("HAIKU"));
+                .andExpect(jsonPath("$.content[0].runType").value("WEATHER"));
     }
 
     @Test
-    @DisplayName("GET /api/metrics/job-runs rejects invalid job name")
+    @DisplayName("GET /api/metrics/job-runs rejects invalid run type")
     @WithMockUser(roles = "ADMIN")
-    void getJobRuns_rejectsInvalidJobName() throws Exception {
-        mockMvc.perform(get("/api/metrics/job-runs?jobName=INVALID")
+    void getJobRuns_rejectsInvalidRunType() throws Exception {
+        mockMvc.perform(get("/api/metrics/job-runs?runType=INVALID")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
     }

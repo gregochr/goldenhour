@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.junit.jupiter.api.DisplayName;
@@ -36,6 +37,9 @@ class EvaluationServiceTest {
 
     @Mock
     private OpusEvaluationStrategy opusStrategy;
+
+    @Mock
+    private NoOpEvaluationStrategy noOpStrategy;
 
     @InjectMocks
     private EvaluationService evaluationService;
