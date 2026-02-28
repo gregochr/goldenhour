@@ -67,16 +67,19 @@ export function degreesToCompass(degrees) {
  *
  * @param {string} dateStr - ISO date string (YYYY-MM-DD).
  * @param {Date} [now=new Date()] - Reference date for relative labels.
+ * @param {boolean} [skipRelative=false] - If true, always returns the formatted date (e.g. "Sat 28 Feb").
  * @returns {string} Human-readable label.
  */
-export function formatDateLabel(dateStr, now = new Date()) {
+export function formatDateLabel(dateStr, now = new Date(), skipRelative = false) {
   const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   const [year, month, day] = dateStr.split('-').map(Number);
   const targetUtc = Date.UTC(year, month - 1, day);
   const diffDays = Math.round((targetUtc - todayUtc) / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Tomorrow';
+  if (!skipRelative) {
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Tomorrow';
+  }
 
   const date = new Date(targetUtc);
   return date.toLocaleDateString('en-GB', {

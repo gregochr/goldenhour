@@ -26,7 +26,7 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
                 : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text'
             }`}
           >
-            {date === today ? `Today · ${formatDateLabel(date)}` : formatDateLabel(date)}
+            {date === today ? `Today · ${formatDateLabel(date, new Date(), true)}` : formatDateLabel(date)}
           </button>
         ))}
       </div>
