@@ -17,8 +17,8 @@ services:
 
   goldenhour-backend:
     build:
-      context: .
-      dockerfile: ./backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     image: gregochr/goldenhour:latest
     container_name: goldenhour-backend
     ports:
