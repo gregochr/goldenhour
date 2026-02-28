@@ -32,8 +32,9 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Session expiry warnings (amber ≤7 days, red ≤1 day); refresh token rotates on every `/refresh` call
 - Session countdown (`Session: 30d`) in header for ADMIN users
 - Backend health indicator: green/red dot in header (ADMIN only), polls `/actuator/health` every 30 s
+- **Command + Strategy patterns** ✓ — GoF Command pattern (`ForecastCommand`, `ForecastCommandFactory`, `ForecastCommandExecutor`) cleanly separates what to run from how to run it; `RunType` enum replaces both `JobName` and `ModelConfigType`; `NoOpEvaluationStrategy` for wildlife locations
 - **Job run metrics** ✓ — persistent tracking of all scheduled forecast runs and external API calls with cost aggregation
-  - `job_run` table (V20) tracks run duration, success/failure counts, total cost in pence
+  - `job_run` table (V20) tracks run type, evaluation model, duration, success/failure counts, total cost in pence
   - `api_call_log` table (V20) records every API call with request/response details, duration, cost
   - Admin metrics dashboard shows last 7 days: total runs, success rate, slowest service, cost breakdown
   - Per-location failure tracking: `consecutive_failures`, auto-disable after 3 failures (V21)
@@ -58,16 +59,16 @@ goldenhour/
 │   ├── src/main/java/com/gregochr/goldenhour/
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties
 │   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, JobName, ServiceName, EvaluationModel, ModelConfigType
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
 │   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository
-│   │   ├── service/       ForecastService, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, notification/
+│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, evaluation/, notification/
 │   │   └── model/         AtmosphericData, SunsetEvaluation, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V28 Flyway migrations
+│       └── db/migration/            V1–V29 Flyway migrations
 ├── frontend/              React 18 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js (global axios interceptors)
@@ -107,8 +108,9 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 
 - **No DTOs** — `ForecastController` returns entities directly; all fields auto-exposed.
 - **Backend-heavy** — all calculations (dayLabel, windCardinal, visibilityKm, azimuthDeg, tideAligned) computed on backend. Frontend is a pure render layer.
-- **Evaluation strategy** — flat hierarchy: `AbstractEvaluationStrategy` (shared prompts, retry logic, parsing) → `HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`. Only `getEvaluationModel()` and `getModelName()` differ per strategy. `EvaluationService` delegates to the strategy matching the admin-selected model for each run type.
-- **Per-run-type model config** — `ModelConfigType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM); each run button/endpoint uses its own configured model. `ModelSelectionService.getAllConfigs()` returns the full map.
+- **Evaluation strategy** — flat hierarchy: `AbstractEvaluationStrategy` (shared prompts, retry logic, parsing) → `HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`, plus `NoOpEvaluationStrategy` for wildlife (no Claude call). Only `getEvaluationModel()` and `getModelName()` differ per Claude strategy. `EvaluationService` delegates to the strategy matching the admin-selected model for each run type.
+- **Command pattern** — `ForecastCommand` record encapsulates run parameters (run type, dates, locations, strategy, manual flag). `ForecastCommandFactory` builds commands from `RunType`, resolving the active model and strategy. `ForecastCommandExecutor` runs commands with parallel execution, skip logic, and metrics tracking. Controllers and schedulers are thin wrappers: `commandFactory.create()` → `commandExecutor.execute()`.
+- **Per-run-type model config** — `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE); each run button/endpoint uses its own configured model. `ModelSelectionService.getAllConfigs()` returns the full map.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **CORS** — configured in `SecurityConfig` via `CorsConfigurationSource` bean; `allowedOriginPatterns` covers `localhost:*` and LAN subnets.
 - **Location metadata** — YAML is source of truth; `LocationService.@PostConstruct` seeds and syncs to DB on every startup.
@@ -164,6 +166,7 @@ jwt:
 | V26 | `model` + `target` on `api_call_log` |
 | V27 | `email VARCHAR(255)` (nullable) on `app_user` |
 | V28 | `config_type` on `model_selection` — per-run-type model configuration (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM) |
+| V29 | Rename `job_name` → `run_type` + add `evaluation_model` on `job_run`; rename `config_type` → `run_type` on `model_selection`; drop `JobName`/`ModelConfigType` enums |
 
 ---
 
@@ -202,8 +205,8 @@ jwt:
 | `PUT` | `/api/users/{id}/reset-password` | ADMIN | Generate temp password, set passwordChangeRequired |
 | `GET` | `/api/metrics/job-runs` | ADMIN | Pageable job run history |
 | `GET` | `/api/metrics/api-calls` | ADMIN | API call log with costs |
-| `GET` | `/api/models` | Bearer | Available models and per-config-type active models |
-| `PUT` | `/api/models/active` | ADMIN | Set active model for a run type (`configType` + `model`) |
+| `GET` | `/api/models` | Bearer | Available models and per-run-type active models |
+| `PUT` | `/api/models/active` | ADMIN | Set active model for a run type (`runType` + `model`) |
 | `PUT` | `/api/locations/{name}/reset-failures` | ADMIN | Re-enable auto-disabled location |
 | `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
 | `POST` | `/api/push/subscribe` | Bearer | Save a push subscription |
@@ -367,19 +370,15 @@ Generate keys once: `openssl ecparam -name prime256v1 -genkey -noout -out vapid_
 
 Track performance of scheduled forecast runs and external API calls, stored in H2.
 
-- `job_run` table: `id`, `job_name` (SONNET/HAIKU/WILDLIFE/TIDE), `started_at`, `completed_at`, `duration_ms`, `locations_processed`, `succeeded`, `failed`, `total_cost_pence`
+- `job_run` table: `id`, `run_type` (VERY_SHORT_TERM/SHORT_TERM/LONG_TERM/WEATHER/TIDE), `evaluation_model` (HAIKU/SONNET/OPUS/WILDLIFE, nullable), `started_at`, `completed_at`, `duration_ms`, `locations_processed`, `succeeded`, `failed`, `total_cost_pence`
 - `api_call_log` table: `id`, `job_run_id` (FK), `service` (OPEN_METEO_FORECAST/OPEN_METEO_AIR_QUALITY/WORLD_TIDES/ANTHROPIC), `called_at`, `completed_at`, `duration_ms`, `request_method`, `request_url`, `request_body`, `status_code`, `response_body`, `succeeded`, `error_message`, `cost_pence`
-- `JobRunService` wraps `ScheduledForecastService` and `TideService` calls, records timings and costs
+- `JobRunService` records run metrics (start/complete with RunType + EvaluationModel)
 - `CostCalculator` service computes API call costs by service and model
 - `JobMetricsController` endpoints: `GET /api/metrics/job-runs`, `GET /api/metrics/api-calls`
 - Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
 - Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 332 backend tests, all passing with ≥80% JaCoCo coverage
-
-**UX Note (potential enhancement)**: Job runs are named after the evaluation model (SONNET/HAIKU/WILDLIFE/TIDE), which is architecturally correct but may not be intuitive to end users. Users might expect a single "Forecast Run" or "Evaluation Run" label instead of separate job names per model. Consider either:
-1. Unifying the UI to show "Forecast Run" with model breakdown inside, or
-2. Adding a more user-friendly label/description to job runs (e.g., "Daily Forecast — Sonnet + Haiku + Wildlife")
+- 357 backend tests, all passing with ≥80% JaCoCo coverage
 
 ### 9. Retry Robustness ✓ BUILT
 
@@ -390,7 +389,7 @@ Each scheduled job run is resilient — a 429 or transient 5xx on one location/s
   - `AbstractEvaluationStrategy.invokeClaudeWithRetry()` with detailed logging
   - Haiku, Sonnet, and Opus strategies all inherit retry logic
   - Test coverage: `AbstractEvaluationStrategyTest` validates retry on 529, success on 2nd attempt
-- **Per-location failure isolation**: `ScheduledForecastService` catches exceptions per location
+- **Per-location failure isolation**: `ForecastCommandExecutor` catches exceptions per location
   - Failures logged to `job_run` and `api_call_log` metrics with error messages
   - `ForecastService` logs API calls with status codes and error details
 - **Dead-letter mechanism**: locations auto-disabled after 3 consecutive forecast failures (V21)
@@ -430,7 +429,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 332 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 357 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
