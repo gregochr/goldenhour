@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,9 @@ class ForecastControllerTest {
 
     @MockBean
     private ForecastCommandExecutor commandExecutor;
+
+    @MockBean
+    private ScheduledForecastService scheduledForecastService;
 
     @BeforeEach
     void setUp() {
@@ -114,14 +118,12 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run as ADMIN with no body runs via command executor")
-    void runForecast_asAdmin_noBody_runsViaExecutor() throws Exception {
-        ForecastEvaluationEntity entity = buildHaikuEntity("Durham UK", LocalDate.of(2026, 2, 20));
-        when(commandExecutor.execute(any())).thenReturn(List.of(entity));
-
+    @DisplayName("POST /api/forecast/run as ADMIN returns 202 Accepted")
+    void runForecast_asAdmin_noBody_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"))
+                .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
     }
 
     @Test
@@ -145,17 +147,13 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with multiple dates runs via command executor")
-    void runForecast_multipleDates_runsViaExecutor() throws Exception {
-        ForecastEvaluationEntity day1 = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1));
-        ForecastEvaluationEntity day2 = buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 2));
-        when(commandExecutor.execute(any())).thenReturn(List.of(day1, day2));
-
+    @DisplayName("POST /api/forecast/run with multiple dates returns 202 Accepted")
+    void runForecast_multipleDates_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\"]}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"));
     }
 
     @Test
@@ -189,14 +187,12 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/very-short-term as ADMIN triggers very-short-term run")
-    void runVeryShortTermForecast_asAdmin_triggersRun() throws Exception {
-        when(commandExecutor.execute(any()))
-                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
-
+    @DisplayName("POST /api/forecast/run/very-short-term as ADMIN returns 202 Accepted")
+    void runVeryShortTermForecast_asAdmin_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run/very-short-term"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"))
+                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"));
     }
 
     @Test
@@ -209,14 +205,12 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/short-term as ADMIN triggers near-term forecast run")
-    void runShortTermForecast_asAdmin_triggersNearTermRun() throws Exception {
-        when(commandExecutor.execute(any()))
-                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now())));
-
+    @DisplayName("POST /api/forecast/run/short-term as ADMIN returns 202 Accepted")
+    void runShortTermForecast_asAdmin_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run/short-term"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"))
+                .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
     }
 
     @Test
@@ -229,14 +223,12 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run/long-term as ADMIN triggers distant forecast run")
-    void runLongTermForecast_asAdmin_triggersDistantRun() throws Exception {
-        when(commandExecutor.execute(any()))
-                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.now().plusDays(5))));
-
+    @DisplayName("POST /api/forecast/run/long-term as ADMIN returns 202 Accepted")
+    void runLongTermForecast_asAdmin_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run/long-term"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"))
+                .andExpect(jsonPath("$.runType").value("LONG_TERM"));
     }
 
     @Test
@@ -266,29 +258,42 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with maxDays limits the dates processed")
-    void runForecast_withMaxDays_limitsDates() throws Exception {
-        when(commandExecutor.execute(any()))
-                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
-
+    @DisplayName("POST /api/forecast/run with maxDays returns 202 Accepted")
+    void runForecast_withMaxDays_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dates\":[\"2026-03-01\",\"2026-03-02\",\"2026-03-03\"]}")
                         .param("maxDays", "1"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"));
     }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("POST /api/forecast/run with maxLocations limits the locations processed")
-    void runForecast_withMaxLocations_limitsLocations() throws Exception {
-        when(commandExecutor.execute(any()))
-                .thenReturn(List.of(buildHaikuEntity("Durham UK", LocalDate.of(2026, 3, 1))));
-
+    @DisplayName("POST /api/forecast/run with maxLocations returns 202 Accepted")
+    void runForecast_withMaxLocations_returns202() throws Exception {
         mockMvc.perform(post("/api/forecast/run")
                         .param("maxLocations", "1"))
-                .andExpect(status().isOk());
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/tide as ADMIN returns 202 Accepted")
+    void refreshTideData_asAdmin_returns202() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/tide"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Tide refresh started"))
+                .andExpect(jsonPath("$.runType").value("TIDE"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/forecast/run/tide as non-admin returns 403")
+    void refreshTideData_asNonAdmin_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/tide"))
+                .andExpect(status().isForbidden());
     }
 
     private ForecastEvaluationEntity buildEntity(String locationName, LocalDate targetDate) {
@@ -309,20 +314,4 @@ class ForecastControllerTest {
                 .build();
     }
 
-    private ForecastEvaluationEntity buildHaikuEntity(String locationName, LocalDate targetDate) {
-        return ForecastEvaluationEntity.builder()
-                .id(2L)
-                .locationName(locationName)
-                .locationLat(BigDecimal.valueOf(54.7753))
-                .locationLon(BigDecimal.valueOf(-1.5849))
-                .targetDate(targetDate)
-                .targetType(TargetType.SUNSET)
-                .forecastRunAt(LocalDateTime.of(2026, 2, 20, 12, 0))
-                .daysAhead(0)
-                .evaluationModel(EvaluationModel.HAIKU)
-                .rating(4)
-                .summary("Good colour potential.")
-                .solarEventTime(LocalDateTime.of(2026, 2, 20, 16, 45))
-                .build();
-    }
 }

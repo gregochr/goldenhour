@@ -81,7 +81,7 @@ export async function fetchOutcomes(lat, lon, from, to) {
  * @param {string} date - Target date (YYYY-MM-DD).
  * @param {string} location - Configured location name.
  * @param {string} targetType - SUNRISE or SUNSET.
- * @returns {Promise<Array<object>>} Saved evaluation entities.
+ * @returns {Promise<{status: string, runType: string}>} Accepted status message.
  */
 export async function runForecast(date, location, targetType) {
   const response = await axios.post(`${BASE_URL}/forecast/run`, { dates: [date], location, targetType });
@@ -92,7 +92,7 @@ export async function runForecast(date, location, targetType) {
  * Triggers an on-demand run of very-short-term forecasts (today, T+1).
  * Uses the model configured under VERY_SHORT_TERM.
  *
- * @returns {Promise<Array<object>>} Saved evaluation entities.
+ * @returns {Promise<{status: string, runType: string}>} Accepted status message.
  */
 export async function runVeryShortTermForecast() {
   const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`);
@@ -103,7 +103,7 @@ export async function runVeryShortTermForecast() {
  * Triggers an on-demand run of near-term forecasts (today, T+1, T+2).
  * Uses the model configured under SHORT_TERM.
  *
- * @returns {Promise<Array<object>>} Saved evaluation entities.
+ * @returns {Promise<{status: string, runType: string}>} Accepted status message.
  */
 export async function runShortTermForecast(dryRun = false) {
   const response = await axios.post(`${BASE_URL}/forecast/run/short-term?dryRun=${dryRun}`);
@@ -114,10 +114,20 @@ export async function runShortTermForecast(dryRun = false) {
  * Triggers an on-demand run of distant forecasts (T+3 through T+7).
  * Uses the model configured under LONG_TERM.
  *
- * @returns {Promise<Array<object>>} Saved evaluation entities.
+ * @returns {Promise<{status: string, runType: string}>} Accepted status message.
  */
 export async function runLongTermForecast() {
   const response = await axios.post(`${BASE_URL}/forecast/run/long-term`);
+  return response.data;
+}
+
+/**
+ * Triggers a manual refresh of tide extreme data for all coastal locations.
+ *
+ * @returns {Promise<{status: string}>} Status message.
+ */
+export async function refreshTideData() {
+  const response = await axios.post(`${BASE_URL}/forecast/run/tide`);
   return response.data;
 }
 
