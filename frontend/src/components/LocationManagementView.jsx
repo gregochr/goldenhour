@@ -223,6 +223,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [addTideType, setAddTideType] = useState('NOT_COASTAL');
 
   // Edit form state
+  const [editName, setEditName] = useState('');
   const [editGoldenHourType, setEditGoldenHourType] = useState('BOTH_TIMES');
   const [editLocationType, setEditLocationType] = useState('LANDSCAPE');
   const [editTideType, setEditTideType] = useState('NOT_COASTAL');
@@ -276,6 +277,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   function handleStartEdit(loc) {
     setMode('edit');
     setEditingLocation(loc);
+    setEditName(loc.name);
     setEditGoldenHourType(loc.goldenHourType || 'BOTH_TIMES');
     setEditLocationType(firstOrDefault(loc.locationType, 'LANDSCAPE'));
     setEditTideType(firstOrDefault(loc.tideType, 'NOT_COASTAL'));
@@ -324,10 +326,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
   function handleEditReviewConfirm() {
     if (!editingLocation) return;
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      setError('Name cannot be blank.');
+      return;
+    }
     setConfirmData({
       mode: 'edit',
       id: editingLocation.id,
-      name: editingLocation.name,
+      name: trimmedName,
       lat: editingLocation.lat,
       lon: editingLocation.lon,
       goldenHourType: editGoldenHourType,
@@ -351,6 +358,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         });
       } else {
         await updateLocation(confirmData.id, {
+          name: confirmData.name,
           goldenHourType: confirmData.goldenHourType,
           locationType: confirmData.locationType,
           tideType: confirmData.tideType,
@@ -628,9 +636,19 @@ export default function LocationManagementView({ onLocationsChanged }) {
             Edit Location: {editingLocation.name}
           </p>
 
-          <div className="bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-xs text-plex-text-secondary">
-            <p className="font-medium text-plex-text">{editingLocation.name}</p>
-            <p className="mt-0.5">{editingLocation.lat.toFixed(4)}, {editingLocation.lon.toFixed(4)}</p>
+          <div>
+            <label htmlFor="edit-name" className={labelClass}>Name</label>
+            <input
+              id="edit-name"
+              type="text"
+              className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              data-testid="edit-name"
+            />
+            <p className="mt-1 text-xs text-plex-text-muted">
+              {editingLocation.lat.toFixed(4)}, {editingLocation.lon.toFixed(4)}
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
