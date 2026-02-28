@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Refactored (Feb 28, 2026)
+- **Command + Strategy pattern refactoring** — GoF patterns applied to forecast run pipeline
+  - `ForecastCommand` record encapsulates run parameters (run type, dates, locations, strategy, manual flag)
+  - `ForecastCommandFactory` builds commands from `RunType`, resolving active model and evaluation strategy
+  - `ForecastCommandExecutor` executes commands with parallel execution, skip logic (event passed, long-term exists, Opus min rating), and metrics tracking
+  - `NoOpEvaluationStrategy` for wildlife/comfort-only locations — returns null evaluation without calling Claude
+  - `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE) replaces both `JobName` and `ModelConfigType`
+  - `ScheduledForecastService` simplified to thin scheduling wrapper: `commandFactory.create()` → `commandExecutor.execute()`
+  - All forecast controller endpoints simplified to two-line create + execute
+  - `V29` Flyway migration: renames `job_name` → `run_type` + adds `evaluation_model` on `job_run`; renames `config_type` → `run_type` on `model_selection`
+  - `JobName` and `ModelConfigType` enums deleted
+  - `JobRunEntity` now tracks both `runType` and `evaluationModel` separately
+  - Frontend updated: `metricsApi.js`, `modelsApi.js`, `JobRunsGrid.jsx`, `JobRunsMetricsView.jsx`, `ModelSelectionView.jsx` all use `runType`
+  - 357 backend tests (up from 332), 50 frontend tests — all passing with JaCoCo ≥ 80%
+
 ### Added (Feb 27, 2026)
 - **Opus optimisation gate** — Opus very-short-term runs now skip slots where the most recent prior rating is below 3 stars (or no prior evaluation exists), saving cost and time on low-value forecasts
 - **Per-run-type model configuration** — each run type (Very Short-Term, Short-Term, Long-Term) has an independently configurable Anthropic model (Haiku, Sonnet, Opus)
