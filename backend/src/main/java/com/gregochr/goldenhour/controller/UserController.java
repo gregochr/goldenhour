@@ -118,6 +118,33 @@ public class UserController {
     }
 
     /**
+     * Updates the email address of a user.
+     *
+     * @param id   the user's primary key
+     * @param body map containing {@code email}
+     * @return 200 on success, or 400 if the email is missing, invalid, or user not found
+     */
+    @PutMapping("/{id}/email")
+    public ResponseEntity<Object> setEmail(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "email field required"));
+        }
+        if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid email address: " + email));
+        }
+        try {
+            userService.setEmail(id, email.trim());
+            return ResponseEntity.ok(Map.of("message", "Updated"));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
      * Changes the role of a user.
      *
      * @param id   the user's primary key

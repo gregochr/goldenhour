@@ -12,3 +12,39 @@ export async function resetUserPassword(userId) {
   const response = await axios.put(`/api/users/${userId}/reset-password`);
   return response.data;
 }
+
+/**
+ * Updates a user's email address. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @param {string} email - The new email address.
+ * @returns {Promise<{message: string}>} Confirmation message.
+ */
+export async function updateUserEmail(userId, email) {
+  const response = await axios.put(`/api/users/${userId}/email`, { email });
+  return response.data;
+}
+
+/**
+ * Updates a user's role. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @param {string} role - The new role (ADMIN, PRO_USER, or LITE_USER).
+ * @returns {Promise<{message: string}>} Confirmation message.
+ */
+export async function updateUserRole(userId, role) {
+  const response = await axios.put(`/api/users/${userId}/role`, { role });
+  return response.data;
+}
+
+/**
+ * Enables or disables a user account. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @param {boolean} enabled - Whether the user should be enabled.
+ * @returns {Promise<{message: string}>} Confirmation message.
+ */
+export async function updateUserEnabled(userId, enabled) {
+  const response = await axios.put(`/api/users/${userId}/enabled`, { enabled });
+  return response.data;
+}

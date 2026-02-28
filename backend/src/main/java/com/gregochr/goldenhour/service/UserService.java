@@ -156,6 +156,21 @@ public class UserService implements UserDetailsService {
     }
 
     /**
+     * Updates the email address of an existing user.
+     *
+     * @param id    the user's primary key
+     * @param email the new email address
+     * @throws IllegalArgumentException if no user with that id exists
+     */
+    @Transactional
+    public void setEmail(Long id, String email) {
+        AppUserEntity user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        user.setEmail(email);
+        userRepository.save(user);
+    }
+
+    /**
      * Changes the role of an existing user.
      *
      * @param id   the user's primary key
