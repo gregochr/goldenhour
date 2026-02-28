@@ -220,7 +220,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
         });
       }
       await refreshLocations();
-      onLocationsChanged();
       handleCancel();
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');

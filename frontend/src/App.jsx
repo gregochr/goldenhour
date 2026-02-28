@@ -56,7 +56,7 @@ function AppInner() {
           <div>
             <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center gap-3">
               <img src="/logo.png" alt="" className="h-10 w-10 object-contain" />
-              Photo Cast
+              PhotoCast
             </h1>
             <p className="text-base text-plex-text-secondary mt-1">
               AI Forecasts for Fiery Skies & Golden Light
