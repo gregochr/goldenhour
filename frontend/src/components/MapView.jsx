@@ -263,7 +263,7 @@ function PopupScoreRow({ label, score }) {
   return (
     <div style={{ marginBottom: '4px' }} title={SCORE_TOOLTIPS[label] ?? ''}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#A0A0A0', marginBottom: '2px' }}>
-        <span style={{ cursor: 'help', borderBottom: '1px dotted #6B6B6B' }}>{label}</span>
+        <span style={{ borderBottom: '1px dotted #6B6B6B' }}>{label}</span>
         <span style={{ fontWeight: '600', color: '#EBEBEB' }}>{pct != null ? pct : '—'}</span>
       </div>
       <div style={{ height: '6px', background: '#3A3D45', borderRadius: '9999px', overflow: 'hidden' }}>
