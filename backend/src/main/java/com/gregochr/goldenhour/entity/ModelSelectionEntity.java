@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 
 /**
  * Stores the active evaluation model for a specific run type.
- * One row per {@link ModelConfigType} (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM).
+ * One row per forecast run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM).
  */
 @Entity
 @Table(name = "model_selection")
@@ -41,8 +41,8 @@ public class ModelSelectionEntity {
 
     /** Which run type this configuration applies to. */
     @Enumerated(EnumType.STRING)
-    @Column(name = "config_type", nullable = false, length = 20)
-    private ModelConfigType configType;
+    @Column(name = "run_type", nullable = false, length = 20)
+    private RunType runType;
 
     /** UTC timestamp when this selection was last updated. */
     @Column(name = "updated_at", nullable = false)

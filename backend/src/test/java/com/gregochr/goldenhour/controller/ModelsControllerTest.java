@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ModelConfigType;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -26,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Tests for {@link ModelsController} — validates per-config-type model selection endpoints.
+ * Tests for {@link ModelsController} — validates per-run-type model selection endpoints.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -41,16 +41,16 @@ class ModelsControllerTest {
     @MockBean
     private ModelSelectionService modelSelectionService;
 
-    private Map<ModelConfigType, EvaluationModel> buildDefaultConfigs() {
-        Map<ModelConfigType, EvaluationModel> configs = new EnumMap<>(ModelConfigType.class);
-        configs.put(ModelConfigType.VERY_SHORT_TERM, EvaluationModel.HAIKU);
-        configs.put(ModelConfigType.SHORT_TERM, EvaluationModel.HAIKU);
-        configs.put(ModelConfigType.LONG_TERM, EvaluationModel.HAIKU);
+    private Map<RunType, EvaluationModel> buildDefaultConfigs() {
+        Map<RunType, EvaluationModel> configs = new EnumMap<>(RunType.class);
+        configs.put(RunType.VERY_SHORT_TERM, EvaluationModel.HAIKU);
+        configs.put(RunType.SHORT_TERM, EvaluationModel.HAIKU);
+        configs.put(RunType.LONG_TERM, EvaluationModel.HAIKU);
         return configs;
     }
 
     @Test
-    @DisplayName("GET /api/models returns available models and per-config-type configs")
+    @DisplayName("GET /api/models returns available models and per-run-type configs")
     void getAvailableModels_returnsConfigsMap() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
@@ -84,36 +84,36 @@ class ModelsControllerTest {
     }
 
     @Test
-    @DisplayName("PUT /api/models/active with ADMIN role and configType succeeds")
-    void setActiveModel_adminUser_withConfigType_succeeds() throws Exception {
+    @DisplayName("PUT /api/models/active with ADMIN role and runType succeeds")
+    void setActiveModel_adminUser_withRunType_succeeds() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(modelSelectionService.setActiveModel(ModelConfigType.VERY_SHORT_TERM, EvaluationModel.OPUS))
+        when(modelSelectionService.setActiveModel(RunType.VERY_SHORT_TERM, EvaluationModel.OPUS))
                 .thenReturn(EvaluationModel.OPUS);
 
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"configType\":\"VERY_SHORT_TERM\",\"model\":\"OPUS\"}"))
+                .content("{\"runType\":\"VERY_SHORT_TERM\",\"model\":\"OPUS\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.configType").value("VERY_SHORT_TERM"))
+                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
                 .andExpect(jsonPath("$.active").value("OPUS"));
 
-        verify(modelSelectionService).setActiveModel(ModelConfigType.VERY_SHORT_TERM, EvaluationModel.OPUS);
+        verify(modelSelectionService).setActiveModel(RunType.VERY_SHORT_TERM, EvaluationModel.OPUS);
     }
 
     @Test
     @DisplayName("PUT /api/models/active switches SHORT_TERM to SONNET")
     void setActiveModel_switchesShortTermToSonnet() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(modelSelectionService.setActiveModel(ModelConfigType.SHORT_TERM, EvaluationModel.SONNET))
+        when(modelSelectionService.setActiveModel(RunType.SHORT_TERM, EvaluationModel.SONNET))
                 .thenReturn(EvaluationModel.SONNET);
 
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"configType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
+                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.configType").value("SHORT_TERM"))
+                .andExpect(jsonPath("$.runType").value("SHORT_TERM"))
                 .andExpect(jsonPath("$.active").value("SONNET"));
     }
 
@@ -125,7 +125,7 @@ class ModelsControllerTest {
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + userToken)
                 .contentType("application/json")
-                .content("{\"configType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
+                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -134,7 +134,7 @@ class ModelsControllerTest {
     void setActiveModel_noToken_unauthorized() throws Exception {
         mockMvc.perform(put("/api/models/active")
                 .contentType("application/json")
-                .content("{\"configType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
+                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"SONNET\"}"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -146,7 +146,7 @@ class ModelsControllerTest {
         mockMvc.perform(put("/api/models/active")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
-                .content("{\"configType\":\"SHORT_TERM\",\"model\":\"INVALID_MODEL\"}"))
+                .content("{\"runType\":\"SHORT_TERM\",\"model\":\"INVALID_MODEL\"}"))
                 .andExpect(status().isBadRequest());
     }
 }

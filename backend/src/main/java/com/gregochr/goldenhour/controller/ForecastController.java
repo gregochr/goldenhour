@@ -1,15 +1,15 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.ModelConfigType;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.service.ForecastCommand;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.LocationService;
-import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -40,29 +40,29 @@ public class ForecastController {
 
     private final ForecastEvaluationRepository repository;
     private final LocationService locationService;
-    private final ModelSelectionService modelSelectionService;
-    private final ScheduledForecastService scheduledForecastService;
+    private final ForecastCommandFactory commandFactory;
+    private final ForecastCommandExecutor commandExecutor;
 
     /**
      * Constructs a {@code ForecastController}.
      *
-     * @param repository                the forecast evaluation repository
-     * @param locationService           the service for persisted locations
-     * @param modelSelectionService     the service for managing active model selection
-     * @param scheduledForecastService  the service for running forecasts
+     * @param repository       the forecast evaluation repository
+     * @param locationService  the service for persisted locations
+     * @param commandFactory   builds forecast commands from run types
+     * @param commandExecutor  executes forecast commands
      */
     public ForecastController(ForecastEvaluationRepository repository,
-            LocationService locationService, ModelSelectionService modelSelectionService,
-            ScheduledForecastService scheduledForecastService) {
+            LocationService locationService, ForecastCommandFactory commandFactory,
+            ForecastCommandExecutor commandExecutor) {
         this.repository = repository;
         this.locationService = locationService;
-        this.modelSelectionService = modelSelectionService;
-        this.scheduledForecastService = scheduledForecastService;
+        this.commandFactory = commandFactory;
+        this.commandExecutor = commandExecutor;
     }
 
     /**
      * Returns stored forecast evaluations for all configured locations from today
-     * through T+{@value ScheduledForecastService#FORECAST_HORIZON_DAYS}.
+     * through T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
      *
      * <p>All evaluations are returned with all fields populated (rating + dual scores).
      * The frontend uses user role to decide what UI cards to display.
@@ -73,7 +73,7 @@ public class ForecastController {
     @GetMapping
     public List<ForecastEvaluationEntity> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDate horizon = today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS);
+        LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         return locationService.findAll().stream()
                 .flatMap(loc -> repository.findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         loc.getName(), today, horizon).stream())
@@ -166,12 +166,8 @@ public class ForecastController {
                 dates.size(), request != null ? request.location() : "all",
                 maxDays, maxLocations);
 
-        // Use the short-term config model by default for generic runs
-        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM);
-
-        // Delegate to ScheduledForecastService to use identical logic
-        // Pass triggeredManually: true since this is a manual API call
-        return scheduledForecastService.runForecasts(activeModel, locations, dates, true);
+        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, locations, dates);
+        return commandExecutor.execute(cmd);
     }
 
     /**
@@ -185,10 +181,8 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runVeryShortTermForecast() {
         LOG.info("POST /api/forecast/run/very-short-term triggered by admin");
-        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.VERY_SHORT_TERM);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocalDate> dates = List.of(today, today.plusDays(1));
-        return scheduledForecastService.runForecasts(activeModel, null, dates, true);
+        ForecastCommand cmd = commandFactory.create(RunType.VERY_SHORT_TERM, true);
+        return commandExecutor.execute(cmd);
     }
 
     /**
@@ -202,10 +196,8 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runShortTermForecast() {
         LOG.info("POST /api/forecast/run/short-term triggered by admin");
-        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocalDate> nearTermDates = List.of(today, today.plusDays(1), today.plusDays(2));
-        return scheduledForecastService.runForecasts(activeModel, null, nearTermDates, true);
+        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true);
+        return commandExecutor.execute(cmd);
     }
 
     /**
@@ -219,12 +211,8 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationEntity> runLongTermForecast() {
         LOG.info("POST /api/forecast/run/long-term triggered by admin");
-        EvaluationModel activeModel = modelSelectionService.getActiveModel(ModelConfigType.LONG_TERM);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocalDate> distantDates = today.plusDays(3)
-                .datesUntil(today.plusDays(ScheduledForecastService.FORECAST_HORIZON_DAYS + 1))
-                .toList();
-        return scheduledForecastService.runForecasts(activeModel, null, distantDates, true);
+        ForecastCommand cmd = commandFactory.create(RunType.LONG_TERM, true);
+        return commandExecutor.execute(cmd);
     }
 
     /**

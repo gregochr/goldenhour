@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.springframework.context.annotation.Bean;
@@ -62,5 +63,16 @@ public class EvaluationConfig {
     public OpusEvaluationStrategy opusEvaluationStrategy(AnthropicClient client,
             AnthropicProperties properties, ObjectMapper objectMapper, JobRunService jobRunService) {
         return new OpusEvaluationStrategy(client, properties, objectMapper, jobRunService);
+    }
+
+    /**
+     * No-op evaluation strategy — returns null evaluation without calling Claude.
+     * Used for wildlife/comfort-only locations.
+     *
+     * @return a no-op evaluation strategy
+     */
+    @Bean
+    public NoOpEvaluationStrategy noOpEvaluationStrategy() {
+        return new NoOpEvaluationStrategy();
     }
 }

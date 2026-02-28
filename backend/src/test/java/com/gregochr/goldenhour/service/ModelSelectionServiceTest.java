@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ModelConfigType;
 import com.gregochr.goldenhour.entity.ModelSelectionEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.repository.ModelSelectionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,28 +36,28 @@ class ModelSelectionServiceTest {
     }
 
     @Test
-    @DisplayName("getActiveModel(configType) returns HAIKU when no selection exists")
+    @DisplayName("getActiveModel(runType) returns HAIKU when no selection exists")
     void getActiveModel_noSelection_returnsHaiku() {
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
                 .thenReturn(Optional.empty());
 
-        EvaluationModel active = modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM);
+        EvaluationModel active = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
 
         assertThat(active).isEqualTo(EvaluationModel.HAIKU);
     }
 
     @Test
-    @DisplayName("getActiveModel(configType) returns stored active model")
+    @DisplayName("getActiveModel(runType) returns stored active model")
     void getActiveModel_selectionExists_returnsSonnet() {
         ModelSelectionEntity selection = ModelSelectionEntity.builder()
                 .id(1L)
-                .configType(ModelConfigType.SHORT_TERM)
+                .runType(RunType.SHORT_TERM)
                 .activeModel(EvaluationModel.SONNET)
                 .build();
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
                 .thenReturn(Optional.of(selection));
 
-        EvaluationModel active = modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM);
+        EvaluationModel active = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
 
         assertThat(active).isEqualTo(EvaluationModel.SONNET);
     }
@@ -67,10 +67,10 @@ class ModelSelectionServiceTest {
     void getActiveModel_noArg_delegatesToShortTerm() {
         ModelSelectionEntity selection = ModelSelectionEntity.builder()
                 .id(1L)
-                .configType(ModelConfigType.SHORT_TERM)
+                .runType(RunType.SHORT_TERM)
                 .activeModel(EvaluationModel.OPUS)
                 .build();
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
                 .thenReturn(Optional.of(selection));
 
         EvaluationModel active = modelSelectionService.getActiveModel();
@@ -79,49 +79,49 @@ class ModelSelectionServiceTest {
     }
 
     @Test
-    @DisplayName("setActiveModel(configType, model) upserts existing row")
+    @DisplayName("setActiveModel(runType, model) upserts existing row")
     void setActiveModel_existingRow_updatesIt() {
         ModelSelectionEntity existing = ModelSelectionEntity.builder()
                 .id(1L)
-                .configType(ModelConfigType.VERY_SHORT_TERM)
+                .runType(RunType.VERY_SHORT_TERM)
                 .activeModel(EvaluationModel.HAIKU)
                 .build();
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.VERY_SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM))
                 .thenReturn(Optional.of(existing));
 
         EvaluationModel result = modelSelectionService.setActiveModel(
-                ModelConfigType.VERY_SHORT_TERM, EvaluationModel.SONNET);
+                RunType.VERY_SHORT_TERM, EvaluationModel.SONNET);
 
         assertThat(result).isEqualTo(EvaluationModel.SONNET);
         ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
         verify(modelSelectionRepository).save(captor.capture());
         ModelSelectionEntity saved = captor.getValue();
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(saved.getConfigType()).isEqualTo(ModelConfigType.VERY_SHORT_TERM);
+        assertThat(saved.getRunType()).isEqualTo(RunType.VERY_SHORT_TERM);
         assertThat(saved.getUpdatedAt()).isNotNull();
     }
 
     @Test
-    @DisplayName("setActiveModel(configType, model) creates new row when none exists")
+    @DisplayName("setActiveModel(runType, model) creates new row when none exists")
     void setActiveModel_noExistingRow_createsNew() {
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.LONG_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM))
                 .thenReturn(Optional.empty());
 
         EvaluationModel result = modelSelectionService.setActiveModel(
-                ModelConfigType.LONG_TERM, EvaluationModel.OPUS);
+                RunType.LONG_TERM, EvaluationModel.OPUS);
 
         assertThat(result).isEqualTo(EvaluationModel.OPUS);
         ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
         verify(modelSelectionRepository).save(captor.capture());
         ModelSelectionEntity saved = captor.getValue();
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.OPUS);
-        assertThat(saved.getConfigType()).isEqualTo(ModelConfigType.LONG_TERM);
+        assertThat(saved.getRunType()).isEqualTo(RunType.LONG_TERM);
     }
 
     @Test
     @DisplayName("setActiveModel(model) no-arg delegates to SHORT_TERM")
     void setActiveModel_noArg_delegatesToShortTerm() {
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
                 .thenReturn(Optional.empty());
 
         EvaluationModel result = modelSelectionService.setActiveModel(EvaluationModel.SONNET);
@@ -129,46 +129,46 @@ class ModelSelectionServiceTest {
         assertThat(result).isEqualTo(EvaluationModel.SONNET);
         ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
         verify(modelSelectionRepository).save(captor.capture());
-        assertThat(captor.getValue().getConfigType()).isEqualTo(ModelConfigType.SHORT_TERM);
+        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.SHORT_TERM);
     }
 
     @Test
-    @DisplayName("getAllConfigs() returns a model for each config type")
+    @DisplayName("getAllConfigs() returns a model for each configurable run type")
     void getAllConfigs_returnsAllTypes() {
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.VERY_SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .configType(ModelConfigType.VERY_SHORT_TERM)
+                        .runType(RunType.VERY_SHORT_TERM)
                         .activeModel(EvaluationModel.OPUS).build()));
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .configType(ModelConfigType.SHORT_TERM)
+                        .runType(RunType.SHORT_TERM)
                         .activeModel(EvaluationModel.SONNET).build()));
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.LONG_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM))
                 .thenReturn(Optional.empty()); // defaults to HAIKU
 
-        Map<ModelConfigType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
+        Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
         assertThat(configs).hasSize(3);
-        assertThat(configs.get(ModelConfigType.VERY_SHORT_TERM)).isEqualTo(EvaluationModel.OPUS);
-        assertThat(configs.get(ModelConfigType.SHORT_TERM)).isEqualTo(EvaluationModel.SONNET);
-        assertThat(configs.get(ModelConfigType.LONG_TERM)).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(configs.get(RunType.VERY_SHORT_TERM)).isEqualTo(EvaluationModel.OPUS);
+        assertThat(configs.get(RunType.SHORT_TERM)).isEqualTo(EvaluationModel.SONNET);
+        assertThat(configs.get(RunType.LONG_TERM)).isEqualTo(EvaluationModel.HAIKU);
     }
 
     @Test
-    @DisplayName("Different config types are independent")
-    void differentConfigTypes_areIndependent() {
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.VERY_SHORT_TERM))
+    @DisplayName("Different run types are independent")
+    void differentRunTypes_areIndependent() {
+        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .configType(ModelConfigType.VERY_SHORT_TERM)
+                        .runType(RunType.VERY_SHORT_TERM)
                         .activeModel(EvaluationModel.OPUS).build()));
-        when(modelSelectionRepository.findByConfigType(ModelConfigType.SHORT_TERM))
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .configType(ModelConfigType.SHORT_TERM)
+                        .runType(RunType.SHORT_TERM)
                         .activeModel(EvaluationModel.HAIKU).build()));
 
-        assertThat(modelSelectionService.getActiveModel(ModelConfigType.VERY_SHORT_TERM))
+        assertThat(modelSelectionService.getActiveModel(RunType.VERY_SHORT_TERM))
                 .isEqualTo(EvaluationModel.OPUS);
-        assertThat(modelSelectionService.getActiveModel(ModelConfigType.SHORT_TERM))
+        assertThat(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
                 .isEqualTo(EvaluationModel.HAIKU);
     }
 }

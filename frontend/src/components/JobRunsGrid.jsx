@@ -94,7 +94,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
                   <div className="flex justify-between items-center">
                     <div className="flex-1">
                       <div className="font-medium text-plex-text flex items-center gap-2">
-                        {run.jobName}
+                        {run.runType}{run.evaluationModel ? ` · ${run.evaluationModel}` : ''}
                         {getStatusBadge(run)}
                       </div>
                       <div className="text-xs text-plex-text-muted mt-1">
@@ -153,7 +153,7 @@ JobRunsGrid.propTypes = {
   runs: PropTypes.arrayOf(
     PropTypes.shape({
       id: PropTypes.number.isRequired,
-      jobName: PropTypes.string.isRequired,
+      runType: PropTypes.string.isRequired,
       startedAt: PropTypes.string.isRequired,
       durationMs: PropTypes.number,
       succeeded: PropTypes.number,

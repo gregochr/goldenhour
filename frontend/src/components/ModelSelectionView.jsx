@@ -64,20 +64,20 @@ export default function ModelSelectionView() {
     }
   };
 
-  const handleModelSwitch = async (configType, model) => {
-    if (model === configs[configType]) return;
+  const handleModelSwitch = async (runType, model) => {
+    if (model === configs[runType]) return;
 
     try {
       setSwitching(true);
       setError(null);
       setSuccess(null);
-      const result = await setActiveModel(configType, model);
-      setConfigs((prev) => ({ ...prev, [configType]: result.active }));
-      const tabLabel = CONFIG_TABS.find((t) => t.key === configType)?.label || configType;
+      const result = await setActiveModel(runType, model);
+      setConfigs((prev) => ({ ...prev, [runType]: result.active }));
+      const tabLabel = CONFIG_TABS.find((t) => t.key === runType)?.label || runType;
       setSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(`Failed to switch model for ${configType}`);
+      setError(`Failed to switch model for ${runType}`);
       console.error(err);
     } finally {
       setSwitching(false);
