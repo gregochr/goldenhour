@@ -146,39 +146,49 @@ const JobRunsMetricsView = () => {
   return (
     <div className="space-y-6">
       {isAdmin && (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="btn-primary text-sm"
-            onClick={handleRunVeryShortTerm}
-            disabled={anyRunning}
-            data-testid="run-very-short-term-btn"
-          >
-            {runningVeryShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Optimise Very Short-Term (T, T+1)'}
-          </button>
-          <button
-            className="btn-primary text-sm"
-            onClick={handleRunShortTerm}
-            disabled={anyRunning}
-            data-testid="run-short-term-btn"
-          >
-            {runningShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Short-Term (T, T+1, T+2)'}
-          </button>
-          <button
-            className="btn-secondary text-sm"
-            onClick={handleRunLongTerm}
-            disabled={anyRunning}
-            data-testid="run-long-term-btn"
-          >
-            {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Run Long-Term (T+3 \u2013 T+7)'}
-          </button>
-          <button
-            className="btn-secondary text-sm"
-            onClick={handleRefreshTide}
-            disabled={anyRunning}
-            data-testid="refresh-tide-btn"
-          >
-            {runningTide ? '\u27F3 Running\u2026' : '\u27F3 Refresh Tide Data'}
-          </button>
+        <div className="card space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Forecast Runs</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRunVeryShortTerm}
+                disabled={anyRunning}
+                data-testid="run-very-short-term-btn"
+              >
+                {runningVeryShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Very Short-Term (T, T+1)'}
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRunShortTerm}
+                disabled={anyRunning}
+                data-testid="run-short-term-btn"
+              >
+                {runningShortTerm ? '\u27F3 Running\u2026' : '\u27F3 Short-Term (T, T+1, T+2)'}
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRunLongTerm}
+                disabled={anyRunning}
+                data-testid="run-long-term-btn"
+              >
+                {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Long-Term (T+3 \u2013 T+7)'}
+              </button>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Data Refresh</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRefreshTide}
+                disabled={anyRunning}
+                data-testid="refresh-tide-btn"
+              >
+                {runningTide ? '\u27F3 Running\u2026' : '\u27F3 Refresh Tide Data'}
+              </button>
+            </div>
+          </div>
           {runStatus && (
             <p className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
               {runStatus.message}

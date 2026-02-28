@@ -11,7 +11,15 @@ import { formatDateLabel } from '../utils/conversions.js';
  * @param {function} props.onSelect - Called with a date string when a chip is clicked.
  */
 export default function DateStrip({ dates, selectedDate, onSelect }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString().slice(0, 10);
+
+  function chipLabel(date) {
+    if (date === today) return `Today · ${formatDateLabel(date, now, true)}`;
+    if (date === tomorrow) return `Tomorrow · ${formatDateLabel(date, now, true)}`;
+    return formatDateLabel(date);
+  }
 
   return (
     <div className="relative mb-6">
@@ -26,7 +34,7 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
                 : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text'
             }`}
           >
-            {date === today ? `Today · ${formatDateLabel(date, new Date(), true)}` : formatDateLabel(date)}
+            {chipLabel(date)}
           </button>
         ))}
       </div>
