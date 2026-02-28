@@ -2,8 +2,11 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.service.LocationService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -12,12 +15,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST controller for managing forecast locations.
  *
- * <p>Locations are persisted in the database and seeded from {@code application.yml}
- * on startup. New locations can be added at runtime and persist across restarts.
+ * <p>Locations are persisted in the database and managed exclusively via this API.
  */
 @RestController
 @RequestMapping("/api/locations")
@@ -47,27 +50,56 @@ public class LocationController {
     /**
      * Adds a new location to the persisted set.
      *
-     * @param request the location name, latitude, and longitude
+     * @param request the location name, coordinates, and metadata
      * @return the saved location entity
      * @throws IllegalArgumentException if the name is blank, lat/lon are out of range,
      *                                  or a location with the same name already exists (HTTP 400)
      */
     @PostMapping
     public LocationEntity addLocation(@RequestBody AddLocationRequest request) {
-        return locationService.add(request.name(), request.lat(), request.lon());
+        return locationService.add(request);
+    }
+
+    /**
+     * Updates metadata for an existing location.
+     *
+     * @param id      the location primary key
+     * @param request the updated metadata (goldenHourType, locationType, tideType)
+     * @return the updated location entity
+     * @throws java.util.NoSuchElementException if no location with that ID exists (HTTP 404)
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public LocationEntity updateLocation(@PathVariable Long id,
+            @RequestBody UpdateLocationRequest request) {
+        return locationService.update(id, request);
+    }
+
+    /**
+     * Toggles the enabled state of a location.
+     *
+     * @param id   the location primary key
+     * @param body map containing {@code enabled} boolean
+     * @return the updated location entity
+     * @throws java.util.NoSuchElementException if no location with that ID exists (HTTP 404)
+     */
+    @PutMapping("/{id}/enabled")
+    @PreAuthorize("hasRole('ADMIN')")
+    public LocationEntity setLocationEnabled(@PathVariable Long id,
+            @RequestBody Map<String, Boolean> body) {
+        boolean enabled = body.getOrDefault("enabled", true);
+        return locationService.setEnabled(id, enabled);
     }
 
     /**
      * Resets the consecutive failure counter and disabled reason for a location.
-     *
-     * <p>Allows ADMIN users to re-enable locations that have been auto-disabled
-     * after 3 consecutive forecast failures.
      *
      * @param name the location name to reset (as query parameter)
      * @return the updated location entity
      * @throws java.util.NoSuchElementException if no location with that name exists (HTTP 404)
      */
     @PutMapping("/reset-failures")
+    @PreAuthorize("hasRole('ADMIN')")
     public LocationEntity resetLocationFailures(@RequestParam String name) {
         return locationService.resetFailures(name);
     }

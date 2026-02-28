@@ -90,7 +90,7 @@ class ForecastCommandExecutorTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(locationService.findAll()).thenReturn(List.of(durham()));
+        lenient().when(locationService.findAllEnabled()).thenReturn(List.of(durham()));
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         // Return MAX so shouldSkipEvent() never skips
@@ -177,7 +177,7 @@ class ForecastCommandExecutorTest {
     @DisplayName("execute() with NoOp strategy does NOT call for colour locations")
     void execute_wildlife_excludesColourLocations() {
         when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
-        when(locationService.findAll()).thenReturn(List.of(durham(), wildlifeReserve()));
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham(), wildlifeReserve()));
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 

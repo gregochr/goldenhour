@@ -1,6 +1,11 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.service.LocationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,13 +19,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -70,9 +76,7 @@ class LocationControllerTest {
     @DisplayName("POST /api/locations returns 200 with the saved entity for valid input")
     void addLocation_validRequest_returnsSavedEntity() throws Exception {
         LocationEntity saved = buildEntity(3L, "Bamburgh Castle", 55.6090, -1.7099);
-        when(locationService.add(
-                eq("Bamburgh Castle"), eq(55.6090), eq(-1.7099)))
-                .thenReturn(saved);
+        when(locationService.add(any(AddLocationRequest.class))).thenReturn(saved);
 
         mockMvc.perform(post("/api/locations")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -85,9 +89,33 @@ class LocationControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("POST /api/locations with metadata returns 200")
+    void addLocation_withMetadata_returnsSavedEntity() throws Exception {
+        LocationEntity saved = LocationEntity.builder()
+                .id(3L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .goldenHourType(GoldenHourType.SUNSET)
+                .locationType(Set.of(LocationType.SEASCAPE))
+                .tideType(Set.of(TideType.ANY_TIDE))
+                .createdAt(LocalDateTime.of(2026, 2, 28, 12, 0))
+                .build();
+        when(locationService.add(any(AddLocationRequest.class))).thenReturn(saved);
+
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Bamburgh\",\"lat\":55.6,\"lon\":-1.7,"
+                                + "\"goldenHourType\":\"SUNSET\","
+                                + "\"locationType\":\"SEASCAPE\","
+                                + "\"tideType\":\"ANY_TIDE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Bamburgh"))
+                .andExpect(jsonPath("$.goldenHourType").value("SUNSET"));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("POST /api/locations returns 400 when the service rejects a duplicate name")
     void addLocation_duplicateName_returns400() throws Exception {
-        when(locationService.add(anyString(), anyDouble(), anyDouble()))
+        when(locationService.add(any(AddLocationRequest.class)))
                 .thenThrow(new IllegalArgumentException("A location named 'Durham UK' already exists"));
 
         mockMvc.perform(post("/api/locations")
@@ -101,7 +129,7 @@ class LocationControllerTest {
     @WithMockUser
     @DisplayName("POST /api/locations returns 400 when the service rejects an invalid latitude")
     void addLocation_invalidLatitude_returns400() throws Exception {
-        when(locationService.add(anyString(), anyDouble(), anyDouble()))
+        when(locationService.add(any(AddLocationRequest.class)))
                 .thenThrow(new IllegalArgumentException("Latitude must be between -90 and 90"));
 
         mockMvc.perform(post("/api/locations")
@@ -109,6 +137,46 @@ class LocationControllerTest {
                         .content("{\"name\":\"Test\",\"lat\":999,\"lon\":0}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Latitude must be between -90 and 90"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} updates location metadata")
+    void updateLocation_validRequest_returnsUpdatedEntity() throws Exception {
+        LocationEntity updated = buildEntity(1L, "Durham UK", 54.7753, -1.5849);
+        updated.setGoldenHourType(GoldenHourType.SUNSET);
+        when(locationService.update(eq(1L), any(UpdateLocationRequest.class))).thenReturn(updated);
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goldenHourType\":\"SUNSET\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.goldenHourType").value("SUNSET"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id}/enabled toggles enabled state")
+    void setLocationEnabled_validRequest_returnsUpdatedEntity() throws Exception {
+        LocationEntity entity = buildEntity(1L, "Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        when(locationService.setEnabled(1L, false)).thenReturn(entity);
+
+        mockMvc.perform(put("/api/locations/1/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /api/locations/{id} returns 403 for non-ADMIN")
+    void updateLocation_nonAdmin_returns403() throws Exception {
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goldenHourType\":\"SUNSET\"}"))
+                .andExpect(status().isForbidden());
     }
 
     private LocationEntity buildEntity(Long id, String name, double lat, double lon) {

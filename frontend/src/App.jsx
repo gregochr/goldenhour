@@ -37,10 +37,11 @@ function AppInner() {
   const [selectedDate, setSelectedDate] = useState(null);
 
   const sortedLocations = [...locations].sort((a, b) => a.name.localeCompare(b.name));
+  const visibleLocations = sortedLocations.filter((loc) => loc.enabled !== false);
 
-  // All dates available across any location, sorted, for the map date strip.
+  // All dates available across any visible (enabled) location, sorted, for the map date strip.
   const allDates = [...new Set(
-    sortedLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
+    visibleLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
   )].sort();
 
   // Default to the first available date when data loads.
@@ -154,7 +155,7 @@ function AppInner() {
             )}
 
             {viewMode === 'map' && (
-              <MapView locations={sortedLocations} date={effectiveDate} />
+              <MapView locations={visibleLocations} date={effectiveDate} />
             )}
 
             {viewMode === 'manage' && (
