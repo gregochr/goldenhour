@@ -1,10 +1,11 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.config.ForecastProperties;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +22,6 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,168 +38,11 @@ class LocationServiceTest {
     @Mock
     private TideService tideService;
 
-    private ForecastProperties forecastProperties;
     private LocationService locationService;
 
     @BeforeEach
     void setUp() {
-        forecastProperties = new ForecastProperties();
-        locationService = new LocationService(locationRepository, forecastProperties, tideService);
-    }
-
-    // --- seedFromProperties ---
-
-    @Test
-    @DisplayName("seedFromProperties() inserts locations not already in the database")
-    void seedFromProperties_newLocations_areInserted() {
-        ForecastProperties.Location durham = new ForecastProperties.Location();
-        durham.setName("Durham UK");
-        durham.setLat(54.7753);
-        durham.setLon(-1.5849);
-        forecastProperties.setLocations(List.of(durham));
-
-        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.empty());
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        locationService.seedFromProperties();
-
-        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
-        verify(locationRepository).save(captor.capture());
-        LocationEntity saved = captor.getValue();
-        assertThat(saved.getName()).isEqualTo("Durham UK");
-        assertThat(saved.getLat()).isEqualTo(54.7753);
-        assertThat(saved.getLon()).isEqualTo(-1.5849);
-        assertThat(saved.getCreatedAt()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("seedFromProperties() does not save when existing location metadata is unchanged")
-    void seedFromProperties_existingLocationUnchanged_doesNotSave() {
-        ForecastProperties.Location durham = new ForecastProperties.Location();
-        durham.setName("Durham UK");
-        durham.setLat(54.7753);
-        durham.setLon(-1.5849);
-        // Defaults: BOTH_TIMES, NOT_COASTAL, empty locationType
-        forecastProperties.setLocations(List.of(durham));
-
-        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
-        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existing));
-
-        locationService.seedFromProperties();
-
-        verify(locationRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("seedFromProperties() saves when existing location metadata differs from config")
-    void seedFromProperties_existingLocationMetadataChanged_savesUpdate() {
-        ForecastProperties.Location durham = new ForecastProperties.Location();
-        durham.setName("Durham UK");
-        durham.setLat(54.7753);
-        durham.setLon(-1.5849);
-        durham.setLocationType(Set.of(LocationType.LANDSCAPE));
-        forecastProperties.setLocations(List.of(durham));
-
-        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
-        // existing has empty locationType — differs from config
-        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existing));
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        locationService.seedFromProperties();
-
-        verify(locationRepository, times(1)).save(any());
-        assertThat(existing.getLocationType()).containsExactly(LocationType.LANDSCAPE);
-    }
-
-    @Test
-    @DisplayName("seedFromProperties() fetches tide extremes for a new coastal location with no stored data")
-    void seedFromProperties_newCoastalLocation_fetchesTideExtremes() {
-        ForecastProperties.Location spittal = new ForecastProperties.Location();
-        spittal.setName("Spittal Beach");
-        spittal.setLat(55.7592);
-        spittal.setLon(-1.9912);
-        spittal.setTideType(Set.of(TideType.HIGH_TIDE));
-        forecastProperties.setLocations(List.of(spittal));
-
-        LocationEntity saved = LocationEntity.builder()
-                .id(1L).name("Spittal Beach").lat(55.7592).lon(-1.9912)
-                .tideType(Set.of(TideType.HIGH_TIDE))
-                .build();
-        when(locationRepository.findByName("Spittal Beach")).thenReturn(Optional.empty());
-        when(locationRepository.save(any())).thenReturn(saved);
-        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
-
-        locationService.seedFromProperties();
-
-        verify(tideService).fetchAndStoreTideExtremes(saved);
-    }
-
-    @Test
-    @DisplayName("seedFromProperties() fetches tide extremes for an existing coastal location with no stored data")
-    void seedFromProperties_existingCoastalLocationNoExtremes_fetchesTideExtremes() {
-        ForecastProperties.Location spittal = new ForecastProperties.Location();
-        spittal.setName("Spittal Beach");
-        spittal.setLat(55.7592);
-        spittal.setLon(-1.9912);
-        spittal.setTideType(Set.of(TideType.HIGH_TIDE));
-        forecastProperties.setLocations(List.of(spittal));
-
-        LocationEntity existing = LocationEntity.builder()
-                .id(1L).name("Spittal Beach").lat(55.7592).lon(-1.9912)
-                .tideType(Set.of(TideType.HIGH_TIDE))
-                .build();
-        when(locationRepository.findByName("Spittal Beach")).thenReturn(Optional.of(existing));
-        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
-
-        locationService.seedFromProperties();
-
-        verify(tideService).fetchAndStoreTideExtremes(existing);
-    }
-
-    @Test
-    @DisplayName("seedFromProperties() skips tide fetch when existing coastal location already has stored data")
-    void seedFromProperties_existingCoastalLocationWithExtremes_skipsFetch() {
-        ForecastProperties.Location spittal = new ForecastProperties.Location();
-        spittal.setName("Spittal Beach");
-        spittal.setLat(55.7592);
-        spittal.setLon(-1.9912);
-        spittal.setTideType(Set.of(TideType.HIGH_TIDE));
-        forecastProperties.setLocations(List.of(spittal));
-
-        LocationEntity existing = LocationEntity.builder()
-                .id(1L).name("Spittal Beach").lat(55.7592).lon(-1.9912)
-                .tideType(Set.of(TideType.HIGH_TIDE))
-                .build();
-        when(locationRepository.findByName("Spittal Beach")).thenReturn(Optional.of(existing));
-        when(tideService.hasStoredExtremes(1L)).thenReturn(true);
-
-        locationService.seedFromProperties();
-
-        verify(tideService, never()).fetchAndStoreTideExtremes(any());
-    }
-
-    @Test
-    @DisplayName("seedFromProperties() inserts only locations not yet in the database")
-    void seedFromProperties_mixedLocations_insertsOnlyNew() {
-        ForecastProperties.Location durham = new ForecastProperties.Location();
-        durham.setName("Durham UK");
-        durham.setLat(54.7753);
-        durham.setLon(-1.5849);
-        ForecastProperties.Location keswick = new ForecastProperties.Location();
-        keswick.setName("Keswick");
-        keswick.setLat(54.6);
-        keswick.setLon(-3.13);
-        forecastProperties.setLocations(List.of(durham, keswick));
-
-        LocationEntity existingDurham = buildEntity("Durham UK", 54.7753, -1.5849);
-        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(existingDurham));
-        when(locationRepository.findByName("Keswick")).thenReturn(Optional.empty());
-        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        locationService.seedFromProperties();
-
-        // Only Keswick inserted (Durham unchanged → no save)
-        verify(locationRepository, times(1)).save(any());
+        locationService = new LocationService(locationRepository, tideService);
     }
 
     // --- findByName ---
@@ -225,6 +68,29 @@ class LocationServiceTest {
                 .hasMessageContaining("Unknown");
     }
 
+    // --- findById ---
+
+    @Test
+    @DisplayName("findById() returns the location when found")
+    void findById_found_returnsLocation() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.findById(1L);
+
+        assertThat(result).isSameAs(entity);
+    }
+
+    @Test
+    @DisplayName("findById() throws NoSuchElementException when not found")
+    void findById_notFound_throwsNoSuchElementException() {
+        when(locationRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> locationService.findById(99L))
+                .isInstanceOf(java.util.NoSuchElementException.class)
+                .hasMessageContaining("99");
+    }
+
     // --- findAll ---
 
     @Test
@@ -240,30 +106,86 @@ class LocationServiceTest {
         assertThat(result).isSameAs(expected);
     }
 
+    // --- findAllEnabled ---
+
+    @Test
+    @DisplayName("findAllEnabled() delegates to findAllByEnabledTrueOrderByNameAsc")
+    void findAllEnabled_returnsEnabledLocations() {
+        List<LocationEntity> expected = List.of(buildEntity("Durham UK", 54.7753, -1.5849));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(expected);
+
+        List<LocationEntity> result = locationService.findAllEnabled();
+
+        assertThat(result).isSameAs(expected);
+    }
+
     // --- add ---
 
     @Test
-    @DisplayName("add() saves and returns entity for valid input")
+    @DisplayName("add() saves and returns entity with defaults for valid input")
     void add_validInput_savesAndReturnsEntity() {
         when(locationRepository.existsByName("Bamburgh Castle")).thenReturn(false);
-        LocationEntity saved = buildEntity("Bamburgh Castle", 55.6090, -1.7099);
-        when(locationRepository.save(any())).thenReturn(saved);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        LocationEntity result = locationService.add("Bamburgh Castle", 55.6090, -1.7099);
+        AddLocationRequest request = new AddLocationRequest(
+                "Bamburgh Castle", 55.6090, -1.7099, null, null, null);
+
+        LocationEntity result = locationService.add(request);
 
         ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
         verify(locationRepository).save(captor.capture());
         assertThat(captor.getValue().getName()).isEqualTo("Bamburgh Castle");
         assertThat(captor.getValue().getLat()).isEqualTo(55.6090);
         assertThat(captor.getValue().getLon()).isEqualTo(-1.7099);
+        assertThat(captor.getValue().getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
+        assertThat(captor.getValue().getLocationType()).containsExactly(LocationType.LANDSCAPE);
+        assertThat(captor.getValue().getTideType()).containsExactly(TideType.NOT_COASTAL);
         assertThat(captor.getValue().getCreatedAt()).isNotNull();
-        assertThat(result).isSameAs(saved);
+    }
+
+    @Test
+    @DisplayName("add() saves SEASCAPE location with tide type and triggers tide fetch")
+    void add_seascapeLocation_savesTideTypeAndFetchesTides() {
+        when(locationRepository.existsByName("Bamburgh")).thenReturn(false);
+        LocationEntity saved = LocationEntity.builder()
+                .id(1L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .tideType(Set.of(TideType.ANY_TIDE))
+                .locationType(Set.of(LocationType.SEASCAPE))
+                .build();
+        when(locationRepository.save(any())).thenReturn(saved);
+        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
+
+        AddLocationRequest request = new AddLocationRequest(
+                "Bamburgh", 55.6, -1.7, GoldenHourType.SUNSET,
+                LocationType.SEASCAPE, TideType.ANY_TIDE);
+
+        locationService.add(request);
+
+        verify(tideService).fetchAndStoreTideExtremes(saved);
+    }
+
+    @Test
+    @DisplayName("add() forces NOT_COASTAL when locationType is not SEASCAPE")
+    void add_nonSeascape_forcesNotCoastal() {
+        when(locationRepository.existsByName("Durham")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AddLocationRequest request = new AddLocationRequest(
+                "Durham", 54.7753, -1.5849, GoldenHourType.BOTH_TIMES,
+                LocationType.LANDSCAPE, TideType.HIGH_TIDE);
+
+        locationService.add(request);
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().getTideType()).containsExactly(TideType.NOT_COASTAL);
     }
 
     @Test
     @DisplayName("add() throws IllegalArgumentException when name is blank")
     void add_blankName_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> locationService.add("  ", 54.7753, -1.5849))
+        AddLocationRequest request = new AddLocationRequest("  ", 54.7753, -1.5849, null, null, null);
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("name");
     }
@@ -271,7 +193,8 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when name is null")
     void add_nullName_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> locationService.add(null, 54.7753, -1.5849))
+        AddLocationRequest request = new AddLocationRequest(null, 54.7753, -1.5849, null, null, null);
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("name");
     }
@@ -279,7 +202,8 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when latitude is below -90")
     void add_latBelowMin_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> locationService.add("Test", -91.0, 0.0))
+        AddLocationRequest request = new AddLocationRequest("Test", -91.0, 0.0, null, null, null);
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Latitude");
     }
@@ -287,7 +211,8 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when latitude is above 90")
     void add_latAboveMax_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> locationService.add("Test", 91.0, 0.0))
+        AddLocationRequest request = new AddLocationRequest("Test", 91.0, 0.0, null, null, null);
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Latitude");
     }
@@ -295,7 +220,8 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when longitude is below -180")
     void add_lonBelowMin_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> locationService.add("Test", 0.0, -181.0))
+        AddLocationRequest request = new AddLocationRequest("Test", 0.0, -181.0, null, null, null);
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Longitude");
     }
@@ -303,7 +229,8 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when longitude is above 180")
     void add_lonAboveMax_throwsIllegalArgumentException() {
-        assertThatThrownBy(() -> locationService.add("Test", 0.0, 181.0))
+        AddLocationRequest request = new AddLocationRequest("Test", 0.0, 181.0, null, null, null);
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Longitude");
     }
@@ -312,8 +239,9 @@ class LocationServiceTest {
     @DisplayName("add() throws IllegalArgumentException when a location with the same name already exists")
     void add_duplicateName_throwsIllegalArgumentException() {
         when(locationRepository.existsByName("Durham UK")).thenReturn(true);
+        AddLocationRequest request = new AddLocationRequest("Durham UK", 54.7753, -1.5849, null, null, null);
 
-        assertThatThrownBy(() -> locationService.add("Durham UK", 54.7753, -1.5849))
+        assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Durham UK");
     }
@@ -324,10 +252,107 @@ class LocationServiceTest {
         when(locationRepository.existsByName(any())).thenReturn(false);
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        locationService.add("South Pole", -90.0, 0.0);
-        locationService.add("North Pole", 90.0, 0.0);
+        locationService.add(new AddLocationRequest("South Pole", -90.0, 0.0, null, null, null));
+        locationService.add(new AddLocationRequest("North Pole", 90.0, 0.0, null, null, null));
 
         verify(locationRepository, times(2)).save(any());
+    }
+
+    // --- update ---
+
+    @Test
+    @DisplayName("update() changes goldenHourType")
+    void update_changesGoldenHourType() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setGoldenHourType(GoldenHourType.BOTH_TIMES);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateLocationRequest request = new UpdateLocationRequest(
+                GoldenHourType.SUNSET, null, null);
+        LocationEntity result = locationService.update(1L, request);
+
+        assertThat(result.getGoldenHourType()).isEqualTo(GoldenHourType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("update() changes locationType to SEASCAPE and triggers tide fetch")
+    void update_changesToSeascape_triggersTideFetch() {
+        LocationEntity existing = buildEntity("Bamburgh", 55.6, -1.7);
+        existing.setLocationType(Set.of(LocationType.LANDSCAPE));
+        existing.setTideType(Set.of(TideType.NOT_COASTAL));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
+
+        UpdateLocationRequest request = new UpdateLocationRequest(
+                null, LocationType.SEASCAPE, TideType.ANY_TIDE);
+        locationService.update(1L, request);
+
+        assertThat(existing.getLocationType()).containsExactly(LocationType.SEASCAPE);
+        assertThat(existing.getTideType()).containsExactly(TideType.ANY_TIDE);
+        verify(tideService).fetchAndStoreTideExtremes(any());
+    }
+
+    @Test
+    @DisplayName("update() forces NOT_COASTAL when locationType is LANDSCAPE")
+    void update_landscape_forcesNotCoastal() {
+        LocationEntity existing = buildEntity("Durham", 54.7, -1.5);
+        existing.setLocationType(Set.of(LocationType.LANDSCAPE));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateLocationRequest request = new UpdateLocationRequest(
+                null, LocationType.LANDSCAPE, TideType.HIGH_TIDE);
+        locationService.update(1L, request);
+
+        assertThat(existing.getTideType()).containsExactly(TideType.NOT_COASTAL);
+    }
+
+    @Test
+    @DisplayName("update() throws NoSuchElementException when location not found")
+    void update_notFound_throwsNoSuchElementException() {
+        when(locationRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> locationService.update(99L,
+                new UpdateLocationRequest(null, null, null)))
+                .isInstanceOf(java.util.NoSuchElementException.class);
+    }
+
+    // --- setEnabled ---
+
+    @Test
+    @DisplayName("setEnabled(true) enables location and clears failure tracking")
+    void setEnabled_enable_clearsFailureFields() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setConsecutiveFailures(3);
+        entity.setDisabledReason("Auto-disabled");
+        entity.setLastFailureAt(java.time.LocalDateTime.now());
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result = locationService.setEnabled(1L, true);
+
+        assertThat(result.isEnabled()).isTrue();
+        assertThat(result.getConsecutiveFailures()).isZero();
+        assertThat(result.getDisabledReason()).isNull();
+        assertThat(result.getLastFailureAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) disables location without clearing failure fields")
+    void setEnabled_disable_doesNotClearFailureFields() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(true);
+        entity.setConsecutiveFailures(2);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result = locationService.setEnabled(1L, false);
+
+        assertThat(result.isEnabled()).isFalse();
+        assertThat(result.getConsecutiveFailures()).isEqualTo(2);
     }
 
     // --- shouldEvaluateSunrise ---
@@ -480,6 +505,7 @@ class LocationServiceTest {
         assertThat(entity.getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
         assertThat(entity.getTideType()).isEmpty();
         assertThat(entity.getLocationType()).isEmpty();
+        assertThat(entity.isEnabled()).isTrue();
     }
 
     private LocationEntity buildEntity(String name, double lat, double lon) {

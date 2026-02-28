@@ -25,8 +25,8 @@ import java.util.Set;
 /**
  * JPA entity representing a location for which forecasts are evaluated.
  *
- * <p>Locations are seeded from {@code application.yml} on startup and may be added
- * at runtime via the {@code POST /api/locations} endpoint. They persist across restarts.
+ * <p>Locations are managed exclusively via the REST API and persist in the database.
+ * Disabled locations are excluded from forecast runs and the map view.
  */
 @Entity
 @Table(name = "locations")
@@ -92,6 +92,11 @@ public class LocationEntity {
     @Column(name = "location_type")
     @Builder.Default
     private Set<LocationType> locationType = new HashSet<>();
+
+    /** Whether this location is enabled for forecast runs. */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean enabled = true;
 
     /** UTC timestamp when this location was created. */
     @Column(name = "created_at", nullable = false)

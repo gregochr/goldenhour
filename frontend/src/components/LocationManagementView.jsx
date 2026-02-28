@@ -1,0 +1,620 @@
+import React, { useEffect, useState } from 'react';
+import PropTypes from 'prop-types';
+import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
+import LocationAlerts from './LocationAlerts.jsx';
+
+const GOLDEN_HOUR_TYPES = [
+  { value: 'BOTH_TIMES', label: 'Both Times' },
+  { value: 'SUNRISE', label: 'Sunrise' },
+  { value: 'SUNSET', label: 'Sunset' },
+  { value: 'ANYTIME', label: 'Anytime' },
+];
+
+const LOCATION_TYPES = [
+  { value: 'LANDSCAPE', label: 'Landscape' },
+  { value: 'SEASCAPE', label: 'Seascape' },
+  { value: 'WILDLIFE', label: 'Wildlife' },
+];
+
+const TIDE_TYPES = [
+  { value: 'ANY_TIDE', label: 'Any Tide' },
+  { value: 'HIGH_TIDE', label: 'High Tide' },
+  { value: 'LOW_TIDE', label: 'Low Tide' },
+  { value: 'MID_TIDE', label: 'Mid Tide' },
+  { value: 'NOT_COASTAL', label: 'Not Coastal' },
+];
+
+/**
+ * Formats a location type set (array) into a readable label.
+ *
+ * @param {Array<string>} types - e.g. ['SEASCAPE']
+ * @returns {string} Readable label.
+ */
+function formatLocationType(types) {
+  if (!types || types.length === 0) return 'Landscape';
+  return types.map((t) => {
+    const found = LOCATION_TYPES.find((lt) => lt.value === t);
+    return found ? found.label : t;
+  }).join(', ');
+}
+
+/**
+ * Formats a tide type set (array) into a readable label.
+ *
+ * @param {Array<string>} types - e.g. ['ANY_TIDE']
+ * @returns {string} Readable label.
+ */
+function formatTideType(types) {
+  if (!types || types.length === 0) return '—';
+  const filtered = types.filter((t) => t !== 'NOT_COASTAL');
+  if (filtered.length === 0) return '—';
+  return filtered.map((t) => {
+    const found = TIDE_TYPES.find((tt) => tt.value === t);
+    return found ? found.label : t;
+  }).join(', ');
+}
+
+/**
+ * Formats a golden hour type enum into a readable label.
+ *
+ * @param {string} type - e.g. 'BOTH_TIMES'
+ * @returns {string} Readable label.
+ */
+function formatGoldenHourType(type) {
+  const found = GOLDEN_HOUR_TYPES.find((g) => g.value === type);
+  return found ? found.label : type || 'Both Times';
+}
+
+/**
+ * Extracts the first enum value from a set/array.
+ *
+ * @param {Array<string>} set - The set of enum values.
+ * @param {string} fallback - Fallback value.
+ * @returns {string} The first value or the fallback.
+ */
+function firstOrDefault(set, fallback) {
+  if (!set || set.length === 0) return fallback;
+  return set[0];
+}
+
+/**
+ * Location management view with list/add/edit modes and geocoding.
+ *
+ * @param {object} props
+ * @param {function} props.onLocationsChanged - Called when locations are added/updated/toggled.
+ */
+export default function LocationManagementView({ onLocationsChanged }) {
+  const [locations, setLocations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState('list'); // list | add | edit
+  const [editingLocation, setEditingLocation] = useState(null);
+
+  // Add form state
+  const [placeName, setPlaceName] = useState('');
+  const [geocodeResult, setGeocodeResult] = useState(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState('');
+  const [addGoldenHourType, setAddGoldenHourType] = useState('BOTH_TIMES');
+  const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
+  const [addTideType, setAddTideType] = useState('NOT_COASTAL');
+
+  // Edit form state
+  const [editGoldenHourType, setEditGoldenHourType] = useState('BOTH_TIMES');
+  const [editLocationType, setEditLocationType] = useState('LANDSCAPE');
+  const [editTideType, setEditTideType] = useState('NOT_COASTAL');
+
+  // Confirm modal state
+  const [confirmData, setConfirmData] = useState(null);
+
+  // Save state
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function refreshLocations() {
+    try {
+      const data = await fetchLocations();
+      setLocations(data);
+    } catch {
+      // Keep existing list on failure
+    }
+  }
+
+  useEffect(() => {
+    fetchLocations()
+      .then(setLocations)
+      .finally(() => setLoading(false));
+  }, []);
+
+  function handleStartAdd() {
+    setMode('add');
+    setPlaceName('');
+    setGeocodeResult(null);
+    setGeocodeError('');
+    setAddGoldenHourType('BOTH_TIMES');
+    setAddLocationType('LANDSCAPE');
+    setAddTideType('NOT_COASTAL');
+    setError('');
+  }
+
+  function handleStartEdit(loc) {
+    setMode('edit');
+    setEditingLocation(loc);
+    setEditGoldenHourType(loc.goldenHourType || 'BOTH_TIMES');
+    setEditLocationType(firstOrDefault(loc.locationType, 'LANDSCAPE'));
+    setEditTideType(firstOrDefault(loc.tideType, 'NOT_COASTAL'));
+    setError('');
+  }
+
+  function handleCancel() {
+    setMode('list');
+    setEditingLocation(null);
+    setConfirmData(null);
+    setError('');
+  }
+
+  async function handleGeocode() {
+    const trimmed = placeName.trim();
+    if (!trimmed) {
+      setGeocodeError('Please enter a place name.');
+      return;
+    }
+    setGeocoding(true);
+    setGeocodeError('');
+    setGeocodeResult(null);
+    try {
+      const result = await geocodePlace(trimmed);
+      setGeocodeResult(result);
+    } catch (err) {
+      setGeocodeError(err.message || 'Geocoding failed.');
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
+  function handleAddReviewConfirm() {
+    if (!geocodeResult) return;
+    setConfirmData({
+      mode: 'add',
+      name: placeName.trim(),
+      lat: geocodeResult.lat,
+      lon: geocodeResult.lon,
+      displayName: geocodeResult.displayName,
+      goldenHourType: addGoldenHourType,
+      locationType: addLocationType,
+      tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+    });
+  }
+
+  function handleEditReviewConfirm() {
+    if (!editingLocation) return;
+    setConfirmData({
+      mode: 'edit',
+      id: editingLocation.id,
+      name: editingLocation.name,
+      lat: editingLocation.lat,
+      lon: editingLocation.lon,
+      goldenHourType: editGoldenHourType,
+      locationType: editLocationType,
+      tideType: editLocationType === 'SEASCAPE' ? editTideType : 'NOT_COASTAL',
+    });
+  }
+
+  async function handleConfirmSave() {
+    setSaving(true);
+    setError('');
+    try {
+      if (confirmData.mode === 'add') {
+        await addLocation({
+          name: confirmData.name,
+          lat: confirmData.lat,
+          lon: confirmData.lon,
+          goldenHourType: confirmData.goldenHourType,
+          locationType: confirmData.locationType,
+          tideType: confirmData.tideType,
+        });
+      } else {
+        await updateLocation(confirmData.id, {
+          goldenHourType: confirmData.goldenHourType,
+          locationType: confirmData.locationType,
+          tideType: confirmData.tideType,
+        });
+      }
+      await refreshLocations();
+      onLocationsChanged();
+      handleCancel();
+    } catch (err) {
+      setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToggleEnabled(loc) {
+    try {
+      await setLocationEnabled(loc.id, !loc.enabled);
+      await refreshLocations();
+      onLocationsChanged();
+    } catch (err) {
+      console.error('Failed to toggle location enabled:', err);
+    }
+  }
+
+  // Auto-set tide when location type changes
+  function handleAddLocationTypeChange(value) {
+    setAddLocationType(value);
+    if (value === 'SEASCAPE') {
+      setAddTideType('ANY_TIDE');
+    } else {
+      setAddTideType('NOT_COASTAL');
+    }
+  }
+
+  function handleEditLocationTypeChange(value) {
+    setEditLocationType(value);
+    if (value === 'SEASCAPE') {
+      setEditTideType('ANY_TIDE');
+    } else {
+      setEditTideType('NOT_COASTAL');
+    }
+  }
+
+  const selectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
+  const labelClass = 'block text-xs text-plex-text-secondary mb-1';
+
+  return (
+    <div className="flex flex-col gap-4">
+
+      {/* List mode */}
+      {mode === 'list' && (
+        <>
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm font-semibold text-plex-text">Location Management</p>
+            <button
+              className="btn-secondary text-xs shrink-0"
+              onClick={handleStartAdd}
+              data-testid="add-location-btn"
+            >
+              + Add Location
+            </button>
+          </div>
+
+          <LocationAlerts
+            locations={locations}
+            onReenabledLocation={() => { refreshLocations(); onLocationsChanged(); }}
+          />
+
+          {loading && (
+            <p className="text-sm text-plex-text-muted animate-pulse">Loading locations...</p>
+          )}
+
+          {!loading && locations.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left" data-testid="locations-table">
+                <thead>
+                  <tr className="text-xs text-plex-text-muted border-b border-plex-border">
+                    <th className="pb-2 font-medium">Name</th>
+                    <th className="pb-2 font-medium">Coords</th>
+                    <th className="pb-2 font-medium">Type</th>
+                    <th className="pb-2 font-medium">Solar</th>
+                    <th className="pb-2 font-medium">Tide</th>
+                    <th className="pb-2 font-medium">Status</th>
+                    <th className="pb-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {locations.map((loc) => (
+                    <tr
+                      key={loc.id}
+                      className={`border-b border-plex-surface last:border-0 ${!loc.enabled ? 'opacity-50' : ''}`}
+                    >
+                      <td className="py-2 text-plex-text">
+                        {loc.name}
+                        {loc.consecutiveFailures > 0 && !loc.disabledReason && (
+                          <span
+                            className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400"
+                            title={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' — last: ' + new Date(loc.lastFailureAt).toLocaleString() : ''}`}
+                          >
+                            {loc.consecutiveFailures}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 text-plex-text-secondary text-xs">
+                        {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
+                      </td>
+                      <td className="py-2 text-plex-text-secondary text-xs">
+                        {formatLocationType(loc.locationType)}
+                      </td>
+                      <td className="py-2 text-plex-text-secondary text-xs">
+                        {formatGoldenHourType(loc.goldenHourType)}
+                      </td>
+                      <td className="py-2 text-plex-text-secondary text-xs">
+                        {formatTideType(loc.tideType)}
+                      </td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => handleToggleEnabled(loc)}
+                          className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
+                            loc.enabled
+                              ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
+                              : 'bg-red-900/40 text-red-400 hover:bg-red-900/60'
+                          }`}
+                          data-testid={`toggle-enabled-${loc.id}`}
+                        >
+                          {loc.enabled ? 'Enabled' : 'Disabled'}
+                        </button>
+                      </td>
+                      <td className="py-2">
+                        <button
+                          className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
+                          onClick={() => handleStartEdit(loc)}
+                          data-testid={`edit-location-${loc.id}`}
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!loading && locations.length === 0 && (
+            <p className="text-sm text-plex-text-muted">No locations configured. Add one to get started.</p>
+          )}
+        </>
+      )}
+
+      {/* Add mode */}
+      {mode === 'add' && (
+        <div className="flex flex-col gap-4">
+          <p className="text-sm font-semibold text-plex-text">Add New Location</p>
+
+          <div>
+            <label htmlFor="place-name" className={labelClass}>Place name</label>
+            <div className="flex gap-2">
+              <input
+                id="place-name"
+                type="text"
+                className="flex-1 bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                placeholder="e.g. Bamburgh, Northumberland"
+                value={placeName}
+                onChange={(e) => setPlaceName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleGeocode(); }}
+                data-testid="place-name-input"
+              />
+              <button
+                className="btn-secondary text-xs shrink-0"
+                onClick={handleGeocode}
+                disabled={geocoding}
+                data-testid="geocode-btn"
+              >
+                {geocoding ? 'Looking up...' : 'Look up'}
+              </button>
+            </div>
+          </div>
+
+          {geocodeError && (
+            <p className="text-xs text-red-400">{geocodeError}</p>
+          )}
+
+          {geocodeResult && (
+            <div className="bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-xs text-plex-text-secondary">
+              <p className="font-medium text-plex-text">
+                {geocodeResult.lat.toFixed(4)}, {geocodeResult.lon.toFixed(4)}
+              </p>
+              <p className="mt-0.5">{geocodeResult.displayName}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label htmlFor="add-golden-hour-type" className={labelClass}>Golden Hour Type</label>
+              <select
+                id="add-golden-hour-type"
+                className={selectClass}
+                value={addGoldenHourType}
+                onChange={(e) => setAddGoldenHourType(e.target.value)}
+                data-testid="add-golden-hour-type"
+              >
+                {GOLDEN_HOUR_TYPES.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="add-location-type" className={labelClass}>Location Type</label>
+              <select
+                id="add-location-type"
+                className={selectClass}
+                value={addLocationType}
+                onChange={(e) => handleAddLocationTypeChange(e.target.value)}
+                data-testid="add-location-type"
+              >
+                {LOCATION_TYPES.map((lt) => (
+                  <option key={lt.value} value={lt.value}>{lt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="add-tide-type" className={labelClass}>Tide Preference</label>
+              <select
+                id="add-tide-type"
+                className={selectClass}
+                value={addTideType}
+                onChange={(e) => setAddTideType(e.target.value)}
+                disabled={addLocationType !== 'SEASCAPE'}
+                data-testid="add-tide-type"
+              >
+                {TIDE_TYPES.filter((t) => addLocationType === 'SEASCAPE' || t.value === 'NOT_COASTAL').map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex justify-between">
+            <button className="btn-secondary text-sm" onClick={handleCancel}>
+              Cancel
+            </button>
+            <button
+              className="btn-primary text-sm"
+              onClick={handleAddReviewConfirm}
+              disabled={!geocodeResult}
+              data-testid="review-confirm-btn"
+            >
+              Review & Confirm
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit mode */}
+      {mode === 'edit' && editingLocation && (
+        <div className="flex flex-col gap-4">
+          <p className="text-sm font-semibold text-plex-text">
+            Edit Location: {editingLocation.name}
+          </p>
+
+          <div className="bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-xs text-plex-text-secondary">
+            <p className="font-medium text-plex-text">{editingLocation.name}</p>
+            <p className="mt-0.5">{editingLocation.lat.toFixed(4)}, {editingLocation.lon.toFixed(4)}</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label htmlFor="edit-golden-hour-type" className={labelClass}>Golden Hour Type</label>
+              <select
+                id="edit-golden-hour-type"
+                className={selectClass}
+                value={editGoldenHourType}
+                onChange={(e) => setEditGoldenHourType(e.target.value)}
+                data-testid="edit-golden-hour-type"
+              >
+                {GOLDEN_HOUR_TYPES.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="edit-location-type" className={labelClass}>Location Type</label>
+              <select
+                id="edit-location-type"
+                className={selectClass}
+                value={editLocationType}
+                onChange={(e) => handleEditLocationTypeChange(e.target.value)}
+                data-testid="edit-location-type"
+              >
+                {LOCATION_TYPES.map((lt) => (
+                  <option key={lt.value} value={lt.value}>{lt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="edit-tide-type" className={labelClass}>Tide Preference</label>
+              <select
+                id="edit-tide-type"
+                className={selectClass}
+                value={editTideType}
+                onChange={(e) => setEditTideType(e.target.value)}
+                disabled={editLocationType !== 'SEASCAPE'}
+                data-testid="edit-tide-type"
+              >
+                {TIDE_TYPES.filter((t) => editLocationType === 'SEASCAPE' || t.value === 'NOT_COASTAL').map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex justify-between">
+            <button className="btn-secondary text-sm" onClick={handleCancel}>
+              Cancel
+            </button>
+            <button
+              className="btn-primary text-sm"
+              onClick={handleEditReviewConfirm}
+              data-testid="review-confirm-btn"
+            >
+              Review & Confirm
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm modal */}
+      {confirmData && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm location"
+          data-testid="confirm-location-modal"
+        >
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">
+              {confirmData.mode === 'add' ? 'Confirm New Location' : 'Confirm Changes'}
+            </p>
+
+            <div className="text-sm space-y-2">
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Name</span>
+                <span className="text-plex-text font-medium">{confirmData.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Coordinates</span>
+                <span className="text-plex-text">
+                  {confirmData.lat.toFixed(4)} N, {Math.abs(confirmData.lon).toFixed(4)} {confirmData.lon < 0 ? 'W' : 'E'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Solar</span>
+                <span className="text-plex-text">{formatGoldenHourType(confirmData.goldenHourType)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Type</span>
+                <span className="text-plex-text">
+                  {LOCATION_TYPES.find((lt) => lt.value === confirmData.locationType)?.label ?? confirmData.locationType}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Tide</span>
+                <span className="text-plex-text">
+                  {confirmData.tideType === 'NOT_COASTAL' ? '—' : (TIDE_TYPES.find((t) => t.value === confirmData.tideType)?.label ?? confirmData.tideType)}
+                </span>
+              </div>
+            </div>
+
+            {error && <p className="text-xs text-red-400">{error}</p>}
+
+            <div className="flex justify-between">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setConfirmData(null)}
+                disabled={saving}
+              >
+                Back
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleConfirmSave}
+                disabled={saving}
+                data-testid="confirm-save-btn"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+LocationManagementView.propTypes = {
+  onLocationsChanged: PropTypes.func.isRequired,
+};

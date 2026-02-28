@@ -1,27 +1,28 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.config.ForecastProperties;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
+import java.util.Set;
 
 /**
  * Manages the persisted set of forecast locations.
  *
- * <p>On startup, locations defined in {@code application.yml} are seeded into the
- * {@code locations} table if they are not already present. Locations added at runtime
- * via {@link #add} persist across restarts.
+ * <p>Locations are managed exclusively via the REST API. The database is the sole
+ * source of truth for location metadata. Disabled locations are excluded from
+ * forecast runs.
  */
 @Service
 public class LocationService {
@@ -34,67 +35,17 @@ public class LocationService {
     private static final double MAX_LON = 180.0;
 
     private final LocationRepository locationRepository;
-    private final ForecastProperties forecastProperties;
     private final TideService tideService;
 
     /**
      * Constructs a {@code LocationService}.
      *
      * @param locationRepository repository for {@link LocationEntity}
-     * @param forecastProperties YAML-configured seed locations
-     * @param tideService        used to immediately fetch tide extremes for newly seeded coastal locations
+     * @param tideService        used to fetch tide extremes for coastal locations
      */
-    public LocationService(LocationRepository locationRepository,
-            ForecastProperties forecastProperties, TideService tideService) {
+    public LocationService(LocationRepository locationRepository, TideService tideService) {
         this.locationRepository = locationRepository;
-        this.forecastProperties = forecastProperties;
         this.tideService = tideService;
-    }
-
-    /**
-     * Seeds and synchronises the {@code locations} table from {@code application.yml} on startup.
-     *
-     * <p>New locations are inserted. Existing locations (matched by name) have their
-     * {@code goldenHourType}, {@code tideType}, and {@code locationType} updated to
-     * match the current YAML config — so the YAML remains the source of truth for metadata.
-     * Coordinates are not updated for existing rows to preserve any manual corrections.
-     */
-    @PostConstruct
-    public void seedFromProperties() {
-        int seeded = 0;
-        int updated = 0;
-        for (ForecastProperties.Location loc : forecastProperties.getLocations()) {
-            Optional<LocationEntity> existing = locationRepository.findByName(loc.getName());
-            LocationEntity entity;
-            if (existing.isEmpty()) {
-                entity = locationRepository.save(LocationEntity.builder()
-                        .name(loc.getName())
-                        .lat(loc.getLat())
-                        .lon(loc.getLon())
-                        .goldenHourType(loc.getGoldenHourType())
-                        .tideType(loc.getTideType())
-                        .locationType(loc.getLocationType())
-                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                        .build());
-                seeded++;
-            } else {
-                entity = existing.get();
-                boolean changed = !entity.getGoldenHourType().equals(loc.getGoldenHourType())
-                        || !entity.getTideType().equals(loc.getTideType())
-                        || !entity.getLocationType().equals(loc.getLocationType());
-                if (changed) {
-                    entity.setGoldenHourType(loc.getGoldenHourType());
-                    entity.setTideType(loc.getTideType());
-                    entity.setLocationType(loc.getLocationType());
-                    locationRepository.save(entity);
-                    updated++;
-                }
-            }
-            if (isCoastal(entity) && !tideService.hasStoredExtremes(entity.getId())) {
-                tideService.fetchAndStoreTideExtremes(entity);
-            }
-        }
-        LOG.info("Seeded {} location(s), updated metadata for {} location(s) from config", seeded, updated);
     }
 
     /**
@@ -104,6 +55,15 @@ public class LocationService {
      */
     public List<LocationEntity> findAll() {
         return locationRepository.findAllByOrderByNameAsc();
+    }
+
+    /**
+     * Returns all enabled locations ordered alphabetically by name.
+     *
+     * @return list of enabled location entities
+     */
+    public List<LocationEntity> findAllEnabled() {
+        return locationRepository.findAllByEnabledTrueOrderByNameAsc();
     }
 
     /**
@@ -119,35 +79,136 @@ public class LocationService {
     }
 
     /**
+     * Returns a location by its database ID.
+     *
+     * @param id the location primary key
+     * @return the matching {@link LocationEntity}
+     * @throws java.util.NoSuchElementException if no location with that ID exists
+     */
+    public LocationEntity findById(Long id) {
+        return locationRepository.findById(id)
+                .orElseThrow(() -> new java.util.NoSuchElementException("No location with id " + id));
+    }
+
+    /**
      * Adds a new location and persists it to the database.
      *
-     * @param name human-readable identifier (e.g. "Durham UK")
-     * @param lat  latitude in decimal degrees (−90 to 90)
-     * @param lon  longitude in decimal degrees (−180 to 180)
+     * @param request the location details including name, coordinates, and metadata
      * @return the saved {@link LocationEntity}
      * @throws IllegalArgumentException if name is blank, lat/lon are out of range,
      *                                  or a location with the same name already exists
      */
-    public LocationEntity add(String name, double lat, double lon) {
-        if (name == null || name.isBlank()) {
+    public LocationEntity add(AddLocationRequest request) {
+        if (request.name() == null || request.name().isBlank()) {
             throw new IllegalArgumentException("Location name must not be blank");
         }
-        if (lat < MIN_LAT || lat > MAX_LAT) {
+        if (request.lat() < MIN_LAT || request.lat() > MAX_LAT) {
             throw new IllegalArgumentException("Latitude must be between -90 and 90");
         }
-        if (lon < MIN_LON || lon > MAX_LON) {
+        if (request.lon() < MIN_LON || request.lon() > MAX_LON) {
             throw new IllegalArgumentException("Longitude must be between -180 and 180");
         }
-        if (locationRepository.existsByName(name)) {
-            throw new IllegalArgumentException("A location named '" + name + "' already exists");
+        if (locationRepository.existsByName(request.name())) {
+            throw new IllegalArgumentException("A location named '" + request.name() + "' already exists");
         }
+
+        GoldenHourType goldenHourType = request.goldenHourType() != null
+                ? request.goldenHourType() : GoldenHourType.BOTH_TIMES;
+        LocationType locationType = request.locationType() != null
+                ? request.locationType() : LocationType.LANDSCAPE;
+        TideType tideType = request.tideType() != null
+                ? request.tideType() : TideType.NOT_COASTAL;
+
+        // Force NOT_COASTAL when not SEASCAPE
+        if (locationType != LocationType.SEASCAPE) {
+            tideType = TideType.NOT_COASTAL;
+        }
+
         LocationEntity entity = LocationEntity.builder()
-                .name(name)
-                .lat(lat)
-                .lon(lon)
+                .name(request.name())
+                .lat(request.lat())
+                .lon(request.lon())
+                .goldenHourType(goldenHourType)
+                .locationType(new HashSet<>(Set.of(locationType)))
+                .tideType(new HashSet<>(Set.of(tideType)))
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
-        return locationRepository.save(entity);
+        LocationEntity saved = locationRepository.save(entity);
+
+        if (isCoastal(saved) && !tideService.hasStoredExtremes(saved.getId())) {
+            tideService.fetchAndStoreTideExtremes(saved);
+        }
+
+        LOG.info("Added location '{}' ({}, {}) — type={}, solar={}, tide={}",
+                saved.getName(), saved.getLat(), saved.getLon(),
+                locationType, goldenHourType, tideType);
+        return saved;
+    }
+
+    /**
+     * Updates metadata for an existing location.
+     *
+     * <p>Name and coordinates are immutable. If the location type changes to SEASCAPE,
+     * tide data is fetched if not already stored.
+     *
+     * @param id      the location primary key
+     * @param request the updated metadata
+     * @return the updated {@link LocationEntity}
+     * @throws java.util.NoSuchElementException if no location with that ID exists
+     */
+    public LocationEntity update(Long id, UpdateLocationRequest request) {
+        LocationEntity location = findById(id);
+
+        if (request.goldenHourType() != null) {
+            location.setGoldenHourType(request.goldenHourType());
+        }
+
+        if (request.locationType() != null) {
+            location.setLocationType(new HashSet<>(Set.of(request.locationType())));
+        }
+
+        if (request.tideType() != null) {
+            // Force NOT_COASTAL when not SEASCAPE
+            if (!location.getLocationType().contains(LocationType.SEASCAPE)) {
+                location.setTideType(new HashSet<>(Set.of(TideType.NOT_COASTAL)));
+            } else {
+                location.setTideType(new HashSet<>(Set.of(request.tideType())));
+            }
+        }
+
+        LocationEntity saved = locationRepository.save(location);
+
+        if (isCoastal(saved) && !tideService.hasStoredExtremes(saved.getId())) {
+            tideService.fetchAndStoreTideExtremes(saved);
+        }
+
+        LOG.info("Updated location '{}' — type={}, solar={}, tide={}",
+                saved.getName(), saved.getLocationType(), saved.getGoldenHourType(),
+                saved.getTideType());
+        return saved;
+    }
+
+    /**
+     * Toggles the enabled state of a location.
+     *
+     * <p>When re-enabling, also clears failure tracking fields.
+     *
+     * @param id      the location primary key
+     * @param enabled the new enabled state
+     * @return the updated {@link LocationEntity}
+     * @throws java.util.NoSuchElementException if no location with that ID exists
+     */
+    public LocationEntity setEnabled(Long id, boolean enabled) {
+        LocationEntity location = findById(id);
+        location.setEnabled(enabled);
+        if (enabled) {
+            location.setConsecutiveFailures(0);
+            location.setDisabledReason(null);
+            location.setLastFailureAt(null);
+        }
+        LocationEntity saved = locationRepository.save(location);
+        LOG.info("Location '{}' {}", saved.getName(), enabled ? "enabled" : "disabled");
+        return saved;
     }
 
     /**
@@ -192,9 +253,6 @@ public class LocationService {
     /**
      * Returns {@code true} if this location has the {@link LocationType#SEASCAPE} tag.
      *
-     * <p>Seascape locations are coastal spots where tide state is directly relevant to
-     * photographic composition — rock pools, foreshore textures, reflections, etc.
-     *
      * @param location the location to check
      * @return {@code true} if the location's type set contains {@code SEASCAPE}
      */
@@ -204,9 +262,6 @@ public class LocationService {
 
     /**
      * Resets the consecutive failure counter and disabled reason for a location.
-     *
-     * <p>Used to re-enable locations that have been auto-disabled after 3 consecutive
-     * forecast failures. Clears both the consecutive failure count and the disabled reason.
      *
      * @param name the location name to reset
      * @return the updated {@link LocationEntity}

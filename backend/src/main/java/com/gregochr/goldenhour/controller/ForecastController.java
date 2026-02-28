@@ -84,7 +84,7 @@ public class ForecastController {
     public List<ForecastEvaluationEntity> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
-        return locationService.findAll().stream()
+        return locationService.findAllEnabled().stream()
                 .flatMap(loc -> repository.findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         loc.getName(), today, horizon).stream())
                 .toList();
@@ -115,7 +115,7 @@ public class ForecastController {
                     .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                             location, from, to);
         }
-        return locationService.findAll().stream()
+        return locationService.findAllEnabled().stream()
                 .flatMap(loc -> repository
                         .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                                 loc.getName(), from, to)
@@ -158,7 +158,7 @@ public class ForecastController {
         // Build locations list with optional limit
         List<LocationEntity> allLocations;
         if (request != null && request.location() != null) {
-            allLocations = locationService.findAll().stream()
+            allLocations = locationService.findAllEnabled().stream()
                     .filter(l -> l.getName().equals(request.location()))
                     .toList();
             if (allLocations.isEmpty()) {
@@ -166,7 +166,7 @@ public class ForecastController {
                         "No configured location named '" + request.location() + "'");
             }
         } else {
-            allLocations = locationService.findAll();
+            allLocations = locationService.findAllEnabled();
         }
         final List<LocationEntity> locations = (maxLocations != null && maxLocations > 0)
                 ? allLocations.stream().limit(maxLocations).toList()

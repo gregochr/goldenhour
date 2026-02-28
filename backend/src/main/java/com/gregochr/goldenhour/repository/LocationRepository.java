@@ -33,4 +33,11 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * @return locations sorted by name ascending
      */
     List<LocationEntity> findAllByOrderByNameAsc();
+
+    /**
+     * Returns all enabled locations ordered alphabetically by name.
+     *
+     * @return enabled locations sorted by name ascending
+     */
+    List<LocationEntity> findAllByEnabledTrueOrderByNameAsc();
 }

@@ -144,14 +144,69 @@ export async function fetchLocations() {
 /**
  * Adds a new location to the persisted set.
  *
- * @param {string} name - Human-readable location identifier.
- * @param {number} lat  - Latitude in decimal degrees.
- * @param {number} lon  - Longitude in decimal degrees.
+ * @param {object} data - Location data.
+ * @param {string} data.name - Human-readable location identifier.
+ * @param {number} data.lat  - Latitude in decimal degrees.
+ * @param {number} data.lon  - Longitude in decimal degrees.
+ * @param {string} [data.goldenHourType] - Solar event type.
+ * @param {string} [data.locationType] - Photography type.
+ * @param {string} [data.tideType] - Tide preference.
  * @returns {Promise<object>} The saved location entity.
  */
-export async function addLocation(name, lat, lon) {
-  const response = await axios.post(`${BASE_URL}/locations`, { name, lat, lon });
+export async function addLocation(data) {
+  const response = await axios.post(`${BASE_URL}/locations`, data);
   return response.data;
+}
+
+/**
+ * Updates metadata for an existing location.
+ *
+ * @param {number} id - Location primary key.
+ * @param {object} data - Updated metadata (goldenHourType, locationType, tideType).
+ * @returns {Promise<object>} The updated location entity.
+ */
+export async function updateLocation(id, data) {
+  const response = await axios.put(`${BASE_URL}/locations/${id}`, data);
+  return response.data;
+}
+
+/**
+ * Toggles the enabled state of a location.
+ *
+ * @param {number} id - Location primary key.
+ * @param {boolean} enabled - Whether the location should be enabled.
+ * @returns {Promise<object>} The updated location entity.
+ */
+export async function setLocationEnabled(id, enabled) {
+  const response = await axios.put(`${BASE_URL}/locations/${id}/enabled`, { enabled });
+  return response.data;
+}
+
+/**
+ * Geocodes a place name via Nominatim (OpenStreetMap).
+ * Uses plain fetch to avoid the JWT axios interceptor.
+ *
+ * @param {string} placeName - The place to search for.
+ * @returns {Promise<{lat: number, lon: number, displayName: string}>} Resolved coordinates.
+ * @throws {Error} If no results are found.
+ */
+export async function geocodePlace(placeName) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(placeName + ' UK')}&format=json&limit=1`;
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error('Geocoding request failed');
+  }
+  const results = await response.json();
+  if (!results || results.length === 0) {
+    throw new Error('No results found for "' + placeName + '"');
+  }
+  return {
+    lat: parseFloat(results[0].lat),
+    lon: parseFloat(results[0].lon),
+    displayName: results[0].display_name,
+  };
 }
 
 /**

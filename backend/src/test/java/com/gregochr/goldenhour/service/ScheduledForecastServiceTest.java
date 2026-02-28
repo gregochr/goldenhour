@@ -98,7 +98,7 @@ class ScheduledForecastServiceTest {
     @DisplayName("refreshTideExtremes() calls tideService for each coastal location")
     void refreshTideExtremes_callsTideService_forCoastalLocations() {
         LocationEntity durham = LocationEntity.builder().name("Durham UK").build();
-        when(locationService.findAll()).thenReturn(List.of(durham));
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
         when(locationService.isCoastal(any())).thenReturn(true);
 
         scheduledForecastService.refreshTideExtremes();
@@ -110,7 +110,7 @@ class ScheduledForecastServiceTest {
     @DisplayName("refreshTideExtremes() skips non-coastal locations")
     void refreshTideExtremes_skipsNonCoastalLocations() {
         LocationEntity durham = LocationEntity.builder().name("Durham UK").build();
-        when(locationService.findAll()).thenReturn(List.of(durham));
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
         when(locationService.isCoastal(any())).thenReturn(false);
 
         scheduledForecastService.refreshTideExtremes();
@@ -123,7 +123,7 @@ class ScheduledForecastServiceTest {
     void refreshTideExtremes_continuesAfterFailure() {
         LocationEntity durham = LocationEntity.builder().name("Durham UK").build();
         LocationEntity scarborough = LocationEntity.builder().name("Scarborough").build();
-        when(locationService.findAll()).thenReturn(List.of(durham, scarborough));
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
         when(locationService.isCoastal(any())).thenReturn(true);
         doThrow(new RuntimeException("API error"))
                 .when(tideService).fetchAndStoreTideExtremes(

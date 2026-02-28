@@ -86,7 +86,7 @@ public class ForecastCommandExecutor {
         // Resolve locations — use command-provided or filter from all configured
         List<LocationEntity> locations = command.locations() != null
                 ? command.locations()
-                : locationService.findAll().stream()
+                : locationService.findAllEnabled().stream()
                 .filter(loc -> isWildlife ? isPureWildlife(loc) : hasColourTypes(loc))
                 .toList();
 

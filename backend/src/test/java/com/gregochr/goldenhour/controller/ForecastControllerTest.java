@@ -4,9 +4,11 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,10 +60,16 @@ class ForecastControllerTest {
     private ForecastCommandExecutor commandExecutor;
 
     @MockBean
+    private LocationService locationService;
+
+    @MockBean
     private ScheduledForecastService scheduledForecastService;
 
     @BeforeEach
     void setUp() {
+        LocationEntity durham = LocationEntity.builder()
+                .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
         when(commandFactory.create(any(), any(boolean.class)))
                 .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
                         com.gregochr.goldenhour.entity.RunType.SHORT_TERM,

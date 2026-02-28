@@ -89,7 +89,7 @@ public class ScheduledForecastService {
     // @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
     public void refreshTideExtremes() {
         JobRunEntity jobRun = jobRunService.startRun(RunType.TIDE, false, null);
-        List<LocationEntity> coastal = locationService.findAll().stream()
+        List<LocationEntity> coastal = locationService.findAllEnabled().stream()
                 .filter(locationService::isCoastal)
                 .toList();
         LOG.info("Weekly tide refresh started — {} coastal location(s)", coastal.size());

@@ -36,6 +36,7 @@ export function useForecasts() {
           locationType: l.locationType ?? [],
           tideType: l.tideType ?? [],
           goldenHourType: l.goldenHourType ?? 'BOTH_TIMES',
+          enabled: l.enabled !== false,
         }])
       );
 
@@ -49,6 +50,7 @@ export function useForecasts() {
           locationType: metaByName[loc.name]?.locationType ?? [],
           tideType: metaByName[loc.name]?.tideType ?? [],
           goldenHourType: metaByName[loc.name]?.goldenHourType ?? 'BOTH_TIMES',
+          enabled: metaByName[loc.name]?.enabled !== false,
           outcomes: outcomeResults[i],
         }))
       );
