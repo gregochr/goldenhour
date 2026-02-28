@@ -9,7 +9,9 @@ import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -36,16 +38,20 @@ public class LocationService {
 
     private final LocationRepository locationRepository;
     private final TideService tideService;
+    private final JdbcTemplate jdbcTemplate;
 
     /**
      * Constructs a {@code LocationService}.
      *
      * @param locationRepository repository for {@link LocationEntity}
      * @param tideService        used to fetch tide extremes for coastal locations
+     * @param jdbcTemplate       used for cascading name updates across FK tables
      */
-    public LocationService(LocationRepository locationRepository, TideService tideService) {
+    public LocationService(LocationRepository locationRepository, TideService tideService,
+                           JdbcTemplate jdbcTemplate) {
         this.locationRepository = locationRepository;
         this.tideService = tideService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
@@ -156,8 +162,28 @@ public class LocationService {
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that ID exists
      */
+    @Transactional
     public LocationEntity update(Long id, UpdateLocationRequest request) {
         LocationEntity location = findById(id);
+
+        // Handle name change — cascade to FK tables
+        if (request.name() != null && !request.name().isBlank()
+                && !request.name().equals(location.getName())) {
+            String newName = request.name().trim();
+            if (locationRepository.existsByName(newName)) {
+                throw new IllegalArgumentException(
+                        "A location named '" + newName + "' already exists.");
+            }
+            String oldName = location.getName();
+            jdbcTemplate.update(
+                    "UPDATE forecast_evaluation SET location_name = ? WHERE location_name = ?",
+                    newName, oldName);
+            jdbcTemplate.update(
+                    "UPDATE actual_outcome SET location_name = ? WHERE location_name = ?",
+                    newName, oldName);
+            location.setName(newName);
+            LOG.info("Renamed location '{}' → '{}'", oldName, newName);
+        }
 
         if (request.goldenHourType() != null) {
             location.setGoldenHourType(request.goldenHourType());

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
 import java.util.Optional;
@@ -38,11 +39,14 @@ class LocationServiceTest {
     @Mock
     private TideService tideService;
 
+    @Mock
+    private JdbcTemplate jdbcTemplate;
+
     private LocationService locationService;
 
     @BeforeEach
     void setUp() {
-        locationService = new LocationService(locationRepository, tideService);
+        locationService = new LocationService(locationRepository, tideService, jdbcTemplate);
     }
 
     // --- findByName ---
@@ -269,7 +273,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                GoldenHourType.SUNSET, null, null);
+                null, GoldenHourType.SUNSET, null, null);
         LocationEntity result = locationService.update(1L, request);
 
         assertThat(result.getGoldenHourType()).isEqualTo(GoldenHourType.SUNSET);
@@ -286,7 +290,7 @@ class LocationServiceTest {
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, LocationType.SEASCAPE, TideType.ANY_TIDE);
+                null, null, LocationType.SEASCAPE, TideType.ANY_TIDE);
         locationService.update(1L, request);
 
         assertThat(existing.getLocationType()).containsExactly(LocationType.SEASCAPE);
@@ -303,7 +307,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, LocationType.LANDSCAPE, TideType.HIGH_TIDE);
+                null, null, LocationType.LANDSCAPE, TideType.HIGH_TIDE);
         locationService.update(1L, request);
 
         assertThat(existing.getTideType()).containsExactly(TideType.NOT_COASTAL);
@@ -315,7 +319,7 @@ class LocationServiceTest {
         when(locationRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> locationService.update(99L,
-                new UpdateLocationRequest(null, null, null)))
+                new UpdateLocationRequest(null, null, null, null)))
                 .isInstanceOf(java.util.NoSuchElementException.class);
     }
 
