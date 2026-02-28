@@ -20,6 +20,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Multi-location support with map view (Leaflet/OpenStreetMap)
 - Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH_TIDE/LOW_TIDE/ANY_TIDE/MID_TIDE/NOT_COASTAL), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
 - Sunrise/sunset azimuth lines on map
+- **Two scores** ✓ — Fiery Sky Potential (0–100, dramatic colour) and Golden Hour Potential (0–100, light quality) alongside the 1–5 star rating; V17 columns, differentiated weighting in the shared evaluation prompt
 - **Opus optimisation gate** ✓ — Opus very-short-term runs skip slots with prior rating < 3 stars or no prior evaluation, avoiding wasted spend on low-value forecasts
 - **Per-run-type model config** ✓ — three independent model configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Flat evaluation strategy hierarchy: Haiku, Sonnet, Opus all extend `AbstractEvaluationStrategy` directly with shared prompts; differentiation is purely which Anthropic model is used
@@ -226,13 +227,9 @@ surfaced, and none segment by location type (landscape vs wildlife vs coastal).
 - Location types with type-specific UI (landscape scores vs wildlife comfort forecast)
 - Outcome recording + accuracy feedback loop
 
-### Two Scores (Planned)
+### Two Scores ✓ Built
 
-PhotoWeather distinguishes between two things that are genuinely different:
-- **Fiery Sky Potential** — dramatic colour (requires clouds to catch light)
-- **Golden Hour Potential** — overall light quality (can score high with clear sky)
-
-These require different parameter weighting. Planned for a future evaluation update.
+Claude evaluates each forecast on three scales: a 1–5 star rating, Fiery Sky Potential (0–100, dramatic colour requiring clouds to catch light), and Golden Hour Potential (0–100, overall light quality that can score high even with clear sky). Different parameter weighting is baked into the shared evaluation prompt. Columns added in V17.
 
 ### Aerosol Differentiation
 
