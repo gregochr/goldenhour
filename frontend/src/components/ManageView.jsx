@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import axios from 'axios';
 import { runForecast, fetchLocations, addLocation } from '../api/forecastApi.js';
-import { resetUserPassword } from '../api/userApi.js';
+import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled } from '../api/userApi.js';
 import { formatDateLabel } from '../utils/conversions.js';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -67,6 +67,14 @@ export default function ManageView({ onComplete }) {
   const [addUserError, setAddUserError] = useState('');
   const [addUserSaving, setAddUserSaving] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+
+  // Edit-user state
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editEmail, setEditEmail] = useState('');
+  const [editRole, setEditRole] = useState('');
+  const [editEnabled, setEditEnabled] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   // Reset-password state
   const [resetPasswordLoadingId, setResetPasswordLoadingId] = useState(null);
@@ -224,12 +232,54 @@ export default function ManageView({ onComplete }) {
     }
   }
 
-  async function handleToggleEnabled(userId, currentEnabled) {
+  function handleStartEdit(user) {
+    setEditingUserId(user.id);
+    setEditEmail(user.email || '');
+    setEditRole(user.role);
+    setEditEnabled(user.enabled);
+    setEditError('');
+  }
+
+  function handleCancelEdit() {
+    setEditingUserId(null);
+    setEditEmail('');
+    setEditRole('');
+    setEditEnabled(false);
+    setEditError('');
+    setEditSaving(false);
+  }
+
+  async function handleSaveEdit(user) {
+    const trimmedEmail = editEmail.trim();
+    if (!trimmedEmail) {
+      setEditError('Email address is required.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setEditError('Please enter a valid email address.');
+      return;
+    }
+
+    setEditError('');
+    setEditSaving(true);
     try {
-      await axios.put(`/api/users/${userId}/enabled`, { enabled: !currentEnabled });
+      const calls = [];
+      if (trimmedEmail !== (user.email || '')) {
+        calls.push(updateUserEmail(user.id, trimmedEmail));
+      }
+      if (editRole !== user.role) {
+        calls.push(updateUserRole(user.id, editRole));
+      }
+      if (editEnabled !== user.enabled) {
+        calls.push(updateUserEnabled(user.id, editEnabled));
+      }
+      await Promise.all(calls);
       await fetchUsers();
-    } catch {
-      // Silently ignore
+      handleCancelEdit();
+    } catch (err) {
+      setEditError(err?.response?.data?.error ?? 'Failed to save changes.');
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -383,6 +433,10 @@ export default function ManageView({ onComplete }) {
             <p className="text-xs text-red-400">{resetPasswordError}</p>
           )}
 
+          {editError && (
+            <p className="text-xs text-red-400">{editError}</p>
+          )}
+
           {!usersLoading && users.length > 0 && (
             <table className="w-full text-sm text-left">
               <thead>
@@ -396,46 +450,112 @@ export default function ManageView({ onComplete }) {
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-900 last:border-0">
-                    <td className="py-2 text-gray-200">{user.username}</td>
-                    <td className="py-2 text-gray-400 text-xs">{user.email || '—'}</td>
-                    <td className="py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        user.role === 'ADMIN'
-                          ? 'bg-amber-900/50 text-amber-400'
-                          : 'bg-gray-800 text-gray-400'
-                      }`}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="py-2 text-gray-500 text-xs">
-                      {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
-                    </td>
-                    <td className="py-2">
-                      <button
-                        className={`text-xs px-2 py-0.5 rounded ${
-                          user.enabled
-                            ? 'bg-green-900/40 text-green-400 hover:bg-green-900/70'
-                            : 'bg-red-900/40 text-red-400 hover:bg-red-900/70'
-                        }`}
-                        onClick={() => handleToggleEnabled(user.id, user.enabled)}
-                      >
-                        {user.enabled ? 'Enabled' : 'Disabled'}
-                      </button>
-                    </td>
-                    <td className="py-2">
-                      <button
-                        data-testid={`reset-password-${user.id}`}
-                        className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                        onClick={() => handleResetPassword(user)}
-                        disabled={resetPasswordLoadingId === user.id}
-                      >
-                        {resetPasswordLoadingId === user.id ? 'Resetting…' : 'Reset Password'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {users.map((user) => {
+                  const isEditing = editingUserId === user.id;
+                  return (
+                    <tr key={user.id} className="border-b border-gray-900 last:border-0">
+                      <td className="py-2 text-gray-200">{user.username}</td>
+                      <td className="py-2">
+                        {isEditing ? (
+                          <input
+                            data-testid={`edit-email-${user.id}`}
+                            type="email"
+                            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            value={editEmail}
+                            onChange={(e) => setEditEmail(e.target.value)}
+                          />
+                        ) : (
+                          <span className="text-gray-400 text-xs">{user.email || '—'}</span>
+                        )}
+                      </td>
+                      <td className="py-2">
+                        {isEditing ? (
+                          <select
+                            data-testid={`edit-role-${user.id}`}
+                            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            value={editRole}
+                            onChange={(e) => setEditRole(e.target.value)}
+                          >
+                            <option value="LITE_USER">LITE_USER</option>
+                            <option value="PRO_USER">PRO_USER</option>
+                            <option value="ADMIN">ADMIN</option>
+                          </select>
+                        ) : (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            user.role === 'ADMIN'
+                              ? 'bg-amber-900/50 text-amber-400'
+                              : 'bg-gray-800 text-gray-400'
+                          }`}>
+                            {user.role}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 text-gray-500 text-xs">
+                        {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
+                      </td>
+                      <td className="py-2">
+                        {isEditing ? (
+                          <input
+                            data-testid={`edit-enabled-${user.id}`}
+                            type="checkbox"
+                            checked={editEnabled}
+                            onChange={(e) => setEditEnabled(e.target.checked)}
+                            className="accent-amber-500"
+                          />
+                        ) : (
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            user.enabled
+                              ? 'bg-green-900/40 text-green-400'
+                              : 'bg-red-900/40 text-red-400'
+                          }`}>
+                            {user.enabled ? 'Enabled' : 'Disabled'}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2">
+                        {isEditing ? (
+                          <div className="flex gap-1">
+                            <button
+                              data-testid={`save-edit-${user.id}`}
+                              className="text-xs px-2 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleSaveEdit(user)}
+                              disabled={editSaving}
+                            >
+                              {editSaving ? 'Saving…' : 'Save'}
+                            </button>
+                            <button
+                              data-testid={`cancel-edit-${user.id}`}
+                              className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+                              onClick={handleCancelEdit}
+                              disabled={editSaving}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-1">
+                            <button
+                              data-testid={`edit-user-${user.id}`}
+                              className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+                              onClick={() => handleStartEdit(user)}
+                              disabled={editingUserId !== null}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              data-testid={`reset-password-${user.id}`}
+                              className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleResetPassword(user)}
+                              disabled={resetPasswordLoadingId === user.id || editingUserId !== null}
+                            >
+                              {resetPasswordLoadingId === user.id ? 'Resetting…' : 'Reset Password'}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

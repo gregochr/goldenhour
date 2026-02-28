@@ -136,6 +136,29 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("setEmail updates the email on the user")
+    void setEmail_existingUser_updatesEmail() {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any())).thenReturn(user);
+
+        userService.setEmail(1L, "newemail@example.com");
+
+        assertThat(user.getEmail()).isEqualTo("newemail@example.com");
+        verify(userRepository).save(user);
+    }
+
+    @Test
+    @DisplayName("setEmail throws IllegalArgumentException when user is not found")
+    void setEmail_missingUser_throwsException() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.setEmail(99L, "test@example.com"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("99");
+    }
+
+    @Test
     @DisplayName("resetPassword returns a non-null temporary password and sets passwordChangeRequired")
     void resetPassword_existingUser_returnsRawPasswordAndSetsFlag() {
         AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);

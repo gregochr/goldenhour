@@ -227,6 +227,63 @@ class UserControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email returns 200 when email is valid")
+    void setEmail_asAdmin_returns200() throws Exception {
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Updated"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email returns 400 when email field is missing")
+    void setEmail_missingField_returns400() throws Exception {
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("email field required"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email returns 400 when email format is invalid")
+    void setEmail_invalidFormat_returns400() throws Exception {
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid email address: not-an-email"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email returns 400 when user does not exist")
+    void setEmail_userNotFound_returns400() throws Exception {
+        doThrow(new IllegalArgumentException("User not found: 99"))
+                .when(userService).setEmail(anyLong(), anyString());
+
+        mockMvc.perform(put("/api/users/99/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"valid@example.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found: 99"));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("PUT /api/users/{id}/email returns 403 for LITE_USER")
+    void setEmail_asLiteUser_returns403() throws Exception {
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new@example.com\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/users/{id}/reset-password returns 200 with temporaryPassword for ADMIN")
     void resetPassword_asAdmin_returns200WithTemporaryPassword() throws Exception {
         when(userService.resetPassword(1L)).thenReturn("Abc1!xyz9Qr2");
