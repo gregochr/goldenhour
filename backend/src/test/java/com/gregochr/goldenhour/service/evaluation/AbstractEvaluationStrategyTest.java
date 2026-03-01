@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.BeforeEach;
@@ -314,6 +315,71 @@ class AbstractEvaluationStrategyTest {
                 any(),
                 any(),
                 any());
+
+        assertThat(succeededCaptor.getValue()).isFalse();
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() returns prompt and raw response alongside evaluation")
+    void evaluateWithDetails_returnsFull() {
+        AtmosphericData data = buildAtmosphericData();
+        String rawJson = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Promising conditions.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data, null);
+
+        assertThat(detail.evaluation().rating()).isEqualTo(4);
+        assertThat(detail.evaluation().fierySkyPotential()).isEqualTo(70);
+        assertThat(detail.evaluation().goldenHourPotential()).isEqualTo(75);
+        assertThat(detail.promptSent()).contains("Durham UK");
+        assertThat(detail.promptSent()).endsWith(TEST_SUFFIX);
+        assertThat(detail.rawResponse()).isEqualTo(rawJson);
+        assertThat(detail.durationMs()).isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() logs API call when jobRun provided")
+    void evaluateWithDetails_logsApiCall() {
+        AtmosphericData data = buildAtmosphericData();
+        JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
+        Message response = buildMessage(
+                "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 60,"
+                + " \"summary\": \"Moderate conditions.\"}");
+
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+
+        strategy.evaluateWithDetails(data, jobRun);
+
+        verify(jobRunService).logApiCall(
+                eq(1L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                contains("api.anthropic.com"), any(), anyLong(),
+                eq(200), any(), eq(true), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() throws and logs failure when Claude fails")
+    void evaluateWithDetails_logsFailure() {
+        AtmosphericData data = buildAtmosphericData();
+        JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
+
+        AnthropicServiceException exception = buildServiceException(500, "Internal error");
+
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.create(any(MessageCreateParams.class))).thenThrow(exception);
+
+        assertThatThrownBy(() -> strategy.evaluateWithDetails(data, jobRun))
+                .isInstanceOf(AnthropicServiceException.class);
+
+        ArgumentCaptor<Boolean> succeededCaptor = ArgumentCaptor.forClass(Boolean.class);
+        verify(jobRunService).logApiCall(
+                eq(1L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                contains("api.anthropic.com"), any(), anyLong(),
+                eq(500), any(), succeededCaptor.capture(), any(), any(), any(), any());
 
         assertThat(succeededCaptor.getValue()).isFalse();
     }
