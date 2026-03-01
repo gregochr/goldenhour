@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   goldenhour-frontend:
     build:
@@ -19,44 +17,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: gregochr/goldenhour:latest
     container_name: goldenhour-backend
     ports:
       - "8082:8082"
-    volumes:
-      - /Users/gregochr/goldenhour-data:/data
+    env_file:
+      - ./backend/.env
     environment:
-      # Required API keys
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-your-key-here}
-      WORLDTIDES_API_KEY: ${WORLDTIDES_API_KEY:-your-key-here}
-
-      # JWT Configuration
-      JWT_SECRET: ${JWT_SECRET:-bguYZF3o0L+vHTtqPRgo8oNeTCzBjwvDGlSMcs5Hv2s=}
-
-      # Database
-      SPRING_DATASOURCE_URL: jdbc:h2:file:/data/goldenhour;MODE=MySQL
+      SPRING_DATASOURCE_URL: jdbc:h2:file:/data/goldenhour
       SPRING_DATASOURCE_USERNAME: sa
       SPRING_DATASOURCE_PASSWORD: ""
-
-      # Mail (disabled for local Docker; enable in production with real SMTP)
-      SPRING_MAIL_HOST: localhost
-      SPRING_MAIL_PORT: 25
-      SPRING_MAIL_USERNAME: ""
-      SPRING_MAIL_PASSWORD: ""
-      MAIL_FROM: noreply@goldenhour.example.com
-
-      # Notifications
-      NOTIFICATIONS_PUSHOVER_ENABLED: "false"
-      NOTIFICATIONS_EMAIL_ENABLED: "false"
-      NOTIFICATIONS_MACOS_ENABLED: "false"
-
-      # Spring
       SPRING_PROFILES_ACTIVE: prod
-      MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+    volumes:
+      - /Users/gregochr/goldenhour-data:/data
     restart: always
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8082/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
       start_period: 30s
