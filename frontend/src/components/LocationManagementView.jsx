@@ -476,8 +476,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
                     <SortableHeader label="Name" sortKey="name" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
-                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
-                      <span className="whitespace-nowrap">Coords</span>
+                    <th className="pb-1 font-medium align-top">
+                      <span className="text-xs text-plex-text-muted whitespace-nowrap">Coords</span>
+                      <div className="mt-1 h-[26px]" />
                     </th>
                     <SortableHeader label="Type" sortKey="type" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('type')} onFilter={(v) => sf.setFilter('type', v)} />
                     <SortableHeader label="Region" sortKey="region" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
@@ -485,8 +486,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     <SortableHeader label="Tide" sortKey="tide" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('tide')} onFilter={(v) => sf.setFilter('tide', v)} />
                     <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
                     <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
-                      <span className="whitespace-nowrap">Actions</span>
+                    <th className="pb-1 font-medium align-top">
+                      <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
+                      <div className="mt-1 h-[26px]" />
                     </th>
                   </tr>
                 </thead>

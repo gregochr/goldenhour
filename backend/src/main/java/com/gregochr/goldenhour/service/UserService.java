@@ -243,6 +243,27 @@ public class UserService implements UserDetailsService {
         LOG.info("User activated: id={}, username={}", userId, user.getUsername());
     }
 
+    /**
+     * Deletes a user account permanently.
+     *
+     * <p>Admins cannot delete their own account to prevent lockout.
+     *
+     * @param id              the user's primary key
+     * @param currentUsername  the username of the admin performing the deletion
+     * @throws IllegalArgumentException if no user with that id exists
+     * @throws IllegalStateException    if the admin attempts to delete their own account
+     */
+    @Transactional
+    public void deleteUser(Long id, String currentUsername) {
+        AppUserEntity user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        if (user.getUsername().equals(currentUsername)) {
+            throw new IllegalStateException("Cannot delete your own account");
+        }
+        userRepository.delete(user);
+        LOG.info("User deleted: id={}, username={}", id, user.getUsername());
+    }
+
     /** Generates a 12-character random password containing upper, lower, digit, and special chars. */
     private String generateTempPassword() {
         char[] pw = new char[TEMP_PW_LENGTH];
