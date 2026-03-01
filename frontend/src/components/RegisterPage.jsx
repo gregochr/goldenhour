@@ -41,7 +41,7 @@ function PrivacyModal({ onClose }) {
         <div className="px-6 py-4 text-sm text-plex-text-secondary leading-relaxed space-y-4">
           <section>
             <h3 className="text-plex-text font-medium mb-1">Data We Collect</h3>
-            <p>We collect the email address and username you provide during registration. We also store forecast preferences and location data you configure within the app.</p>
+            <p>We collect the email address and username you provide during registration.</p>
           </section>
           <section>
             <h3 className="text-plex-text font-medium mb-1">How We Use Your Data</h3>
