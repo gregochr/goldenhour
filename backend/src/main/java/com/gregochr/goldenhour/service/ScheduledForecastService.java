@@ -62,7 +62,7 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Runs distant forecasts (T+3 through T+7) once daily at 6 AM UTC.
+     * Runs distant forecasts (T+3 through T+5) once daily at 6 AM UTC.
      *
      * @return all saved evaluation entities produced by the run
      */

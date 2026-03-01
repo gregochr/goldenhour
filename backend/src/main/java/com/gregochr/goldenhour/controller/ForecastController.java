@@ -217,7 +217,7 @@ public class ForecastController {
     }
 
     /**
-     * Triggers an on-demand run of long-term forecasts (T+3 through T+7). Restricted to ADMIN only.
+     * Triggers an on-demand run of long-term forecasts (T+3 through T+5). Restricted to ADMIN only.
      *
      * <p>Uses the model configured under {@code LONG_TERM}.
      *

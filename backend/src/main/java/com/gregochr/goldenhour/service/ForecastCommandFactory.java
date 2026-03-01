@@ -23,7 +23,7 @@ import java.util.stream.IntStream;
 public class ForecastCommandFactory {
 
     /** Maximum number of days ahead to forecast. */
-    public static final int FORECAST_HORIZON_DAYS = 7;
+    public static final int FORECAST_HORIZON_DAYS = 5;
 
     private final ModelSelectionService modelSelectionService;
     private final HaikuEvaluationStrategy haikuStrategy;
