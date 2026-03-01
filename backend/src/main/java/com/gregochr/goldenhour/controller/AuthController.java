@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -96,7 +97,8 @@ public class AuthController {
                 "role", user.getRole().name(),
                 "expiresAt", expiresAt.toInstant().toString(),
                 "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                "passwordChangeRequired", user.isPasswordChangeRequired()));
+                "passwordChangeRequired", user.isPasswordChangeRequired(),
+                "marketingEmailOptIn", user.isMarketingEmailOptIn()));
     }
 
     /**
@@ -253,8 +255,10 @@ public class AuthController {
                     .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
         }
 
+        boolean marketingEmailOptIn = !"false".equalsIgnoreCase(body.get("marketingEmailOptIn"));
+
         try {
-            registrationService.register(username, email.trim());
+            registrationService.register(username, email.trim(), marketingEmailOptIn);
             LOG.info("Registration: user='{}' email='{}'", username, email.trim());
             return ResponseEntity.ok(Map.of(
                     "message", "Verification email sent",
@@ -378,7 +382,44 @@ public class AuthController {
                 "role", user.getRole().name(),
                 "expiresAt", expiresAt.toInstant().toString(),
                 "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                "passwordChangeRequired", false));
+                "passwordChangeRequired", false,
+                "marketingEmailOptIn", user.isMarketingEmailOptIn()));
+    }
+
+    /**
+     * Updates the authenticated user's marketing email opt-in preference.
+     *
+     * @param body map containing {@code optIn} (boolean)
+     * @return 200 on success, 401 if unauthenticated
+     */
+    @PutMapping("/marketing-emails")
+    public ResponseEntity<Map<String, Object>> updateMarketingEmails(@RequestBody Map<String, Object> body) {
+        String username = SecurityContextHolder.getContext().getAuthentication() != null
+                ? SecurityContextHolder.getContext().getAuthentication().getName()
+                : null;
+        if (username == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "Not authenticated"));
+        }
+
+        Object optInObj = body.get("optIn");
+        if (optInObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "optIn is required"));
+        }
+
+        boolean optIn = Boolean.parseBoolean(optInObj.toString());
+
+        AppUserEntity user = userRepository.findByUsername(username).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("error", "User not found"));
+        }
+
+        user.setMarketingEmailOptIn(optIn);
+        userRepository.save(user);
+
+        LOG.info("Marketing email opt-in updated: user='{}' optIn={}", username, optIn);
+        return ResponseEntity.ok(Map.of("marketingEmailOptIn", optIn));
     }
 
     /**

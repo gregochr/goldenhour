@@ -127,6 +127,30 @@ public class UserEmailService {
         }
     }
 
+    /**
+     * Sends a notification email to a user whose account has been deleted.
+     *
+     * @param email    the recipient's email address
+     * @param username the user's login name
+     */
+    @Async
+    public void sendAccountDeletedEmail(String email, String username) {
+        if (!canSend(email)) {
+            return;
+        }
+        try {
+            Context context = new Context();
+            context.setVariable("username", username);
+            String html = templateEngine.process("account-deleted-email", context);
+
+            sendHtmlEmail(email, "PhotoCast — Your Account Has Been Removed", html);
+            LOG.info("Account deleted email sent to {} for user {}", email, username);
+        } catch (Exception ex) {
+            LOG.error("Failed to send account deleted email to {} for user {}: {}",
+                    email, username, ex.getMessage());
+        }
+    }
+
     private boolean canSend(String email) {
         if (mailSender == null) {
             LOG.debug("Mail sender not configured — skipping user email");

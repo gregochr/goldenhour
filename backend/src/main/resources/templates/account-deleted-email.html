@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Account Removed — PhotoCast</title>
+</head>
+<body style="margin:0;padding:0;background-color:#181A1E;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#181A1E;padding:32px 16px;">
+    <tr>
+        <td align="center">
+            <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#252830;border:1px solid #3A3D45;border-radius:12px;overflow:hidden;">
+                <!-- Header -->
+                <tr>
+                    <td style="padding:28px 32px;text-align:center;border-bottom:1px solid #3A3D45;">
+                        <h1 style="margin:0;color:#E5A00D;font-size:24px;font-weight:700;letter-spacing:0.5px;">PhotoCast</h1>
+                        <p style="margin:6px 0 0;color:#A0A0A0;font-size:14px;">Account notification</p>
+                    </td>
+                </tr>
+                <!-- Body -->
+                <tr>
+                    <td style="padding:32px;">
+                        <p style="margin:0 0 16px;color:#EBEBEB;font-size:15px;line-height:1.6;">
+                            Hi <strong th:text="${username}" style="color:#EBEBEB;">user</strong>,
+                        </p>
+                        <p style="margin:0 0 16px;color:#A0A0A0;font-size:15px;line-height:1.6;">
+                            We wanted to let you know that your PhotoCast account has been removed. Any forecast data and preferences associated with your account have been deleted.
+                        </p>
+                        <p style="margin:0 0 16px;color:#A0A0A0;font-size:15px;line-height:1.6;">
+                            If you believe this was done in error, or if you have any questions, please contact us at
+                            <a href="mailto:privacy@photocast.online" style="color:#E5A00D;text-decoration:none;">privacy@photocast.online</a>.
+                        </p>
+                        <p style="margin:0;color:#A0A0A0;font-size:15px;line-height:1.6;">
+                            Thank you for trying PhotoCast. We hope to see you again in the future.
+                        </p>
+                    </td>
+                </tr>
+                <!-- Footer -->
+                <tr>
+                    <td style="padding:16px 32px;border-top:1px solid #3A3D45;text-align:center;">
+                        <p style="margin:0;color:#6B6B6B;font-size:12px;">PhotoCast &mdash; AI Forecasts for Fiery Skies &amp; Golden Light</p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+</body>
+</html>
