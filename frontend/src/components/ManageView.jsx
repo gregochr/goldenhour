@@ -26,7 +26,7 @@ export default function ManageView({ onComplete }) {
           { value: 'locations', label: 'Locations' },
           { value: 'regions', label: 'Regions' },
           { value: 'metrics', label: 'Job Runs' },
-          { value: 'models', label: 'Model Config' },
+          { value: 'models', label: 'Run Config' },
           { value: 'modeltest', label: 'Model Test' },
         ].map((tab) => (
           <button

@@ -106,7 +106,7 @@ export default function ModelSelectionView() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-plex-text mb-2">Model Configuration</h2>
+        <h2 className="text-xl font-bold text-plex-text mb-2">Run Configuration</h2>
         <p className="text-sm text-plex-text-secondary mb-4">
           Choose which Claude model to use for each forecast run type.
         </p>
