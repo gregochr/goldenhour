@@ -6,6 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Mar 1, 2026)
+- **Model comparison test harness** — A/B/C test that runs Haiku, Sonnet, and Opus against identical atmospheric data for one location per region, for side-by-side evaluation comparison
+  - V34 migration: `model_test_run` and `model_test_result` tables with FKs to regions/locations
+  - `ModelTestService` orchestrates: find enabled regions, pick representative colour location per region, fetch weather once, run all three models, persist results with prompt/response capture
+  - `ModelTestController` with ADMIN-only endpoints: `POST /api/model-test/run`, `GET /api/model-test/runs`, `GET /api/model-test/results`
+  - `EvaluationDetail` record captures exact prompt sent and raw Claude response for reproducibility
+  - `evaluateWithDetails()` method added to `AbstractEvaluationStrategy` and `EvaluationService`
+  - Frontend: `ModelTestView.jsx` with run button, confirmation dialog, runs table, and comparison grid grouped by region with Haiku/Sonnet/Opus rows and delta indicators from Haiku baseline
+  - "Model Test" tab added to ManageView
+  - 12 service tests, 6 controller tests, 5 frontend tests
+- **Styled confirmation dialogs for Job Runs** — replaced all 4 `window.confirm()` browser dialogs in JobRunsMetricsView with styled modal dialogs matching the app's existing pattern (dark overlay, rounded card, Cancel/Confirm buttons)
+
+### Fixed (Mar 1, 2026)
+- **Flaky LocationFailureTrackingTest** — removed `@ActiveProfiles("local")` that forced file-based H2 (causing stale state between test runs); now uses in-memory test DB with explicit state reset in `@BeforeEach`
+
+### Added (Mar 1, 2026)
 - **Self-registration with email verification** — users can sign up with email + username, verify via email link, then set their own password
   - V33 migration: `email_verification_token` table + unique email index on `app_user`
   - `RegistrationService` orchestrates register, resend (rate-limited: max 3 in 5 min), verify, and activate
