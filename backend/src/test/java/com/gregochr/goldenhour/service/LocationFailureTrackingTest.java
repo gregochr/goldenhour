@@ -7,7 +7,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -18,7 +17,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration test demonstrating location failure tracking and dead-letter mechanism.
  */
 @SpringBootTest
-@ActiveProfiles("local")
 class LocationFailureTrackingTest {
 
     @Autowired
@@ -29,21 +27,28 @@ class LocationFailureTrackingTest {
 
     @BeforeEach
     void setUp() {
-        // Ensure test locations exist (no longer seeded from YAML)
-        if (locationRepository.findByName("Angel of the North").isEmpty()) {
-            locationRepository.save(LocationEntity.builder()
-                    .name("Angel of the North")
-                    .lat(54.9141).lon(-1.5895)
-                    .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                    .build());
-        }
-        if (locationRepository.findByName("Keswick").isEmpty()) {
-            locationRepository.save(LocationEntity.builder()
-                    .name("Keswick")
-                    .lat(54.6).lon(-3.13)
-                    .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                    .build());
-        }
+        // Ensure test locations exist and reset failure state for a clean test
+        LocationEntity angel = locationRepository.findByName("Angel of the North")
+                .orElseGet(() -> locationRepository.save(LocationEntity.builder()
+                        .name("Angel of the North")
+                        .lat(54.9141).lon(-1.5895)
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                        .build()));
+        angel.setConsecutiveFailures(0);
+        angel.setLastFailureAt(null);
+        angel.setDisabledReason(null);
+        locationRepository.save(angel);
+
+        LocationEntity keswick = locationRepository.findByName("Keswick")
+                .orElseGet(() -> locationRepository.save(LocationEntity.builder()
+                        .name("Keswick")
+                        .lat(54.6).lon(-3.13)
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                        .build()));
+        keswick.setConsecutiveFailures(0);
+        keswick.setLastFailureAt(null);
+        keswick.setDisabledReason(null);
+        locationRepository.save(keswick);
     }
 
     @Test
