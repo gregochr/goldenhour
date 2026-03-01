@@ -1,6 +1,32 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+
+  --color-plex-gold: #E5A00D;
+  --color-plex-gold-light: #F5C518;
+  --color-plex-gold-dark: #CC8A00;
+  --color-plex-bg: #181A1E;
+  --color-plex-surface: #252830;
+  --color-plex-surface-light: #2F323A;
+  --color-plex-border: #3A3D45;
+  --color-plex-border-light: #4A4D55;
+  --color-plex-text: #EBEBEB;
+  --color-plex-text-secondary: #A0A0A0;
+  --color-plex-text-muted: #6B6B6B;
+
+  --color-sunrise-50: #fff7ed;
+  --color-sunrise-100: #ffedd5;
+  --color-sunrise-500: #f97316;
+  --color-sunrise-600: #ea580c;
+  --color-sunrise-700: #c2410c;
+
+  --color-sunset-50: #fdf4ff;
+  --color-sunset-100: #fae8ff;
+  --color-sunset-500: #a855f7;
+  --color-sunset-600: #9333ea;
+  --color-sunset-700: #7e22ce;
+}
 
 @layer base {
   body {
@@ -18,11 +44,11 @@
   }
 
   .btn-primary {
-    @apply btn bg-plex-gold hover:bg-plex-gold-light text-gray-900 focus:ring-plex-gold;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-gold hover:bg-plex-gold-light text-gray-900 focus:ring-plex-gold;
   }
 
   .btn-secondary {
-    @apply btn bg-plex-surface-light hover:bg-plex-border text-plex-text focus:ring-plex-border;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus:ring-plex-border;
   }
 }
 
