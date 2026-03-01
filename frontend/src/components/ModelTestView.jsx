@@ -212,7 +212,7 @@ const ModelTestView = () => {
                     data-testid={`model-test-run-${run.id}`}
                   >
                     <td className="py-2 pr-4 text-plex-text">{run.id}</td>
-                    <td className="py-2 pr-4 text-plex-text">{run.targetDate}</td>
+                    <td className="py-2 pr-4 text-plex-text">{run.startedAt ? run.startedAt.slice(0, 19).replace('T', ' ') : run.targetDate}</td>
                     <td className="py-2 pr-4 text-plex-text">{run.targetType}</td>
                     <td className="py-2 pr-4 text-plex-text">{run.regionsCount}</td>
                     <td className="py-2 pr-4">
