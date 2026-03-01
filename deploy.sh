@@ -19,8 +19,8 @@ cd ..
 # Deploy with Docker
 echo ""
 echo "🐳 Deploying with Docker..."
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d --build
 
 # Wait for containers to start
 sleep 15
@@ -39,4 +39,4 @@ echo "  Frontend: docker logs -f goldenhour-frontend"
 echo "  Backend:  docker logs -f goldenhour-backend"
 echo ""
 echo "Stop containers:"
-echo "  docker-compose down"
+echo "  docker compose down"
