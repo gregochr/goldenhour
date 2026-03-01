@@ -49,6 +49,8 @@ function AppInner() {
     ? selectedDate
     : allDates[0] ?? null;
 
+  const isDown = healthStatus === 'DOWN';
+
   return (
     <div className="min-h-screen bg-plex-bg">
       <header className="border-b border-plex-border px-4 py-6">
@@ -82,7 +84,18 @@ function AppInner() {
 
       <SessionExpiryBanner />
 
-      <main className="max-w-4xl mx-auto px-4 py-6">
+      {!isAdmin && isDown && (
+        <div
+          className="bg-red-900/40 border-b border-red-700 px-4 py-3 text-center"
+          data-testid="backend-down-banner"
+        >
+          <p className="text-sm text-red-300">
+            Service is temporarily unavailable. Data shown may be stale.
+          </p>
+        </div>
+      )}
+
+      <main className={`max-w-4xl mx-auto px-4 py-6${!isAdmin && isDown ? ' opacity-50 pointer-events-none' : ''}`}>
         {loading && (
           <div className="flex justify-center py-16">
             <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
