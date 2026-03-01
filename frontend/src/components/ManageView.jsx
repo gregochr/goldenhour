@@ -5,6 +5,7 @@ import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
+import ModelTestView from './ModelTestView.jsx';
 
 /**
  * Management screen shell — renders sub-tab bar and routes to the active tab component.
@@ -26,6 +27,7 @@ export default function ManageView({ onComplete }) {
           { value: 'regions', label: 'Regions' },
           { value: 'metrics', label: 'Job Runs' },
           { value: 'models', label: 'Model Config' },
+          { value: 'modeltest', label: 'Model Test' },
         ].map((tab) => (
           <button
             key={tab.value}
@@ -70,6 +72,13 @@ export default function ManageView({ onComplete }) {
 
       {manageTab === 'models' && (
         <ModelSelectionView />
+      )}
+
+      {manageTab === 'modeltest' && (
+        <div className="card flex flex-col gap-4">
+          <p className="text-sm font-semibold text-plex-text">Model Comparison Test</p>
+          <ModelTestView />
+        </div>
       )}
     </div>
   );
