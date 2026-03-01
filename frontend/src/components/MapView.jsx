@@ -46,7 +46,7 @@ function DropletIcon() {
 // Override Leaflet popup width
 const popupStyles = `
   .leaflet-popup-content-wrapper {
-    width: 600px !important;
+    width: calc(100vw - 40px) !important;
     max-width: 600px !important;
   }
   .leaflet-popup-content {
@@ -526,7 +526,7 @@ export default function MapView({ locations, date }) {
                   popupclose: () => { setSelectedLocationName(null); setExpandedPopup(null); },
                 }}
               >
-                <Popup maxWidth={600} maxHeight={600}>
+                <Popup maxWidth={9999} maxHeight={600}>
                   <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
 
                     {/* Row 1: Title + event time pill */}
