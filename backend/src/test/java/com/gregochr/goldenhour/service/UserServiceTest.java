@@ -81,6 +81,17 @@ class UserServiceTest {
     }
 
     @Test
+    @DisplayName("createUser throws IllegalArgumentException when email already exists")
+    void createUser_duplicateEmail_throwsException() {
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.createUser("bob", "pass", UserRole.LITE_USER, "taken@example.com"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taken@example.com");
+    }
+
+    @Test
     @DisplayName("listAllUsers delegates to repository findAll")
     void listAllUsers_returnsAllUsers() {
         List<AppUserEntity> all = List.of(buildUser(1L, "alice", UserRole.ADMIN));

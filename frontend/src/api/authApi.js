@@ -52,10 +52,11 @@ export async function changePassword(newPassword) {
  *
  * @param {string} username - The desired login name.
  * @param {string} email - The user's email address.
+ * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{message: string, email: string}>}
  */
-export async function register(username, email) {
-  const response = await axios.post(`${BASE_URL}/register`, { username, email });
+export async function register(username, email, turnstileToken) {
+  const response = await axios.post(`${BASE_URL}/register`, { username, email, turnstileToken });
   return response.data;
 }
 

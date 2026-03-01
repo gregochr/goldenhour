@@ -110,7 +110,7 @@ const JobRunsMetricsView = () => {
   };
 
   const handleRunLongTerm = async () => {
-    if (!window.confirm('Run long-term forecast (T+3 through T+7)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
+    if (!window.confirm('Run long-term forecast (T+3 through T+5)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
       return;
     }
     setRunningLongTerm(true);
@@ -172,7 +172,7 @@ const JobRunsMetricsView = () => {
                 disabled={anyRunning}
                 data-testid="run-long-term-btn"
               >
-                {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Long-Term (T+3 \u2013 T+7)'}
+                {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Long-Term (T+3 \u2013 T+5)'}
               </button>
             </div>
           </div>

@@ -23,10 +23,10 @@ spring:
     validate-on-migrate: false
 
   mail:
-    host: ${MAIL_HOST}
-    port: ${MAIL_PORT}
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
+    host: smtp.sendgrid.net
+    port: 587
+    username: apikey
+    password: ${SENDGRID_API_KEY}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
@@ -73,6 +73,9 @@ jwt:
   secret: ${JWT_SECRET}
   access-token-expiry-hours: 24
   refresh-token-expiry-days: 30
+
+turnstile:
+  secret-key: ${TURNSTILE_SECRET_KEY}
 
 cors:
   extra-origins: https://app.photocast.online

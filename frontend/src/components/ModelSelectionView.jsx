@@ -4,7 +4,7 @@ import { getAvailableModels, setActiveModel } from '../api/modelsApi.js';
 const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)' },
   { key: 'SHORT_TERM', label: 'Short-Term (T, T+1, T+2)' },
-  { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+7)' },
+  { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)' },
 ];
 
 const MODEL_INFO = {
