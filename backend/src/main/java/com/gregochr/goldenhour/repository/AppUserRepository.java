@@ -25,4 +25,20 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
      * @return {@code true} if a matching user exists
      */
     boolean existsByUsername(String username);
+
+    /**
+     * Returns whether a user with the given email already exists.
+     *
+     * @param email the email to check
+     * @return {@code true} if a matching user exists
+     */
+    boolean existsByEmail(String email);
+
+    /**
+     * Finds a user by their email address.
+     *
+     * @param email the email to search for
+     * @return an {@link Optional} containing the user, or empty if not found
+     */
+    Optional<AppUserEntity> findByEmail(String email);
 }

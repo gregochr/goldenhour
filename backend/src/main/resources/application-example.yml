@@ -14,10 +14,10 @@ spring:
   flyway:
     enabled: true
   mail:
-    host: smtp.gmail.com
+    host: smtp.sendgrid.net           # SendGrid SMTP relay
     port: 587
-    username: YOUR_EMAIL
-    password: YOUR_APP_PASSWORD
+    username: apikey                   # literal string "apikey" for SendGrid
+    password: YOUR_SENDGRID_API_KEY
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
@@ -72,6 +72,9 @@ jwt:
 
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
+
+app:
+  frontend-base-url: http://localhost:5173  # production: https://app.photocast.online
 
 server:
   port: 8081

@@ -80,6 +80,19 @@ export function AuthProvider({ children }) {
     setMustChangePassword(false);
   }, []);
 
+  const completeRegistration = useCallback((data) => {
+    localStorage.setItem(TOKEN_KEY, data.accessToken);
+    localStorage.setItem(REFRESH_KEY, data.refreshToken);
+    localStorage.setItem(ROLE_KEY, data.role);
+    localStorage.setItem(MUST_CHANGE_KEY, 'false');
+    if (data.refreshExpiresAt) localStorage.setItem(REFRESH_EXPIRES_KEY, data.refreshExpiresAt);
+    setToken(data.accessToken);
+    setRefreshToken(data.refreshToken);
+    setRole(data.role);
+    setMustChangePassword(false);
+    if (data.refreshExpiresAt) setRefreshExpiresAt(data.refreshExpiresAt);
+  }, []);
+
   const refreshSession = useCallback(async () => {
     const stored = readStorage(REFRESH_KEY);
     if (!stored) return;
@@ -110,9 +123,10 @@ export function AuthProvider({ children }) {
     login,
     logout,
     changePassword,
+    completeRegistration,
     refreshSession,
     isAdmin: role === 'ADMIN',
-  }), [token, refreshToken, role, mustChangePassword, sessionDaysRemaining, login, logout, changePassword, refreshSession]);
+  }), [token, refreshToken, role, mustChangePassword, sessionDaysRemaining, login, logout, changePassword, completeRegistration, refreshSession]);
 
   return (
     <AuthContext.Provider value={value}>

@@ -46,3 +46,49 @@ export async function changePassword(newPassword) {
   const response = await axios.post(`${BASE_URL}/change-password`, { newPassword });
   return response.data;
 }
+
+/**
+ * Registers a new user with email verification.
+ *
+ * @param {string} username - The desired login name.
+ * @param {string} email - The user's email address.
+ * @returns {Promise<{message: string, email: string}>}
+ */
+export async function register(username, email) {
+  const response = await axios.post(`${BASE_URL}/register`, { username, email });
+  return response.data;
+}
+
+/**
+ * Resends a verification email for a pending registration.
+ *
+ * @param {string} email - The email address to resend verification to.
+ * @returns {Promise<{message: string}>}
+ */
+export async function resendVerification(email) {
+  const response = await axios.post(`${BASE_URL}/resend-verification`, { email });
+  return response.data;
+}
+
+/**
+ * Verifies an email address using the token from the verification link.
+ *
+ * @param {string} token - The verification token from the email link.
+ * @returns {Promise<{userId: number, verified: boolean}>}
+ */
+export async function verifyEmail(token) {
+  const response = await axios.post(`${BASE_URL}/verify-email`, { token });
+  return response.data;
+}
+
+/**
+ * Sets the password for a newly verified user and auto-logs them in.
+ *
+ * @param {number} userId - The user's ID from the verification step.
+ * @param {string} password - The chosen password.
+ * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
+ */
+export async function setPasswordForNewUser(userId, password) {
+  const response = await axios.post(`${BASE_URL}/set-password`, { userId, password });
+  return response.data;
+}

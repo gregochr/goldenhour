@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
 import ManageView from './components/ManageView.jsx';
 import LoginPage from './components/LoginPage.jsx';
+import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
@@ -17,8 +18,31 @@ import { useHealthStatus } from './hooks/useHealthStatus.js';
  */
 function AuthGate() {
   const { token, mustChangePassword } = useAuth();
+  const [showRegister, setShowRegister] = useState(false);
+
+  // Check URL for ?token= param (email verification link)
+  const verifyToken = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('token') || null;
+  }, []);
+
   if (!token) {
-    return <LoginPage />;
+    // If there's a verification token in the URL, show RegisterPage in verify mode
+    if (verifyToken) {
+      return (
+        <RegisterPage
+          verifyToken={verifyToken}
+          onBackToLogin={() => {
+            window.history.replaceState({}, '', window.location.pathname);
+            setShowRegister(false);
+          }}
+        />
+      );
+    }
+    if (showRegister) {
+      return <RegisterPage onBackToLogin={() => setShowRegister(false)} />;
+    }
+    return <LoginPage onRegister={() => setShowRegister(true)} />;
   }
   if (mustChangePassword) {
     return <ChangePasswordPage />;

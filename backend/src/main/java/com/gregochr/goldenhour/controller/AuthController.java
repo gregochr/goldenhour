@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
+import com.gregochr.goldenhour.service.RegistrationService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,11 +37,15 @@ public class AuthController {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuthController.class);
 
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{3,30}$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
     private final AppUserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final JwtProperties jwtProperties;
+    private final RegistrationService registrationService;
 
     /**
      * Authenticates the user and returns a JWT access token plus a refresh token.
@@ -213,6 +218,159 @@ public class AuthController {
                 "refreshToken", newRawRefresh,
                 "expiresAt", accessExpiresAt.toInstant().toString(),
                 "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString()));
+    }
+
+    /**
+     * Registers a new user with email verification.
+     *
+     * @param body map containing {@code username} and {@code email}
+     * @return 200 with confirmation message, 400 for validation errors, 409 for duplicates
+     */
+    @PostMapping("/register")
+    public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, String> body) {
+        String username = body.get("username");
+        String email = body.get("email");
+
+        if (username == null || username.isBlank() || email == null || email.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Username and email are required"));
+        }
+        if (!USERNAME_PATTERN.matcher(username).matches()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error",
+                            "Username must be 3-30 characters: letters, numbers, hyphens, or underscores"));
+        }
+        if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid email address"));
+        }
+
+        try {
+            registrationService.register(username, email.trim());
+            LOG.info("Registration: user='{}' email='{}'", username, email.trim());
+            return ResponseEntity.ok(Map.of(
+                    "message", "Verification email sent",
+                    "email", email.trim()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Resends a verification email for a pending registration.
+     *
+     * <p>Returns a generic success message regardless of whether the email exists,
+     * to prevent email enumeration attacks.
+     *
+     * @param body map containing {@code email}
+     * @return 200 with generic success, or 429 if rate limited
+     */
+    @PostMapping("/resend-verification")
+    public ResponseEntity<Map<String, Object>> resendVerification(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Email is required"));
+        }
+
+        try {
+            registrationService.resendVerification(email.trim());
+            return ResponseEntity.ok(Map.of(
+                    "message", "If that email has a pending registration, a new verification link has been sent"));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Verifies an email address using the token from the verification link.
+     *
+     * @param body map containing {@code token}
+     * @return 200 with userId and verified flag, or 400 if token is invalid/expired/used
+     */
+    @PostMapping("/verify-email")
+    public ResponseEntity<Map<String, Object>> verifyEmail(@RequestBody Map<String, String> body) {
+        String token = body.get("token");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Verification token is required"));
+        }
+
+        try {
+            Long userId = registrationService.verifyEmail(token);
+            return ResponseEntity.ok(Map.of("userId", userId, "verified", true));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Sets the password for a newly verified user and auto-logs them in.
+     *
+     * @param body map containing {@code userId} and {@code password}
+     * @return 200 with JWT tokens (same shape as /login), or 400 if password is weak
+     */
+    @PostMapping("/set-password")
+    public ResponseEntity<Map<String, Object>> setPassword(@RequestBody Map<String, Object> body) {
+        Object userIdObj = body.get("userId");
+        String password = (String) body.get("password");
+
+        if (userIdObj == null || password == null || password.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "userId and password are required"));
+        }
+
+        Long userId;
+        try {
+            userId = Long.valueOf(userIdObj.toString());
+        } catch (NumberFormatException ex) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid userId"));
+        }
+
+        String complexityError = validatePasswordComplexity(password);
+        if (complexityError != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", complexityError));
+        }
+
+        try {
+            registrationService.setPasswordAndActivate(userId, password);
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        }
+
+        // Auto-login: issue tokens
+        AppUserEntity user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
+        }
+
+        String accessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());
+        String rawRefresh = jwtService.generateRefreshToken();
+        String refreshHash = jwtService.hashToken(rawRefresh);
+        Date expiresAt = jwtService.extractExpiry(accessToken);
+
+        LocalDateTime refreshExpiresAt = LocalDateTime.now()
+                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
+        RefreshTokenEntity tokenEntity = RefreshTokenEntity.builder()
+                .tokenHash(refreshHash)
+                .userId(user.getId())
+                .expiresAt(refreshExpiresAt)
+                .revoked(false)
+                .build();
+        refreshTokenRepository.save(tokenEntity);
+
+        LOG.info("Registration complete: user='{}' role={}", user.getUsername(), user.getRole());
+        return ResponseEntity.ok(Map.of(
+                "accessToken", accessToken,
+                "refreshToken", rawRefresh,
+                "role", user.getRole().name(),
+                "expiresAt", expiresAt.toInstant().toString(),
+                "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
+                "passwordChangeRequired", false));
     }
 
     /**

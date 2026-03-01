@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.UserService;
+import com.gregochr.goldenhour.service.notification.UserEmailService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +40,7 @@ public class UserController {
             Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     private final UserService userService;
+    private final UserEmailService userEmailService;
 
     /**
      * Returns all registered users without exposing password hashes.
@@ -88,6 +91,7 @@ public class UserController {
 
         try {
             AppUserEntity created = userService.createUser(username, password, role, email.trim());
+            userEmailService.sendWelcomeEmail(email.trim(), username, password);
             return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
@@ -178,8 +182,9 @@ public class UserController {
      * Resets a user's password to a server-generated temporary password and forces a
      * password change on next login.
      *
-     * <p>The temporary password is returned in the response body exactly once. The admin
-     * must communicate it to the user out-of-band; it is never stored in plain text.
+     * <p>The temporary password is returned in the response body exactly once and an email
+     * is sent to the user asynchronously. The admin still sees the password in the response
+     * as a fallback.
      *
      * @param id the user's primary key
      * @return 200 with {@code {"temporaryPassword": "..."}} on success, or 400 if not found
@@ -187,9 +192,11 @@ public class UserController {
     @PutMapping("/{id}/reset-password")
     public ResponseEntity<Object> resetPassword(@PathVariable Long id) {
         try {
-            String tempPassword = userService.resetPassword(id);
+            PasswordResetResult result = userService.resetPassword(id);
+            userEmailService.sendPasswordResetEmail(
+                    result.email(), result.username(), result.temporaryPassword());
             LOG.info("Admin reset password for user id={}", id);
-            return ResponseEntity.ok(Map.of("temporaryPassword", tempPassword));
+            return ResponseEntity.ok(Map.of("temporaryPassword", result.temporaryPassword()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }

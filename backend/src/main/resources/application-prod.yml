@@ -1,6 +1,4 @@
 spring:
-  autoconfigure:
-    exclude: org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
   datasource:
     url: jdbc:h2:file:/data/goldenhour
     driver-class-name: org.h2.Driver
@@ -78,6 +76,9 @@ jwt:
 
 cors:
   extra-origins: https://app.photocast.online
+
+app:
+  frontend-base-url: https://app.photocast.online
 
 server:
   port: 8082
