@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { runModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
+import { fetchLocations } from '../api/forecastApi';
+import { fetchRegions } from '../api/regionApi';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -16,6 +18,39 @@ const ModelTestView = () => {
   const [loadingResults, setLoadingResults] = useState(false);
   const [error, setError] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [allLocations, setAllLocations] = useState([]);
+  const [allRegions, setAllRegions] = useState([]);
+
+  // Load locations and regions once for test summary
+  useEffect(() => {
+    Promise.all([fetchLocations(), fetchRegions()])
+      .then(([locs, regs]) => { setAllLocations(locs); setAllRegions(regs); })
+      .catch(() => {});
+  }, []);
+
+  /**
+   * Computes which location will be tested per region (first enabled colour location alphabetically).
+   * Matches backend ModelTestService.findRepresentativeLocation().
+   */
+  const getTestSummary = () => {
+    const enabledRegions = allRegions.filter((r) => r.enabled);
+    const enabledLocs = allLocations.filter((loc) => loc.enabled !== false);
+    const entries = [];
+    for (const region of enabledRegions) {
+      const rep = enabledLocs
+        .filter((loc) => {
+          if (!loc.region || loc.region.id !== region.id) return false;
+          const types = loc.locationType || [];
+          if (types.length === 0) return true;
+          return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))[0];
+      if (rep) {
+        entries.push({ region: region.name, location: rep.name });
+      }
+    }
+    return entries;
+  };
 
   const loadRuns = useCallback(async () => {
     try {
@@ -51,11 +86,13 @@ const ModelTestView = () => {
   };
 
   const handleRunTest = () => {
+    const testEntries = getTestSummary();
     setConfirmDialog({
       title: 'Run Model Test',
       message: 'This will call all three Claude models (Haiku, Sonnet, Opus) for one location per region. This may incur significant API costs.',
       confirmLabel: 'Run Test',
       destructive: false,
+      testEntries,
       onConfirm: async () => {
         setConfirmDialog(null);
         setRunning(true);
@@ -300,9 +337,22 @@ const ModelTestView = () => {
           aria-label={confirmDialog.title}
           data-testid="confirm-dialog"
         >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
             <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+            {confirmDialog.testEntries && confirmDialog.testEntries.length > 0 && (
+              <div className="max-h-48 overflow-y-auto text-xs space-y-1">
+                {confirmDialog.testEntries.map((e) => (
+                  <div key={e.region} className="flex gap-2">
+                    <span className="text-plex-text font-medium">{e.region}:</span>
+                    <span className="text-plex-text-muted">{e.location}</span>
+                  </div>
+                ))}
+                <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
+                  {confirmDialog.testEntries.length} region{confirmDialog.testEntries.length !== 1 ? 's' : ''} &times; 3 models = {confirmDialog.testEntries.length * 3} API calls
+                </p>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 className="btn-secondary text-sm"
