@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 1, 2026)
+- **Marketing email opt-in preference** — users can opt in/out of marketing emails during registration
+  - V35 migration: `marketing_email_opt_in BOOLEAN NOT NULL DEFAULT TRUE` on `app_user`
+  - Checkbox on RegisterPage (default checked): "Send me occasional emails about new features and photography tips"
+  - Privacy policy modal updated with "Marketing Emails" section explaining opt-in, right to unsubscribe, and transactional email distinction
+  - `POST /api/auth/register` accepts optional `marketingEmailOptIn` parameter (defaults true)
+  - `PUT /api/auth/marketing-emails` new authenticated endpoint to toggle preference
+  - Login and set-password responses include `marketingEmailOptIn` field
+  - `AuthContext` stores and exposes preference for future settings page
+  - 7 new backend tests (AuthControllerTest, UserServiceTest, RegistrationServiceTest), 2 new email service tests
+- **Account deletion email notification** — when an admin deletes a user account, a polite notification email is sent to the user (if they have an email address) informing them their account has been removed
+
+### Fixed (Mar 1, 2026)
+- **Verification link bug after logout** — after completing registration (verify email + set password), logging out would show "Verification failed — This verification link has already been used" because the `?token=` URL parameter was never cleared; now cleared on successful registration completion
+
 ### Changed (Mar 1, 2026)
 - **Tailwind CSS v3 → v4 migration** — replaced `tailwindcss` v3 + `autoprefixer` with `@tailwindcss/postcss` v4; moved theme config from `tailwind.config.js` into CSS `@theme` block in `index.css`; deleted `tailwind.config.js`; inlined `.btn` base styles into `.btn-primary`/`.btn-secondary` (v4 disallows `@apply` of custom component classes)
 
