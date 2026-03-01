@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * Orchestrates model comparison tests across regions.
@@ -182,20 +183,120 @@ public class ModelTestService {
             }
         }
 
-        // Complete the run
-        LocalDateTime completedAt = LocalDateTime.now(ZoneOffset.UTC);
-        testRun.setCompletedAt(completedAt);
-        testRun.setDurationMs(java.time.Duration.between(now, completedAt).toMillis());
-        testRun.setRegionsCount(regionsProcessed);
-        testRun.setSucceeded(succeeded);
-        testRun.setFailed(failed);
-        testRun.setTotalCostPence(totalCostPence);
-        testRun = testRunRepository.save(testRun);
+        return completeRun(testRun, now, regionsProcessed, succeeded, failed, totalCostPence);
+    }
 
-        LOG.info("Model test complete — {} regions, {} succeeded, {} failed, {}p cost",
-                regionsProcessed, succeeded, failed, totalCostPence);
+    /**
+     * Runs a model comparison test for a single location.
+     *
+     * <p>Looks up the location by ID, validates it is enabled, has colour types,
+     * and belongs to a region. Then evaluates it with all three Claude models
+     * using identical atmospheric data.
+     *
+     * @param locationId the location ID to test
+     * @return the completed test run with populated results
+     * @throws NoSuchElementException   if no location exists with the given ID
+     * @throws IllegalArgumentException if the location is disabled, has no colour types,
+     *                                  or has no region assigned
+     */
+    public ModelTestRunEntity runTestForLocation(Long locationId) {
+        LocationEntity location = locationRepository.findById(locationId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Location not found: " + locationId));
 
-        return testRun;
+        if (!location.isEnabled()) {
+            throw new IllegalArgumentException(
+                    "Location '" + location.getName() + "' is disabled");
+        }
+        if (!hasColourTypes(location)) {
+            throw new IllegalArgumentException(
+                    "Location '" + location.getName() + "' has no colour types (pure WILDLIFE)");
+        }
+        if (location.getRegion() == null) {
+            throw new IllegalArgumentException(
+                    "Location '" + location.getName() + "' has no region assigned");
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
+        TargetType targetType = resolveTargetType(now, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
+        RegionEntity region = location.getRegion();
+
+        LOG.info("Single-location model test started — location '{}', target: {} {}",
+                location.getName(), targetDate, targetType);
+
+        ModelTestRunEntity testRun = testRunRepository.save(ModelTestRunEntity.builder()
+                .startedAt(now)
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .regionsCount(0)
+                .succeeded(0)
+                .failed(0)
+                .totalCostPence(0)
+                .build());
+
+        int succeeded = 0;
+        int failed = 0;
+        int totalCostPence = 0;
+
+        // Fetch atmospheric data once for all three models
+        AtmosphericData atmosphericData;
+        try {
+            atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
+        } catch (Exception e) {
+            LOG.error("Failed to fetch weather data for '{}': {}",
+                    location.getName(), e.getMessage(), e);
+            for (EvaluationModel model : TEST_MODELS) {
+                failed++;
+                testResultRepository.save(buildFailedResult(testRun, region, location,
+                        targetDate, targetType, model, 0,
+                        "Weather data fetch failed: " + e.getMessage()));
+            }
+            return completeRun(testRun, now, 1, succeeded, failed, totalCostPence);
+        }
+
+        // Run each model against the same data
+        for (EvaluationModel model : TEST_MODELS) {
+            try {
+                EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                        atmosphericData, model, null);
+                int costPence = costCalculator.calculateCost(
+                        com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                totalCostPence += costPence;
+                succeeded++;
+
+                testResultRepository.save(ModelTestResultEntity.builder()
+                        .testRunId(testRun.getId())
+                        .regionId(region.getId())
+                        .regionName(region.getName())
+                        .locationId(location.getId())
+                        .locationName(location.getName())
+                        .targetDate(targetDate)
+                        .targetType(targetType)
+                        .evaluationModel(model)
+                        .rating(detail.evaluation().rating())
+                        .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                        .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                        .summary(detail.evaluation().summary())
+                        .promptSent(detail.promptSent())
+                        .responseJson(detail.rawResponse())
+                        .durationMs(detail.durationMs())
+                        .costPence(costPence)
+                        .succeeded(true)
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                        .build());
+            } catch (Exception e) {
+                LOG.error("Model {} failed for '{}': {}",
+                        model, location.getName(), e.getMessage());
+                failed++;
+
+                testResultRepository.save(buildFailedResult(testRun, region, location,
+                        targetDate, targetType, model, 0, e.getMessage()));
+            }
+        }
+
+        return completeRun(testRun, now, 1, succeeded, failed, totalCostPence);
     }
 
     /**
@@ -265,6 +366,23 @@ public class ModelTestService {
             return now.toLocalDate();
         }
         return now.toLocalDate().plusDays(1);
+    }
+
+    private ModelTestRunEntity completeRun(ModelTestRunEntity testRun, LocalDateTime startedAt,
+            int regionsProcessed, int succeeded, int failed, int totalCostPence) {
+        LocalDateTime completedAt = LocalDateTime.now(ZoneOffset.UTC);
+        testRun.setCompletedAt(completedAt);
+        testRun.setDurationMs(java.time.Duration.between(startedAt, completedAt).toMillis());
+        testRun.setRegionsCount(regionsProcessed);
+        testRun.setSucceeded(succeeded);
+        testRun.setFailed(failed);
+        testRun.setTotalCostPence(totalCostPence);
+        testRun = testRunRepository.save(testRun);
+
+        LOG.info("Model test complete — {} regions, {} succeeded, {} failed, {}p cost",
+                regionsProcessed, succeeded, failed, totalCostPence);
+
+        return testRun;
     }
 
     private boolean hasColourTypes(LocationEntity loc) {

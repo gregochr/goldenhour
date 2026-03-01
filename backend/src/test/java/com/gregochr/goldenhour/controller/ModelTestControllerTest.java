@@ -138,4 +138,48 @@ class ModelTestControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden());
     }
+
+    // --- run-location endpoint tests ---
+
+    @Test
+    @DisplayName("POST /api/model-test/run-location returns test run for ADMIN")
+    @WithMockUser(roles = "ADMIN")
+    void runTestForLocation_returnsRunForAdmin() throws Exception {
+        ModelTestRunEntity run = ModelTestRunEntity.builder()
+                .id(1L)
+                .startedAt(LocalDateTime.now())
+                .targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET)
+                .regionsCount(1)
+                .succeeded(3)
+                .failed(0)
+                .totalCostPence(150)
+                .build();
+        when(modelTestService.runTestForLocation(1L)).thenReturn(run);
+
+        mockMvc.perform(post("/api/model-test/run-location?locationId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.regionsCount").value(1))
+                .andExpect(jsonPath("$.succeeded").value(3))
+                .andExpect(jsonPath("$.totalCostPence").value(150));
+    }
+
+    @Test
+    @DisplayName("POST /api/model-test/run-location requires ADMIN role")
+    @WithMockUser(roles = "PRO_USER")
+    void runTestForLocation_requiresAdminRole() throws Exception {
+        mockMvc.perform(post("/api/model-test/run-location?locationId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/model-test/run-location without locationId returns 400")
+    @WithMockUser(roles = "ADMIN")
+    void runTestForLocation_missingLocationId() throws Exception {
+        mockMvc.perform(post("/api/model-test/run-location")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+    }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { runModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
+import { runModelTest, runModelTestForLocation, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 
@@ -20,6 +20,10 @@ const ModelTestView = () => {
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
   const [allRegions, setAllRegions] = useState([]);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [locationFilter, setLocationFilter] = useState('');
+  const [selectedLocationId, setSelectedLocationId] = useState(null);
+  const [runningLocation, setRunningLocation] = useState(false);
 
   // Load locations and regions once for test summary
   useEffect(() => {
@@ -81,6 +85,11 @@ const ModelTestView = () => {
   }, []);
 
   const handleSelectRun = (runId) => {
+    if (selectedRunId === runId) {
+      setSelectedRunId(null);
+      setResults([]);
+      return;
+    }
     setSelectedRunId(runId);
     loadResults(runId);
   };
@@ -110,6 +119,47 @@ const ModelTestView = () => {
         }
       },
     });
+  };
+
+  /**
+   * Locations eligible for single-location test: enabled, has colour types, has a region.
+   */
+  const eligibleLocations = allLocations
+    .filter((loc) => loc.enabled !== false)
+    .filter((loc) => {
+      const types = loc.locationType || [];
+      if (types.length === 0) return true;
+      return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+    })
+    .filter((loc) => loc.region)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const filteredLocations = eligibleLocations.filter((loc) =>
+    loc.name.toLowerCase().includes(locationFilter.toLowerCase())
+  );
+
+  const handleOpenLocationPicker = () => {
+    setLocationFilter('');
+    setSelectedLocationId(null);
+    setLocationPickerOpen(true);
+  };
+
+  const handleRunLocationTest = async () => {
+    if (!selectedLocationId) return;
+    setLocationPickerOpen(false);
+    setRunningLocation(true);
+    setError(null);
+    try {
+      const response = await runModelTestForLocation(selectedLocationId);
+      const newRun = response.data;
+      setRuns((prev) => [newRun, ...prev]);
+      setSelectedRunId(newRun.id);
+      loadResults(newRun.id);
+    } catch (err) {
+      setError(err?.response?.data?.message || err.message || 'Single-location test failed.');
+    } finally {
+      setRunningLocation(false);
+    }
   };
 
   // Group results by region for display
@@ -160,14 +210,22 @@ const ModelTestView = () => {
         <button
           className="btn-primary text-sm"
           onClick={handleRunTest}
-          disabled={running}
+          disabled={running || runningLocation}
           data-testid="run-model-test-btn"
         >
           {running ? '\u27F3 Running\u2026' : '\u27F3 Run Model Test'}
         </button>
-        {running && (
+        <button
+          className="btn-secondary text-sm"
+          onClick={handleOpenLocationPicker}
+          disabled={running || runningLocation}
+          data-testid="test-one-location-btn"
+        >
+          {runningLocation ? '\u27F3 Running\u2026' : '\u2316 Test One Location'}
+        </button>
+        {(running || runningLocation) && (
           <span className="text-xs text-plex-text-muted">
-            Testing all models across regions&hellip; this may take a minute.
+            {running ? 'Testing all models across regions\u2026 this may take a minute.' : 'Testing single location\u2026'}
           </span>
         )}
       </div>
@@ -325,6 +383,74 @@ const ModelTestView = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Location picker modal */}
+      {locationPickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Test One Location"
+          data-testid="location-picker-dialog"
+        >
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Test One Location</p>
+            <p className="text-sm text-plex-text-secondary">
+              Select a location to test with all three Claude models using identical weather data.
+            </p>
+            <input
+              type="text"
+              className="w-full px-3 py-2 rounded bg-plex-bg border border-plex-border text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:border-plex-accent"
+              placeholder="Filter locations\u2026"
+              value={locationFilter}
+              onChange={(e) => setLocationFilter(e.target.value)}
+              data-testid="location-picker-filter"
+              autoFocus
+            />
+            <div className="max-h-60 overflow-y-auto space-y-1" data-testid="location-picker-list">
+              {filteredLocations.length === 0 ? (
+                <p className="text-xs text-plex-text-muted py-2">No matching locations.</p>
+              ) : (
+                filteredLocations.map((loc) => (
+                  <button
+                    key={loc.id}
+                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                      selectedLocationId === loc.id
+                        ? 'bg-plex-accent/20 border border-plex-accent text-plex-text'
+                        : 'hover:bg-plex-surface-light text-plex-text-secondary'
+                    }`}
+                    onClick={() => setSelectedLocationId(loc.id)}
+                    data-testid={`location-picker-item-${loc.id}`}
+                  >
+                    <span className="font-medium">{loc.name}</span>
+                    <span className="text-xs text-plex-text-muted ml-2">{loc.region?.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+            <p className="text-xs text-plex-text-muted">
+              1 location &times; 3 models = 3 API calls
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setLocationPickerOpen(false)}
+                data-testid="location-picker-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRunLocationTest}
+                disabled={!selectedLocationId}
+                data-testid="location-picker-confirm"
+              >
+                Run Test
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
