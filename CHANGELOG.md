@@ -18,7 +18,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Account deletion email notification** — when an admin deletes a user account, a polite notification email is sent to the user (if they have an email address) informing them their account has been removed
 
 ### Fixed (Mar 1, 2026)
-- **Verification link bug after logout** — after completing registration (verify email + set password), logging out would show "Verification failed — This verification link has already been used" because the `?token=` URL parameter was never cleared; now cleared on successful registration completion
+- **Verification link bug after logout** — after completing registration (verify email + set password), logging out would show "Verification failed — This verification link has already been used" because the `?token=` URL parameter was never cleared; now cleared via useEffect in AuthGate when user becomes authenticated (RegisterPage unmounts before its own cleanup can fire)
 
 ### Changed (Mar 1, 2026)
 - **Tailwind CSS v3 → v4 migration** — replaced `tailwindcss` v3 + `autoprefixer` with `@tailwindcss/postcss` v4; moved theme config from `tailwind.config.js` into CSS `@theme` block in `index.css`; deleted `tailwind.config.js`; inlined `.btn` base styles into `.btn-primary`/`.btn-secondary` (v4 disallows `@apply` of custom component classes)
