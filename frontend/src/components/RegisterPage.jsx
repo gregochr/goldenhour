@@ -100,7 +100,7 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
         window.turnstile.remove(turnstileWidgetId.current);
       }
       turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
-        sitekey: '0x4AAAAAABb1234MKu3B4bPj',
+        sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY,
         theme: 'dark',
         callback: (token) => setTurnstileToken(token),
         'expired-callback': () => setTurnstileToken(''),
