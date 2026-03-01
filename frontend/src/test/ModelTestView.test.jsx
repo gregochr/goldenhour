@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import ModelTestView from '../components/ModelTestView.jsx';
 
 // Mock the API module
@@ -34,8 +34,9 @@ describe('ModelTestView', () => {
 
     fireEvent.click(screen.getByTestId('run-model-test-btn'));
 
-    expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument();
-    expect(screen.getByText('Run Model Test')).toBeInTheDocument();
+    const dialog = screen.getByTestId('confirm-dialog');
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText('Run Model Test')).toBeInTheDocument();
     expect(screen.getByTestId('confirm-dialog-cancel')).toBeInTheDocument();
     expect(screen.getByTestId('confirm-dialog-confirm')).toBeInTheDocument();
   });

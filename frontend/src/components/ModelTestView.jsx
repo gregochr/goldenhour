@@ -239,31 +239,37 @@ const ModelTestView = () => {
 
   return (
     <div className="space-y-6">
-      {/* Run button */}
-      <div className="flex items-center gap-4">
-        <button
-          className="btn-primary text-sm"
-          onClick={handleRunTest}
-          disabled={isAnyRunning}
-          data-testid="run-model-test-btn"
-        >
-          {running ? '\u27F3 Running\u2026' : '\u27F3 Run Model Test'}
-        </button>
-        <button
-          className="btn-secondary text-sm"
-          onClick={handleOpenLocationPicker}
-          disabled={isAnyRunning}
-          data-testid="test-one-location-btn"
-        >
-          {runningLocation ? '\u27F3 Running\u2026' : '\u2316 Test One Location'}
-        </button>
-        {isAnyRunning && (
-          <span className="text-xs text-plex-text-muted">
-            {running ? 'Testing all models across regions\u2026 this may take a minute.'
-              : rerunning ? 'Re-running test\u2026'
-              : 'Testing single location\u2026'}
-          </span>
-        )}
+      {/* Run buttons */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-4">
+          <button
+            className="btn-primary text-sm"
+            onClick={handleRunTest}
+            disabled={isAnyRunning}
+            data-testid="run-model-test-btn"
+          >
+            {running ? '\u27F3 Running\u2026' : '\u27F3 Run Model Test'}
+          </button>
+          <button
+            className="btn-secondary text-sm"
+            onClick={handleOpenLocationPicker}
+            disabled={isAnyRunning}
+            data-testid="test-one-location-btn"
+          >
+            {runningLocation ? '\u27F3 Running\u2026' : '\u2316 Test One Location'}
+          </button>
+          {isAnyRunning && (
+            <span className="text-xs text-plex-text-muted">
+              {running ? 'Testing all models across regions\u2026 this may take a minute.'
+                : rerunning ? 'Re-running test\u2026'
+                : 'Testing single location\u2026'}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-plex-text-muted leading-relaxed space-y-1">
+          <p><span className="font-semibold text-plex-text">Run Model Test</span> — picks one location per region, fetches fresh weather/tide data, then runs Haiku, Sonnet, and Opus against the same data for each location.</p>
+          <p><span className="font-semibold text-plex-text">Test One Location</span> — you choose a single location; fetches fresh weather/tide data, then runs all three models against it.</p>
+        </div>
       </div>
 
       {error && (
@@ -339,6 +345,7 @@ const ModelTestView = () => {
             >
               {rerunning ? '\u27F3 Re-running\u2026' : '\u21BB Re-run'}
             </button>
+            <span className="text-xs text-plex-text-muted">Same locations, fresh weather/tide data, all three models.</span>
           </div>
           {loadingResults ? (
             <p className="text-sm text-plex-text-muted">Loading results\u2026</p>
