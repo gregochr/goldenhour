@@ -1,37 +1,50 @@
 import PropTypes from 'prop-types';
 
 /**
- * Health status indicator: green dot for UP, red for DOWN.
- * Shows a tooltip with the status and last-checked timestamp.
+ * Health status indicator: green (UP), amber (DEGRADED), red (DOWN).
+ * Tooltip shows status, timestamp, and which components are degraded.
  */
-export default function HealthIndicator({ status, checkedAt }) {
-  if (!status) return null; // Don't render until first poll completes
+export default function HealthIndicator({ status, degraded, checkedAt }) {
+  if (!status) return null;
 
-  const isUp = status === 'UP';
   const timeStr = checkedAt
     ? checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
-  const tooltip = `${isUp ? 'Up' : 'Down'} at ${timeStr}`;
+
+  let label, tooltip, dotClass, bgClass;
+
+  if (status === 'UP') {
+    label = 'UP';
+    tooltip = `Up at ${timeStr}`;
+    dotClass = 'bg-green-400';
+    bgClass = 'bg-green-900/30 border-green-700 text-green-400';
+  } else if (status === 'DEGRADED') {
+    const failedParts = degraded.join(', ');
+    label = 'DEGRADED';
+    tooltip = `Degraded at ${timeStr} \u2014 ${failedParts} unavailable`;
+    dotClass = 'bg-amber-400';
+    bgClass = 'bg-amber-900/30 border-amber-700 text-amber-400';
+  } else {
+    label = 'DOWN';
+    tooltip = `Down at ${timeStr}`;
+    dotClass = 'bg-red-400';
+    bgClass = 'bg-red-900/30 border-red-700 text-red-400';
+  }
 
   return (
     <div
-      className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-medium ${
-        isUp
-          ? 'bg-green-900/30 border border-green-700 text-green-400'
-          : 'bg-red-900/30 border border-red-700 text-red-400'
-      }`}
+      className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-medium border ${bgClass}`}
       data-testid="health-indicator"
       title={tooltip}
     >
-      <span
-        className={`w-2 h-2 rounded-full flex-shrink-0 ${isUp ? 'bg-green-400' : 'bg-red-400'}`}
-      />
-      <span className="flex-shrink-0">{status}</span>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />
+      <span className="flex-shrink-0">{label}</span>
     </div>
   );
 }
 
 HealthIndicator.propTypes = {
-  status: PropTypes.oneOf(['UP', 'DOWN', null]),
+  status: PropTypes.oneOf(['UP', 'DOWN', 'DEGRADED', null]),
+  degraded: PropTypes.arrayOf(PropTypes.string),
   checkedAt: PropTypes.instanceOf(Date),
 };
