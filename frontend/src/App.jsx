@@ -108,7 +108,7 @@ function AppInner() {
 
       <SessionExpiryBanner />
 
-      {!isAdmin && isDown && (
+      {isDown && (
         <div
           className="bg-red-900/40 border-b border-red-700 px-4 py-3 text-center"
           data-testid="backend-down-banner"
@@ -119,7 +119,7 @@ function AppInner() {
         </div>
       )}
 
-      <main className={`max-w-4xl mx-auto px-4 py-6${!isAdmin && isDown ? ' opacity-50 pointer-events-none' : ''}`}>
+      <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
         {loading && (
           <div className="flex justify-center py-16">
             <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
