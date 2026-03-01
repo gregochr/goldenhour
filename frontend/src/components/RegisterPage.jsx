@@ -73,6 +73,7 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
   const [step, setStep] = useState(verifyToken ? STEPS.VERIFY : STEPS.REGISTER);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [userId, setUserId] = useState(null);
@@ -112,8 +113,26 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
     }
   }, [verifyToken, handleVerify]);
 
+  const usernamePattern = /^[a-zA-Z0-9_-]{3,30}$/;
+  const usernameValid = usernamePattern.test(username);
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailValid = emailPattern.test(email);
+  const emailsMatch = confirmEmail.length > 0 && email === confirmEmail;
+
   async function handleRegister(event) {
     event.preventDefault();
+    if (!usernameValid) {
+      setError('Username must be 3-30 characters: letters, numbers, hyphens, or underscores.');
+      return;
+    }
+    if (!emailValid) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (email !== confirmEmail) {
+      setError('Email addresses do not match.');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -198,13 +217,17 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
                 type="text"
                 data-testid="reg-username"
                 autoComplete="username"
-                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold ${
+                  username.length > 0 && !usernameValid ? 'border-red-700' : 'border-plex-border'
+                }`}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
                 required
               />
-              <p className="text-xs text-plex-text-muted mt-1">3-30 characters, letters, numbers, hyphens, or underscores</p>
+              <p className={`text-xs mt-1 ${username.length > 0 && !usernameValid ? 'text-red-400' : 'text-plex-text-muted'}`}>
+                3-30 characters, letters, numbers, hyphens, or underscores
+              </p>
             </div>
 
             <div>
@@ -214,12 +237,37 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
                 type="email"
                 data-testid="reg-email"
                 autoComplete="email"
-                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold ${
+                  email.length > 0 && !emailValid ? 'border-red-700' : 'border-plex-border'
+                }`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
                 required
               />
+              {email.length > 0 && !emailValid && (
+                <p className="text-xs text-red-400 mt-1">Please enter a valid email address</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-confirm-email">Confirm email</label>
+              <input
+                id="reg-confirm-email"
+                type="email"
+                data-testid="reg-confirm-email"
+                autoComplete="email"
+                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold ${
+                  confirmEmail.length > 0 && !emailsMatch ? 'border-red-700' : 'border-plex-border'
+                }`}
+                value={confirmEmail}
+                onChange={(e) => setConfirmEmail(e.target.value)}
+                disabled={loading}
+                required
+              />
+              {confirmEmail.length > 0 && !emailsMatch && (
+                <p className="text-xs text-red-400 mt-1">Email addresses do not match</p>
+              )}
             </div>
 
             {error && (

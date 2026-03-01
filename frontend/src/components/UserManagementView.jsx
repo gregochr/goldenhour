@@ -213,6 +213,11 @@ export default function UserManagementView() {
     setEditError('');
   }
 
+  const usernamePattern = /^[a-zA-Z0-9_-]{3,30}$/;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const addUsernameValid = usernamePattern.test(newUsername.trim());
+  const addEmailValid = emailPattern.test(newEmail.trim());
+
   async function handleAddUser() {
     const trimmedUsername = newUsername.trim();
     const trimmedEmail = newEmail.trim();
@@ -220,15 +225,15 @@ export default function UserManagementView() {
       setAddUserError('Username and password are required.');
       return;
     }
-    if (trimmedUsername.length < 5) {
-      setAddUserError('Username must be at least 5 characters.');
+    if (!addUsernameValid) {
+      setAddUserError('Username must be 3-30 characters: letters, numbers, hyphens, or underscores.');
       return;
     }
     if (!trimmedEmail) {
       setAddUserError('Email address is required.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    if (!addEmailValid) {
       setAddUserError('Please enter a valid email address.');
       return;
     }
@@ -461,11 +466,14 @@ export default function UserManagementView() {
                 id="add-user-username"
                 type="text"
                 autoComplete="off"
-                className={inputClass}
+                className={`${inputClass} ${newUsername.length > 0 && !addUsernameValid ? '!border-red-700' : ''}`}
                 placeholder="e.g. janesmith"
                 value={newUsername}
                 onChange={(e) => setNewUsername(e.target.value)}
               />
+              <p className={`text-xs mt-1 ${newUsername.length > 0 && !addUsernameValid ? 'text-red-400' : 'text-plex-text-muted'}`}>
+                3-30 characters, letters, numbers, hyphens, or underscores
+              </p>
             </div>
             <div>
               <label htmlFor="add-user-email" className={labelClass}>Email</label>
@@ -473,11 +481,14 @@ export default function UserManagementView() {
                 id="add-user-email"
                 type="email"
                 autoComplete="off"
-                className={inputClass}
+                className={`${inputClass} ${newEmail.length > 0 && !addEmailValid ? '!border-red-700' : ''}`}
                 placeholder="jane@example.com"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
               />
+              {newEmail.length > 0 && !addEmailValid && (
+                <p className="text-xs text-red-400 mt-1">Please enter a valid email address</p>
+              )}
             </div>
             <div>
               <label htmlFor="add-user-password" className={labelClass}>Password</label>
