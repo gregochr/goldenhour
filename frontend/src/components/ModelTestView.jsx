@@ -167,7 +167,7 @@ const ModelTestView = () => {
         </button>
         {running && (
           <span className="text-xs text-plex-text-muted">
-            Testing all models across regions\u2026 this may take a minute.
+            Testing all models across regions&hellip; this may take a minute.
           </span>
         )}
       </div>
