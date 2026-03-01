@@ -191,9 +191,14 @@ public class ForecastService {
                         locationName, type, date, daysAhead, model,
                         evaluation.fierySkyPotential(), evaluation.goldenHourPotential());
             }
-            emailService.notify(evaluation, locationName, type, date);
-            pushoverService.notify(evaluation, locationName, type, date);
-            toastService.notify(evaluation, locationName, type, date);
+            try {
+                emailService.notify(evaluation, locationName, type, date);
+                pushoverService.notify(evaluation, locationName, type, date);
+                toastService.notify(evaluation, locationName, type, date);
+            } catch (Exception e) {
+                LOG.warn("Notification failed for {} {} {} — forecast was saved successfully: {}",
+                        locationName, type, date, e.getMessage());
+            }
         }
         return results;
     }
