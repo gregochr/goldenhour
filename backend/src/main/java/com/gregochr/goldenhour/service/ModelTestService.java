@@ -21,7 +21,9 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 /**
@@ -297,6 +299,129 @@ public class ModelTestService {
         }
 
         return completeRun(testRun, now, 1, succeeded, failed, totalCostPence);
+    }
+
+    /**
+     * Re-runs a previous model test using the same locations but fresh weather data
+     * and fresh Anthropic API calls. Useful for measuring variance between runs.
+     *
+     * @param previousRunId the ID of the test run to re-run
+     * @return the completed new test run
+     * @throws NoSuchElementException if the previous run does not exist or has no results
+     */
+    public ModelTestRunEntity rerunTest(Long previousRunId) {
+        testRunRepository.findById(previousRunId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Test run not found: " + previousRunId));
+
+        List<ModelTestResultEntity> previousResults = testResultRepository
+                .findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(previousRunId);
+        if (previousResults.isEmpty()) {
+            throw new NoSuchElementException(
+                    "No results found for test run: " + previousRunId);
+        }
+
+        // Extract distinct locations (preserving order) from the previous run
+        Map<Long, ModelTestResultEntity> locationMap = new LinkedHashMap<>();
+        for (ModelTestResultEntity r : previousResults) {
+            locationMap.putIfAbsent(r.getLocationId(), r);
+        }
+
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
+        TargetType targetType = resolveTargetType(now, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
+
+        LOG.info("Re-running model test #{} — {} locations, target: {} {}",
+                previousRunId, locationMap.size(), targetDate, targetType);
+
+        ModelTestRunEntity testRun = testRunRepository.save(ModelTestRunEntity.builder()
+                .startedAt(now)
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .regionsCount(0)
+                .succeeded(0)
+                .failed(0)
+                .totalCostPence(0)
+                .build());
+
+        int succeeded = 0;
+        int failed = 0;
+        int totalCostPence = 0;
+        int locationsProcessed = 0;
+
+        for (ModelTestResultEntity ref : locationMap.values()) {
+            LocationEntity location = locationRepository.findById(ref.getLocationId()).orElse(null);
+            if (location == null || !location.isEnabled() || !hasColourTypes(location)) {
+                LOG.info("Skipping location '{}' (id={}) — not found, disabled, or no colour types",
+                        ref.getLocationName(), ref.getLocationId());
+                continue;
+            }
+
+            RegionEntity region = location.getRegion();
+            if (region == null) {
+                LOG.info("Skipping location '{}' — no region assigned", location.getName());
+                continue;
+            }
+
+            locationsProcessed++;
+
+            AtmosphericData atmosphericData;
+            try {
+                atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
+            } catch (Exception e) {
+                LOG.error("Failed to fetch weather data for '{}': {}",
+                        location.getName(), e.getMessage(), e);
+                for (EvaluationModel model : TEST_MODELS) {
+                    failed++;
+                    testResultRepository.save(buildFailedResult(testRun, region, location,
+                            targetDate, targetType, model, 0,
+                            "Weather data fetch failed: " + e.getMessage()));
+                }
+                continue;
+            }
+
+            for (EvaluationModel model : TEST_MODELS) {
+                try {
+                    EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                            atmosphericData, model, null);
+                    int costPence = costCalculator.calculateCost(
+                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                    totalCostPence += costPence;
+                    succeeded++;
+
+                    testResultRepository.save(ModelTestResultEntity.builder()
+                            .testRunId(testRun.getId())
+                            .regionId(region.getId())
+                            .regionName(region.getName())
+                            .locationId(location.getId())
+                            .locationName(location.getName())
+                            .targetDate(targetDate)
+                            .targetType(targetType)
+                            .evaluationModel(model)
+                            .rating(detail.evaluation().rating())
+                            .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                            .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                            .summary(detail.evaluation().summary())
+                            .promptSent(detail.promptSent())
+                            .responseJson(detail.rawResponse())
+                            .durationMs(detail.durationMs())
+                            .costPence(costPence)
+                            .succeeded(true)
+                            .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                            .build());
+                } catch (Exception e) {
+                    LOG.error("Model {} failed for '{}': {}",
+                            model, location.getName(), e.getMessage());
+                    failed++;
+
+                    testResultRepository.save(buildFailedResult(testRun, region, location,
+                            targetDate, targetType, model, 0, e.getMessage()));
+                }
+            }
+        }
+
+        return completeRun(testRun, now, locationsProcessed, succeeded, failed, totalCostPence);
     }
 
     /**

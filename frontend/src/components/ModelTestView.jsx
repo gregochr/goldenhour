@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { runModelTest, runModelTestForLocation, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
+import { runModelTest, runModelTestForLocation, rerunModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 
@@ -24,6 +24,7 @@ const ModelTestView = () => {
   const [locationFilter, setLocationFilter] = useState('');
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [runningLocation, setRunningLocation] = useState(false);
+  const [rerunning, setRerunning] = useState(false);
 
   // Load locations and regions once for test summary
   useEffect(() => {
@@ -162,6 +163,39 @@ const ModelTestView = () => {
     }
   };
 
+  const handleRerunTest = () => {
+    if (!selectedRunId) return;
+    const locationNames = [...new Set(results.map((r) => r.locationName))];
+    setConfirmDialog({
+      title: 'Re-run Model Test',
+      message: 'This will re-test the same locations with fresh weather data and fresh Anthropic API calls.',
+      confirmLabel: 'Re-run',
+      destructive: false,
+      testEntries: locationNames.map((name) => {
+        const r = results.find((res) => res.locationName === name);
+        return { region: r?.regionName || '', location: name };
+      }),
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRerunning(true);
+        setError(null);
+        try {
+          const response = await rerunModelTest(selectedRunId);
+          const newRun = response.data;
+          setRuns((prev) => [newRun, ...prev]);
+          setSelectedRunId(newRun.id);
+          loadResults(newRun.id);
+        } catch (err) {
+          setError(err?.response?.data?.message || err.message || 'Re-run failed.');
+        } finally {
+          setRerunning(false);
+        }
+      },
+    });
+  };
+
+  const isAnyRunning = running || runningLocation || rerunning;
+
   // Group results by region for display
   const groupedResults = results.reduce((acc, result) => {
     const key = result.regionName;
@@ -210,7 +244,7 @@ const ModelTestView = () => {
         <button
           className="btn-primary text-sm"
           onClick={handleRunTest}
-          disabled={running || runningLocation}
+          disabled={isAnyRunning}
           data-testid="run-model-test-btn"
         >
           {running ? '\u27F3 Running\u2026' : '\u27F3 Run Model Test'}
@@ -218,14 +252,16 @@ const ModelTestView = () => {
         <button
           className="btn-secondary text-sm"
           onClick={handleOpenLocationPicker}
-          disabled={running || runningLocation}
+          disabled={isAnyRunning}
           data-testid="test-one-location-btn"
         >
           {runningLocation ? '\u27F3 Running\u2026' : '\u2316 Test One Location'}
         </button>
-        {(running || runningLocation) && (
+        {isAnyRunning && (
           <span className="text-xs text-plex-text-muted">
-            {running ? 'Testing all models across regions\u2026 this may take a minute.' : 'Testing single location\u2026'}
+            {running ? 'Testing all models across regions\u2026 this may take a minute.'
+              : rerunning ? 'Re-running test\u2026'
+              : 'Testing single location\u2026'}
           </span>
         )}
       </div>
@@ -291,9 +327,19 @@ const ModelTestView = () => {
       {/* Results comparison table */}
       {selectedRunId && (
         <div>
-          <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">
-            Results for Run #{selectedRunId}
-          </p>
+          <div className="flex items-center gap-3 mb-2">
+            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
+              Results for Run #{selectedRunId}
+            </p>
+            <button
+              className="btn-secondary text-xs py-0.5 px-2"
+              onClick={handleRerunTest}
+              disabled={isAnyRunning || results.length === 0}
+              data-testid="rerun-model-test-btn"
+            >
+              {rerunning ? '\u27F3 Re-running\u2026' : '\u21BB Re-run'}
+            </button>
+          </div>
           {loadingResults ? (
             <p className="text-sm text-plex-text-muted">Loading results\u2026</p>
           ) : results.length === 0 ? (
@@ -407,7 +453,6 @@ const ModelTestView = () => {
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
               data-testid="location-picker-filter"
-              autoFocus
             />
             <div className="max-h-60 overflow-y-auto space-y-1" data-testid="location-picker-list">
               {filteredLocations.length === 0 ? (

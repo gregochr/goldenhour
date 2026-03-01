@@ -261,11 +261,11 @@ public class UserController {
      * Converts an {@link AppUserEntity} to a safe summary map that excludes the password.
      *
      * @param user the entity to convert
-     * @return map with id, username, role, enabled, createdAt, and lastLoginAt
+     * @return map with id, username, role, enabled, createdAt, and lastActiveAt
      */
     private Map<String, Object> toSummary(AppUserEntity user) {
         LocalDateTime createdAt = user.getCreatedAt();
-        LocalDateTime lastLoginAt = user.getLastLoginAt();
+        LocalDateTime lastActiveAt = user.getLastActiveAt();
         Map<String, Object> summary = new HashMap<>();
         summary.put("id", user.getId());
         summary.put("username", user.getUsername());
@@ -273,7 +273,7 @@ public class UserController {
         summary.put("role", user.getRole().name());
         summary.put("enabled", user.isEnabled());
         summary.put("createdAt", createdAt != null ? createdAt.toString() : "");
-        summary.put("lastLoginAt", lastLoginAt != null ? lastLoginAt.toString() : "");
+        summary.put("lastActiveAt", lastActiveAt != null ? lastActiveAt.toString() : "");
         return summary;
     }
 }

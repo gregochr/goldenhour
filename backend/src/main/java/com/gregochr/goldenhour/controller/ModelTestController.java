@@ -61,6 +61,20 @@ public class ModelTestController {
     }
 
     /**
+     * Re-runs a previous model test using the same locations but fresh data.
+     *
+     * @param testRunId the ID of the previous test run to re-run
+     * @return the completed new test run with summary metrics
+     */
+    @PostMapping("/rerun")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ModelTestRunEntity> rerunTest(
+            @RequestParam Long testRunId) {
+        ModelTestRunEntity testRun = modelTestService.rerunTest(testRunId);
+        return ResponseEntity.ok(testRun);
+    }
+
+    /**
      * Returns recent test runs (last 20).
      *
      * @return list of recent test runs

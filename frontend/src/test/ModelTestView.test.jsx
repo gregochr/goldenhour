@@ -5,11 +5,13 @@ import ModelTestView from '../components/ModelTestView.jsx';
 // Mock the API module
 vi.mock('../api/modelTestApi', () => ({
   runModelTest: vi.fn(),
+  runModelTestForLocation: vi.fn(),
+  rerunModelTest: vi.fn(),
   getModelTestRuns: vi.fn(),
   getModelTestResults: vi.fn(),
 }));
 
-import { runModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
+import { getModelTestRuns } from '../api/modelTestApi';
 
 describe('ModelTestView', () => {
   beforeEach(() => {

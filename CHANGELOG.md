@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Mar 1, 2026)
+- **Star rating filter on map** — 5 toggle chips (1★–5★) on the map filter bar let users show any permutation of star ratings; AND-ed with existing location type filters; gold highlight when active; single Clear button resets both filter groups
+- **Re-run model test** — re-run a previous model test using the same locations but fresh weather data and fresh Anthropic API calls, to measure variance between runs
+  - `POST /api/model-test/rerun?testRunId=X` endpoint (ADMIN only)
+  - "Re-run" button in results header with confirmation dialog listing locations
+  - 5 new backend tests (3 service, 2 controller)
+- **Last active tracking** — renamed `lastLoginAt` to `lastActiveAt`; now updated on every authenticated API request (throttled to once per hour) instead of only on login
+  - V37 migration renames column
+  - `JwtAuthenticationFilter` updates `lastActiveAt` when stale (>60 min)
+  - Frontend column label: "Last Active"
+- **Single-location model test** — admin can test one specific location with all three Claude models (Haiku/Sonnet/Opus) using identical atmospheric data, for debugging or spot-checking
+  - `POST /api/model-test/run-location?locationId=X` endpoint (ADMIN only)
+  - `ModelTestService.runTestForLocation()` validates location (enabled, has colour types, has region), fetches weather once, evaluates with 3 models
+  - Frontend: "Test One Location" button opens a location picker modal with text filter, eligible location list, and cost note (3 API calls)
+  - 9 new backend tests (6 service, 3 controller)
+- **Run row toggle collapse** — clicking an already-expanded run in the Model Test table now collapses it instead of re-fetching results
+- 497 backend tests, 57 frontend tests — all passing
 - **Marketing email opt-in preference** — users can opt in/out of marketing emails during registration
   - V35 migration: `marketing_email_opt_in BOOLEAN NOT NULL DEFAULT TRUE` on `app_user`
   - Checkbox on RegisterPage (default checked): "Send me occasional emails about new features and photography tips"

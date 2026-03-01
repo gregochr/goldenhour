@@ -1,12 +1,15 @@
 package com.gregochr.goldenhour.config;
 
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.service.JwtService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -15,6 +18,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -24,10 +29,15 @@ import java.util.List;
  * {@link SecurityContextHolder}. If the token is absent or invalid the filter
  * chain continues without setting an authentication — Spring Security will
  * then reject the request at the access-control layer.
+ *
+ * <p>Also updates the user's {@code lastActiveAt} timestamp, throttled to at most
+ * once per hour to avoid excessive database writes.
  */
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger LOG = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     /** HTTP header carrying the bearer token. */
     private static final String AUTHORIZATION_HEADER = "Authorization";
@@ -35,7 +45,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     /** Required prefix for bearer tokens. */
     private static final String BEARER_PREFIX = "Bearer ";
 
+    /** Minimum interval between lastActiveAt updates per user. */
+    static final long ACTIVITY_UPDATE_INTERVAL_MINUTES = 60;
+
     private final JwtService jwtService;
+    private final AppUserRepository userRepository;
 
     /**
      * {@inheritDoc}
@@ -69,8 +83,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                     username, null, List.of(authority));
             SecurityContextHolder.getContext().setAuthentication(authToken);
+
+            updateLastActiveIfStale(username);
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Updates the user's {@code lastActiveAt} timestamp if it is null or older than
+     * {@link #ACTIVITY_UPDATE_INTERVAL_MINUTES} minutes. Failures are logged but do not
+     * block the request.
+     *
+     * @param username the authenticated username
+     */
+    private void updateLastActiveIfStale(String username) {
+        try {
+            userRepository.findByUsername(username).ifPresent(user -> {
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime lastActive = user.getLastActiveAt();
+                if (lastActive == null
+                        || ChronoUnit.MINUTES.between(lastActive, now) >= ACTIVITY_UPDATE_INTERVAL_MINUTES) {
+                    user.setLastActiveAt(now);
+                    userRepository.save(user);
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to update lastActiveAt for user '{}': {}", username, e.getMessage());
+        }
     }
 }

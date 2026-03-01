@@ -331,26 +331,26 @@ class UserControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("GET /api/users includes lastLoginAt in response")
-    void getUsers_includesLastLoginAt() throws Exception {
+    @DisplayName("GET /api/users includes lastActiveAt in response")
+    void getUsers_includesLastActiveAt() throws Exception {
         AppUserEntity user = buildUser(1L, "alice", UserRole.ADMIN);
-        user.setLastLoginAt(LocalDateTime.of(2026, 3, 1, 14, 30));
+        user.setLastActiveAt(LocalDateTime.of(2026, 3, 1, 14, 30));
         when(userService.listAllUsers()).thenReturn(List.of(user));
 
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].lastLoginAt").value("2026-03-01T14:30"));
+                .andExpect(jsonPath("$[0].lastActiveAt").value("2026-03-01T14:30"));
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("GET /api/users returns empty lastLoginAt for users who never logged in")
-    void getUsers_lastLoginAtEmpty_whenNeverLoggedIn() throws Exception {
+    @DisplayName("GET /api/users returns empty lastActiveAt for users who never logged in")
+    void getUsers_lastActiveAtEmpty_whenNeverLoggedIn() throws Exception {
         when(userService.listAllUsers()).thenReturn(List.of(buildUser(1L, "bob", UserRole.LITE_USER)));
 
         mockMvc.perform(get("/api/users"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].lastLoginAt").value(""));
+                .andExpect(jsonPath("$[0].lastActiveAt").value(""));
     }
 
     @Test

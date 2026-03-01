@@ -298,6 +298,7 @@ export default function MapView({ locations, date }) {
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
+  const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
   const [expandedPopup, setExpandedPopup] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
 
@@ -323,13 +324,39 @@ export default function MapView({ locations, date }) {
     });
   }
 
-  // Filter logic: if no filters active → show all.
-  // If filters active → show untagged locations plus those matching any active filter.
-  const visibleLocations = activeTypeFilters.size === 0
+  function toggleRatingFilter(rating) {
+    setActiveRatingFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(rating)) {
+        next.delete(rating);
+      } else {
+        next.add(rating);
+      }
+      return next;
+    });
+  }
+
+  /** Get the forecast rating for a location on the current date/event. */
+  function getRatingForLocation(loc) {
+    const dayData = loc.forecastsByDate.get(date);
+    const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
+    return forecast?.rating ?? null;
+  }
+
+  // Filter logic: type filters and rating filters are both AND-ed.
+  // Within each filter group, any match passes (OR).
+  const typeFiltered = activeTypeFilters.size === 0
     ? locations
     : locations.filter((loc) => {
         const types = loc.locationType ?? [];
         return types.length === 0 || types.some((t) => activeTypeFilters.has(t));
+      });
+
+  const visibleLocations = activeRatingFilters.size === 0
+    ? typeFiltered
+    : typeFiltered.filter((loc) => {
+        const rating = getRatingForLocation(loc);
+        return rating != null && activeRatingFilters.has(rating);
       });
 
   if (!date || locations.length === 0) {
@@ -349,7 +376,7 @@ export default function MapView({ locations, date }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Location type filter toggles */}
+      {/* Location type + star rating filter toggles */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
         {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
@@ -365,10 +392,26 @@ export default function MapView({ locations, date }) {
             {emoji} {label}
           </button>
         ))}
-        {activeTypeFilters.size > 0 && (
+        <span className="text-plex-border mx-1">|</span>
+        {[1, 2, 3, 4, 5].map((star) => (
           <button
-            onClick={() => setActiveTypeFilters(new Set())}
+            key={`star-${star}`}
+            onClick={() => toggleRatingFilter(star)}
+            data-testid={`star-filter-${star}`}
+            className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+              activeRatingFilters.has(star)
+                ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
+                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+            }`}
+          >
+            {star}&#9733;
+          </button>
+        ))}
+        {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0) && (
+          <button
+            onClick={() => { setActiveTypeFilters(new Set()); setActiveRatingFilters(new Set()); }}
             className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
+            data-testid="clear-all-filters"
           >
             Clear
           </button>
