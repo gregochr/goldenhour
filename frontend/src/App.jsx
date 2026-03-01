@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
@@ -25,6 +25,15 @@ function AuthGate() {
     const params = new URLSearchParams(window.location.search);
     return params.get('token') || null;
   });
+
+  // Once authenticated, clear any leftover verify token from URL and state.
+  // RegisterPage unmounts before its own cleanup can run, so we handle it here.
+  useEffect(() => {
+    if (token && verifyToken) {
+      window.history.replaceState({}, '', window.location.pathname);
+      setVerifyToken(null);
+    }
+  }, [token, verifyToken]);
 
   if (!token) {
     // If there's a verification token in the URL, show RegisterPage in verify mode
