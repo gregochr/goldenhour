@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (Mar 1, 2026)
+- **Tailwind CSS v3 → v4 migration** — replaced `tailwindcss` v3 + `autoprefixer` with `@tailwindcss/postcss` v4; moved theme config from `tailwind.config.js` into CSS `@theme` block in `index.css`; deleted `tailwind.config.js`; inlined `.btn` base styles into `.btn-primary`/`.btn-secondary` (v4 disallows `@apply` of custom component classes)
+
 ### Added (Mar 1, 2026)
 - **Model comparison test harness** — A/B/C test that runs Haiku, Sonnet, and Opus against identical atmospheric data for one location per region, for side-by-side evaluation comparison
   - V34 migration: `model_test_run` and `model_test_result` tables with FKs to regions/locations
