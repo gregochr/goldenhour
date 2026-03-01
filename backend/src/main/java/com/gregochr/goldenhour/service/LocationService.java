@@ -3,10 +3,12 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -37,6 +39,7 @@ public class LocationService {
     private static final double MAX_LON = 180.0;
 
     private final LocationRepository locationRepository;
+    private final RegionRepository regionRepository;
     private final TideService tideService;
     private final JdbcTemplate jdbcTemplate;
 
@@ -44,12 +47,16 @@ public class LocationService {
      * Constructs a {@code LocationService}.
      *
      * @param locationRepository repository for {@link LocationEntity}
+     * @param regionRepository   repository for {@link RegionEntity}
      * @param tideService        used to fetch tide extremes for coastal locations
      * @param jdbcTemplate       used for cascading name updates across FK tables
      */
-    public LocationService(LocationRepository locationRepository, TideService tideService,
+    public LocationService(LocationRepository locationRepository,
+                           RegionRepository regionRepository,
+                           TideService tideService,
                            JdbcTemplate jdbcTemplate) {
         this.locationRepository = locationRepository;
+        this.regionRepository = regionRepository;
         this.tideService = tideService;
         this.jdbcTemplate = jdbcTemplate;
     }
@@ -130,6 +137,8 @@ public class LocationService {
             tideType = TideType.NOT_COASTAL;
         }
 
+        RegionEntity region = resolveRegion(request.regionId());
+
         LocationEntity entity = LocationEntity.builder()
                 .name(request.name())
                 .lat(request.lat())
@@ -137,6 +146,7 @@ public class LocationService {
                 .goldenHourType(goldenHourType)
                 .locationType(new HashSet<>(Set.of(locationType)))
                 .tideType(new HashSet<>(Set.of(tideType)))
+                .region(region)
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
         LocationEntity saved = locationRepository.save(entity);
@@ -200,6 +210,10 @@ public class LocationService {
             } else {
                 location.setTideType(new HashSet<>(Set.of(request.tideType())));
             }
+        }
+
+        if (request.regionId() != null) {
+            location.setRegion(resolveRegion(request.regionId()));
         }
 
         LocationEntity saved = locationRepository.save(location);
@@ -299,5 +313,21 @@ public class LocationService {
         location.setDisabledReason(null);
         location.setLastFailureAt(null);
         return locationRepository.save(location);
+    }
+
+    /**
+     * Resolves a region ID to a {@link RegionEntity}, or returns null if the ID is null.
+     *
+     * @param regionId the region primary key, or null
+     * @return the matching region, or null
+     * @throws java.util.NoSuchElementException if the ID is non-null but no region exists
+     */
+    private RegionEntity resolveRegion(Long regionId) {
+        if (regionId == null) {
+            return null;
+        }
+        return regionRepository.findById(regionId)
+                .orElseThrow(() -> new java.util.NoSuchElementException(
+                        "No region with id " + regionId));
     }
 }
