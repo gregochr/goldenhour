@@ -140,12 +140,20 @@ public class UserEmailService {
     }
 
     private void sendHtmlEmail(String to, String subject, String htmlBody) throws MessagingException {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
-        helper.setFrom(FROM_ADDRESS);
-        helper.setTo(to);
-        helper.setSubject(subject);
-        helper.setText(htmlBody, true);
-        mailSender.send(message);
+        // Jakarta Mail's ServiceLoader.load() fails on async/ForkJoinPool threads inside
+        // Spring Boot fat JARs — set the app classloader so it can find StreamProvider.
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+            helper.setFrom(FROM_ADDRESS);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlBody, true);
+            mailSender.send(message);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
     }
 }

@@ -58,11 +58,20 @@ public class EmailNotificationService {
                     locationName, targetType, date);
             return;
         }
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setTo(properties.getEmail().getRecipient());
-        message.setSubject(buildSubject(locationName, targetType, date, evaluation));
-        message.setText(buildBody(evaluation, locationName, targetType, date));
-        mailSender.send(message);
+        // Jakarta Mail's ServiceLoader.load() fails on ForkJoinPool threads inside
+        // Spring Boot fat JARs because the thread's context classloader can't see
+        // META-INF/services in nested JARs. Setting the app classloader fixes this.
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setTo(properties.getEmail().getRecipient());
+            message.setSubject(buildSubject(locationName, targetType, date, evaluation));
+            message.setText(buildBody(evaluation, locationName, targetType, date));
+            mailSender.send(message);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
         if (evaluation.rating() != null) {
             LOG.info("Email sent to {} — {} {} {} rating={}/5",
                     properties.getEmail().getRecipient(), locationName, targetType, date,
