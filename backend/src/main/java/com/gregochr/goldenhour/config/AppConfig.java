@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -14,12 +15,14 @@ import java.util.concurrent.Executor;
 /**
  * Core Spring application configuration.
  *
- * <p>Provides shared infrastructure beans and enables the caching layer.
+ * <p>Provides shared infrastructure beans, enables the caching layer, and enables
+ * asynchronous method execution (for {@code @Async} methods such as email sending).
  * Caffeine is the in-memory cache provider (declared as a dependency in {@code pom.xml}
  * and auto-configured by Spring Boot when on the classpath).
  */
 @Configuration
 @EnableCaching
+@EnableAsync
 public class AppConfig {
 
     /**

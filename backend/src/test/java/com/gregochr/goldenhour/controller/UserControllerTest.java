@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.UserService;
+import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +41,9 @@ class UserControllerTest {
 
     @MockBean
     private UserService userService;
+
+    @MockBean
+    private UserEmailService userEmailService;
 
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -286,7 +291,8 @@ class UserControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/users/{id}/reset-password returns 200 with temporaryPassword for ADMIN")
     void resetPassword_asAdmin_returns200WithTemporaryPassword() throws Exception {
-        when(userService.resetPassword(1L)).thenReturn("Abc1!xyz9Qr2");
+        when(userService.resetPassword(1L)).thenReturn(
+                new PasswordResetResult("Abc1!xyz9Qr2", "alice", "alice@example.com"));
 
         mockMvc.perform(put("/api/users/1/reset-password"))
                 .andExpect(status().isOk())

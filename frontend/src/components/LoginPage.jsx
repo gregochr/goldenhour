@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 
 /**
  * Full-page login form rendered when the user has no valid session.
  */
-export default function LoginPage() {
+export default function LoginPage({ onRegister }) {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -109,8 +110,29 @@ export default function LoginPage() {
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
+
+          {onRegister && (
+            <div className="text-center">
+              <button
+                type="button"
+                className="text-xs text-plex-text-muted hover:text-plex-text"
+                onClick={onRegister}
+                data-testid="login-register-link"
+              >
+                Don't have an account? Create one
+              </button>
+            </div>
+          )}
         </form>
       </div>
     </div>
   );
 }
+
+LoginPage.propTypes = {
+  onRegister: PropTypes.func,
+};
+
+LoginPage.defaultProps = {
+  onRegister: null,
+};

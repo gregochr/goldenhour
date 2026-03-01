@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
@@ -24,9 +25,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.client.HttpServerErrorException;
-import static org.mockito.Mockito.mock;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -39,6 +37,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -167,14 +167,9 @@ class AbstractEvaluationStrategyTest {
                 "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
                 + " \"summary\": \"Promising conditions.\"}");
 
-        // Create a mock 529 exception (Anthropic overloaded)
-        HttpServerErrorException overloadedException = mock(HttpServerErrorException.class);
-        HttpStatus status529 = mock(HttpStatus.class);
-        when(status529.value()).thenReturn(529);
-        when(overloadedException.getStatusCode()).thenReturn(status529);
+        AnthropicServiceException overloadedException = buildServiceException(529, "overloaded");
 
         when(anthropicClient.messages()).thenReturn(messageService);
-        // First call throws 529, second call succeeds
         when(messageService.create(any(MessageCreateParams.class)))
                 .thenThrow(overloadedException)
                 .thenReturn(successResponse);
@@ -184,6 +179,66 @@ class AbstractEvaluationStrategyTest {
         assertThat(result.rating()).isEqualTo(4);
         assertThat(result.fierySkyPotential()).isEqualTo(70);
         assertThat(result.goldenHourPotential()).isEqualTo(75);
+    }
+
+    @Test
+    @DisplayName("evaluate() retries on content filtering 400 and succeeds on 2nd attempt")
+    void evaluate_retriesContentFilter_succeeds() {
+        AtmosphericData data = buildAtmosphericData();
+        Message successResponse = buildMessage(
+                "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 60,"
+                + " \"summary\": \"Moderate conditions.\"}");
+
+        AnthropicServiceException contentFilterException = buildServiceException(
+                400, "Output blocked by content filtering policy");
+
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.create(any(MessageCreateParams.class)))
+                .thenThrow(contentFilterException)
+                .thenReturn(successResponse);
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertThat(result.rating()).isEqualTo(3);
+        assertThat(result.fierySkyPotential()).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("evaluate() throws after exhausting retries on content filtering 400")
+    void evaluate_contentFilter_exhaustsRetries_throws() {
+        AtmosphericData data = buildAtmosphericData();
+
+        AnthropicServiceException contentFilterException = buildServiceException(
+                400, "Output blocked by content filtering policy");
+
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.create(any(MessageCreateParams.class)))
+                .thenThrow(contentFilterException);
+
+        assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(AnthropicServiceException.class);
+
+        // 1 initial + 3 retries = 4 calls total
+        verify(messageService, times(4)).create(any(MessageCreateParams.class));
+    }
+
+    @Test
+    @DisplayName("evaluate() does not retry non-content-filter 400 errors")
+    void evaluate_nonContentFilter400_noRetry() {
+        AtmosphericData data = buildAtmosphericData();
+
+        AnthropicServiceException badRequestException = buildServiceException(
+                400, "invalid_request_error: max_tokens must be positive");
+
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.create(any(MessageCreateParams.class)))
+                .thenThrow(badRequestException);
+
+        assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(AnthropicServiceException.class);
+
+        // Only 1 call — no retry for non-content-filter 400
+        verify(messageService, times(1)).create(any(MessageCreateParams.class));
     }
 
     @Test
@@ -204,7 +259,6 @@ class AbstractEvaluationStrategyTest {
         ArgumentCaptor<ServiceName> serviceCaptor = ArgumentCaptor.forClass(ServiceName.class);
         ArgumentCaptor<String> methodCaptor = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<Boolean> succeededCaptor = ArgumentCaptor.forClass(Boolean.class);
 
         verify(jobRunService).logApiCall(
                 jobRunIdCaptor.capture(),
@@ -232,14 +286,9 @@ class AbstractEvaluationStrategyTest {
     void evaluate_logsApiCallFailure() {
         AtmosphericData data = buildAtmosphericData();
         JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
-        String errorMsg = "API rate limit exceeded";
 
-        // Create a mock 429 exception
-        HttpServerErrorException rateLimitException = mock(HttpServerErrorException.class);
-        HttpStatus status429 = mock(HttpStatus.class);
-        when(status429.value()).thenReturn(429);
-        when(rateLimitException.getStatusCode()).thenReturn(status429);
-        when(rateLimitException.getMessage()).thenReturn(errorMsg);
+        AnthropicServiceException rateLimitException = buildServiceException(
+                429, "API rate limit exceeded");
 
         when(anthropicClient.messages()).thenReturn(messageService);
         when(messageService.create(any(MessageCreateParams.class))).thenThrow(rateLimitException);
@@ -279,6 +328,17 @@ class AbstractEvaluationStrategyTest {
         assertThat(result.rating()).isNull();
         assertThat(result.fierySkyPotential()).isEqualTo(50);
         assertThat(result.goldenHourPotential()).isEqualTo(60);
+    }
+
+    /**
+     * Builds a mock {@link AnthropicServiceException} with the given status code and message.
+     * Uses lenient stubs since not all paths check getMessage().
+     */
+    private AnthropicServiceException buildServiceException(int statusCode, String message) {
+        AnthropicServiceException ex = mock(AnthropicServiceException.class);
+        org.mockito.Mockito.lenient().when(ex.statusCode()).thenReturn(statusCode);
+        org.mockito.Mockito.lenient().when(ex.getMessage()).thenReturn(message);
+        return ex;
     }
 
     private AtmosphericData buildAtmosphericData() {

@@ -1,11 +1,23 @@
 # Changelog
 
-All notable changes to Photo Cast are documented here.
+All notable changes to PhotoCast are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
 ### Added (Mar 1, 2026)
+- **Self-registration with email verification** — users can sign up with email + username, verify via email link, then set their own password
+  - V33 migration: `email_verification_token` table + unique email index on `app_user`
+  - `RegistrationService` orchestrates register, resend (rate-limited: max 3 in 5 min), verify, and activate
+  - Four new public auth endpoints: `/register`, `/resend-verification`, `/verify-email`, `/set-password` (auto-login on completion)
+  - `verification-email.html` Thymeleaf template (dark theme, CTA button, 24-hour expiry)
+  - Abandoned pending registrations (unverified) are automatically replaced on re-registration
+  - Duplicate email/username returns 409 Conflict; resend returns generic 200 to prevent email enumeration
+  - Frontend: `RegisterPage.jsx` multi-step state machine (register -> check email -> verify -> set password -> success)
+  - `AuthContext.completeRegistration()` for token storage after registration
+  - Login page gains "Don't have an account? Create one" link; privacy policy modal
+  - `app.frontend-base-url` config for verification link URLs
+  - 432 backend tests passing (31 new: RegistrationServiceTest, AuthController registration tests, UserService, UserEmailService)
 - **Backend down indicator for all users** — non-admin users now see a red banner and greyed-out UI (opacity + pointer-events disabled) when the backend health poll returns DOWN; clears automatically on recovery
 - **Region entity** — new `Region` table with nullable FK on locations for geographic grouping
   - `V31` migration creates `regions` table and seeds 5 rows: Tyne and Wear, The North Yorkshire Coast, The Lake District, The Yorkshire Dales, Northumberland
@@ -27,6 +39,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Forecast horizon reduced to T+5** — `FORECAST_HORIZON_DAYS` changed from 7 to 5; Long-Term job now runs T+3 through T+5; WEATHER and TIDE date ranges also reduced accordingly
 - **PhotoCast rebrand** — app name changed from "Photo Cast" to "PhotoCast" across all UI files (index.html, LoginPage, ChangePasswordPage, tests)
 - **Leaflet dark theme** — custom-styled zoom controls and attribution matching the Plex dark palette (dark backgrounds, gold hover accents, rounded corners, subtle shadow)
+
 ### Added (Feb 28, 2026)
 - **Manual tide refresh button** — admin Job Runs dashboard now has a "Refresh Tide Data" button alongside the existing forecast run buttons; triggers `POST /api/forecast/run/tide` to refresh WorldTides extremes for all coastal locations on demand
 - **Today/Tomorrow labels on date strip** — first two date chips now show "Today · Sat 28 Feb" and "Tomorrow · Sun 1 Mar" with a trailing fade gradient to hint at scrollable overflow

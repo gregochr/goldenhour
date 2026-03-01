@@ -140,11 +140,11 @@ public class UserService implements UserDetailsService {
      * never stored — only the BCrypt hash is persisted.
      *
      * @param id the user's primary key
-     * @return the raw temporary password (show once to the admin, then discard)
+     * @return a {@link PasswordResetResult} containing the raw password, username, and email
      * @throws IllegalArgumentException if no user with that id exists
      */
     @Transactional
-    public String resetPassword(Long id) {
+    public PasswordResetResult resetPassword(Long id) {
         AppUserEntity user = userRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
         String rawPassword = generateTempPassword();
@@ -152,7 +152,7 @@ public class UserService implements UserDetailsService {
         user.setPasswordChangeRequired(true);
         userRepository.save(user);
         LOG.info("Password reset for user id={}, username={}", id, user.getUsername());
-        return rawPassword;
+        return new PasswordResetResult(rawPassword, user.getUsername(), user.getEmail());
     }
 
     /**
@@ -183,6 +183,64 @@ public class UserService implements UserDetailsService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
         user.setRole(role);
         userRepository.save(user);
+    }
+
+    /**
+     * Creates a disabled user with an empty password for self-registration.
+     *
+     * <p>If a pending registration exists for the same email (disabled account with empty password),
+     * the old account is deleted and re-created rather than blocking signup.
+     *
+     * @param username the desired login name (3–30 chars, alphanumeric/underscore/hyphen)
+     * @param email    the user's email address
+     * @return the persisted pending {@link AppUserEntity}
+     * @throws IllegalArgumentException if the username is taken or email is already registered
+     *                                  by an active account
+     */
+    @Transactional
+    public AppUserEntity createPendingUser(String username, String email) {
+        if (userRepository.existsByUsername(username)) {
+            throw new IllegalArgumentException("Username already exists");
+        }
+
+        userRepository.findByEmail(email).ifPresent(existing -> {
+            if (!existing.isEnabled() && "".equals(existing.getPassword())) {
+                // Abandoned pending registration — delete and allow re-creation
+                userRepository.delete(existing);
+                userRepository.flush();
+            } else {
+                throw new IllegalArgumentException("Email already registered");
+            }
+        });
+
+        AppUserEntity user = AppUserEntity.builder()
+                .username(username)
+                .password("")
+                .role(UserRole.LITE_USER)
+                .email(email)
+                .enabled(false)
+                .createdAt(LocalDateTime.now())
+                .passwordChangeRequired(false)
+                .build();
+        return userRepository.save(user);
+    }
+
+    /**
+     * Activates a pending user by setting their password and enabling the account.
+     *
+     * @param userId      the user's primary key
+     * @param rawPassword the plain-text password to be hashed
+     * @throws IllegalArgumentException if no user with that id exists
+     */
+    @Transactional
+    public void activateUser(Long userId, String rawPassword) {
+        AppUserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        user.setEnabled(true);
+        user.setPasswordChangeRequired(false);
+        userRepository.save(user);
+        LOG.info("User activated: id={}, username={}", userId, user.getUsername());
     }
 
     /** Generates a 12-character random password containing upper, lower, digit, and special chars. */

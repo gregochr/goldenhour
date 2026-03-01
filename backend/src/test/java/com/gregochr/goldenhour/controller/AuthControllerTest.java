@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
+import com.gregochr.goldenhour.service.RegistrationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,9 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -47,6 +51,9 @@ class AuthControllerTest {
 
     @MockBean
     private RefreshTokenRepository refreshTokenRepository;
+
+    @MockBean
+    private RegistrationService registrationService;
 
     private AppUserEntity adminUser;
 
@@ -238,6 +245,146 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // --- Registration endpoint tests ---
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 200 for valid registration")
+    void register_valid_returns200() throws Exception {
+        AppUserEntity pending = AppUserEntity.builder()
+                .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
+                .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
+        when(registrationService.register("newuser", "new@example.com")).thenReturn(pending);
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Verification email sent"))
+                .andExpect(jsonPath("$.email").value("new@example.com"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 409 for duplicate username")
+    void register_duplicateUsername_returns409() throws Exception {
+        when(registrationService.register("taken", "new@example.com"))
+                .thenThrow(new IllegalArgumentException("Username already exists"));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"taken\",\"email\":\"new@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Username already exists"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 400 for invalid username format")
+    void register_invalidUsername_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"ab\",\"email\":\"valid@example.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 400 for invalid email")
+    void register_invalidEmail_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"validuser\",\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid email address"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/resend-verification returns 200 (always)")
+    void resendVerification_returns200() throws Exception {
+        doNothing().when(registrationService).resendVerification(anyString());
+
+        mockMvc.perform(post("/api/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"any@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/resend-verification returns 429 when rate limited")
+    void resendVerification_rateLimited_returns429() throws Exception {
+        doThrow(new IllegalStateException("Too many verification requests"))
+                .when(registrationService).resendVerification(anyString());
+
+        mockMvc.perform(post("/api/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"any@example.com\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/verify-email returns 200 with userId for valid token")
+    void verifyEmail_valid_returns200() throws Exception {
+        when(registrationService.verifyEmail("valid-token")).thenReturn(42L);
+
+        mockMvc.perform(post("/api/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"valid-token\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(42))
+                .andExpect(jsonPath("$.verified").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/verify-email returns 400 for invalid token")
+    void verifyEmail_invalid_returns400() throws Exception {
+        when(registrationService.verifyEmail("bad-token"))
+                .thenThrow(new IllegalArgumentException("Invalid verification token"));
+
+        mockMvc.perform(post("/api/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"bad-token\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid verification token"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password returns 200 with tokens for valid request")
+    void setPassword_valid_returns200WithTokens() throws Exception {
+        AppUserEntity user = AppUserEntity.builder()
+                .id(42L).username("newuser").password("hashed").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+        doNothing().when(registrationService).setPasswordAndActivate(42L, "MyP@ssw0rd!");
+        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":42,\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").exists())
+                .andExpect(jsonPath("$.refreshToken").exists())
+                .andExpect(jsonPath("$.role").value("LITE_USER"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password returns 400 for weak password")
+    void setPassword_weakPassword_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":42,\"password\":\"short\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password returns 400 when userId is missing")
+    void setPassword_missingUserId_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
     }
 
     @Test

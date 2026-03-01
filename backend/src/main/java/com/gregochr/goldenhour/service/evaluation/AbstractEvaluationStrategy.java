@@ -16,9 +16,10 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.JobRunService;
 
+import com.anthropic.errors.AnthropicServiceException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.web.client.HttpServerErrorException;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -234,8 +235,8 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             errorMessage = e.getMessage();
-            if (e instanceof HttpServerErrorException httpEx) {
-                statusCode = httpEx.getStatusCode().value();
+            if (e instanceof AnthropicServiceException serviceEx) {
+                statusCode = serviceEx.statusCode();
             }
 
             // Log failed Anthropic API call to metrics if jobRun is available
@@ -252,7 +253,16 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     }
 
     /**
-     * Invokes the Anthropic API with retry logic for transient failures (529).
+     * Invokes the Anthropic API with retry logic for transient failures.
+     *
+     * <p>Retries on:
+     * <ul>
+     *   <li>529 (overloaded) — transient capacity issue</li>
+     *   <li>400 with "content filtering" — intermittent output filter trigger</li>
+     * </ul>
+     *
+     * <p>On final failure for content filtering, logs the full prompt inputs at WARN level
+     * so the request can be reproduced and analysed.
      *
      * @param data atmospheric data for the prompt
      * @return Claude's response message
@@ -261,6 +271,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
         int maxRetries = 3;
         int retryCount = 0;
         long backoffMs = 1000;
+        String userMessage = buildUserMessage(data);
 
         while (true) {
             try {
@@ -269,22 +280,37 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                                 .model(getModelName())
                                 .maxTokens(MAX_TOKENS)
                                 .system(getSystemPrompt())
-                                .addUserMessage(buildUserMessage(data))
+                                .addUserMessage(userMessage)
                                 .build());
-            } catch (HttpServerErrorException httpEx) {
-                if (httpEx.getStatusCode().value() == 529 && retryCount < maxRetries) {
+            } catch (AnthropicServiceException serviceEx) {
+                int code = serviceEx.statusCode();
+                boolean isOverloaded = code == 529;
+                boolean isContentFilter = code == 400
+                        && serviceEx.getMessage() != null
+                        && serviceEx.getMessage().contains("content filtering");
+
+                if ((isOverloaded || isContentFilter) && retryCount < maxRetries) {
                     retryCount++;
-                    LOG.warn("Anthropic overloaded (529), retrying in {}ms... (attempt {}/{})",
-                            backoffMs, retryCount, maxRetries);
+                    LOG.warn("Anthropic {} ({}), retrying in {}ms... (attempt {}/{})",
+                            isContentFilter ? "content filter" : "overloaded",
+                            code, backoffMs, retryCount, maxRetries);
                     try {
                         Thread.sleep(backoffMs);
-                        backoffMs = Math.min(backoffMs * 2, 30000); // exponential backoff, max 30s
+                        backoffMs = Math.min(backoffMs * 2, 30000);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Retry sleep interrupted", ie);
                     }
                 } else {
-                    throw httpEx;
+                    if (isContentFilter) {
+                        LOG.warn("Anthropic content filter — final failure after {} retries. "
+                                + "Location: {}, Target: {}, Date: {}, Model: {}. "
+                                + "User message:\n{}",
+                                retryCount, data.locationName(), data.targetType(),
+                                data.solarEventTime().toLocalDate(), getModelName(),
+                                userMessage);
+                    }
+                    throw serviceEx;
                 }
             }
         }
