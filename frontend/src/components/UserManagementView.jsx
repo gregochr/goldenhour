@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import axios from 'axios';
-import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser } from '../api/userApi.js';
+import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
 
 /**
  * Sortable, filterable header cell for data tables.
@@ -161,11 +161,17 @@ export default function UserManagementView() {
   // Delete state
   const [deleteError, setDeleteError] = useState('');
 
+  // Resend verification state
+  const [resendLoadingId, setResendLoadingId] = useState(null);
+  const [resendError, setResendError] = useState('');
+  const [resendSuccess, setResendSuccess] = useState('');
+
   const userAccessors = useMemo(() => ({
     username: (u) => u.username,
     email: (u) => u.email || '',
     role: (u) => u.role,
     created: (u) => u.createdAt || '',
+    lastLogin: (u) => u.lastLoginAt || '',
     status: (u) => u.enabled ? 'Enabled' : 'Disabled',
   }), []);
 
@@ -315,6 +321,28 @@ export default function UserManagementView() {
     });
   }
 
+  function handleResendVerification(user) {
+    setConfirmDialog({
+      title: 'Resend Verification',
+      message: `Resend verification email to ${user.email}?`,
+      confirmLabel: 'Send',
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setResendLoadingId(user.id);
+        setResendError('');
+        setResendSuccess('');
+        try {
+          await resendVerification(user.id);
+          setResendSuccess(`Verification email sent to ${user.email}`);
+        } catch (err) {
+          setResendError(err?.response?.data?.error ?? `Failed to resend verification for ${user.username}.`);
+        } finally {
+          setResendLoadingId(null);
+        }
+      },
+    });
+  }
+
   function handleDeleteUser(user) {
     setConfirmDialog({
       title: 'Delete User',
@@ -365,6 +393,12 @@ export default function UserManagementView() {
           {deleteError && (
             <p className="text-xs text-red-400">{deleteError}</p>
           )}
+          {resendError && (
+            <p className="text-xs text-red-400">{resendError}</p>
+          )}
+          {resendSuccess && (
+            <p className="text-xs text-green-400">{resendSuccess}</p>
+          )}
 
           {!usersLoading && users.length > 0 && (
             <div className="overflow-x-auto">
@@ -375,6 +409,7 @@ export default function UserManagementView() {
                     <SortableHeader label="Email" sortKey="email" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
                     <SortableHeader label="Role" sortKey="role" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
                     <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Last Login" sortKey="lastLogin" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastLogin')} onFilter={(v) => sf.setFilter('lastLogin', v)} />
                     <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
                     <th className="pb-1 font-medium align-top">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
@@ -398,6 +433,9 @@ export default function UserManagementView() {
                       </td>
                       <td className="py-2 text-plex-text-muted text-xs">
                         {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
+                      </td>
+                      <td className="py-2 text-plex-text-muted text-xs">
+                        {user.lastLoginAt ? user.lastLoginAt.slice(0, 16).replace('T', ' ') : 'Never'}
                       </td>
                       <td className="py-2">
                         <button
@@ -429,6 +467,16 @@ export default function UserManagementView() {
                           >
                             {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Reset PW'}
                           </button>
+                          {!user.enabled && user.email && (
+                            <button
+                              className="text-xs px-2 py-0.5 rounded bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleResendVerification(user)}
+                              disabled={resendLoadingId === user.id}
+                              data-testid={`resend-verify-${user.id}`}
+                            >
+                              {resendLoadingId === user.id ? 'Sending...' : 'Resend Verify'}
+                            </button>
+                          )}
                           <button
                             className="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-400 hover:bg-red-900/60 hover:text-red-300"
                             onClick={() => handleDeleteUser(user)}
@@ -442,7 +490,7 @@ export default function UserManagementView() {
                   ))}
                   {filteredUsers.length === 0 && users.length > 0 && (
                     <tr>
-                      <td colSpan={6} className="py-4 text-center text-xs text-plex-text-muted">
+                      <td colSpan={7} className="py-4 text-center text-xs text-plex-text-muted">
                         No users match the current filters.
                       </td>
                     </tr>

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.PasswordResetResult;
+import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
@@ -44,6 +45,9 @@ class UserControllerTest {
 
     @MockBean
     private UserEmailService userEmailService;
+
+    @MockBean
+    private RegistrationService registrationService;
 
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -323,6 +327,75 @@ class UserControllerTest {
         mockMvc.perform(put("/api/users/99/reset-password"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("User not found: 99"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users includes lastLoginAt in response")
+    void getUsers_includesLastLoginAt() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.ADMIN);
+        user.setLastLoginAt(LocalDateTime.of(2026, 3, 1, 14, 30));
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].lastLoginAt").value("2026-03-01T14:30"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users returns empty lastLoginAt for users who never logged in")
+    void getUsers_lastLoginAtEmpty_whenNeverLoggedIn() throws Exception {
+        when(userService.listAllUsers()).thenReturn(List.of(buildUser(1L, "bob", UserRole.LITE_USER)));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].lastLoginAt").value(""));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 200 for valid user")
+    void resendVerification_validUser_returns200() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        user.setEmail("alice@example.com");
+        user.setEnabled(false);
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+
+        mockMvc.perform(post("/api/users/1/resend-verification"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Verification email sent"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 400 for unknown user")
+    void resendVerification_unknownUser_returns400() throws Exception {
+        when(userService.listAllUsers()).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/users/99/resend-verification"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 400 when user has no email")
+    void resendVerification_noEmail_returns400() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+
+        mockMvc.perform(post("/api/users/1/resend-verification"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User has no email address"));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 403 for LITE_USER")
+    void resendVerification_asLiteUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/users/1/resend-verification"))
+                .andExpect(status().isForbidden());
     }
 
     private AppUserEntity buildUser(Long id, String username, UserRole role) {

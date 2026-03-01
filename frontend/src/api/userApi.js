@@ -59,3 +59,14 @@ export async function deleteUser(userId) {
   const response = await axios.delete(`/api/users/${userId}`);
   return response.data;
 }
+
+/**
+ * Resends a verification email for a pending user. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @returns {Promise<{message: string}>} Confirmation message.
+ */
+export async function resendVerification(userId) {
+  const response = await axios.post(`/api/users/${userId}/resend-verification`);
+  return response.data;
+}

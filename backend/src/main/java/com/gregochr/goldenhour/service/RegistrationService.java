@@ -141,6 +141,25 @@ public class RegistrationService {
         tokenRepository.save(entity);
     }
 
+    /**
+     * Resends a verification email for a user. Admin action — no rate limiting.
+     *
+     * <p>Invalidates any existing unverified tokens for the user before generating a new one.
+     *
+     * @param user the user to resend verification for
+     */
+    @Transactional
+    public void adminResendVerification(AppUserEntity user) {
+        List<EmailVerificationTokenEntity> oldTokens = tokenRepository.findByUserIdAndVerifiedFalse(user.getId());
+        tokenRepository.deleteAll(oldTokens);
+
+        String rawToken = jwtService.generateRefreshToken();
+        saveVerificationToken(rawToken, user.getId());
+
+        userEmailService.sendVerificationEmail(user.getEmail(), user.getUsername(), rawToken);
+        LOG.info("Admin resent verification: username='{}', email='{}'", user.getUsername(), user.getEmail());
+    }
+
     private AppUserEntity findPendingUserByEmail(String email) {
         return userService.listAllUsers().stream()
                 .filter(u -> email.equalsIgnoreCase(u.getEmail()))

@@ -409,6 +409,21 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/login records lastLoginAt on successful login")
+    void login_validCredentials_setsLastLoginAt() throws Exception {
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"golden2026\"}"))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(
+                user -> user.getLastLoginAt() != null));
+    }
+
+    @Test
     @DisplayName("POST /api/auth/login response includes marketingEmailOptIn")
     void login_validCredentials_includesMarketingEmailOptIn() throws Exception {
         adminUser.setMarketingEmailOptIn(true);

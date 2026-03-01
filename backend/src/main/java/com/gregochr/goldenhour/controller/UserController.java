@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.PasswordResetResult;
+import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.security.Principal;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -44,6 +46,7 @@ public class UserController {
 
     private final UserService userService;
     private final UserEmailService userEmailService;
+    private final RegistrationService registrationService;
 
     /**
      * Returns all registered users without exposing password hashes.
@@ -229,19 +232,48 @@ public class UserController {
     }
 
     /**
+     * Resends a verification email for a pending user. Admin action — bypasses rate limiting.
+     *
+     * @param id the user's primary key
+     * @return 200 on success, 400 if user not found or has no email
+     */
+    @PostMapping("/{id}/resend-verification")
+    public ResponseEntity<Object> resendVerification(@PathVariable Long id) {
+        List<AppUserEntity> allUsers = userService.listAllUsers();
+        AppUserEntity user = allUsers.stream()
+                .filter(u -> u.getId().equals(id))
+                .findFirst()
+                .orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
+        }
+        if (user.getEmail() == null || user.getEmail().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "User has no email address"));
+        }
+
+        registrationService.adminResendVerification(user);
+        LOG.info("Admin resent verification email for user id={}, email={}", id, user.getEmail());
+        return ResponseEntity.ok(Map.of("message", "Verification email sent"));
+    }
+
+    /**
      * Converts an {@link AppUserEntity} to a safe summary map that excludes the password.
      *
      * @param user the entity to convert
-     * @return map with id, username, role, enabled, and createdAt
+     * @return map with id, username, role, enabled, createdAt, and lastLoginAt
      */
     private Map<String, Object> toSummary(AppUserEntity user) {
         LocalDateTime createdAt = user.getCreatedAt();
-        return Map.of(
-                "id", user.getId(),
-                "username", user.getUsername(),
-                "email", user.getEmail() != null ? user.getEmail() : "",
-                "role", user.getRole().name(),
-                "enabled", user.isEnabled(),
-                "createdAt", createdAt != null ? createdAt.toString() : "");
+        LocalDateTime lastLoginAt = user.getLastLoginAt();
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("id", user.getId());
+        summary.put("username", user.getUsername());
+        summary.put("email", user.getEmail() != null ? user.getEmail() : "");
+        summary.put("role", user.getRole().name());
+        summary.put("enabled", user.isEnabled());
+        summary.put("createdAt", createdAt != null ? createdAt.toString() : "");
+        summary.put("lastLoginAt", lastLoginAt != null ? lastLoginAt.toString() : "");
+        return summary;
     }
 }

@@ -207,6 +207,26 @@ class RegistrationServiceTest {
     }
 
     @Test
+    @DisplayName("adminResendVerification deletes old tokens, creates new token, and sends email")
+    void adminResendVerification_success() {
+        AppUserEntity user = buildPendingUser(1L, "alice", "alice@example.com");
+        EmailVerificationTokenEntity oldToken = EmailVerificationTokenEntity.builder()
+                .id(1L).tokenHash("old-hash").userId(1L)
+                .expiresAt(LocalDateTime.now().plusHours(12))
+                .verified(false).createdAt(LocalDateTime.now().minusHours(1)).build();
+        when(tokenRepository.findByUserIdAndVerifiedFalse(1L)).thenReturn(List.of(oldToken));
+        when(jwtService.generateRefreshToken()).thenReturn("new-admin-token");
+        when(jwtService.hashToken("new-admin-token")).thenReturn("new-admin-hash");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        registrationService.adminResendVerification(user);
+
+        verify(tokenRepository).deleteAll(List.of(oldToken));
+        verify(tokenRepository).save(any(EmailVerificationTokenEntity.class));
+        verify(userEmailService).sendVerificationEmail("alice@example.com", "alice", "new-admin-token");
+    }
+
+    @Test
     @DisplayName("setPasswordAndActivate delegates to userService.activateUser")
     void setPasswordAndActivate_delegates() {
         registrationService.setPasswordAndActivate(1L, "MyP@ssw0rd!");

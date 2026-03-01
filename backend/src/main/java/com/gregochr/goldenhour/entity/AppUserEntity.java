@@ -77,6 +77,10 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "marketing_email_opt_in", nullable = false)
     private boolean marketingEmailOptIn = true;
 
+    /** Timestamp of the user's most recent successful login. */
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
+
     /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.
      * Spring Security requires the {@code ROLE_} prefix for {@code hasRole()} expressions.
