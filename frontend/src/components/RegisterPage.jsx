@@ -259,7 +259,7 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
           <div className="card flex flex-col gap-4 text-center" data-testid="check-email">
             <p className="text-sm font-semibold text-plex-text">Check your email</p>
             <p className="text-sm text-plex-text-secondary">
-              We've sent a verification link to <strong className="text-plex-text">{email}</strong>
+              We&apos;ve sent a verification link to <strong className="text-plex-text">{email}</strong>
             </p>
             <p className="text-xs text-plex-text-muted">
               Click the link in the email to verify your address and complete registration.

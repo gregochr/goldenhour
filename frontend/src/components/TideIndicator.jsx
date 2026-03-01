@@ -34,6 +34,7 @@ export default function TideIndicator({ locationName, date, onFetchedAt }) {
       });
 
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationName, date]);
 
   if (!tides || tides.length === 0) return null;
