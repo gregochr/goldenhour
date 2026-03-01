@@ -16,6 +16,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Claude generates a plain-English explanation of the key factors driving the score
 - Aerosol optical depth + PM2.5 proxy distinguishes warm dust from grey smoke — a competitive differentiator
 - Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment)
+- Sunrise/sunset azimuth line on map — only the line for the selected event type is shown, reducing visual clutter
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Opus optimisation gate — very-short-term runs skip slots with prior rating < 3 stars, avoiding wasted spend
 - Model comparison test harness — A/B/C runs Haiku, Sonnet, and Opus against identical data for side-by-side evaluation; single-location test and re-run support for variance testing

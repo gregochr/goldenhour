@@ -464,7 +464,7 @@ export default function MapView({ locations, date }) {
           <ZoomTracker onZoom={setZoom} />
 
           {/* Azimuth lines for the selected location */}
-          {selectedLoc && sunriseAzimuth != null && (
+          {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
             <Polyline
               positions={[
                 [selectedLoc.lat, selectedLoc.lon],
@@ -476,7 +476,7 @@ export default function MapView({ locations, date }) {
               dashArray="10 6"
             />
           )}
-          {selectedLoc && sunsetAzimuth != null && (
+          {selectedLoc && sunsetAzimuth != null && eventType === 'SUNSET' && (
             <Polyline
               positions={[
                 [selectedLoc.lat, selectedLoc.lon],

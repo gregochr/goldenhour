@@ -8,6 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added (Mar 1, 2026)
 - **Responsive map popup** — popup width now uses `calc(100vw - 40px)` capped at `max-width: 600px`, so popups fit within phone viewports instead of overflowing at the hardcoded 600px
 - **Model Test button descriptions** — descriptive text below each button explaining what it does: which locations are tested, whether weather/tide data is fetched fresh, and that all three Anthropic models are always run
+- **Event-specific azimuth line** — map now only renders the sunrise or sunset azimuth line matching the selected event type, instead of always showing both
 - **Star rating filter on map** — 5 toggle chips (1★–5★) on the map filter bar let users show any permutation of star ratings; AND-ed with existing location type filters; gold highlight when active; single Clear button resets both filter groups
 - **Re-run model test** — re-run a previous model test using the same locations but fresh weather data and fresh Anthropic API calls, to measure variance between runs
   - `POST /api/model-test/rerun?testRunId=X` endpoint (ADMIN only)
