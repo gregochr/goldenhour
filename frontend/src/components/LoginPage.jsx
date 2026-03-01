@@ -31,7 +31,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight text-plex-text flex items-center justify-center gap-3">
             <img src="/logo.png" alt="" className="h-10 w-10" />
-            Photo Cast
+            PhotoCast
           </h1>
           <p className="text-base text-plex-text-secondary mt-2">AI Forecasts for Fiery Skies & Golden Light</p>
         </div>
