@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.RegistrationService;
+import com.gregochr.goldenhour.service.TurnstileService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,7 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtProperties jwtProperties;
     private final RegistrationService registrationService;
+    private final TurnstileService turnstileService;
 
     /**
      * Authenticates the user and returns a JWT access token plus a refresh token.
@@ -243,6 +245,12 @@ public class AuthController {
         if (!EMAIL_PATTERN.matcher(email.trim()).matches()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid email address"));
+        }
+
+        String turnstileToken = body.get("turnstileToken");
+        if (!turnstileService.verify(turnstileToken)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
         }
 
         try {

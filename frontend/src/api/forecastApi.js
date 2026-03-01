@@ -50,7 +50,7 @@ axios.interceptors.response.use(
 );
 
 /**
- * Fetches the T through T+7 forecast week for all configured locations.
+ * Fetches the T through T+5 forecast week for all configured locations.
  *
  * @returns {Promise<Array<object>>} Array of forecast evaluations.
  */
@@ -111,7 +111,7 @@ export async function runShortTermForecast(dryRun = false) {
 }
 
 /**
- * Triggers an on-demand run of distant forecasts (T+3 through T+7).
+ * Triggers an on-demand run of distant forecasts (T+3 through T+5).
  * Uses the model configured under LONG_TERM.
  *
  * @returns {Promise<{status: string, runType: string}>} Accepted status message.

@@ -70,6 +70,9 @@ jwt:
   access-token-expiry-hours: 24
   refresh-token-expiry-days: 30
 
+turnstile:
+  secret-key: YOUR_TURNSTILE_SECRET_KEY  # Cloudflare Turnstile
+
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
 

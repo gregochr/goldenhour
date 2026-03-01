@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.RegistrationService;
+import com.gregochr.goldenhour.service.TurnstileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,9 @@ class AuthControllerTest {
     @MockBean
     private RegistrationService registrationService;
 
+    @MockBean
+    private TurnstileService turnstileService;
+
     private AppUserEntity adminUser;
 
     @BeforeEach
@@ -69,6 +73,9 @@ class AuthControllerTest {
                 .build();
 
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Default: Turnstile always passes in tests
+        when(turnstileService.verify(any())).thenReturn(true);
     }
 
     @Test
@@ -286,6 +293,19 @@ class AuthControllerTest {
                         .content("{\"username\":\"ab\",\"email\":\"valid@example.com\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 400 when Turnstile verification fails")
+    void register_turnstileFailed_returns400() throws Exception {
+        when(turnstileService.verify(any())).thenReturn(false);
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"turnstileToken\":\"bad-token\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
     }
 
     @Test

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser } from '../api/authApi.js';
@@ -83,6 +83,32 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const turnstileRef = useRef(null);
+  const turnstileWidgetId = useRef(null);
+
+  // Render Turnstile widget when on REGISTER step
+  useEffect(() => {
+    if (step !== STEPS.REGISTER || !turnstileRef.current) return;
+    if (typeof window.turnstile === 'undefined') return;
+    // Clean up previous widget if re-rendering
+    if (turnstileWidgetId.current != null) {
+      window.turnstile.remove(turnstileWidgetId.current);
+    }
+    turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
+      sitekey: '0x4AAAAAABb1234MKu3B4bPj',
+      theme: 'dark',
+      callback: (token) => setTurnstileToken(token),
+      'expired-callback': () => setTurnstileToken(''),
+      'error-callback': () => setTurnstileToken(''),
+    });
+    return () => {
+      if (turnstileWidgetId.current != null) {
+        window.turnstile.remove(turnstileWidgetId.current);
+        turnstileWidgetId.current = null;
+      }
+    };
+  }, [step]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -133,13 +159,22 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
       setError('Email addresses do not match.');
       return;
     }
+    if (!turnstileToken) {
+      setError('Please complete the verification challenge.');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      await register(username, email);
+      await register(username, email, turnstileToken);
       setStep(STEPS.CHECK_EMAIL);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
+      // Reset Turnstile on failure so user can retry
+      setTurnstileToken('');
+      if (turnstileWidgetId.current != null && window.turnstile) {
+        window.turnstile.reset(turnstileWidgetId.current);
+      }
     } finally {
       setLoading(false);
     }
@@ -270,11 +305,13 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
               )}
             </div>
 
+            <div ref={turnstileRef} data-testid="turnstile-widget" className="flex justify-center" />
+
             {error && (
               <p className="text-xs text-red-400" role="alert" data-testid="reg-error">{error}</p>
             )}
 
-            <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading}>
+            <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading || !turnstileToken}>
               {loading ? 'Creating account...' : 'Create account'}
             </button>
 

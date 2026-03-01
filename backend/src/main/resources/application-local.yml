@@ -15,8 +15,13 @@ spring:
     console:
       enabled: true
   mail:
-    host: localhost
-    port: 25
+    host: smtp.sendgrid.net
+    port: 587
+    username: apikey
+    password: ${SENDGRID_API_KEY:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -106,6 +111,9 @@ jwt:
   secret: bG9jYWwtZGV2LXNlY3JldC1rZXktZm9yLXRlc3Rpbmctb25seQ==
   access-token-expiry-hours: 24
   refresh-token-expiry-days: 30
+
+turnstile:
+  secret-key: ${TURNSTILE_SECRET_KEY:}
 
 server:
   port: 8082

@@ -89,12 +89,15 @@ public class UserService implements UserDetailsService {
      * @param role        the role to assign
      * @param email       the user's email address
      * @return the persisted {@link AppUserEntity}
-     * @throws IllegalArgumentException if the username is already taken
+     * @throws IllegalArgumentException if the username or email is already taken
      */
     @Transactional
     public AppUserEntity createUser(String username, String rawPassword, UserRole role, String email) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Username already exists: " + username);
+        }
+        if (email != null && !email.isBlank() && userRepository.existsByEmail(email)) {
+            throw new IllegalArgumentException("Email already registered: " + email);
         }
         AppUserEntity user = AppUserEntity.builder()
                 .username(username)
