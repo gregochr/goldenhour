@@ -1,6 +1,6 @@
-# Photo Cast
+# PhotoCast
 
-AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal photographers. Pulls atmospheric and air quality data from Open-Meteo and CAMS, evaluates it with Claude, and returns dual colour-potential scores with plain-English reasoning — updated every 6–12 hours for up to 7 days ahead.
+AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal photographers. Pulls atmospheric and air quality data from Open-Meteo and CAMS, evaluates it with Claude, and returns dual colour-potential scores with plain-English reasoning — updated every 6-12 hours for up to 7 days ahead.
 
 **Live:** [https://app.photocast.online](https://app.photocast.online)
 
@@ -12,14 +12,23 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 ## What it does
 
 - Evaluates sunrise and sunset colour potential for any number of locations, T through T+7
-- Two scores per event: **Fiery Sky Potential** (dramatic colour) and **Golden Hour Potential** (overall light quality)
+- Two scores per event: **Fiery Sky Potential** (dramatic colour) and **Golden Hour Potential** (overall light quality), plus a 1-5 star rating
 - Claude generates a plain-English explanation of the key factors driving the score
 - Aerosol optical depth + PM2.5 proxy distinguishes warm dust from grey smoke — a competitive differentiator
 - Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment)
+- Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
+- Opus optimisation gate — very-short-term runs skip slots with prior rating < 3 stars, avoiding wasted spend
+- Model comparison test harness — A/B/C runs Haiku, Sonnet, and Opus against identical data for side-by-side evaluation
 - Stores every evaluation so you can track how the forecast converges as the date approaches
 - Outcome recording — log whether you went out and your actual rating; builds an accuracy feedback loop
-- JWT-authenticated — ADMIN / PRO_USER / LITE_USER roles; users created by admin (no self-registration)
-- Notifications via email (Thymeleaf HTML) and Pushover
+- Self-registration with email verification and Cloudflare Turnstile CAPTCHA
+- Marketing email opt-in preference (UK soft opt-in compliant)
+- JWT-authenticated with ADMIN / PRO_USER / LITE_USER roles
+- Notifications via email (Thymeleaf HTML templates) and Web Push (VAPID)
+- Job run metrics with cost tracking and per-location failure detection
+- Resilient API calls with exponential backoff retry and dead-letter mechanism for persistent failures
+- Geographic regions for location grouping
+- Backend health indicator in header (ADMIN), session expiry warnings
 
 ---
 
@@ -28,14 +37,15 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 | Layer | Technology |
 |---|---|
 | API | Spring Boot 3, Spring WebFlux (WebClient) |
-| AI evaluation | Claude (Haiku for LITE, Sonnet for PRO/ADMIN) via Anthropic Java SDK |
-| Solar times | [solar-utils](https://github.com/gregochr/solar-utils) (GitHub Packages) |
+| AI evaluation | Claude (Haiku / Sonnet / Opus) via Anthropic Java SDK |
+| Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v1.2.0 (GitHub Packages) |
 | Weather data | Open-Meteo Forecast + Air Quality / CAMS APIs (free, no key) |
-| Tide data | WorldTides API v3 (coastal locations) |
-| Database | H2 file database + Flyway migrations (V1–V27) |
-| Security | Spring Security 6, stateless JWT (JJWT 0.12.6) |
-| Frontend | React 18, Vite, Tailwind CSS, Leaflet |
+| Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
+| Database | H2 file database + Flyway migrations (V1-V35) |
+| Security | Spring Security 6, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
+| Frontend | React 18, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
+| Quality | Checkstyle, SpotBugs, JaCoCo (>=80%), ESLint, Vitest, Playwright |
 
 ---
 
@@ -115,7 +125,7 @@ curl http://localhost:8082/actuator/health
 
 Secrets are passed as environment variables — see `docker-compose.yml` for the full list (`ANTHROPIC_API_KEY`, `JWT_SECRET`, `WORLDTIDES_API_KEY`, etc.).
 
-The H2 database is volume-mounted to `/Users/gregochr/goldenhour-data` so data persists across container restarts and is covered by Time Machine.
+The H2 database is volume-mounted to `/Users/gregochr/goldenhour-data` so data persists across container restarts and is covered by Time Machine. Automated daily backups at 02:00 keep the last 7 copies.
 
 ---
 
@@ -123,15 +133,17 @@ The H2 database is volume-mounted to `/Users/gregochr/goldenhour-data` so data p
 
 All API endpoints except `/api/auth/**` require a valid JWT.
 
-**Default credentials:** `admin` / `golden2026`
+**Default admin credentials:** `admin` / `golden2026`
 
-> Change the admin password immediately after first login via Settings → Change Password.
+> Change the admin password immediately after first login.
+
+Users can self-register at the login page — email verification is required, and Cloudflare Turnstile protects against bots. Admins can also create users directly.
 
 ### Roles
 
 | Role | Access |
 |---|---|
-| `ADMIN` | All endpoints + Manage tab (user management, job metrics, model selection) |
+| `ADMIN` | All endpoints + Manage tab (users, regions, job metrics, model selection, model test) |
 | `PRO_USER` | 7-day forecast, all scores, unlimited locations, outcome recording |
 | `LITE_USER` | 3-day forecast, star rating only, 1 location |
 
@@ -144,25 +156,36 @@ All API endpoints except `/api/auth/**` require a valid JWT.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/auth/login` | None | Exchange credentials for access + refresh tokens |
-| `POST` | `/api/auth/refresh` | Refresh token | Issue a new access token |
+| `POST` | `/api/auth/refresh` | Refresh token | Issue a new access token (rotates refresh token) |
 | `POST` | `/api/auth/logout` | Bearer | Revoke refresh token |
 | `POST` | `/api/auth/change-password` | Bearer | Change own password |
+| `POST` | `/api/auth/register` | None | Self-register with email verification |
+| `POST` | `/api/auth/resend-verification` | None | Resend verification email (rate-limited) |
+| `POST` | `/api/auth/verify-email` | None | Verify email with token from link |
+| `POST` | `/api/auth/set-password` | None | Set password for verified user (auto-login) |
+| `PUT` | `/api/auth/marketing-emails` | Bearer | Toggle marketing email opt-in |
 
 ### Forecast
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/forecast` | Bearer | T through T+7 for all locations |
-| `POST` | `/api/forecast/run` | Bearer | On-demand evaluation run |
-| `GET` | `/api/forecast/compare` | Bearer | Compare Haiku vs Sonnet for a location+date |
+| `POST` | `/api/forecast/run` | ADMIN | On-demand short-term evaluation run |
+| `POST` | `/api/forecast/run/very-short-term` | ADMIN | Very short-term (T, T+1) |
+| `POST` | `/api/forecast/run/short-term` | ADMIN | Short-term (T, T+1, T+2) |
+| `POST` | `/api/forecast/run/long-term` | ADMIN | Long-term (T+3 through T+7) |
 
-### Locations & outcomes
+### Locations, regions & outcomes
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/locations` | Bearer | All persisted locations |
 | `POST` | `/api/locations` | Bearer | Add a new location |
 | `PUT` | `/api/locations/{name}/reset-failures` | ADMIN | Re-enable an auto-disabled location |
+| `GET` | `/api/regions` | Bearer | All regions |
+| `POST` | `/api/regions` | ADMIN | Create a region |
+| `PUT` | `/api/regions/{id}` | ADMIN | Update a region |
+| `PUT` | `/api/regions/{id}/enabled` | ADMIN | Enable/disable a region |
 | `POST` | `/api/outcome` | Bearer | Record an actual observed outcome |
 | `GET` | `/api/outcome` | Bearer | Query outcomes by location and date range |
 
@@ -175,23 +198,29 @@ All API endpoints except `/api/auth/**` require a valid JWT.
 | `PUT` | `/api/users/{id}/enabled` | ADMIN | Enable or disable a user |
 | `PUT` | `/api/users/{id}/role` | ADMIN | Change a user's role |
 | `PUT` | `/api/users/{id}/reset-password` | ADMIN | Generate a temporary password |
+| `DELETE` | `/api/users/{id}` | ADMIN | Delete a user (sends notification email) |
 
-### Metrics (ADMIN only)
+### Metrics & model testing (ADMIN only)
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/metrics/job-runs` | ADMIN | Pageable list of scheduled job runs |
 | `GET` | `/api/metrics/api-calls` | ADMIN | API call log with costs and timings |
+| `GET` | `/api/models` | Bearer | Available models and per-run-type active models |
+| `PUT` | `/api/models/active` | ADMIN | Set active model for a run type |
+| `POST` | `/api/model-test/run` | ADMIN | Trigger A/B/C model comparison test |
+| `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs |
+| `GET` | `/api/model-test/results` | ADMIN | Results for a specific test run |
 
 ---
 
 ## Running tests
 
 ```bash
-# Backend (JUnit 5, ≥80% coverage enforced by JaCoCo)
+# Backend (JUnit 5, 479 tests, >=80% coverage enforced by JaCoCo)
 cd backend && ./mvnw clean verify
 
-# Frontend component tests (Vitest)
+# Frontend component tests (Vitest, 57 tests)
 cd frontend && npm test
 
 # Frontend end-to-end (Playwright — requires app running)
@@ -203,6 +232,8 @@ cd frontend && npm run test:e2e
 ## solar-utils dependency
 
 [solar-utils](https://github.com/gregochr/solar-utils) is a shared library published to GitHub Packages. It is pulled automatically by Maven — no manual build required. See the one-time setup section above for the token requirement.
+
+Public API (v1.2.0): `sunrise`, `sunset`, `civilDawn`, `civilDusk`, `solarNoon`, `dayLengthMinutes`, `sunriseAzimuth`, `sunsetAzimuth`.
 
 ---
 
