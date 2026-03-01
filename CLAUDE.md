@@ -54,6 +54,17 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - `EvaluationDetail` record and `evaluateWithDetails()` method for full prompt/response transparency
   - Admin UI: "Model Test" tab in ManageView with comparison grid and delta indicators from Haiku baseline
   - Styled confirmation dialogs replace `window.confirm()` across Job Runs and Model Test views
+- **Self-registration with email verification** ✓ — users sign up with email + username, verify via emailed link, set their own password
+  - V33: `email_verification_token` table + unique email index on `app_user`
+  - Multi-step RegisterPage: register → check email → verify → set password → auto-login
+  - Cloudflare Turnstile CAPTCHA on registration form
+  - Rate-limited resend (max 3 in 5 minutes); abandoned registrations auto-replaced
+- **Marketing email opt-in** ✓ — checkbox on registration (default checked, UK soft opt-in compliant)
+  - V35: `marketing_email_opt_in` column on `app_user`
+  - `PUT /api/auth/marketing-emails` toggle endpoint; preference returned in login/set-password responses
+  - Privacy policy modal updated with marketing emails section
+- **Account deletion email** ✓ — polite notification sent when admin deletes a user with an email address
+- **Regions** ✓ — geographic grouping for locations (V31/V32), full CRUD, used by model test harness
 
 ---
 
@@ -64,17 +75,17 @@ goldenhour/
 ├── backend/               Spring Boot 3 app (port 8082 local)
 │   ├── src/main/java/com/gregochr/goldenhour/
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties
-│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
-│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository
-│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, ModelTestService, evaluation/, notification/
+│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController, RegionController
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, EmailVerificationTokenEntity, RegionEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
+│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, EmailVerificationTokenRepository
+│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, ModelTestService, evaluation/, notification/
 │   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V34 Flyway migrations
+│       └── db/migration/            V1–V35 Flyway migrations
 ├── frontend/              React 18 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
@@ -178,6 +189,7 @@ jwt:
 | V32 | `region_id` FK on `locations` |
 | V33 | `email_verification_token` table + unique email index on `app_user` |
 | V34 | `model_test_run` + `model_test_result` tables — A/B/C model comparison testing |
+| V35 | `marketing_email_opt_in` on `app_user` — marketing email preference (default TRUE) |
 
 ---
 
@@ -199,6 +211,11 @@ jwt:
 | `POST` | `/api/auth/refresh` | None | New access token from refresh token |
 | `POST` | `/api/auth/logout` | Bearer | Revoke refresh token |
 | `POST` | `/api/auth/change-password` | Bearer | Change password, clears `passwordChangeRequired` |
+| `POST` | `/api/auth/register` | None | Self-register with email verification (Turnstile CAPTCHA) |
+| `POST` | `/api/auth/resend-verification` | None | Resend verification email (rate-limited) |
+| `POST` | `/api/auth/verify-email` | None | Verify email with token from verification link |
+| `POST` | `/api/auth/set-password` | None | Set password for verified user, auto-login |
+| `PUT` | `/api/auth/marketing-emails` | Bearer | Toggle marketing email opt-in preference |
 | `GET` | `/api/forecast` | Bearer | T through T+7 for all locations |
 | `POST` | `/api/forecast/run` | ADMIN | Trigger on-demand evaluation (uses SHORT_TERM model config) |
 | `POST` | `/api/forecast/run/very-short-term` | ADMIN | Run very-short-term forecasts (T, T+1) using VERY_SHORT_TERM model config |
@@ -225,6 +242,11 @@ jwt:
 | `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
 | `POST` | `/api/push/subscribe` | Bearer | Save a push subscription |
 | `DELETE` | `/api/push/subscribe` | Bearer | Remove a push subscription |
+| `GET` | `/api/regions` | Bearer | All regions |
+| `POST` | `/api/regions` | ADMIN | Create region |
+| `PUT` | `/api/regions/{id}` | ADMIN | Update region |
+| `PUT` | `/api/regions/{id}/enabled` | ADMIN | Enable/disable region |
+| `DELETE` | `/api/users/{id}` | ADMIN | Delete user (sends notification email) |
 
 ---
 
@@ -392,7 +414,7 @@ Track performance of scheduled forecast runs and external API calls, stored in H
 - Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
 - Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 467 backend tests, all passing with ≥80% JaCoCo coverage
+- 479 backend tests, all passing with ≥80% JaCoCo coverage
 
 ### 9. Retry Robustness ✓ BUILT
 
@@ -443,7 +465,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 467 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 479 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
