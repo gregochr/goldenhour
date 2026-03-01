@@ -119,7 +119,7 @@ export default function LoginPage({ onRegister }) {
                 onClick={onRegister}
                 data-testid="login-register-link"
               >
-                Don't have an account? Create one
+                Don&apos;t have an account? Create one
               </button>
             </div>
           )}

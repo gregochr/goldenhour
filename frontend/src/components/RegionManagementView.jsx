@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import PropTypes from 'prop-types';
 import { fetchRegions, addRegion, updateRegion, setRegionEnabled } from '../api/regionApi.js';
 
 /**
@@ -27,6 +28,14 @@ function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort
     </th>
   );
 }
+
+SortableHeader.propTypes = {
+  label: PropTypes.string.isRequired,
+  sortKey: PropTypes.string.isRequired,
+  currentSortKey: PropTypes.string.isRequired,
+  currentSortDir: PropTypes.string.isRequired,
+  onSort: PropTypes.func.isRequired,
+};
 
 /**
  * Region management view with list/add/edit modes.
