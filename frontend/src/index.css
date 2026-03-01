@@ -25,3 +25,58 @@
     @apply btn bg-plex-surface-light hover:bg-plex-border text-plex-text focus:ring-plex-border;
   }
 }
+
+/* Leaflet zoom controls — dark Plex theme */
+.leaflet-control-zoom {
+  border: 1px solid #3A3D45 !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+}
+
+.leaflet-control-zoom a {
+  background-color: #252830 !important;
+  color: #EBEBEB !important;
+  border-color: #3A3D45 !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  transition: background-color 0.15s ease;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: #3A3D45 !important;
+  color: #E5A00D !important;
+}
+
+.leaflet-control-zoom a:active {
+  background-color: #4A4D55 !important;
+}
+
+.leaflet-control-zoom-in {
+  border-bottom: 1px solid #3A3D45 !important;
+  border-radius: 7px 7px 0 0 !important;
+}
+
+.leaflet-control-zoom-out {
+  border-top: none !important;
+  border-radius: 0 0 7px 7px !important;
+}
+
+/* Leaflet attribution — subtle dark style */
+.leaflet-control-attribution {
+  background-color: rgba(37, 40, 48, 0.85) !important;
+  color: #6B6B6B !important;
+  font-size: 10px !important;
+  border-radius: 4px 0 0 0;
+}
+
+.leaflet-control-attribution a {
+  color: #A0A0A0 !important;
+}
+
+.leaflet-control-attribution a:hover {
+  color: #E5A00D !important;
+}
