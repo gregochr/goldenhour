@@ -48,3 +48,14 @@ export async function updateUserEnabled(userId, enabled) {
   const response = await axios.put(`/api/users/${userId}/enabled`, { enabled });
   return response.data;
 }
+
+/**
+ * Permanently deletes a user account. Requires ADMIN role.
+ *
+ * @param {number} userId - The user's primary key.
+ * @returns {Promise<{message: string}>} Confirmation message.
+ */
+export async function deleteUser(userId) {
+  const response = await axios.delete(`/api/users/${userId}`);
+  return response.data;
+}

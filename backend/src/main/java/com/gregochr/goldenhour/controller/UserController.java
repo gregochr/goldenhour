@@ -14,10 +14,13 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.security.Principal;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -197,6 +200,29 @@ public class UserController {
                     result.email(), result.username(), result.temporaryPassword());
             LOG.info("Admin reset password for user id={}", id);
             return ResponseEntity.ok(Map.of("temporaryPassword", result.temporaryPassword()));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Permanently deletes a user account.
+     *
+     * <p>The authenticated admin cannot delete their own account.
+     *
+     * @param id        the user's primary key
+     * @param principal the authenticated admin (used to prevent self-deletion)
+     * @return 200 on success, 400 if the user is not found, 409 if self-deletion attempted
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Object> deleteUser(@PathVariable Long id, Principal principal) {
+        try {
+            userService.deleteUser(id, principal.getName());
+            LOG.info("Admin deleted user id={}", id);
+            return ResponseEntity.ok(Map.of("message", "User deleted"));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", ex.getMessage()));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }

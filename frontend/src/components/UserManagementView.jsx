@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import axios from 'axios';
-import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled } from '../api/userApi.js';
+import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser } from '../api/userApi.js';
 
 /**
  * Sortable, filterable header cell for data tables.
@@ -156,6 +156,11 @@ export default function UserManagementView() {
   const [tempPasswordModal, setTempPasswordModal] = useState(null);
   const [resetPasswordError, setResetPasswordError] = useState('');
 
+  // Confirmation dialog state (shared for reset password and delete)
+  const [confirmDialog, setConfirmDialog] = useState(null);
+  // Delete state
+  const [deleteError, setDeleteError] = useState('');
+
   const userAccessors = useMemo(() => ({
     username: (u) => u.username,
     email: (u) => u.email || '',
@@ -284,18 +289,44 @@ export default function UserManagementView() {
     }
   }
 
-  async function handleResetPassword(user) {
-    if (!window.confirm(`Reset password for ${user.username}?`)) return;
-    setResetPasswordLoadingId(user.id);
-    setResetPasswordError('');
-    try {
-      const data = await resetUserPassword(user.id);
-      setTempPasswordModal({ username: user.username, password: data.temporaryPassword });
-    } catch {
-      setResetPasswordError(`Failed to reset password for ${user.username}.`);
-    } finally {
-      setResetPasswordLoadingId(null);
-    }
+  function handleResetPassword(user) {
+    setConfirmDialog({
+      title: 'Reset Password',
+      message: `Reset password for ${user.username}? A temporary password will be generated.`,
+      confirmLabel: 'Reset',
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setResetPasswordLoadingId(user.id);
+        setResetPasswordError('');
+        try {
+          const data = await resetUserPassword(user.id);
+          setTempPasswordModal({ username: user.username, password: data.temporaryPassword });
+        } catch {
+          setResetPasswordError(`Failed to reset password for ${user.username}.`);
+        } finally {
+          setResetPasswordLoadingId(null);
+        }
+      },
+    });
+  }
+
+  function handleDeleteUser(user) {
+    setConfirmDialog({
+      title: 'Delete User',
+      message: `Permanently delete ${user.username}? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setDeleteError('');
+        try {
+          await deleteUser(user.id);
+          await fetchUsers();
+        } catch (err) {
+          setDeleteError(err?.response?.data?.error ?? `Failed to delete ${user.username}.`);
+        }
+      },
+    });
   }
 
   const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold';
@@ -326,6 +357,9 @@ export default function UserManagementView() {
           {resetPasswordError && (
             <p className="text-xs text-red-400">{resetPasswordError}</p>
           )}
+          {deleteError && (
+            <p className="text-xs text-red-400">{deleteError}</p>
+          )}
 
           {!usersLoading && users.length > 0 && (
             <div className="overflow-x-auto">
@@ -337,8 +371,9 @@ export default function UserManagementView() {
                     <SortableHeader label="Role" sortKey="role" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
                     <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
                     <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
-                      <span className="whitespace-nowrap">Actions</span>
+                    <th className="pb-1 font-medium align-top">
+                      <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
+                      <div className="mt-1 h-[26px]" />
                     </th>
                   </tr>
                 </thead>
@@ -387,7 +422,14 @@ export default function UserManagementView() {
                             disabled={resetPasswordLoadingId === user.id}
                             data-testid={`reset-password-${user.id}`}
                           >
-                            {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Password Reset'}
+                            {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Reset PW'}
+                          </button>
+                          <button
+                            className="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-400 hover:bg-red-900/60 hover:text-red-300"
+                            onClick={() => handleDeleteUser(user)}
+                            data-testid={`delete-user-${user.id}`}
+                          >
+                            Delete
                           </button>
                         </div>
                       </td>
@@ -603,6 +645,41 @@ export default function UserManagementView() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+      {/* Confirmation dialog */}
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label={confirmDialog.title}
+          data-testid="confirm-dialog"
+        >
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
+            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setConfirmDialog(null)}
+                data-testid="confirm-dialog-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                className={`text-sm px-4 py-1.5 rounded font-medium ${
+                  confirmDialog.destructive
+                    ? 'bg-red-700 hover:bg-red-600 text-white'
+                    : 'btn-primary'
+                }`}
+                onClick={confirmDialog.onConfirm}
+                data-testid="confirm-dialog-confirm"
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
           </div>
         </div>
       )}
