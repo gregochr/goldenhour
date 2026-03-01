@@ -123,4 +123,29 @@ class UserEmailServiceTest {
 
         verify(templateEngine, never()).process(any(String.class), any(IContext.class));
     }
+
+    @Test
+    @DisplayName("sendAccountDeletedEmail renders template and sends HTML email")
+    void sendAccountDeletedEmail_validInput_sendsEmail() {
+        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("account-deleted-email"), any(IContext.class)))
+                .thenReturn("<html>Deleted</html>");
+
+        service.sendAccountDeletedEmail("alice@example.com", "alice");
+
+        verify(templateEngine).process(eq("account-deleted-email"), any(IContext.class));
+        verify(mailSender).send(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("sendAccountDeletedEmail skips silently when mailSender is null")
+    void sendAccountDeletedEmail_nullMailSender_skips() {
+        UserEmailService service = new UserEmailService(null, templateEngine);
+
+        service.sendAccountDeletedEmail("test@example.com", "alice");
+
+        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+    }
 }

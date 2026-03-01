@@ -48,6 +48,10 @@ function PrivacyModal({ onClose }) {
             <p>Your data is used solely to provide the PhotoCast service: generating forecasts, sending notifications, and personalising your experience. We do not sell or share your data with third parties.</p>
           </section>
           <section>
+            <h3 className="text-plex-text font-medium mb-1">Marketing Emails</h3>
+            <p>If you opt in during registration, we may send you occasional emails about new features and photography tips. You can unsubscribe at any time by updating your preferences in the app. Transactional emails (account verification, password resets) are always sent regardless of this preference.</p>
+          </section>
+          <section>
             <h3 className="text-plex-text font-medium mb-1">Your Rights (GDPR)</h3>
             <p>You have the right to access, correct, or delete your personal data at any time. You may also request a copy of all data we hold about you. Contact us to exercise these rights.</p>
           </section>
@@ -83,6 +87,7 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [turnstileToken, setTurnstileToken] = useState('');
   const turnstileRef = useRef(null);
   const turnstileWidgetId = useRef(null);
@@ -199,7 +204,7 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
     setError('');
     setLoading(true);
     try {
-      await register(username, email, turnstileToken);
+      await register(username, email, turnstileToken, marketingOptIn);
       setStep(STEPS.CHECK_EMAIL);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
@@ -254,9 +259,10 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
     }
   }
 
-  // Auto-reload after success
+  // Clear verification token from URL and auto-reload after success
   useEffect(() => {
     if (step === STEPS.SUCCESS) {
+      window.history.replaceState({}, '', window.location.pathname);
       const timer = setTimeout(() => window.location.reload(), 2000);
       return () => clearTimeout(timer);
     }
@@ -337,6 +343,18 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
                 <p className="text-xs text-red-400 mt-1">Email addresses do not match</p>
               )}
             </div>
+
+            <label className="flex items-start gap-2 cursor-pointer text-xs text-plex-text-secondary">
+              <input
+                type="checkbox"
+                data-testid="reg-marketing-opt-in"
+                checked={marketingOptIn}
+                onChange={(e) => setMarketingOptIn(e.target.checked)}
+                disabled={loading}
+                className="mt-0.5 accent-plex-gold"
+              />
+              <span>Send me occasional emails about new features and photography tips</span>
+            </label>
 
             <div ref={turnstileRef} data-testid="turnstile-widget" className="flex justify-center" />
 

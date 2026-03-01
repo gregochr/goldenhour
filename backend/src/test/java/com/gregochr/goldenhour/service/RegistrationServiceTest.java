@@ -47,29 +47,43 @@ class RegistrationServiceTest {
     private RegistrationService registrationService;
 
     @Test
-    @DisplayName("register creates pending user, saves token, and sends verification email")
+    @DisplayName("register creates pending user with opt-in, saves token, and sends verification email")
     void register_success() {
         AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
-        when(userService.createPendingUser("alice", "alice@example.com")).thenReturn(pending);
+        when(userService.createPendingUser("alice", "alice@example.com", true)).thenReturn(pending);
         when(jwtService.generateRefreshToken()).thenReturn("raw-token-uuid");
         when(jwtService.hashToken("raw-token-uuid")).thenReturn("hashed-token");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        AppUserEntity result = registrationService.register("alice", "alice@example.com");
+        AppUserEntity result = registrationService.register("alice", "alice@example.com", true);
 
         assertThat(result.getUsername()).isEqualTo("alice");
-        verify(userService).createPendingUser("alice", "alice@example.com");
+        verify(userService).createPendingUser("alice", "alice@example.com", true);
         verify(tokenRepository).save(any(EmailVerificationTokenEntity.class));
         verify(userEmailService).sendVerificationEmail("alice@example.com", "alice", "raw-token-uuid");
     }
 
     @Test
+    @DisplayName("register passes marketing opt-out to createPendingUser")
+    void register_optOut_passesMarketingOptInFalse() {
+        AppUserEntity pending = buildPendingUser(1L, "bob", "bob@example.com");
+        when(userService.createPendingUser("bob", "bob@example.com", false)).thenReturn(pending);
+        when(jwtService.generateRefreshToken()).thenReturn("raw-token-uuid");
+        when(jwtService.hashToken("raw-token-uuid")).thenReturn("hashed-token");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        registrationService.register("bob", "bob@example.com", false);
+
+        verify(userService).createPendingUser("bob", "bob@example.com", false);
+    }
+
+    @Test
     @DisplayName("register propagates exception when username already exists")
     void register_duplicateUsername_throws() {
-        when(userService.createPendingUser("alice", "alice@example.com"))
+        when(userService.createPendingUser("alice", "alice@example.com", true))
                 .thenThrow(new IllegalArgumentException("Username already exists"));
 
-        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com"))
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Username already exists");
     }
@@ -77,10 +91,10 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("register propagates exception when email already registered")
     void register_duplicateEmail_throws() {
-        when(userService.createPendingUser("bob", "alice@example.com"))
+        when(userService.createPendingUser("bob", "alice@example.com", true))
                 .thenThrow(new IllegalArgumentException("Email already registered"));
 
-        assertThatThrownBy(() -> registrationService.register("bob", "alice@example.com"))
+        assertThatThrownBy(() -> registrationService.register("bob", "alice@example.com", true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Email already registered");
     }

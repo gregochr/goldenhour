@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
@@ -20,11 +20,11 @@ function AuthGate() {
   const { token, mustChangePassword } = useAuth();
   const [showRegister, setShowRegister] = useState(false);
 
-  // Check URL for ?token= param (email verification link)
-  const verifyToken = useMemo(() => {
+  // Check URL for ?token= param (email verification link) and clear it once consumed
+  const [verifyToken, setVerifyToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('token') || null;
-  }, []);
+  });
 
   if (!token) {
     // If there's a verification token in the URL, show RegisterPage in verify mode
@@ -34,6 +34,7 @@ function AuthGate() {
           verifyToken={verifyToken}
           onBackToLogin={() => {
             window.history.replaceState({}, '', window.location.pathname);
+            setVerifyToken(null);
             setShowRegister(false);
           }}
         />

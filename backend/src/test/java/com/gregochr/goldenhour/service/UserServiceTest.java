@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,9 @@ class UserServiceTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private UserEmailService userEmailService;
 
     @InjectMocks
     private UserService userService;
@@ -199,19 +203,37 @@ class UserServiceTest {
     }
 
     @Test
-    @DisplayName("createPendingUser creates a disabled user with empty password")
+    @DisplayName("createPendingUser creates a disabled user with empty password and marketing opt-in true")
     void createPendingUser_newUser_createsDisabledUser() {
         when(userRepository.existsByUsername("newuser")).thenReturn(false);
         when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
         AppUserEntity saved = AppUserEntity.builder()
                 .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
-                .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
+                .email("new@example.com").enabled(false).createdAt(LocalDateTime.now())
+                .marketingEmailOptIn(true).build();
         when(userRepository.save(any())).thenReturn(saved);
 
-        AppUserEntity result = userService.createPendingUser("newuser", "new@example.com");
+        AppUserEntity result = userService.createPendingUser("newuser", "new@example.com", true);
 
         assertThat(result.getUsername()).isEqualTo("newuser");
         assertThat(result.isEnabled()).isFalse();
+        assertThat(result.isMarketingEmailOptIn()).isTrue();
+    }
+
+    @Test
+    @DisplayName("createPendingUser stores marketing opt-in as false when user opts out")
+    void createPendingUser_optOut_storesMarketingOptInFalse() {
+        when(userRepository.existsByUsername("bob")).thenReturn(false);
+        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.empty());
+        AppUserEntity saved = AppUserEntity.builder()
+                .id(11L).username("bob").password("").role(UserRole.LITE_USER)
+                .email("bob@example.com").enabled(false).createdAt(LocalDateTime.now())
+                .marketingEmailOptIn(false).build();
+        when(userRepository.save(any())).thenReturn(saved);
+
+        AppUserEntity result = userService.createPendingUser("bob", "bob@example.com", false);
+
+        assertThat(result.isMarketingEmailOptIn()).isFalse();
     }
 
     @Test
@@ -219,7 +241,7 @@ class UserServiceTest {
     void createPendingUser_duplicateUsername_throws() {
         when(userRepository.existsByUsername("alice")).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.createPendingUser("alice", "alice@example.com"))
+        assertThatThrownBy(() -> userService.createPendingUser("alice", "alice@example.com", true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Username already exists");
     }
@@ -233,7 +255,7 @@ class UserServiceTest {
         active.setPassword("hashed");
         when(userRepository.findByEmail("taken@example.com")).thenReturn(Optional.of(active));
 
-        assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com"))
+        assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com", true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Email already registered");
     }
@@ -251,7 +273,7 @@ class UserServiceTest {
                 .email("reuse@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
         when(userRepository.save(any())).thenReturn(saved);
 
-        AppUserEntity result = userService.createPendingUser("newuser", "reuse@example.com");
+        AppUserEntity result = userService.createPendingUser("newuser", "reuse@example.com", true);
 
         verify(userRepository).delete(abandoned);
         assertThat(result.getUsername()).isEqualTo("newuser");

@@ -7,6 +7,7 @@ const REFRESH_KEY = 'goldenhour_refresh';
 const ROLE_KEY = 'goldenhour_role';
 const MUST_CHANGE_KEY = 'goldenhour_must_change';
 const REFRESH_EXPIRES_KEY = 'goldenhour_refresh_expires';
+const MARKETING_OPT_IN_KEY = 'goldenhour_marketing_opt_in';
 
 const AuthContext = createContext(null);
 
@@ -38,6 +39,9 @@ export function AuthProvider({ children }) {
     () => readStorage(MUST_CHANGE_KEY) === 'true'
   );
   const [refreshExpiresAt, setRefreshExpiresAt] = useState(() => readStorage(REFRESH_EXPIRES_KEY));
+  const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(
+    () => readStorage(MARKETING_OPT_IN_KEY) !== 'false'
+  );
 
   const login = useCallback(async (username, password) => {
     const data = await apiLogin(username, password);
@@ -46,11 +50,13 @@ export function AuthProvider({ children }) {
     localStorage.setItem(ROLE_KEY, data.role);
     localStorage.setItem(MUST_CHANGE_KEY, String(data.passwordChangeRequired ?? false));
     if (data.refreshExpiresAt) localStorage.setItem(REFRESH_EXPIRES_KEY, data.refreshExpiresAt);
+    if (data.marketingEmailOptIn != null) localStorage.setItem(MARKETING_OPT_IN_KEY, String(data.marketingEmailOptIn));
     setToken(data.accessToken);
     setRefreshToken(data.refreshToken);
     setRole(data.role);
     setMustChangePassword(data.passwordChangeRequired ?? false);
     if (data.refreshExpiresAt) setRefreshExpiresAt(data.refreshExpiresAt);
+    if (data.marketingEmailOptIn != null) setMarketingEmailOptIn(data.marketingEmailOptIn);
   }, []);
 
   const logout = useCallback(async () => {
@@ -67,11 +73,13 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(ROLE_KEY);
     localStorage.removeItem(MUST_CHANGE_KEY);
     localStorage.removeItem(REFRESH_EXPIRES_KEY);
+    localStorage.removeItem(MARKETING_OPT_IN_KEY);
     setToken(null);
     setRefreshToken(null);
     setRole(null);
     setMustChangePassword(false);
     setRefreshExpiresAt(null);
+    setMarketingEmailOptIn(true);
   }, []);
 
   const changePassword = useCallback(async (newPassword) => {
@@ -86,11 +94,13 @@ export function AuthProvider({ children }) {
     localStorage.setItem(ROLE_KEY, data.role);
     localStorage.setItem(MUST_CHANGE_KEY, 'false');
     if (data.refreshExpiresAt) localStorage.setItem(REFRESH_EXPIRES_KEY, data.refreshExpiresAt);
+    if (data.marketingEmailOptIn != null) localStorage.setItem(MARKETING_OPT_IN_KEY, String(data.marketingEmailOptIn));
     setToken(data.accessToken);
     setRefreshToken(data.refreshToken);
     setRole(data.role);
     setMustChangePassword(false);
     if (data.refreshExpiresAt) setRefreshExpiresAt(data.refreshExpiresAt);
+    if (data.marketingEmailOptIn != null) setMarketingEmailOptIn(data.marketingEmailOptIn);
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -120,13 +130,14 @@ export function AuthProvider({ children }) {
     role,
     mustChangePassword,
     sessionDaysRemaining,
+    marketingEmailOptIn,
     login,
     logout,
     changePassword,
     completeRegistration,
     refreshSession,
     isAdmin: role === 'ADMIN',
-  }), [token, refreshToken, role, mustChangePassword, sessionDaysRemaining, login, logout, changePassword, completeRegistration, refreshSession]);
+  }), [token, refreshToken, role, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, login, logout, changePassword, completeRegistration, refreshSession]);
 
   return (
     <AuthContext.Provider value={value}>

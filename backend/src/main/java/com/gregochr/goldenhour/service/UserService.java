@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.service.notification.UserEmailService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -44,6 +45,7 @@ public class UserService implements UserDetailsService {
 
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserEmailService userEmailService;
 
     /**
      * Seeds a default admin account on startup if the user table is empty.
@@ -194,14 +196,15 @@ public class UserService implements UserDetailsService {
      * <p>If a pending registration exists for the same email (disabled account with empty password),
      * the old account is deleted and re-created rather than blocking signup.
      *
-     * @param username the desired login name (3–30 chars, alphanumeric/underscore/hyphen)
-     * @param email    the user's email address
+     * @param username            the desired login name (3–30 chars, alphanumeric/underscore/hyphen)
+     * @param email               the user's email address
+     * @param marketingEmailOptIn whether the user opted in to marketing emails
      * @return the persisted pending {@link AppUserEntity}
      * @throws IllegalArgumentException if the username is taken or email is already registered
      *                                  by an active account
      */
     @Transactional
-    public AppUserEntity createPendingUser(String username, String email) {
+    public AppUserEntity createPendingUser(String username, String email, boolean marketingEmailOptIn) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Username already exists");
         }
@@ -224,6 +227,7 @@ public class UserService implements UserDetailsService {
                 .enabled(false)
                 .createdAt(LocalDateTime.now())
                 .passwordChangeRequired(false)
+                .marketingEmailOptIn(marketingEmailOptIn)
                 .build();
         return userRepository.save(user);
     }
@@ -263,8 +267,11 @@ public class UserService implements UserDetailsService {
         if (user.getUsername().equals(currentUsername)) {
             throw new IllegalStateException("Cannot delete your own account");
         }
+        String email = user.getEmail();
+        String username = user.getUsername();
         userRepository.delete(user);
-        LOG.info("User deleted: id={}, username={}", id, user.getUsername());
+        LOG.info("User deleted: id={}, username={}", id, username);
+        userEmailService.sendAccountDeletedEmail(email, username);
     }
 
     /** Generates a 12-character random password containing upper, lower, digit, and special chars. */

@@ -40,14 +40,15 @@ public class RegistrationService {
     /**
      * Registers a new pending user and sends a verification email.
      *
-     * @param username the desired login name
-     * @param email    the user's email address
+     * @param username            the desired login name
+     * @param email               the user's email address
+     * @param marketingEmailOptIn whether the user opted in to marketing emails
      * @return the created pending user
      * @throws IllegalArgumentException if the username or email is already taken
      */
     @Transactional
-    public AppUserEntity register(String username, String email) {
-        AppUserEntity user = userService.createPendingUser(username, email);
+    public AppUserEntity register(String username, String email, boolean marketingEmailOptIn) {
+        AppUserEntity user = userService.createPendingUser(username, email, marketingEmailOptIn);
 
         String rawToken = jwtService.generateRefreshToken();
         saveVerificationToken(rawToken, user.getId());

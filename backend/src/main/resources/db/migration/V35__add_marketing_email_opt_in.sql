@@ -1,0 +1,1 @@
+ALTER TABLE app_user ADD COLUMN marketing_email_opt_in BOOLEAN NOT NULL DEFAULT TRUE;

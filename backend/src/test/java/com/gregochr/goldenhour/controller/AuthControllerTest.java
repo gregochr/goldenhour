@@ -28,6 +28,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -262,7 +263,7 @@ class AuthControllerTest {
         AppUserEntity pending = AppUserEntity.builder()
                 .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
                 .email("new@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.register("newuser", "new@example.com")).thenReturn(pending);
+        when(registrationService.register("newuser", "new@example.com", true)).thenReturn(pending);
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -275,7 +276,7 @@ class AuthControllerTest {
     @Test
     @DisplayName("POST /api/auth/register returns 409 for duplicate username")
     void register_duplicateUsername_returns409() throws Exception {
-        when(registrationService.register("taken", "new@example.com"))
+        when(registrationService.register("taken", "new@example.com", true))
                 .thenThrow(new IllegalArgumentException("Username already exists"));
 
         mockMvc.perform(post("/api/auth/register")
@@ -405,6 +406,60 @@ class AuthControllerTest {
                         .content("{\"password\":\"MyP@ssw0rd!\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login response includes marketingEmailOptIn")
+    void login_validCredentials_includesMarketingEmailOptIn() throws Exception {
+        adminUser.setMarketingEmailOptIn(true);
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"golden2026\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEmailOptIn").value(true));
+    }
+
+    @Test
+    @DisplayName("PUT /api/auth/marketing-emails toggles opt-in preference")
+    void marketingEmails_toggleOptIn_returns200() throws Exception {
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        when(userRepository.save(any())).thenReturn(adminUser);
+
+        mockMvc.perform(put("/api/auth/marketing-emails")
+                        .header("Authorization", "Bearer " + validJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"optIn\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEmailOptIn").value(false));
+    }
+
+    @Test
+    @DisplayName("PUT /api/auth/marketing-emails returns 401 without authentication")
+    void marketingEmails_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(put("/api/auth/marketing-emails")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"optIn\":false}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register passes marketing opt-in to service")
+    void register_withMarketingOptInFalse_passesPreference() throws Exception {
+        AppUserEntity pending = AppUserEntity.builder()
+                .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
+                .email("new@example.com").enabled(false).createdAt(LocalDateTime.now())
+                .marketingEmailOptIn(false).build();
+        when(registrationService.register("newuser", "new@example.com", false)).thenReturn(pending);
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"marketingEmailOptIn\":\"false\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Verification email sent"));
     }
 
     @Test
