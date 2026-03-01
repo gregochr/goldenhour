@@ -23,6 +23,7 @@ import java.time.LocalDate;
 public class EmailNotificationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(EmailNotificationService.class);
+    private static final String FROM_ADDRESS = "noreply@photocast.online";
 
     private final NotificationProperties properties;
     private final JavaMailSender mailSender;
@@ -65,6 +66,7 @@ public class EmailNotificationService {
         Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
         try {
             SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(FROM_ADDRESS);
             message.setTo(properties.getEmail().getRecipient());
             message.setSubject(buildSubject(locationName, targetType, date, evaluation));
             message.setText(buildBody(evaluation, locationName, targetType, date));
