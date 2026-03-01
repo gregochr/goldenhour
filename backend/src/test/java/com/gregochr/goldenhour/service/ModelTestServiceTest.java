@@ -28,9 +28,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
@@ -342,5 +345,119 @@ class ModelTestServiceTest {
         List<ModelTestResultEntity> result = service.getResults(1L);
 
         assertThat(result).hasSize(1);
+    }
+
+    // --- runTestForLocation tests ---
+
+    @Test
+    @DisplayName("runTestForLocation succeeds with 3 models evaluated")
+    void runTestForLocation_success() {
+        RegionEntity r = region(1L, "North East");
+        LocationEntity loc = location(1L, "Durham", r, Set.of(LocationType.LANDSCAPE));
+        AtmosphericData data = sampleAtmosphericData();
+
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(1L);
+            }
+            return e;
+        });
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+        when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
+        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
+                .thenReturn(50);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ModelTestRunEntity result = service.runTestForLocation(1L);
+
+        assertThat(result.getRegionsCount()).isEqualTo(1);
+        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getFailed()).isEqualTo(0);
+        assertThat(result.getTotalCostPence()).isEqualTo(150);
+        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+    }
+
+    @Test
+    @DisplayName("runTestForLocation throws NoSuchElementException for unknown location")
+    void runTestForLocation_locationNotFound() {
+        when(locationRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.runTestForLocation(99L))
+                .isInstanceOf(NoSuchElementException.class)
+                .hasMessageContaining("Location not found: 99");
+    }
+
+    @Test
+    @DisplayName("runTestForLocation throws IllegalArgumentException for pure WILDLIFE location")
+    void runTestForLocation_pureWildlife() {
+        RegionEntity r = region(1L, "North East");
+        LocationEntity loc = location(1L, "Bird Reserve", r, Set.of(LocationType.WILDLIFE));
+
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
+
+        assertThatThrownBy(() -> service.runTestForLocation(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no colour types");
+    }
+
+    @Test
+    @DisplayName("runTestForLocation throws IllegalArgumentException for disabled location")
+    void runTestForLocation_disabledLocation() {
+        RegionEntity r = region(1L, "North East");
+        LocationEntity loc = location(1L, "Durham", r, Set.of(LocationType.LANDSCAPE));
+        loc.setEnabled(false);
+
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
+
+        assertThatThrownBy(() -> service.runTestForLocation(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("disabled");
+    }
+
+    @Test
+    @DisplayName("runTestForLocation throws IllegalArgumentException for location with no region")
+    void runTestForLocation_noRegion() {
+        LocationEntity loc = location(1L, "Durham", null, Set.of(LocationType.LANDSCAPE));
+
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
+
+        assertThatThrownBy(() -> service.runTestForLocation(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no region assigned");
+    }
+
+    @Test
+    @DisplayName("runTestForLocation records 3 failed results on weather fetch failure")
+    void runTestForLocation_weatherFetchFailure() {
+        RegionEntity r = region(1L, "North East");
+        LocationEntity loc = location(1L, "Durham", r, Set.of(LocationType.LANDSCAPE));
+
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(1L);
+            }
+            return e;
+        });
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+        when(openMeteoService.getAtmosphericData(any(), any()))
+                .thenThrow(new RuntimeException("Open-Meteo timeout"));
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ModelTestRunEntity result = service.runTestForLocation(1L);
+
+        assertThat(result.getSucceeded()).isEqualTo(0);
+        assertThat(result.getFailed()).isEqualTo(3);
+        verify(evaluationService, never()).evaluateWithDetails(any(), any(), any());
     }
 }

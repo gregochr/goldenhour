@@ -24,6 +24,16 @@ export const getModelTestRuns = () => {
 };
 
 /**
+ * Triggers a model comparison test for a single location.
+ *
+ * @param {number} locationId - Location ID to test
+ * @returns {Promise} Response with the completed test run
+ */
+export const runModelTestForLocation = (locationId) => {
+  return axios.post(`/api/model-test/run-location?locationId=${locationId}`);
+};
+
+/**
  * Fetch results for a specific model test run.
  *
  * @param {number} testRunId - Test run ID

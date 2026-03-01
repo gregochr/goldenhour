@@ -47,6 +47,20 @@ public class ModelTestController {
     }
 
     /**
+     * Triggers a model comparison test for a single location.
+     *
+     * @param locationId the location ID to test
+     * @return the completed test run with summary metrics
+     */
+    @PostMapping("/run-location")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ModelTestRunEntity> runTestForLocation(
+            @RequestParam Long locationId) {
+        ModelTestRunEntity testRun = modelTestService.runTestForLocation(locationId);
+        return ResponseEntity.ok(testRun);
+    }
+
+    /**
      * Returns recent test runs (last 20).
      *
      * @return list of recent test runs
