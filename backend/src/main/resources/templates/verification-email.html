@@ -5,53 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Verify your email — PhotoCast</title>
 </head>
-<body style="margin:0;padding:0;background-color:#1a1a2e;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#1a1a2e;padding:32px 16px;">
+<body style="margin:0;padding:0;background-color:#181A1E;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#181A1E;padding:32px 16px;">
     <tr>
         <td align="center">
-            <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#16213e;border-radius:12px;overflow:hidden;">
+            <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background-color:#252830;border:1px solid #3A3D45;border-radius:12px;overflow:hidden;">
                 <!-- Header -->
                 <tr>
-                    <td style="background:linear-gradient(135deg,#e94560,#ff6b35);padding:28px 32px;text-align:center;">
-                        <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:0.5px;">PhotoCast</h1>
-                        <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">Verify your email address</p>
+                    <td style="padding:28px 32px;text-align:center;border-bottom:1px solid #3A3D45;">
+                        <h1 style="margin:0;color:#E5A00D;font-size:24px;font-weight:700;letter-spacing:0.5px;">PhotoCast</h1>
+                        <p style="margin:6px 0 0;color:#A0A0A0;font-size:14px;">Verify your email address</p>
                     </td>
                 </tr>
                 <!-- Body -->
                 <tr>
                     <td style="padding:32px;">
-                        <p style="margin:0 0 16px;color:#e0e0e0;font-size:15px;line-height:1.6;">
-                            Hi <strong th:text="${username}" style="color:#ffffff;">user</strong>,
+                        <p style="margin:0 0 16px;color:#EBEBEB;font-size:15px;line-height:1.6;">
+                            Hi <strong th:text="${username}" style="color:#EBEBEB;">user</strong>,
                         </p>
-                        <p style="margin:0 0 24px;color:#e0e0e0;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 24px;color:#A0A0A0;font-size:15px;line-height:1.6;">
                             Click the button below to verify your email and complete your registration.
                         </p>
                         <!-- CTA Button (table-based for email compatibility) -->
                         <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
                             <tr>
-                                <td align="center" style="background:linear-gradient(135deg,#e94560,#ff6b35);border-radius:8px;">
+                                <td align="center" style="background-color:#E5A00D;border-radius:8px;">
                                     <a th:href="${verificationUrl}" href="#"
-                                       style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;letter-spacing:0.5px;">
+                                       style="display:inline-block;padding:14px 32px;color:#181A1E;font-size:16px;font-weight:600;text-decoration:none;letter-spacing:0.5px;">
                                         Verify My Email
                                     </a>
                                 </td>
                             </tr>
                         </table>
-                        <p style="margin:0 0 16px;color:#a0a0b0;font-size:13px;line-height:1.5;">
+                        <p style="margin:0 0 16px;color:#6B6B6B;font-size:13px;line-height:1.5;">
                             This link expires in 24 hours.
                         </p>
-                        <p style="margin:0 0 8px;color:#a0a0b0;font-size:13px;line-height:1.5;">
+                        <p style="margin:0 0 8px;color:#6B6B6B;font-size:13px;line-height:1.5;">
                             If the button doesn't work, copy and paste this URL into your browser:
                         </p>
-                        <p th:text="${verificationUrl}" style="margin:0;color:#ff6b35;font-size:12px;word-break:break-all;font-family:'Courier New',Courier,monospace;">
+                        <p th:text="${verificationUrl}" style="margin:0;color:#E5A00D;font-size:12px;word-break:break-all;font-family:'Courier New',Courier,monospace;">
                             https://app.photocast.online?token=example
                         </p>
                     </td>
                 </tr>
                 <!-- Footer -->
                 <tr>
-                    <td style="padding:16px 32px;border-top:1px solid #1a1a3e;text-align:center;">
-                        <p style="margin:0;color:#606080;font-size:12px;">PhotoCast &mdash; Golden hour forecasts for photographers</p>
+                    <td style="padding:16px 32px;border-top:1px solid #3A3D45;text-align:center;">
+                        <p style="margin:0;color:#6B6B6B;font-size:12px;">PhotoCast &mdash; AI Forecasts for Fiery Skies &amp; Golden Light</p>
                     </td>
                 </tr>
             </table>
