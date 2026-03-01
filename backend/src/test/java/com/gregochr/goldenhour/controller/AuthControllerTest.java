@@ -409,8 +409,8 @@ class AuthControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/auth/login records lastLoginAt on successful login")
-    void login_validCredentials_setsLastLoginAt() throws Exception {
+    @DisplayName("POST /api/auth/login records lastActiveAt on successful login")
+    void login_validCredentials_setsLastActiveAt() throws Exception {
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
         when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -420,7 +420,7 @@ class AuthControllerTest {
                 .andExpect(status().isOk());
 
         org.mockito.Mockito.verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(
-                user -> user.getLastLoginAt() != null));
+                user -> user.getLastActiveAt() != null));
     }
 
     @Test

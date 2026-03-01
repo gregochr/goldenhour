@@ -75,7 +75,7 @@ public class AuthController {
                     .body(Map.of("error", "Account is disabled"));
         }
 
-        user.setLastLoginAt(LocalDateTime.now());
+        user.setLastActiveAt(LocalDateTime.now());
         userRepository.save(user);
 
         String accessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());

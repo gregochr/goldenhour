@@ -460,4 +460,78 @@ class ModelTestServiceTest {
         assertThat(result.getFailed()).isEqualTo(3);
         verify(evaluationService, never()).evaluateWithDetails(any(), any(), any());
     }
+
+    // --- rerunTest tests ---
+
+    @Test
+    @DisplayName("rerunTest re-runs previous test locations with fresh data")
+    void rerunTest_success() {
+        RegionEntity r = region(1L, "North East");
+        LocationEntity loc = location(1L, "Durham", r, Set.of(LocationType.LANDSCAPE));
+        AtmosphericData data = sampleAtmosphericData();
+
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder().id(10L).build();
+        ModelTestResultEntity prevResult = ModelTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .regionId(1L).regionName("North East")
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true).build();
+
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of(prevResult,
+                        ModelTestResultEntity.builder().testRunId(10L).locationId(1L)
+                                .locationName("Durham").regionId(1L).regionName("North East")
+                                .evaluationModel(EvaluationModel.SONNET).succeeded(true).build(),
+                        ModelTestResultEntity.builder().testRunId(10L).locationId(1L)
+                                .locationName("Durham").regionId(1L).regionName("North East")
+                                .evaluationModel(EvaluationModel.OPUS).succeeded(true).build()));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(20L);
+            }
+            return e;
+        });
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+        when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
+        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
+                .thenReturn(50);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ModelTestRunEntity result = service.rerunTest(10L);
+
+        assertThat(result.getRegionsCount()).isEqualTo(1);
+        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getFailed()).isEqualTo(0);
+        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+    }
+
+    @Test
+    @DisplayName("rerunTest throws NoSuchElementException for unknown run")
+    void rerunTest_runNotFound() {
+        when(testRunRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rerunTest(99L))
+                .isInstanceOf(NoSuchElementException.class)
+                .hasMessageContaining("Test run not found: 99");
+    }
+
+    @Test
+    @DisplayName("rerunTest throws NoSuchElementException when previous run has no results")
+    void rerunTest_noResults() {
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder().id(10L).build();
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.rerunTest(10L))
+                .isInstanceOf(NoSuchElementException.class)
+                .hasMessageContaining("No results found");
+    }
 }

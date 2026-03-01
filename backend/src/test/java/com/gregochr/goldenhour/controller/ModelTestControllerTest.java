@@ -182,4 +182,38 @@ class ModelTestControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
     }
+
+    // --- rerun endpoint tests ---
+
+    @Test
+    @DisplayName("POST /api/model-test/rerun returns test run for ADMIN")
+    @WithMockUser(roles = "ADMIN")
+    void rerunTest_returnsRunForAdmin() throws Exception {
+        ModelTestRunEntity run = ModelTestRunEntity.builder()
+                .id(2L)
+                .startedAt(LocalDateTime.now())
+                .targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET)
+                .regionsCount(1)
+                .succeeded(3)
+                .failed(0)
+                .totalCostPence(150)
+                .build();
+        when(modelTestService.rerunTest(1L)).thenReturn(run);
+
+        mockMvc.perform(post("/api/model-test/rerun?testRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(2))
+                .andExpect(jsonPath("$.succeeded").value(3));
+    }
+
+    @Test
+    @DisplayName("POST /api/model-test/rerun requires ADMIN role")
+    @WithMockUser(roles = "PRO_USER")
+    void rerunTest_requiresAdminRole() throws Exception {
+        mockMvc.perform(post("/api/model-test/rerun?testRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
 }

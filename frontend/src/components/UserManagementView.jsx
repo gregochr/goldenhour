@@ -171,7 +171,7 @@ export default function UserManagementView() {
     email: (u) => u.email || '',
     role: (u) => u.role,
     created: (u) => u.createdAt || '',
-    lastLogin: (u) => u.lastLoginAt || '',
+    lastActive: (u) => u.lastActiveAt || '',
     status: (u) => u.enabled ? 'Enabled' : 'Disabled',
   }), []);
 
@@ -409,7 +409,7 @@ export default function UserManagementView() {
                     <SortableHeader label="Email" sortKey="email" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
                     <SortableHeader label="Role" sortKey="role" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
                     <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
-                    <SortableHeader label="Last Login" sortKey="lastLogin" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastLogin')} onFilter={(v) => sf.setFilter('lastLogin', v)} />
+                    <SortableHeader label="Last Active" sortKey="lastActive" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
                     <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
                     <th className="pb-1 font-medium align-top">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
@@ -435,7 +435,7 @@ export default function UserManagementView() {
                         {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
                       </td>
                       <td className="py-2 text-plex-text-muted text-xs">
-                        {user.lastLoginAt ? user.lastLoginAt.slice(0, 16).replace('T', ' ') : 'Never'}
+                        {user.lastActiveAt ? user.lastActiveAt.slice(0, 16).replace('T', ' ') : 'Never'}
                       </td>
                       <td className="py-2">
                         <button

@@ -18,7 +18,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment)
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Opus optimisation gate — very-short-term runs skip slots with prior rating < 3 stars, avoiding wasted spend
-- Model comparison test harness — A/B/C runs Haiku, Sonnet, and Opus against identical data for side-by-side evaluation
+- Model comparison test harness — A/B/C runs Haiku, Sonnet, and Opus against identical data for side-by-side evaluation; single-location test and re-run support for variance testing
 - Stores every evaluation so you can track how the forecast converges as the date approaches
 - Outcome recording — log whether you went out and your actual rating; builds an accuracy feedback loop
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA
@@ -28,6 +28,8 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Job run metrics with cost tracking and per-location failure detection
 - Resilient API calls with exponential backoff retry and dead-letter mechanism for persistent failures
 - Geographic regions for location grouping
+- Star rating filter chips on map — toggle any permutation of 1-5 stars to show only matching locations
+- Last-active tracking — updated on every authenticated request (throttled to once per hour)
 - Backend health indicator in header (ADMIN), session expiry warnings
 
 ---
@@ -41,7 +43,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 | Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v1.2.0 (GitHub Packages) |
 | Weather data | Open-Meteo Forecast + Air Quality / CAMS APIs (free, no key) |
 | Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
-| Database | H2 file database + Flyway migrations (V1-V35) |
+| Database | H2 file database + Flyway migrations (V1-V37) |
 | Security | Spring Security 6, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
 | Frontend | React 18, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
@@ -209,6 +211,8 @@ Users can self-register at the login page — email verification is required, an
 | `GET` | `/api/models` | Bearer | Available models and per-run-type active models |
 | `PUT` | `/api/models/active` | ADMIN | Set active model for a run type |
 | `POST` | `/api/model-test/run` | ADMIN | Trigger A/B/C model comparison test |
+| `POST` | `/api/model-test/run-location` | ADMIN | Test a single location with all 3 models |
+| `POST` | `/api/model-test/rerun` | ADMIN | Re-run a previous test with fresh data |
 | `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs |
 | `GET` | `/api/model-test/results` | ADMIN | Results for a specific test run |
 
@@ -217,7 +221,7 @@ Users can self-register at the login page — email verification is required, an
 ## Running tests
 
 ```bash
-# Backend (JUnit 5, 479 tests, >=80% coverage enforced by JaCoCo)
+# Backend (JUnit 5, 497 tests, >=80% coverage enforced by JaCoCo)
 cd backend && ./mvnw clean verify
 
 # Frontend component tests (Vitest, 57 tests)

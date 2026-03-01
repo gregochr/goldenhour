@@ -54,6 +54,11 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - `EvaluationDetail` record and `evaluateWithDetails()` method for full prompt/response transparency
   - Admin UI: "Model Test" tab in ManageView with comparison grid and delta indicators from Haiku baseline
   - Styled confirmation dialogs replace `window.confirm()` across Job Runs and Model Test views
+  - Single-location test: `POST /run-location?locationId=X` with location picker modal
+  - Re-run previous test: `POST /rerun?testRunId=X` with same locations, fresh data
+  - Run row toggle: click expanded run to collapse
+- **Star rating filter** ✓ — 5 toggle chips (1★–5★) on the map filter bar; any permutation selectable; AND-ed with location type filters
+- **Last active tracking** ✓ — `lastActiveAt` column (V37) updated on every authenticated API request, throttled to once per hour; replaces login-only `lastLoginAt`
 - **Self-registration with email verification** ✓ — users sign up with email + username, verify via emailed link, set their own password
   - V33: `email_verification_token` table + unique email index on `app_user`
   - Multi-step RegisterPage: register → check email → verify → set password → auto-login
@@ -190,6 +195,8 @@ jwt:
 | V33 | `email_verification_token` table + unique email index on `app_user` |
 | V34 | `model_test_run` + `model_test_result` tables — A/B/C model comparison testing |
 | V35 | `marketing_email_opt_in` on `app_user` — marketing email preference (default TRUE) |
+| V36 | `last_login_at` column on `app_user` — user login timestamp |
+| V37 | Rename `last_login_at` → `last_active_at` on `app_user` — throttled activity tracking |
 
 ---
 
@@ -237,6 +244,8 @@ jwt:
 | `PUT` | `/api/models/active` | ADMIN | Set active model for a run type (`runType` + `model`) |
 | `PUT` | `/api/locations/{name}/reset-failures` | ADMIN | Re-enable auto-disabled location |
 | `POST` | `/api/model-test/run` | ADMIN | Trigger A/B/C model comparison test across all regions |
+| `POST` | `/api/model-test/run-location` | ADMIN | Test a single location with all 3 models (`locationId` param) |
+| `POST` | `/api/model-test/rerun` | ADMIN | Re-run a previous test with same locations, fresh data (`testRunId` param) |
 | `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs (last 20) |
 | `GET` | `/api/model-test/results` | ADMIN | Results for a test run (`testRunId` param) |
 | `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
@@ -465,7 +474,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 479 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 497 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```

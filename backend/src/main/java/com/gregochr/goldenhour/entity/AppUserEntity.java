@@ -77,9 +77,9 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "marketing_email_opt_in", nullable = false)
     private boolean marketingEmailOptIn = true;
 
-    /** Timestamp of the user's most recent successful login. */
-    @Column(name = "last_login_at")
-    private LocalDateTime lastLoginAt;
+    /** Timestamp of the user's most recent activity (updated at most once per hour). */
+    @Column(name = "last_active_at")
+    private LocalDateTime lastActiveAt;
 
     /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.

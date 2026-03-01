@@ -34,6 +34,16 @@ export const runModelTestForLocation = (locationId) => {
 };
 
 /**
+ * Re-runs a previous model test using the same locations but fresh data.
+ *
+ * @param {number} testRunId - Previous test run ID to re-run
+ * @returns {Promise} Response with the completed new test run
+ */
+export const rerunModelTest = (testRunId) => {
+  return axios.post(`/api/model-test/rerun?testRunId=${testRunId}`);
+};
+
+/**
  * Fetch results for a specific model test run.
  *
  * @param {number} testRunId - Test run ID
