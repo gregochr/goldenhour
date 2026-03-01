@@ -218,6 +218,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [geocodeResult, setGeocodeResult] = useState(null);
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeError, setGeocodeError] = useState('');
+  const [manualEntry, setManualEntry] = useState(false);
+  const [manualName, setManualName] = useState('');
+  const [manualLat, setManualLat] = useState('');
+  const [manualLon, setManualLon] = useState('');
   const [addGoldenHourType, setAddGoldenHourType] = useState('BOTH_TIMES');
   const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
   const [addTideType, setAddTideType] = useState('NOT_COASTAL');
@@ -268,6 +272,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setPlaceName('');
     setGeocodeResult(null);
     setGeocodeError('');
+    setManualEntry(false);
+    setManualName('');
+    setManualLat('');
+    setManualLon('');
     setAddGoldenHourType('BOTH_TIMES');
     setAddLocationType('LANDSCAPE');
     setAddTideType('NOT_COASTAL');
@@ -311,17 +319,37 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   function handleAddReviewConfirm() {
-    if (!geocodeResult) return;
-    setConfirmData({
-      mode: 'add',
-      name: placeName.trim(),
-      lat: geocodeResult.lat,
-      lon: geocodeResult.lon,
-      displayName: geocodeResult.displayName,
-      goldenHourType: addGoldenHourType,
-      locationType: addLocationType,
-      tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
-    });
+    if (manualEntry) {
+      const trimmedName = manualName.trim();
+      const lat = parseFloat(manualLat);
+      const lon = parseFloat(manualLon);
+      if (!trimmedName) { setError('Name is required.'); return; }
+      if (isNaN(lat) || lat < -90 || lat > 90) { setError('Latitude must be between -90 and 90.'); return; }
+      if (isNaN(lon) || lon < -180 || lon > 180) { setError('Longitude must be between -180 and 180.'); return; }
+      setError('');
+      setConfirmData({
+        mode: 'add',
+        name: trimmedName,
+        lat,
+        lon,
+        displayName: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+        goldenHourType: addGoldenHourType,
+        locationType: addLocationType,
+        tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+      });
+    } else {
+      if (!geocodeResult) return;
+      setConfirmData({
+        mode: 'add',
+        name: placeName.trim(),
+        lat: geocodeResult.lat,
+        lon: geocodeResult.lon,
+        displayName: geocodeResult.displayName,
+        goldenHourType: addGoldenHourType,
+        locationType: addLocationType,
+        tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+      });
+    }
   }
 
   function handleEditReviewConfirm() {
@@ -528,40 +556,107 @@ export default function LocationManagementView({ onLocationsChanged }) {
         <div className="flex flex-col gap-4">
           <p className="text-sm font-semibold text-plex-text">Add New Location</p>
 
-          <div>
-            <label htmlFor="place-name" className={labelClass}>Place name</label>
-            <div className="flex gap-2">
-              <input
-                id="place-name"
-                type="text"
-                className="flex-1 bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-                placeholder="e.g. Bamburgh, Northumberland"
-                value={placeName}
-                onChange={(e) => setPlaceName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleGeocode(); }}
-                data-testid="place-name-input"
-              />
-              <button
-                className="btn-secondary text-xs shrink-0"
-                onClick={handleGeocode}
-                disabled={geocoding}
-                data-testid="geocode-btn"
-              >
-                {geocoding ? 'Looking up...' : 'Look up'}
-              </button>
-            </div>
-          </div>
+          {!manualEntry && (
+            <>
+              <div>
+                <label htmlFor="place-name" className={labelClass}>Place name</label>
+                <div className="flex gap-2">
+                  <input
+                    id="place-name"
+                    type="text"
+                    className="flex-1 bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                    placeholder="e.g. Bamburgh, Northumberland"
+                    value={placeName}
+                    onChange={(e) => setPlaceName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleGeocode(); }}
+                    data-testid="place-name-input"
+                  />
+                  <button
+                    className="btn-secondary text-xs shrink-0"
+                    onClick={handleGeocode}
+                    disabled={geocoding}
+                    data-testid="geocode-btn"
+                  >
+                    {geocoding ? 'Looking up...' : 'Look up'}
+                  </button>
+                </div>
+              </div>
 
-          {geocodeError && (
-            <p className="text-xs text-red-400">{geocodeError}</p>
+              {geocodeError && (
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs text-red-400">{geocodeError}</p>
+                  <button
+                    type="button"
+                    className="text-xs text-plex-gold hover:text-plex-text self-start"
+                    onClick={() => { setManualEntry(true); setManualName(placeName.trim()); setGeocodeError(''); }}
+                    data-testid="manual-entry-btn"
+                  >
+                    Enter coordinates manually
+                  </button>
+                </div>
+              )}
+
+              {geocodeResult && (
+                <div className="bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-xs text-plex-text-secondary">
+                  <p className="font-medium text-plex-text">
+                    {geocodeResult.lat.toFixed(4)}, {geocodeResult.lon.toFixed(4)}
+                  </p>
+                  <p className="mt-0.5">{geocodeResult.displayName}</p>
+                </div>
+              )}
+            </>
           )}
 
-          {geocodeResult && (
-            <div className="bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-xs text-plex-text-secondary">
-              <p className="font-medium text-plex-text">
-                {geocodeResult.lat.toFixed(4)}, {geocodeResult.lon.toFixed(4)}
-              </p>
-              <p className="mt-0.5">{geocodeResult.displayName}</p>
+          {manualEntry && (
+            <div className="flex flex-col gap-3">
+              <div>
+                <label htmlFor="manual-name" className={labelClass}>Name</label>
+                <input
+                  id="manual-name"
+                  type="text"
+                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  placeholder="e.g. Bamburgh Castle"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  data-testid="manual-name-input"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="manual-lat" className={labelClass}>Latitude</label>
+                  <input
+                    id="manual-lat"
+                    type="number"
+                    step="any"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                    placeholder="e.g. 55.6089"
+                    value={manualLat}
+                    onChange={(e) => setManualLat(e.target.value)}
+                    data-testid="manual-lat-input"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="manual-lon" className={labelClass}>Longitude</label>
+                  <input
+                    id="manual-lon"
+                    type="number"
+                    step="any"
+                    className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                    placeholder="e.g. -1.7099"
+                    value={manualLon}
+                    onChange={(e) => setManualLon(e.target.value)}
+                    data-testid="manual-lon-input"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                className="text-xs text-plex-gold hover:text-plex-text self-start"
+                onClick={() => { setManualEntry(false); setError(''); }}
+                data-testid="back-to-geocode-btn"
+              >
+                Back to place lookup
+              </button>
             </div>
           )}
 
@@ -620,7 +715,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             <button
               className="btn-primary text-sm"
               onClick={handleAddReviewConfirm}
-              disabled={!geocodeResult}
+              disabled={manualEntry ? (!manualName.trim() || !manualLat || !manualLon) : !geocodeResult}
               data-testid="review-confirm-btn"
             >
               Review & Confirm
