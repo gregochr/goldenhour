@@ -42,10 +42,7 @@ management:
         include: health
   endpoint:
     health:
-      show-details: when-authorized
-  health:
-    mail:
-      enabled: false
+      show-details: always
 
 anthropic:
   api-key: ${ANTHROPIC_API_KEY}

@@ -56,7 +56,7 @@ function AuthGate() {
 function AppInner() {
   const { isAdmin, logout, sessionDaysRemaining } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
-  const { status: healthStatus, checkedAt: healthCheckedAt } = useHealthStatus();
+  const { status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt } = useHealthStatus();
   const [viewMode, setViewMode] = useState('map');
   const [selectedDate, setSelectedDate] = useState(null);
 
@@ -89,7 +89,7 @@ function AppInner() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {isAdmin && <HealthIndicator status={healthStatus} checkedAt={healthCheckedAt} />}
+            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} />}
             <button
               className="btn-secondary text-xs"
               onClick={logout}
