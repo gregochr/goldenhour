@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.JobRunService;
 
@@ -246,6 +247,65 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                         "POST", "https://api.anthropic.com/v1/messages", null,
                         durationMs, statusCode, errorMessage, false, errorMessage, getEvaluationModel(),
                         data.solarEventTime().toLocalDate(), data.targetType());
+            }
+
+            throw e;
+        }
+    }
+
+    /**
+     * Evaluates the colour potential and returns the full detail including the prompt
+     * sent and raw response text, for model comparison tests.
+     *
+     * @param data   the atmospheric forecast data to evaluate
+     * @param jobRun the parent job run for metrics tracking, or {@code null}
+     * @return full evaluation detail including prompt and raw response
+     */
+    public EvaluationDetail evaluateWithDetails(AtmosphericData data, JobRunEntity jobRun) {
+        LOG.info("Anthropic ({}) [detailed] <- {} {} {}", getModelName(),
+                data.locationName(), data.targetType(), data.solarEventTime().toLocalDate());
+        long startMs = System.currentTimeMillis();
+        String userMessage = buildUserMessage(data);
+
+        try {
+            Message response = invokeClaudeWithRetry(data);
+
+            String text = response.content().stream()
+                    .filter(ContentBlock::isText)
+                    .map(ContentBlock::asText)
+                    .map(TextBlock::text)
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
+
+            SunsetEvaluation result = parseEvaluation(text, objectMapper);
+            long durationMs = System.currentTimeMillis() - startMs;
+
+            LOG.info("Anthropic -> {} {}: rating={}/5 fiery={}/100 golden={}/100 ({}ms)",
+                    data.locationName(), data.targetType(),
+                    result.rating(), result.fierySkyPotential(),
+                    result.goldenHourPotential(), durationMs);
+
+            if (jobRun != null && jobRunService != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
+                        "POST", "https://api.anthropic.com/v1/messages", null,
+                        durationMs, 200, null, true, null, getEvaluationModel(),
+                        data.solarEventTime().toLocalDate(), data.targetType());
+            }
+
+            return new EvaluationDetail(result, userMessage, text, durationMs);
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            int statusCode = 500;
+            if (e instanceof AnthropicServiceException serviceEx) {
+                statusCode = serviceEx.statusCode();
+            }
+
+            LOG.error("Anthropic evaluation failed: {}", e.getMessage(), e);
+            if (jobRun != null && jobRunService != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
+                        "POST", "https://api.anthropic.com/v1/messages", null,
+                        durationMs, statusCode, e.getMessage(), false, e.getMessage(),
+                        getEvaluationModel(), data.solarEventTime().toLocalDate(), data.targetType());
             }
 
             throw e;

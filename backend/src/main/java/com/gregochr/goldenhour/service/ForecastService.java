@@ -255,7 +255,7 @@ public class ForecastService {
      * @param tideTypes   tide preferences for this location (empty if inland)
      * @return a new {@link AtmosphericData} with tide fields populated where applicable
      */
-    private AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
+    AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
             LocalDateTime eventTime, java.util.Set<TideType> tideTypes) {
         TideData tideData = null;
         Boolean tideAligned = null;

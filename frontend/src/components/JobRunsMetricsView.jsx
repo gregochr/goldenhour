@@ -27,6 +27,7 @@ const JobRunsMetricsView = () => {
   const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runningTide, setRunningTide] = useState(false);
   const [runStatus, setRunStatus] = useState(null); // { type: 'success'|'error', message: string }
+  const [confirmDialog, setConfirmDialog] = useState(null);
   const PAGE_SIZE = 20;
 
   const loadJobRuns = useCallback(async (pageNum) => {
@@ -75,72 +76,96 @@ const JobRunsMetricsView = () => {
 
   const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide;
 
-  const handleRunVeryShortTerm = async () => {
-    if (!window.confirm('Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
-      return;
-    }
-    setRunningVeryShortTerm(true);
-    setRunStatus(null);
-    try {
-      const result = await runVeryShortTermForecast();
-      setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
-      setTimeout(() => loadJobRuns(0), 3000);
-    } catch {
-      setRunStatus({ type: 'error', message: 'Very-short-term run failed. Check the logs.' });
-    } finally {
-      setRunningVeryShortTerm(false);
-    }
+  const handleRunVeryShortTerm = () => {
+    setConfirmDialog({
+      title: 'Run Very-Short-Term Forecast',
+      message: 'Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+      confirmLabel: 'Run',
+      destructive: false,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRunningVeryShortTerm(true);
+        setRunStatus(null);
+        try {
+          const result = await runVeryShortTermForecast();
+          setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+          setTimeout(() => loadJobRuns(0), 3000);
+        } catch {
+          setRunStatus({ type: 'error', message: 'Very-short-term run failed. Check the logs.' });
+        } finally {
+          setRunningVeryShortTerm(false);
+        }
+      },
+    });
   };
 
-  const handleRunShortTerm = async () => {
-    if (!window.confirm('Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
-      return;
-    }
-    setRunningShortTerm(true);
-    setRunStatus(null);
-    try {
-      const result = await runShortTermForecast();
-      setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
-      setTimeout(() => loadJobRuns(0), 3000);
-    } catch {
-      setRunStatus({ type: 'error', message: 'Short-term run failed. Check the logs.' });
-    } finally {
-      setRunningShortTerm(false);
-    }
+  const handleRunShortTerm = () => {
+    setConfirmDialog({
+      title: 'Run Short-Term Forecast',
+      message: 'Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+      confirmLabel: 'Run',
+      destructive: false,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRunningShortTerm(true);
+        setRunStatus(null);
+        try {
+          const result = await runShortTermForecast();
+          setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+          setTimeout(() => loadJobRuns(0), 3000);
+        } catch {
+          setRunStatus({ type: 'error', message: 'Short-term run failed. Check the logs.' });
+        } finally {
+          setRunningShortTerm(false);
+        }
+      },
+    });
   };
 
-  const handleRunLongTerm = async () => {
-    if (!window.confirm('Run long-term forecast (T+3 through T+5)? This will trigger API calls to Open-Meteo and Claude (may incur costs).')) {
-      return;
-    }
-    setRunningLongTerm(true);
-    setRunStatus(null);
-    try {
-      const result = await runLongTermForecast();
-      setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
-      setTimeout(() => loadJobRuns(0), 3000);
-    } catch {
-      setRunStatus({ type: 'error', message: 'Long-term run failed. Check the logs.' });
-    } finally {
-      setRunningLongTerm(false);
-    }
+  const handleRunLongTerm = () => {
+    setConfirmDialog({
+      title: 'Run Long-Term Forecast',
+      message: 'Run long-term forecast (T+3 through T+5)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+      confirmLabel: 'Run',
+      destructive: false,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRunningLongTerm(true);
+        setRunStatus(null);
+        try {
+          const result = await runLongTermForecast();
+          setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+          setTimeout(() => loadJobRuns(0), 3000);
+        } catch {
+          setRunStatus({ type: 'error', message: 'Long-term run failed. Check the logs.' });
+        } finally {
+          setRunningLongTerm(false);
+        }
+      },
+    });
   };
 
-  const handleRefreshTide = async () => {
-    if (!window.confirm('Refresh tide data for all coastal locations? This will call the WorldTides API.')) {
-      return;
-    }
-    setRunningTide(true);
-    setRunStatus(null);
-    try {
-      const result = await refreshTideData();
-      setRunStatus({ type: 'success', message: result.status || 'Tide refresh started.' });
-      setTimeout(() => loadJobRuns(0), 3000);
-    } catch {
-      setRunStatus({ type: 'error', message: 'Tide refresh failed. Check the logs.' });
-    } finally {
-      setRunningTide(false);
-    }
+  const handleRefreshTide = () => {
+    setConfirmDialog({
+      title: 'Refresh Tide Data',
+      message: 'Refresh tide data for all coastal locations? This will call the WorldTides API.',
+      confirmLabel: 'Refresh',
+      destructive: false,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRunningTide(true);
+        setRunStatus(null);
+        try {
+          const result = await refreshTideData();
+          setRunStatus({ type: 'success', message: result.status || 'Tide refresh started.' });
+          setTimeout(() => loadJobRuns(0), 3000);
+        } catch {
+          setRunStatus({ type: 'error', message: 'Tide refresh failed. Check the logs.' });
+        } finally {
+          setRunningTide(false);
+        }
+      },
+    });
   };
 
   return (
@@ -236,6 +261,42 @@ const JobRunsMetricsView = () => {
       {runs.length === 0 && !loading && (
         <div className="bg-plex-surface rounded-lg p-8 text-center border border-plex-border">
           <p className="text-plex-text-muted">No job runs available</p>
+        </div>
+      )}
+
+      {/* Styled confirmation dialog */}
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label={confirmDialog.title}
+          data-testid="confirm-dialog"
+        >
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
+            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setConfirmDialog(null)}
+                data-testid="confirm-dialog-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                className={`text-sm px-4 py-1.5 rounded font-medium ${
+                  confirmDialog.destructive
+                    ? 'bg-red-700 hover:bg-red-600 text-white'
+                    : 'btn-primary'
+                }`}
+                onClick={confirmDialog.onConfirm}
+                data-testid="confirm-dialog-confirm"
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

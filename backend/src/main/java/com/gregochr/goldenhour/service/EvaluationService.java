@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
@@ -68,6 +69,29 @@ public class EvaluationService {
             case OPUS -> opusStrategy.evaluate(data, jobRun);
             case WILDLIFE -> noOpStrategy.evaluate(data, jobRun);
             case SONNET -> sonnetStrategy.evaluate(data, jobRun);
+        };
+    }
+
+    /**
+     * Evaluates the colour potential and returns full detail including prompt and raw response.
+     *
+     * <p>Used by model comparison tests to capture exact inputs/outputs for side-by-side analysis.
+     * Only supports Claude-based models (HAIKU, SONNET, OPUS); WILDLIFE is not supported.
+     *
+     * @param data   the atmospheric forecast data to evaluate
+     * @param model  which Claude model to use (HAIKU, SONNET, or OPUS)
+     * @param jobRun the parent job run for metrics tracking, or {@code null}
+     * @return full evaluation detail including prompt and raw response
+     * @throws IllegalArgumentException if model is WILDLIFE
+     */
+    public EvaluationDetail evaluateWithDetails(AtmosphericData data, EvaluationModel model,
+            JobRunEntity jobRun) {
+        return switch (model) {
+            case HAIKU -> haikuStrategy.evaluateWithDetails(data, jobRun);
+            case SONNET -> sonnetStrategy.evaluateWithDetails(data, jobRun);
+            case OPUS -> opusStrategy.evaluateWithDetails(data, jobRun);
+            case WILDLIFE -> throw new IllegalArgumentException(
+                    "evaluateWithDetails not supported for WILDLIFE model");
         };
     }
 }
