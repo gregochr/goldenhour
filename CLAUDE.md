@@ -48,6 +48,12 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - `application-prod.yml` with Flyway enabled, production Spring config
   - Automated daily backups via cron (keeps last 7 backups)
   - CloudFlare Tunnel exposure without opening router ports
+- **Model comparison test harness** ✓ — A/B/C test runs Haiku, Sonnet, and Opus against identical atmospheric data for one location per region
+  - `model_test_run` + `model_test_result` tables (V34)
+  - `ModelTestService` orchestrates region selection, single weather fetch, triple evaluation with prompt/response capture
+  - `EvaluationDetail` record and `evaluateWithDetails()` method for full prompt/response transparency
+  - Admin UI: "Model Test" tab in ManageView with comparison grid and delta indicators from Haiku baseline
+  - Styled confirmation dialogs replace `window.confirm()` across Job Runs and Model Test views
 
 ---
 
@@ -58,20 +64,20 @@ goldenhour/
 ├── backend/               Spring Boot 3 app (port 8082 local)
 │   ├── src/main/java/com/gregochr/goldenhour/
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties
-│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
-│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository
-│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, evaluation/, notification/
-│   │   └── model/         AtmosphericData, SunsetEvaluation, etc.
+│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
+│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository
+│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, ModelTestService, evaluation/, notification/
+│   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V29 Flyway migrations
+│       └── db/migration/            V1–V34 Flyway migrations
 ├── frontend/              React 18 + Vite (port 5173)
 │   └── src/
-│       ├── api/           authApi.js, forecastApi.js, modelsApi.js (global axios interceptors)
+│       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
 │       ├── components/    LoginPage, ChangePasswordPage, ManageView, MapView, ForecastTimeline, ...
 │       └── context/       AuthContext.jsx
 └── CLAUDE.md
@@ -167,6 +173,11 @@ jwt:
 | V27 | `email VARCHAR(255)` (nullable) on `app_user` |
 | V28 | `config_type` on `model_selection` — per-run-type model configuration (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM) |
 | V29 | Rename `job_name` → `run_type` + add `evaluation_model` on `job_run`; rename `config_type` → `run_type` on `model_selection`; drop `JobName`/`ModelConfigType` enums |
+| V30 | `enabled` column on `locations` |
+| V31 | `regions` table — geographic grouping for locations |
+| V32 | `region_id` FK on `locations` |
+| V33 | `email_verification_token` table + unique email index on `app_user` |
+| V34 | `model_test_run` + `model_test_result` tables — A/B/C model comparison testing |
 
 ---
 
@@ -208,6 +219,9 @@ jwt:
 | `GET` | `/api/models` | Bearer | Available models and per-run-type active models |
 | `PUT` | `/api/models/active` | ADMIN | Set active model for a run type (`runType` + `model`) |
 | `PUT` | `/api/locations/{name}/reset-failures` | ADMIN | Re-enable auto-disabled location |
+| `POST` | `/api/model-test/run` | ADMIN | Trigger A/B/C model comparison test across all regions |
+| `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs (last 20) |
+| `GET` | `/api/model-test/results` | ADMIN | Results for a test run (`testRunId` param) |
 | `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
 | `POST` | `/api/push/subscribe` | Bearer | Save a push subscription |
 | `DELETE` | `/api/push/subscribe` | Bearer | Remove a push subscription |
@@ -378,7 +392,7 @@ Track performance of scheduled forecast runs and external API calls, stored in H
 - Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
 - Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 357 backend tests, all passing with ≥80% JaCoCo coverage
+- 467 backend tests, all passing with ≥80% JaCoCo coverage
 
 ### 9. Retry Robustness ✓ BUILT
 
@@ -429,7 +443,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 357 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 467 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
