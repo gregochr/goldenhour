@@ -74,7 +74,7 @@ class ForecastCommandFactoryTest {
     }
 
     @Test
-    @DisplayName("create(LONG_TERM) resolves Opus strategy and dates T+3 through T+7")
+    @DisplayName("create(LONG_TERM) resolves Opus strategy and dates T+3 through T+5")
     void create_longTerm_resolvesOpusAndLongDates() {
         when(modelSelectionService.getActiveModel(RunType.LONG_TERM))
                 .thenReturn(EvaluationModel.OPUS);
@@ -83,7 +83,7 @@ class ForecastCommandFactoryTest {
 
         assertThat(cmd.runType()).isEqualTo(RunType.LONG_TERM);
         assertThat(cmd.strategy()).isSameAs(opusStrategy);
-        assertThat(cmd.dates()).hasSize(5); // T+3, T+4, T+5, T+6, T+7
+        assertThat(cmd.dates()).hasSize(3); // T+3, T+4, T+5
     }
 
     @Test
@@ -93,7 +93,7 @@ class ForecastCommandFactoryTest {
 
         assertThat(cmd.runType()).isEqualTo(RunType.WEATHER);
         assertThat(cmd.strategy()).isSameAs(noOpStrategy);
-        assertThat(cmd.dates()).hasSize(8); // T through T+7
+        assertThat(cmd.dates()).hasSize(6); // T through T+5
     }
 
     @Test
@@ -103,7 +103,7 @@ class ForecastCommandFactoryTest {
 
         assertThat(cmd.runType()).isEqualTo(RunType.TIDE);
         assertThat(cmd.strategy()).isNull();
-        assertThat(cmd.dates()).hasSize(8);
+        assertThat(cmd.dates()).hasSize(6);
     }
 
     @Test
