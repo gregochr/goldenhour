@@ -87,23 +87,56 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
   const turnstileRef = useRef(null);
   const turnstileWidgetId = useRef(null);
 
-  // Render Turnstile widget when on REGISTER step
+  // Render Turnstile widget when on REGISTER step.
+  // The script loads async/defer, so poll until window.turnstile is available.
   useEffect(() => {
     if (step !== STEPS.REGISTER || !turnstileRef.current) return;
-    if (typeof window.turnstile === 'undefined') return;
-    // Clean up previous widget if re-rendering
-    if (turnstileWidgetId.current != null) {
-      window.turnstile.remove(turnstileWidgetId.current);
-    }
-    turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
-      sitekey: '0x4AAAAAABb1234MKu3B4bPj',
-      theme: 'dark',
-      callback: (token) => setTurnstileToken(token),
-      'expired-callback': () => setTurnstileToken(''),
-      'error-callback': () => setTurnstileToken(''),
-    });
-    return () => {
+
+    let cancelled = false;
+
+    function renderWidget() {
+      if (cancelled || !turnstileRef.current) return;
       if (turnstileWidgetId.current != null) {
+        window.turnstile.remove(turnstileWidgetId.current);
+      }
+      turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
+        sitekey: '0x4AAAAAABb1234MKu3B4bPj',
+        theme: 'dark',
+        callback: (token) => setTurnstileToken(token),
+        'expired-callback': () => setTurnstileToken(''),
+        'error-callback': () => setTurnstileToken(''),
+      });
+    }
+
+    if (typeof window.turnstile !== 'undefined') {
+      renderWidget();
+    } else {
+      // Poll every 200ms for up to 10s until the script loads
+      let elapsed = 0;
+      const interval = setInterval(() => {
+        elapsed += 200;
+        if (typeof window.turnstile !== 'undefined') {
+          clearInterval(interval);
+          renderWidget();
+        } else if (elapsed >= 10000) {
+          clearInterval(interval);
+        }
+      }, 200);
+      // Clean up interval on unmount
+      const cleanup = () => clearInterval(interval);
+      return () => {
+        cancelled = true;
+        cleanup();
+        if (turnstileWidgetId.current != null && window.turnstile) {
+          window.turnstile.remove(turnstileWidgetId.current);
+          turnstileWidgetId.current = null;
+        }
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      if (turnstileWidgetId.current != null && window.turnstile) {
         window.turnstile.remove(turnstileWidgetId.current);
         turnstileWidgetId.current = null;
       }
