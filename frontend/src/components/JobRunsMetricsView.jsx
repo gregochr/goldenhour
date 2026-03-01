@@ -1,9 +1,91 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData } from '../api/forecastApi';
+import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, fetchLocations } from '../api/forecastApi';
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
+
+/** Returns true if the location has LANDSCAPE or SEASCAPE (or no types — defaults to colour). */
+function hasColourTypes(loc) {
+  const types = loc.locationType || [];
+  if (types.length === 0) return true;
+  return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+}
+
+/** Returns true if the location is pure-wildlife only (WILDLIFE but no colour types). */
+function isPureWildlife(loc) {
+  const types = loc.locationType || [];
+  return types.includes('WILDLIFE') && !types.includes('LANDSCAPE') && !types.includes('SEASCAPE');
+}
+
+/** Returns true if the location is coastal (has a tide type other than NOT_COASTAL). */
+function isCoastal(loc) {
+  const tides = loc.tideType || [];
+  return tides.length > 0 && !tides.every((t) => t === 'NOT_COASTAL');
+}
+
+/**
+ * Filters enabled locations by run type and groups them by region.
+ *
+ * @param {Array} locations - All locations from the API.
+ * @param {string} runType - VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, or TIDE.
+ * @returns {{ groups: Array<{region: string, locations: string[]}>, total: number }}
+ */
+function getLocationSummary(locations, runType) {
+  const enabled = locations.filter((loc) => loc.enabled !== false);
+
+  let filtered;
+  if (runType === 'TIDE') {
+    filtered = enabled.filter(isCoastal);
+  } else if (runType === 'WEATHER') {
+    filtered = enabled.filter(isPureWildlife);
+  } else {
+    filtered = enabled.filter(hasColourTypes);
+  }
+
+  // Group by region name (or "No region")
+  const byRegion = {};
+  for (const loc of filtered) {
+    const regionName = loc.region?.name || 'No region';
+    if (!byRegion[regionName]) byRegion[regionName] = [];
+    byRegion[regionName].push(loc.name);
+  }
+
+  const groups = Object.entries(byRegion)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([region, names]) => ({ region, locations: names.sort() }));
+
+  return { groups, total: filtered.length };
+}
+
+/**
+ * Renders the location summary grouped by region inside a confirmation dialog.
+ */
+function LocationSummary({ groups, total }) {
+  if (total === 0) {
+    return <p className="text-xs text-plex-text-muted italic">No matching locations found.</p>;
+  }
+  return (
+    <div className="max-h-48 overflow-y-auto text-xs space-y-2">
+      {groups.map((g) => (
+        <div key={g.region}>
+          <p className="text-plex-text font-medium">{g.region} ({g.locations.length})</p>
+          <p className="text-plex-text-muted ml-2">{g.locations.join(', ')}</p>
+        </div>
+      ))}
+      <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">{total} location{total !== 1 ? 's' : ''} total</p>
+    </div>
+  );
+}
+
+LocationSummary.propTypes = {
+  groups: PropTypes.arrayOf(PropTypes.shape({
+    region: PropTypes.string.isRequired,
+    locations: PropTypes.arrayOf(PropTypes.string).isRequired,
+  })).isRequired,
+  total: PropTypes.number.isRequired,
+};
 
 /**
  * Main container for job run metrics.
@@ -26,9 +108,15 @@ const JobRunsMetricsView = () => {
   const [runningShortTerm, setRunningShortTerm] = useState(false);
   const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runningTide, setRunningTide] = useState(false);
-  const [runStatus, setRunStatus] = useState(null); // { type: 'success'|'error', message: string }
+  const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [allLocations, setAllLocations] = useState([]);
   const PAGE_SIZE = 20;
+
+  // Load locations once for run summaries
+  useEffect(() => {
+    fetchLocations().then(setAllLocations).catch(() => {});
+  }, []);
 
   const loadJobRuns = useCallback(async (pageNum) => {
     try {
@@ -38,7 +126,6 @@ const JobRunsMetricsView = () => {
 
       if (pageNum === 0) {
         setRuns(newRuns);
-        // Load API calls for all runs to calculate slowest service
         if (newRuns.length > 0) {
           const apiCallPromises = newRuns.map((run) => getApiCalls(run.id));
           try {
@@ -46,7 +133,7 @@ const JobRunsMetricsView = () => {
             const allCalls = apiCallResponses.flatMap((res) => res.data || []);
             setAllApiCalls(allCalls);
           } catch {
-            // Silently ignore API call loading failures; summary will show "No data"
+            // Silently ignore API call loading failures
           }
         } else {
           setAllApiCalls([]);
@@ -76,97 +163,66 @@ const JobRunsMetricsView = () => {
 
   const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide;
 
-  const handleRunVeryShortTerm = () => {
+  const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
+    const summary = getLocationSummary(allLocations, runType);
     setConfirmDialog({
-      title: 'Run Very-Short-Term Forecast',
-      message: 'Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
-      confirmLabel: 'Run',
+      title,
+      message,
+      confirmLabel,
       destructive: false,
+      locationSummary: summary,
       onConfirm: async () => {
         setConfirmDialog(null);
-        setRunningVeryShortTerm(true);
+        setRunning(true);
         setRunStatus(null);
         try {
-          const result = await runVeryShortTermForecast();
-          setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
+          const result = await runFn();
+          setRunStatus({ type: 'success', message: result.status || 'Run started.' });
           setTimeout(() => loadJobRuns(0), 3000);
         } catch {
-          setRunStatus({ type: 'error', message: 'Very-short-term run failed. Check the logs.' });
+          setRunStatus({ type: 'error', message: `${title} failed. Check the logs.` });
         } finally {
-          setRunningVeryShortTerm(false);
+          setRunning(false);
         }
       },
     });
   };
 
-  const handleRunShortTerm = () => {
-    setConfirmDialog({
-      title: 'Run Short-Term Forecast',
-      message: 'Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
-      confirmLabel: 'Run',
-      destructive: false,
-      onConfirm: async () => {
-        setConfirmDialog(null);
-        setRunningShortTerm(true);
-        setRunStatus(null);
-        try {
-          const result = await runShortTermForecast();
-          setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
-          setTimeout(() => loadJobRuns(0), 3000);
-        } catch {
-          setRunStatus({ type: 'error', message: 'Short-term run failed. Check the logs.' });
-        } finally {
-          setRunningShortTerm(false);
-        }
-      },
-    });
-  };
+  const handleRunVeryShortTerm = () => buildConfirmDialog(
+    'VERY_SHORT_TERM',
+    'Run Very-Short-Term Forecast',
+    'Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+    'Run',
+    runVeryShortTermForecast,
+    setRunningVeryShortTerm,
+  );
 
-  const handleRunLongTerm = () => {
-    setConfirmDialog({
-      title: 'Run Long-Term Forecast',
-      message: 'Run long-term forecast (T+3 through T+5)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
-      confirmLabel: 'Run',
-      destructive: false,
-      onConfirm: async () => {
-        setConfirmDialog(null);
-        setRunningLongTerm(true);
-        setRunStatus(null);
-        try {
-          const result = await runLongTermForecast();
-          setRunStatus({ type: 'success', message: result.status || 'Forecast run started.' });
-          setTimeout(() => loadJobRuns(0), 3000);
-        } catch {
-          setRunStatus({ type: 'error', message: 'Long-term run failed. Check the logs.' });
-        } finally {
-          setRunningLongTerm(false);
-        }
-      },
-    });
-  };
+  const handleRunShortTerm = () => buildConfirmDialog(
+    'SHORT_TERM',
+    'Run Short-Term Forecast',
+    'Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+    'Run',
+    runShortTermForecast,
+    setRunningShortTerm,
+  );
 
-  const handleRefreshTide = () => {
-    setConfirmDialog({
-      title: 'Refresh Tide Data',
-      message: 'Refresh tide data for all coastal locations? This will call the WorldTides API.',
-      confirmLabel: 'Refresh',
-      destructive: false,
-      onConfirm: async () => {
-        setConfirmDialog(null);
-        setRunningTide(true);
-        setRunStatus(null);
-        try {
-          const result = await refreshTideData();
-          setRunStatus({ type: 'success', message: result.status || 'Tide refresh started.' });
-          setTimeout(() => loadJobRuns(0), 3000);
-        } catch {
-          setRunStatus({ type: 'error', message: 'Tide refresh failed. Check the logs.' });
-        } finally {
-          setRunningTide(false);
-        }
-      },
-    });
-  };
+  const handleRunLongTerm = () => buildConfirmDialog(
+    'LONG_TERM',
+    'Run Long-Term Forecast',
+    'Run long-term forecast (T+3 through T+5)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+    'Run',
+    runLongTermForecast,
+    setRunningLongTerm,
+  );
+
+  const handleRefreshTide = () => buildConfirmDialog(
+    'TIDE',
+    'Refresh Tide Data',
+    'Refresh tide data for all coastal locations? This will call the WorldTides API.',
+    'Refresh',
+    refreshTideData,
+    setRunningTide,
+  );
 
   return (
     <div className="space-y-6">
@@ -273,9 +329,15 @@ const JobRunsMetricsView = () => {
           aria-label={confirmDialog.title}
           data-testid="confirm-dialog"
         >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
             <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+            {confirmDialog.locationSummary && (
+              <LocationSummary
+                groups={confirmDialog.locationSummary.groups}
+                total={confirmDialog.locationSummary.total}
+              />
+            )}
             <div className="flex justify-end gap-2">
               <button
                 className="btn-secondary text-sm"
