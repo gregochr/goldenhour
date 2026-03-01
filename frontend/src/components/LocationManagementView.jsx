@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
+import { fetchRegions } from '../api/regionApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
 
 const GOLDEN_HOUR_TYPES = [
@@ -209,6 +210,7 @@ function useSortAndFilter(defaultSortKey, defaultSortDir, accessors) {
  */
 export default function LocationManagementView({ onLocationsChanged }) {
   const [locations, setLocations] = useState([]);
+  const [regions, setRegions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState('list'); // list | add | edit
   const [editingLocation, setEditingLocation] = useState(null);
@@ -225,12 +227,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [addGoldenHourType, setAddGoldenHourType] = useState('BOTH_TIMES');
   const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
   const [addTideType, setAddTideType] = useState('NOT_COASTAL');
+  const [addRegionId, setAddRegionId] = useState('');
 
   // Edit form state
   const [editName, setEditName] = useState('');
   const [editGoldenHourType, setEditGoldenHourType] = useState('BOTH_TIMES');
   const [editLocationType, setEditLocationType] = useState('LANDSCAPE');
   const [editTideType, setEditTideType] = useState('NOT_COASTAL');
+  const [editRegionId, setEditRegionId] = useState('');
 
   // Confirm modal state
   const [confirmData, setConfirmData] = useState(null);
@@ -241,6 +245,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
   const locationAccessors = useMemo(() => ({
     name: (loc) => loc.name,
+    region: (loc) => loc.region?.name || '',
     type: (loc) => formatLocationType(loc.locationType),
     solar: (loc) => formatGoldenHourType(loc.goldenHourType),
     tide: (loc) => formatTideType(loc.tideType),
@@ -262,8 +267,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   useEffect(() => {
-    fetchLocations()
-      .then(setLocations)
+    Promise.all([fetchLocations(), fetchRegions()])
+      .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -279,6 +284,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setAddGoldenHourType('BOTH_TIMES');
     setAddLocationType('LANDSCAPE');
     setAddTideType('NOT_COASTAL');
+    setAddRegionId('');
     setError('');
   }
 
@@ -289,6 +295,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditGoldenHourType(loc.goldenHourType || 'BOTH_TIMES');
     setEditLocationType(firstOrDefault(loc.locationType, 'LANDSCAPE'));
     setEditTideType(firstOrDefault(loc.tideType, 'NOT_COASTAL'));
+    setEditRegionId(loc.region?.id ? String(loc.region.id) : '');
     setError('');
   }
 
@@ -336,6 +343,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         goldenHourType: addGoldenHourType,
         locationType: addLocationType,
         tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+        regionId: addRegionId ? Number(addRegionId) : null,
       });
     } else {
       if (!geocodeResult) return;
@@ -348,6 +356,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         goldenHourType: addGoldenHourType,
         locationType: addLocationType,
         tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+        regionId: addRegionId ? Number(addRegionId) : null,
       });
     }
   }
@@ -368,6 +377,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
       goldenHourType: editGoldenHourType,
       locationType: editLocationType,
       tideType: editLocationType === 'SEASCAPE' ? editTideType : 'NOT_COASTAL',
+      regionId: editRegionId ? Number(editRegionId) : null,
     });
   }
 
@@ -383,6 +393,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
           goldenHourType: confirmData.goldenHourType,
           locationType: confirmData.locationType,
           tideType: confirmData.tideType,
+          regionId: confirmData.regionId,
         });
       } else {
         await updateLocation(confirmData.id, {
@@ -390,6 +401,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
           goldenHourType: confirmData.goldenHourType,
           locationType: confirmData.locationType,
           tideType: confirmData.tideType,
+          regionId: confirmData.regionId,
         });
       }
       await refreshLocations();
@@ -468,6 +480,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       <span className="whitespace-nowrap">Coords</span>
                     </th>
                     <SortableHeader label="Type" sortKey="type" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('type')} onFilter={(v) => sf.setFilter('type', v)} />
+                    <SortableHeader label="Region" sortKey="region" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
                     <SortableHeader label="Solar" sortKey="solar" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
                     <SortableHeader label="Tide" sortKey="tide" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('tide')} onFilter={(v) => sf.setFilter('tide', v)} />
                     <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
@@ -499,6 +512,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       </td>
                       <td className="py-2 text-plex-text-secondary text-xs">
                         {formatLocationType(loc.locationType)}
+                      </td>
+                      <td className="py-2 text-plex-text-secondary text-xs">
+                        {loc.region?.name || '—'}
                       </td>
                       <td className="py-2 text-plex-text-secondary text-xs">
                         {formatGoldenHourType(loc.goldenHourType)}
@@ -535,7 +551,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   ))}
                   {filteredLocations.length === 0 && locations.length > 0 && (
                     <tr>
-                      <td colSpan={8} className="py-4 text-center text-xs text-plex-text-muted">
+                      <td colSpan={9} className="py-4 text-center text-xs text-plex-text-muted">
                         No locations match the current filters.
                       </td>
                     </tr>
@@ -660,7 +676,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="add-golden-hour-type" className={labelClass}>Golden Hour Type</label>
               <select
@@ -701,6 +717,21 @@ export default function LocationManagementView({ onLocationsChanged }) {
               >
                 {TIDE_TYPES.filter((t) => addLocationType === 'SEASCAPE' || t.value === 'NOT_COASTAL').map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="add-region" className={labelClass}>Region</label>
+              <select
+                id="add-region"
+                className={selectClass}
+                value={addRegionId}
+                onChange={(e) => setAddRegionId(e.target.value)}
+                data-testid="add-region"
+              >
+                <option value="">— None —</option>
+                {regions.filter((r) => r.enabled).map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
             </div>
@@ -746,7 +777,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="edit-golden-hour-type" className={labelClass}>Golden Hour Type</label>
               <select
@@ -787,6 +818,21 @@ export default function LocationManagementView({ onLocationsChanged }) {
               >
                 {TIDE_TYPES.filter((t) => editLocationType === 'SEASCAPE' || t.value === 'NOT_COASTAL').map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="edit-region" className={labelClass}>Region</label>
+              <select
+                id="edit-region"
+                className={selectClass}
+                value={editRegionId}
+                onChange={(e) => setEditRegionId(e.target.value)}
+                data-testid="edit-region"
+              >
+                <option value="">— None —</option>
+                {regions.filter((r) => r.enabled || String(r.id) === editRegionId).map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
             </div>
@@ -848,6 +894,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 <span className="text-plex-text-secondary">Tide</span>
                 <span className="text-plex-text">
                   {confirmData.tideType === 'NOT_COASTAL' ? '—' : (TIDE_TYPES.find((t) => t.value === confirmData.tideType)?.label ?? confirmData.tideType)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Region</span>
+                <span className="text-plex-text">
+                  {confirmData.regionId ? (regions.find((r) => r.id === confirmData.regionId)?.name ?? '—') : '—'}
                 </span>
               </div>
             </div>

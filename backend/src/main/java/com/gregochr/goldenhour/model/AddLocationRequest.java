@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.entity.TideType;
  * @param goldenHourType  which solar events to evaluate (defaults to BOTH_TIMES)
  * @param locationType    photography type (LANDSCAPE, SEASCAPE, or WILDLIFE)
  * @param tideType        tide preference (only relevant for SEASCAPE)
+ * @param regionId        optional region ID to associate with the location
  */
 public record AddLocationRequest(
         String name,
@@ -20,6 +21,7 @@ public record AddLocationRequest(
         double lon,
         GoldenHourType goldenHourType,
         LocationType locationType,
-        TideType tideType
+        TideType tideType,
+        Long regionId
 ) {
 }

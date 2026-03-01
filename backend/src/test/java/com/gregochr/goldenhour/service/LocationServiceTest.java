@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,9 @@ class LocationServiceTest {
     private LocationRepository locationRepository;
 
     @Mock
+    private RegionRepository regionRepository;
+
+    @Mock
     private TideService tideService;
 
     @Mock
@@ -46,7 +50,8 @@ class LocationServiceTest {
 
     @BeforeEach
     void setUp() {
-        locationService = new LocationService(locationRepository, tideService, jdbcTemplate);
+        locationService = new LocationService(locationRepository, regionRepository,
+                tideService, jdbcTemplate);
     }
 
     // --- findByName ---
@@ -132,7 +137,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AddLocationRequest request = new AddLocationRequest(
-                "Bamburgh Castle", 55.6090, -1.7099, null, null, null);
+                "Bamburgh Castle", 55.6090, -1.7099, null, null, null, null);
 
         LocationEntity result = locationService.add(request);
 
@@ -161,7 +166,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Bamburgh", 55.6, -1.7, GoldenHourType.SUNSET,
-                LocationType.SEASCAPE, TideType.ANY_TIDE);
+                LocationType.SEASCAPE, TideType.ANY_TIDE, null);
 
         locationService.add(request);
 
@@ -176,7 +181,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Durham", 54.7753, -1.5849, GoldenHourType.BOTH_TIMES,
-                LocationType.LANDSCAPE, TideType.HIGH_TIDE);
+                LocationType.LANDSCAPE, TideType.HIGH_TIDE, null);
 
         locationService.add(request);
 
@@ -188,7 +193,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when name is blank")
     void add_blankName_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("  ", 54.7753, -1.5849, null, null, null);
+        AddLocationRequest request = new AddLocationRequest("  ", 54.7753, -1.5849, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("name");
@@ -197,7 +202,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when name is null")
     void add_nullName_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest(null, 54.7753, -1.5849, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(null, 54.7753, -1.5849, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("name");
@@ -206,7 +211,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when latitude is below -90")
     void add_latBelowMin_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", -91.0, 0.0, null, null, null);
+        AddLocationRequest request = new AddLocationRequest("Test", -91.0, 0.0, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Latitude");
@@ -215,7 +220,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when latitude is above 90")
     void add_latAboveMax_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", 91.0, 0.0, null, null, null);
+        AddLocationRequest request = new AddLocationRequest("Test", 91.0, 0.0, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Latitude");
@@ -224,7 +229,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when longitude is below -180")
     void add_lonBelowMin_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", 0.0, -181.0, null, null, null);
+        AddLocationRequest request = new AddLocationRequest("Test", 0.0, -181.0, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Longitude");
@@ -233,7 +238,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when longitude is above 180")
     void add_lonAboveMax_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", 0.0, 181.0, null, null, null);
+        AddLocationRequest request = new AddLocationRequest("Test", 0.0, 181.0, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Longitude");
@@ -243,7 +248,7 @@ class LocationServiceTest {
     @DisplayName("add() throws IllegalArgumentException when a location with the same name already exists")
     void add_duplicateName_throwsIllegalArgumentException() {
         when(locationRepository.existsByName("Durham UK")).thenReturn(true);
-        AddLocationRequest request = new AddLocationRequest("Durham UK", 54.7753, -1.5849, null, null, null);
+        AddLocationRequest request = new AddLocationRequest("Durham UK", 54.7753, -1.5849, null, null, null, null);
 
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -256,8 +261,8 @@ class LocationServiceTest {
         when(locationRepository.existsByName(any())).thenReturn(false);
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        locationService.add(new AddLocationRequest("South Pole", -90.0, 0.0, null, null, null));
-        locationService.add(new AddLocationRequest("North Pole", 90.0, 0.0, null, null, null));
+        locationService.add(new AddLocationRequest("South Pole", -90.0, 0.0, null, null, null, null));
+        locationService.add(new AddLocationRequest("North Pole", 90.0, 0.0, null, null, null, null));
 
         verify(locationRepository, times(2)).save(any());
     }
@@ -273,7 +278,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, GoldenHourType.SUNSET, null, null);
+                null, GoldenHourType.SUNSET, null, null, null);
         LocationEntity result = locationService.update(1L, request);
 
         assertThat(result.getGoldenHourType()).isEqualTo(GoldenHourType.SUNSET);
@@ -290,7 +295,7 @@ class LocationServiceTest {
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, LocationType.SEASCAPE, TideType.ANY_TIDE);
+                null, null, LocationType.SEASCAPE, TideType.ANY_TIDE, null);
         locationService.update(1L, request);
 
         assertThat(existing.getLocationType()).containsExactly(LocationType.SEASCAPE);
@@ -307,7 +312,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, LocationType.LANDSCAPE, TideType.HIGH_TIDE);
+                null, null, LocationType.LANDSCAPE, TideType.HIGH_TIDE, null);
         locationService.update(1L, request);
 
         assertThat(existing.getTideType()).containsExactly(TideType.NOT_COASTAL);
@@ -319,7 +324,7 @@ class LocationServiceTest {
         when(locationRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> locationService.update(99L,
-                new UpdateLocationRequest(null, null, null, null)))
+                new UpdateLocationRequest(null, null, null, null, null)))
                 .isInstanceOf(java.util.NoSuchElementException.class);
     }
 

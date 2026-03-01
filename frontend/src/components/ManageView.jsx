@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
+import RegionManagementView from './RegionManagementView.jsx';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 
@@ -22,6 +23,7 @@ export default function ManageView({ onComplete }) {
         {[
           { value: 'users', label: 'Users' },
           { value: 'locations', label: 'Locations' },
+          { value: 'regions', label: 'Regions' },
           { value: 'metrics', label: 'Job Runs' },
           { value: 'models', label: 'Model Config' },
         ].map((tab) => (
@@ -50,6 +52,12 @@ export default function ManageView({ onComplete }) {
       {manageTab === 'locations' && (
         <div className="card">
           <LocationManagementView onLocationsChanged={onComplete} />
+        </div>
+      )}
+
+      {manageTab === 'regions' && (
+        <div className="card">
+          <RegionManagementView />
         </div>
       )}
 
