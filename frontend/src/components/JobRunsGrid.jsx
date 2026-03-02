@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { formatDuration } from '../utils/conversions';
 import JobRunDetail from './JobRunDetail';
+import InfoTip from './InfoTip.jsx';
 
 /**
  * Sortable/pageable grid of job runs with expandable detail rows.
@@ -50,11 +51,11 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
         <h3 className="font-semibold text-plex-text">Job Runs ({runs.length})</h3>
         <div className="flex gap-2">
           {[
-            { value: 'date', label: 'Date', tooltip: 'Sort by start time (Descending — newest first)' },
-            { value: 'duration', label: 'Duration', tooltip: 'Sort by runtime (Descending — longest first)' },
-            { value: 'succeeded', label: 'Succeeded', tooltip: 'Sort by successful count (Descending — highest first)' },
+            { value: 'date', label: 'Date', tooltip: 'Sort by start time (newest first)' },
+            { value: 'duration', label: 'Duration', tooltip: 'Sort by runtime (longest first)' },
+            { value: 'succeeded', label: 'Succeeded', tooltip: 'Sort by successful count (highest first)' },
           ].map((option) => (
-            <div key={option.value} className="relative group">
+            <div key={option.value} className="flex items-center gap-1">
               <button
                 onClick={() => setSortBy(option.value)}
                 className={`px-3 py-1 text-sm rounded ${
@@ -66,10 +67,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
               >
                 {option.label}
               </button>
-              {/* Tooltip */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-plex-text bg-plex-surface rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                {option.tooltip}
-              </div>
+              <InfoTip text={option.tooltip} />
             </div>
           ))}
         </div>

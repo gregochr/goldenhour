@@ -62,6 +62,7 @@ import {
   degreesToCompass,
 } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
+import InfoTip from './InfoTip.jsx';
 
 /**
  * Maps an average 0–100 score to a marker colour.
@@ -261,9 +262,12 @@ function PopupScoreRow({ label, score }) {
     pct > 25     ? '#A06E00' :
                    '#6B6B6B';
   return (
-    <div style={{ marginBottom: '4px' }} title={SCORE_TOOLTIPS[label] ?? ''}>
+    <div style={{ marginBottom: '4px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#A0A0A0', marginBottom: '2px' }}>
-        <span style={{ borderBottom: '1px dotted #6B6B6B' }}>{label}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', borderBottom: '1px dotted #6B6B6B' }}>
+          {label}
+          {SCORE_TOOLTIPS[label] && <InfoTip text={SCORE_TOOLTIPS[label]} />}
+        </span>
         <span style={{ fontWeight: '600', color: '#EBEBEB' }}>{pct != null ? pct : '—'}</span>
       </div>
       <div style={{ height: '6px', background: '#3A3D45', borderRadius: '9999px', overflow: 'hidden' }}>
@@ -292,9 +296,33 @@ const LOCATION_TYPE_LABELS = {
   SEASCAPE:  { label: 'Seascape',  emoji: '🌊' },
 };
 
+/**
+ * Determines whether the next solar event is sunrise or sunset based on the
+ * current time relative to today's sunrise. For future dates, defaults to SUNSET.
+ *
+ * @param {Array} locations - Location data with forecastsByDate maps.
+ * @param {string} date - The selected date (YYYY-MM-DD).
+ * @returns {string} 'SUNRISE' or 'SUNSET'.
+ */
+function getNextEventType(locations, date) {
+  const now = new Date();
+  const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  if (date !== todayStr) return 'SUNSET';
+
+  for (const loc of locations) {
+    if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
+    const dayData = loc.forecastsByDate.get(date);
+    const sunriseTime = dayData?.sunrise?.solarEventTime;
+    if (sunriseTime) {
+      return new Date(sunriseTime) > now ? 'SUNRISE' : 'SUNSET';
+    }
+  }
+  return 'SUNSET';
+}
+
 export default function MapView({ locations, date }) {
   const { role } = useAuth();
-  const [eventType, setEventType] = useState('SUNSET');
+  const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
@@ -379,6 +407,7 @@ export default function MapView({ locations, date }) {
       {/* Location type + star rating filter toggles */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
+        <InfoTip text="Type and star filters combine: locations must match both. Within each group, any selection passes." />
         {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
           <button
             key={type}
@@ -681,6 +710,10 @@ export default function MapView({ locations, date }) {
                             {/* Score bars */}
                             {role !== 'LITE_USER' && forecast.fierySkyPotential != null && (
                               <div style={{ marginBottom: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#6B6B6B', marginBottom: '4px' }}>
+                                  <span>Scores</span>
+                                  <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
+                                </div>
                                 <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />
                                 <PopupScoreRow label="Golden Hour" score={forecast.goldenHourPotential} />
                               </div>

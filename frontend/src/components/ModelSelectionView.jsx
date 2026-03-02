@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { getAvailableModels, setActiveModel } from '../api/modelsApi.js';
+import InfoTip from './InfoTip.jsx';
 
 const CONFIG_TABS = [
-  { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)' },
-  { key: 'SHORT_TERM', label: 'Short-Term (T, T+1, T+2)' },
-  { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)' },
+  { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
+  { key: 'SHORT_TERM', label: 'Short-Term (T, T+1, T+2)', tip: 'Near-term forecasts — up to 2 days out. Good balance of accuracy and cost.' },
+  { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)', tip: 'Extended forecasts — 3 to 5 days out. Weather data is less precise, so a cheaper model is fine.' },
 ];
 
 const MODEL_INFO = {
@@ -115,21 +116,23 @@ export default function ModelSelectionView() {
       {/* Config type sub-tabs */}
       <div className="flex gap-6 border-b border-plex-border flex-wrap">
         {CONFIG_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
-              activeTab === tab.key
-                ? 'text-plex-gold border-plex-gold'
-                : 'text-plex-text-secondary hover:text-plex-text border-transparent'
-            }`}
-            data-testid={`config-tab-${tab.key}`}
-          >
-            {tab.label}
-            <span className="ml-2 text-xs opacity-60">
-              ({MODEL_INFO[configs[tab.key]]?.name || configs[tab.key] || 'Haiku'})
-            </span>
-          </button>
+          <span key={tab.key} className="inline-flex items-center gap-1">
+            <button
+              onClick={() => setActiveTab(tab.key)}
+              className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
+                activeTab === tab.key
+                  ? 'text-plex-gold border-plex-gold'
+                  : 'text-plex-text-secondary hover:text-plex-text border-transparent'
+              }`}
+              data-testid={`config-tab-${tab.key}`}
+            >
+              {tab.label}
+              <span className="ml-2 text-xs opacity-60">
+                ({MODEL_INFO[configs[tab.key]]?.name || configs[tab.key] || 'Haiku'})
+              </span>
+            </button>
+            <InfoTip text={tab.tip} />
+          </span>
         ))}
       </div>
 

@@ -148,7 +148,6 @@ function AppInner() {
               className="btn-primary"
               onClick={refresh}
               disabled={healthStatus === 'DOWN'}
-              title={healthStatus === 'DOWN' ? 'Backend is down. Please wait...' : ''}
             >
               Try again
             </button>

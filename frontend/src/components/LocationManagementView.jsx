@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
+import InfoTip from './InfoTip.jsx';
 
 const GOLDEN_HOUR_TYPES = [
   { value: 'BOTH_TIMES', label: 'Both Times' },
@@ -501,11 +502,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       <td className="py-2 text-plex-text">
                         {loc.name}
                         {loc.consecutiveFailures > 0 && !loc.disabledReason && (
-                          <span
-                            className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400"
-                            title={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' — last: ' + new Date(loc.lastFailureAt).toLocaleString() : ''}`}
-                          >
-                            {loc.consecutiveFailures}
+                          <span className="inline-flex items-center gap-0.5 ml-1.5">
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400"
+                            >
+                              {loc.consecutiveFailures}
+                            </span>
+                            <InfoTip text={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' \u2014 last: ' + new Date(loc.lastFailureAt).toLocaleString() : ''}`} className="text-amber-400" />
                           </span>
                         )}
                       </td>
