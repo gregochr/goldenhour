@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { formatDuration } from '../utils/conversions';
-import { formatCostGbp } from '../utils/formatCost';
+import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
 import JobRunDetail from './JobRunDetail';
 import InfoTip from './InfoTip.jsx';
 
@@ -102,6 +102,9 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                       {(run.totalCostMicroDollars > 0 || run.totalCostPence > 0) && (
                         <div className="text-xs text-plex-gold mt-1 font-semibold">
                           Cost: {formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence)}
+                          {run.totalCostMicroDollars > 0 && (
+                            <span className="text-plex-text-muted font-normal"> ({formatCostUsd(run.totalCostMicroDollars)})</span>
+                          )}
                         </div>
                       )}
                     </div>
