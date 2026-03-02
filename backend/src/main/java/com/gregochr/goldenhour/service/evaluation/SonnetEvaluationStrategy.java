@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.evaluation;
 
-import com.anthropic.client.AnthropicClient;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -17,14 +16,15 @@ public class SonnetEvaluationStrategy extends AbstractEvaluationStrategy {
     /**
      * Constructs a {@code SonnetEvaluationStrategy}.
      *
-     * @param client          configured Anthropic client
-     * @param properties      Anthropic configuration (model identifier)
-     * @param objectMapper    Jackson mapper for parsing Claude's JSON response
-     * @param jobRunService   optional service for metrics tracking
+     * @param anthropicApiClient resilient Anthropic API client with retry
+     * @param properties         Anthropic configuration (model identifier)
+     * @param objectMapper       Jackson mapper for parsing Claude's JSON response
+     * @param jobRunService      optional service for metrics tracking
      */
-    public SonnetEvaluationStrategy(AnthropicClient client, AnthropicProperties properties,
+    public SonnetEvaluationStrategy(AnthropicApiClient anthropicApiClient,
+            AnthropicProperties properties,
             ObjectMapper objectMapper, JobRunService jobRunService) {
-        super(client, properties, objectMapper, jobRunService);
+        super(anthropicApiClient, properties, objectMapper, jobRunService);
     }
 
     @Override

@@ -8,9 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
+import org.springframework.web.client.RestClient;
 
 import java.time.LocalDate;
 
@@ -29,7 +27,7 @@ import static org.mockito.Mockito.when;
 class PushoverNotificationServiceTest {
 
     @Mock
-    private WebClient webClient;
+    private RestClient restClient;
 
     @Test
     @DisplayName("notify() does nothing when Pushover notifications are disabled")
@@ -37,16 +35,15 @@ class PushoverNotificationServiceTest {
         NotificationProperties properties = new NotificationProperties();
         properties.getPushover().setEnabled(false);
         PushoverNotificationService pushoverService =
-                new PushoverNotificationService(properties, webClient);
+                new PushoverNotificationService(properties, restClient);
 
         pushoverService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
-        verify(webClient, never()).post();
+        verify(restClient, never()).post();
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("notify() posts Sonnet dual-score message to the Pushover API when enabled")
     void notify_sonnetEvaluation_whenEnabled_makesHttpPost() {
         NotificationProperties properties = new NotificationProperties();
@@ -54,10 +51,10 @@ class PushoverNotificationServiceTest {
         properties.getPushover().setAppToken("app-token");
         properties.getPushover().setUserKey("user-key");
 
-        WebClient mockClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.post().uri(anyString()).contentType(any()).bodyValue(any())
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.post().uri(anyString()).contentType(any()).body(any(Object.class))
                 .retrieve().toBodilessEntity())
-                .thenReturn(Mono.just(ResponseEntity.ok().build()));
+                .thenReturn(null);
 
         PushoverNotificationService pushoverService =
                 new PushoverNotificationService(properties, mockClient);
@@ -66,12 +63,9 @@ class PushoverNotificationServiceTest {
                 "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
 
         // Success: service completed without throwing; the HTTP call was made
-        // (RETURNS_DEEP_STUBS records one extra post() call during when() setup,
-        // so we cannot use verify(times(1)) — completion is sufficient assertion)
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     @DisplayName("notify() posts Haiku rating message to the Pushover API when enabled")
     void notify_haikuEvaluation_whenEnabled_makesHttpPost() {
         NotificationProperties properties = new NotificationProperties();
@@ -79,10 +73,10 @@ class PushoverNotificationServiceTest {
         properties.getPushover().setAppToken("app-token");
         properties.getPushover().setUserKey("user-key");
 
-        WebClient mockClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
-        when(mockClient.post().uri(anyString()).contentType(any()).bodyValue(any())
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.post().uri(anyString()).contentType(any()).body(any(Object.class))
                 .retrieve().toBodilessEntity())
-                .thenReturn(Mono.just(ResponseEntity.ok().build()));
+                .thenReturn(null);
 
         PushoverNotificationService pushoverService =
                 new PushoverNotificationService(properties, mockClient);

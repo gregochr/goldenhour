@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.evaluation;
 
-import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
@@ -36,8 +35,9 @@ import java.util.regex.Pattern;
  * Shared evaluation logic for all Claude-based strategies.
  *
  * <p>Handles the user message construction, API call, response parsing, and
- * retry logic. Each subclass provides its own model identifier and evaluation
- * model enum; the system prompt and prompt suffix are shared by default but
+ * metric logging. Retry logic is handled declaratively by {@link AnthropicApiClient}'s
+ * {@code @Retryable} annotation. Each subclass provides its own model identifier and
+ * evaluation model enum; the system prompt and prompt suffix are shared by default but
  * can be overridden by subclasses to customise the prompt per model.
  */
 public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
@@ -102,7 +102,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             "Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), "
             + "then explain in 1-2 sentences.";
 
-    private final AnthropicClient client;
+    private final AnthropicApiClient anthropicApiClient;
     private final AnthropicProperties properties;
     private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
@@ -110,14 +110,15 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     /**
      * Constructs an {@code AbstractEvaluationStrategy}.
      *
-     * @param client       configured Anthropic client
-     * @param properties   Anthropic configuration (model identifier)
-     * @param objectMapper Jackson mapper for parsing Claude's JSON response
-     * @param jobRunService optional service for metrics tracking
+     * @param anthropicApiClient resilient Anthropic API client with retry
+     * @param properties         Anthropic configuration (model identifier)
+     * @param objectMapper       Jackson mapper for parsing Claude's JSON response
+     * @param jobRunService      optional service for metrics tracking
      */
-    protected AbstractEvaluationStrategy(AnthropicClient client, AnthropicProperties properties,
+    protected AbstractEvaluationStrategy(AnthropicApiClient anthropicApiClient,
+            AnthropicProperties properties,
             ObjectMapper objectMapper, JobRunService jobRunService) {
-        this.client = client;
+        this.anthropicApiClient = anthropicApiClient;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
@@ -204,10 +205,9 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
         long startMs = System.currentTimeMillis();
         int statusCode = 500;
         String errorMessage = null;
-        boolean succeeded = false;
 
         try {
-            Message response = invokeClaudeWithRetry(data);
+            Message response = invokeClaude(data);
 
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
@@ -219,7 +219,6 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             SunsetEvaluation result = parseEvaluation(text, objectMapper);
             long durationMs = System.currentTimeMillis() - startMs;
             statusCode = 200;
-            succeeded = true;
 
             LOG.info("Anthropic -> {} {}: rating={}/5 fiery={}/100 golden={}/100 ({}ms)",
                     data.locationName(), data.targetType(),
@@ -244,6 +243,16 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             errorMessage = e.getMessage();
             if (e instanceof AnthropicServiceException serviceEx) {
                 statusCode = serviceEx.statusCode();
+                // Log content filter final-failure diagnostic details
+                if (statusCode == 400 && errorMessage != null
+                        && errorMessage.contains("content filtering")) {
+                    LOG.warn("Anthropic content filter — final failure. "
+                            + "Location: {}, Target: {}, Date: {}, Model: {}. "
+                            + "User message:\n{}",
+                            data.locationName(), data.targetType(),
+                            data.solarEventTime().toLocalDate(), getModelName(),
+                            buildUserMessage(data));
+                }
             }
 
             // Log failed Anthropic API call to metrics if jobRun is available
@@ -274,7 +283,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
         String userMessage = buildUserMessage(data);
 
         try {
-            Message response = invokeClaudeWithRetry(data);
+            Message response = invokeClaude(data);
 
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
@@ -319,72 +328,29 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     }
 
     /**
-     * Invokes the Anthropic API with retry logic for transient failures.
+     * Invokes the Anthropic API via the resilient {@link AnthropicApiClient}.
      *
-     * <p>Retries on:
-     * <ul>
-     *   <li>529 (overloaded) — transient capacity issue</li>
-     *   <li>400 with "content filtering" — intermittent output filter trigger</li>
-     * </ul>
-     *
-     * <p>On final failure for content filtering, logs the full prompt inputs at WARN level
-     * so the request can be reproduced and analysed.
+     * <p>Retry logic for transient failures (529 overloaded, 400 content filtering)
+     * is handled declaratively by the {@code @Retryable} annotation on
+     * {@link AnthropicApiClient#createMessage}.
      *
      * @param data atmospheric data for the prompt
      * @return Claude's response message
      */
-    private Message invokeClaudeWithRetry(AtmosphericData data) {
-        int maxRetries = 3;
-        int retryCount = 0;
-        long backoffMs = 1000;
+    private Message invokeClaude(AtmosphericData data) {
         String userMessage = buildUserMessage(data);
-
-        while (true) {
-            try {
-                return client.messages().create(
-                        MessageCreateParams.builder()
-                                .model(getModelName())
-                                .maxTokens(MAX_TOKENS)
-                                .systemOfTextBlockParams(List.of(
-                                        TextBlockParam.builder()
-                                                .text(getSystemPrompt())
-                                                .cacheControl(CacheControlEphemeral.builder().build())
-                                                .build()))
-                                .outputConfig(buildOutputConfig())
-                                .addUserMessage(userMessage)
-                                .build());
-            } catch (AnthropicServiceException serviceEx) {
-                int code = serviceEx.statusCode();
-                boolean isOverloaded = code == 529;
-                boolean isContentFilter = code == 400
-                        && serviceEx.getMessage() != null
-                        && serviceEx.getMessage().contains("content filtering");
-
-                if ((isOverloaded || isContentFilter) && retryCount < maxRetries) {
-                    retryCount++;
-                    LOG.warn("Anthropic {} ({}), retrying in {}ms... (attempt {}/{})",
-                            isContentFilter ? "content filter" : "overloaded",
-                            code, backoffMs, retryCount, maxRetries);
-                    try {
-                        Thread.sleep(backoffMs);
-                        backoffMs = Math.min(backoffMs * 2, 30000);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Retry sleep interrupted", ie);
-                    }
-                } else {
-                    if (isContentFilter) {
-                        LOG.warn("Anthropic content filter — final failure after {} retries. "
-                                + "Location: {}, Target: {}, Date: {}, Model: {}. "
-                                + "User message:\n{}",
-                                retryCount, data.locationName(), data.targetType(),
-                                data.solarEventTime().toLocalDate(), getModelName(),
-                                userMessage);
-                    }
-                    throw serviceEx;
-                }
-            }
-        }
+        return anthropicApiClient.createMessage(
+                MessageCreateParams.builder()
+                        .model(getModelName())
+                        .maxTokens(MAX_TOKENS)
+                        .systemOfTextBlockParams(List.of(
+                                TextBlockParam.builder()
+                                        .text(getSystemPrompt())
+                                        .cacheControl(CacheControlEphemeral.builder().build())
+                                        .build()))
+                        .outputConfig(buildOutputConfig())
+                        .addUserMessage(userMessage)
+                        .build());
     }
 
     /**

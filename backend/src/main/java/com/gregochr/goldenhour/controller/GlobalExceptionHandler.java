@@ -9,7 +9,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.NoSuchElementException;
 
@@ -91,17 +91,17 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Maps {@link WebClientResponseException} to HTTP 502 Bad Gateway.
+     * Maps {@link RestClientResponseException} to HTTP 502 Bad Gateway.
      *
-     * <p>Wraps upstream API failures (Open-Meteo, NOAA, etc.) so callers receive a
+     * <p>Wraps upstream API failures (Open-Meteo, WorldTides, etc.) so callers receive a
      * consistent error shape instead of a raw 500. The upstream status code is included
      * in the message to aid diagnostics.
      *
-     * @param ex the exception thrown by WebClient
+     * @param ex the exception thrown by RestClient
      * @return a 502 response with a structured error body
      */
-    @ExceptionHandler(WebClientResponseException.class)
-    public ResponseEntity<ErrorResponse> handleUpstreamError(WebClientResponseException ex) {
+    @ExceptionHandler(RestClientResponseException.class)
+    public ResponseEntity<ErrorResponse> handleUpstreamError(RestClientResponseException ex) {
         String message = "Upstream API error: " + ex.getStatusCode().value() + " " + ex.getMessage();
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(message));
     }

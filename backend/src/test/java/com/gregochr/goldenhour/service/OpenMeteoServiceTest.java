@@ -13,37 +13,28 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import org.springframework.web.util.UriComponentsBuilder;
-import reactor.core.publisher.Mono;
-import reactor.test.StepVerifier;
-import reactor.util.retry.Retry;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link OpenMeteoService}.
  *
  * <p>Tests cover the data extraction logic ({@code extractAtmosphericData}) with static
- * response objects. The actual HTTP calls to the Open-Meteo APIs are not tested here.
+ * response objects, and the integration with {@link OpenMeteoClient} for API calls.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class OpenMeteoServiceTest {
 
     @Mock
-    private WebClient webClient;
+    private OpenMeteoClient openMeteoClient;
 
     @Mock
     private JobRunService jobRunService;
@@ -52,7 +43,7 @@ class OpenMeteoServiceTest {
 
     @BeforeEach
     void setUp() {
-        openMeteoService = new OpenMeteoService(webClient, jobRunService);
+        openMeteoService = new OpenMeteoService(openMeteoClient, jobRunService);
     }
 
     @Test
@@ -179,7 +170,6 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
     @DisplayName("getAtmosphericData() fetches both APIs and returns merged data")
     void getAtmosphericData_fetchesBothApisAndReturnsMergedData() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
@@ -195,20 +185,8 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:47"),
                 List.of(8.5), List.of(2.1), List.of(0.12));
 
-        // Use explicit separate ResponseSpec mocks so the two bodyToMono calls
-        // (forecast vs air quality) resolve to distinct stubs.
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec forecastResponseSpec = mock(WebClient.ResponseSpec.class);
-        WebClient.ResponseSpec airQualityResponseSpec = mock(WebClient.ResponseSpec.class);
-
-        when(webClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(forecastResponseSpec, airQualityResponseSpec);
-        when(forecastResponseSpec.bodyToMono(OpenMeteoForecastResponse.class))
-                .thenReturn(Mono.just(forecast));
-        when(airQualityResponseSpec.bodyToMono(OpenMeteoAirQualityResponse.class))
-                .thenReturn(Mono.just(airQuality));
+        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
+        when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble())).thenReturn(airQuality);
 
         ForecastRequest request = new ForecastRequest(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
@@ -223,19 +201,10 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
     @DisplayName("getAtmosphericData() propagates non-retryable errors immediately")
     void getAtmosphericData_whenNonRetryableError_propagatesImmediately() {
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec responseSpec = mock(WebClient.ResponseSpec.class);
-
-        when(webClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        // RuntimeException is not a WebClientResponseException — filter returns false, no retry
-        when(responseSpec.bodyToMono(any(Class.class)))
-                .thenReturn(Mono.error(new RuntimeException("network failure")));
+        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("network failure"));
 
         ForecastRequest request = new ForecastRequest(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
@@ -247,25 +216,26 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    @DisplayName("getAtmosphericData() throws IllegalStateException when the API returns an empty response")
-    void getAtmosphericData_whenApiReturnsEmpty_throwsIllegalStateException() {
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec responseSpec = mock(WebClient.ResponseSpec.class);
+    @DisplayName("getAtmosphericData() propagates error when air quality API fails")
+    void getAtmosphericData_whenAirQualityApiFails_propagatesError() {
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(10), List.of(50), List.of(30),
+                List.of(22000.0), List.of(4.0), List.of(225),
+                List.of(0.0), List.of(1), List.of(62),
+                List.of(1200.0), List.of(180.0));
 
-        when(webClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(any(Class.class))).thenReturn(Mono.empty());
+        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
+        when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("air quality API unavailable"));
 
         ForecastRequest request = new ForecastRequest(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
 
         assertThatThrownBy(() -> openMeteoService.getAtmosphericData(request,
                 LocalDateTime.of(2026, 6, 21, 20, 47, 0)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("null response");
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("air quality API unavailable");
     }
 
     // -------------------------------------------------------------------------
@@ -275,7 +245,6 @@ class OpenMeteoServiceTest {
     @Test
     @DisplayName("extractAtmosphericData() returns last slot when event is after all forecast times")
     void extractAtmosphericData_eventAfterAllSlots_selectsLastSlot() {
-        // Event is well after the last slot — last slot should be selected
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 23, 59, 0);
 
         OpenMeteoForecastResponse forecast = buildForecastResponse(
@@ -293,7 +262,6 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        // Index 2 (21:00) is nearest to 23:59
         assertThat(result.lowCloudPercent()).isEqualTo(99);
     }
 
@@ -322,8 +290,6 @@ class OpenMeteoServiceTest {
     @Test
     @DisplayName("extractAtmosphericData() defaults aerosol values to zero when air quality list is shorter")
     void extractAtmosphericData_airQualityListShorterThanForecast_defaultsToZero() {
-        // Forecast has 3 slots; nearest is index 2. Air quality list has only 1 entry.
-        // getAirQualityValue should return null for idx >= values.size(), giving BigDecimal.ZERO.
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 21, 00, 0);
 
         OpenMeteoForecastResponse forecast = buildForecastResponse(
@@ -334,7 +300,6 @@ class OpenMeteoServiceTest {
                 List.of(0.0, 0.0, 0.0), List.of(1, 1, 1), List.of(60, 60, 60),
                 List.of(1200.0, 1200.0, 1200.0), List.of(180.0, 180.0, 180.0));
 
-        // AQ list has only 1 entry — index 2 is out of bounds
         OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
                 List.of("2026-06-21T19:00"),
                 List.of(9.9), List.of(1.1), List.of(0.9));
@@ -388,144 +353,12 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        // Tide fields are populated by TideService, not here
         assertThat(result.tideState()).isNull();
         assertThat(result.nextHighTideTime()).isNull();
         assertThat(result.nextHighTideHeightMetres()).isNull();
         assertThat(result.nextLowTideTime()).isNull();
         assertThat(result.nextLowTideHeightMetres()).isNull();
         assertThat(result.tideAligned()).isNull();
-    }
-
-    // -------------------------------------------------------------------------
-    // getAtmosphericData — retry filter behaviour
-    //
-    // The service uses Retry.backoff(2, Duration.ofSeconds(5)) with a filter that
-    // accepts 5xx and 429 errors. Testing retry exhaustion through getAtmosphericData()
-    // is impractical because block() holds the thread while the reactive retry delays
-    // occur, preventing virtual-time advancement. Instead, we test the filter predicate
-    // directly using an inline Retry with zero delay, plus verify 404 propagates
-    // immediately through the full service pipeline.
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Retry filter accepts 5xx — mock pipeline retries and exhausts")
-    void retryFilter_5xxIsRetried() {
-        AtomicInteger calls = new AtomicInteger();
-        Retry testRetry = Retry.backoff(1, Duration.ofMillis(1))
-                .filter(ex -> ex instanceof WebClientResponseException wex
-                        && (wex.getStatusCode().is5xxServerError()
-                            || wex.getStatusCode().value() == 429));
-
-        StepVerifier.create(
-                Mono.defer(() -> {
-                    calls.incrementAndGet();
-                    return Mono.<String>error(
-                            WebClientResponseException.create(503, "Unavailable", null, null, null));
-                }).retryWhen(testRetry))
-                .expectError()
-                .verify();
-
-        assertThat(calls.get()).isEqualTo(2); // initial call + 1 retry
-    }
-
-    @Test
-    @DisplayName("Retry filter accepts 429 — mock pipeline retries and exhausts")
-    void retryFilter_429IsRetried() {
-        AtomicInteger calls = new AtomicInteger();
-        Retry testRetry = Retry.backoff(1, Duration.ofMillis(1))
-                .filter(ex -> ex instanceof WebClientResponseException wex
-                        && (wex.getStatusCode().is5xxServerError()
-                            || wex.getStatusCode().value() == 429));
-
-        StepVerifier.create(
-                Mono.defer(() -> {
-                    calls.incrementAndGet();
-                    return Mono.<String>error(
-                            WebClientResponseException.create(429, "Too Many Requests", null, null, null));
-                }).retryWhen(testRetry))
-                .expectError()
-                .verify();
-
-        assertThat(calls.get()).isEqualTo(2); // initial call + 1 retry
-    }
-
-    @Test
-    @DisplayName("Retry filter rejects 404 — 4xx non-429 is not retried")
-    void retryFilter_404IsNotRetried() {
-        AtomicInteger calls = new AtomicInteger();
-        Retry testRetry = Retry.backoff(2, Duration.ofMillis(1))
-                .filter(ex -> ex instanceof WebClientResponseException wex
-                        && (wex.getStatusCode().is5xxServerError()
-                            || wex.getStatusCode().value() == 429));
-
-        StepVerifier.create(
-                Mono.defer(() -> {
-                    calls.incrementAndGet();
-                    return Mono.<String>error(
-                            WebClientResponseException.create(404, "Not Found", null, null, null));
-                }).retryWhen(testRetry))
-                .expectError(WebClientResponseException.class)
-                .verify();
-
-        assertThat(calls.get()).isEqualTo(1); // no retries — filter rejects 404
-    }
-
-    @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    @DisplayName("getAtmosphericData() does not retry on 404 Not Found")
-    void getAtmosphericData_on404_propagatesImmediatelyWithoutRetry() {
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec responseSpec = mock(WebClient.ResponseSpec.class);
-
-        when(webClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(any(Class.class))).thenReturn(
-                Mono.error(WebClientResponseException.create(404, "Not Found", null, null, null)));
-
-        ForecastRequest request = new ForecastRequest(
-                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
-
-        // 404 is a 4xx non-429 — filter returns false, error propagates without any retry delay
-        assertThatThrownBy(() -> openMeteoService.getAtmosphericData(request,
-                LocalDateTime.of(2026, 6, 21, 20, 47, 0)))
-                .isInstanceOf(WebClientResponseException.class)
-                .hasMessageContaining("404");
-    }
-
-    @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    @DisplayName("getAtmosphericData() propagates error when air quality API fails")
-    void getAtmosphericData_whenAirQualityApiFails_propagatesError() {
-        OpenMeteoForecastResponse forecast = buildForecastResponse(
-                List.of("2026-06-21T20:47"),
-                List.of(10), List.of(50), List.of(30),
-                List.of(22000.0), List.of(4.0), List.of(225),
-                List.of(0.0), List.of(1), List.of(62),
-                List.of(1200.0), List.of(180.0));
-
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec forecastResponseSpec = mock(WebClient.ResponseSpec.class);
-        WebClient.ResponseSpec airQualityResponseSpec = mock(WebClient.ResponseSpec.class);
-
-        when(webClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(forecastResponseSpec, airQualityResponseSpec);
-        when(forecastResponseSpec.bodyToMono(OpenMeteoForecastResponse.class))
-                .thenReturn(Mono.just(forecast));
-        when(airQualityResponseSpec.bodyToMono(OpenMeteoAirQualityResponse.class))
-                .thenReturn(Mono.error(new RuntimeException("air quality API unavailable")));
-
-        ForecastRequest request = new ForecastRequest(
-                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
-
-        assertThatThrownBy(() -> openMeteoService.getAtmosphericData(request,
-                LocalDateTime.of(2026, 6, 21, 20, 47, 0)))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("air quality API unavailable");
     }
 
     private OpenMeteoForecastResponse buildForecastResponse(
@@ -604,7 +437,7 @@ class OpenMeteoServiceTest {
                 List.of(20000.0), List.of(4.0), List.of(225),
                 List.of(0.0), List.of(1), List.of(60),
                 List.of(1000.0), List.of(100.0),
-                null, null, null); // temperature/apparent/precipProb not populated
+                null, null, null);
 
         OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
                 List.of("2026-06-21T20:47"),
@@ -619,10 +452,8 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
     @DisplayName("getHourlyAtmosphericData() returns one slot per full UTC hour between from and to")
     void getHourlyAtmosphericData_returnsOneSlotPerHour() {
-        // from=03:30, to=04:45 → truncated to 03:00–04:00 → 2 slots
         LocalDateTime from = LocalDateTime.of(2026, 6, 21, 3, 30, 0);
         LocalDateTime to   = LocalDateTime.of(2026, 6, 21, 4, 45, 0);
 
@@ -638,24 +469,8 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T03:00", "2026-06-21T04:00"),
                 List.of(2.0, 3.0), List.of(0.5, 0.6), List.of(0.05, 0.06));
 
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec forecastResponseSpec = mock(WebClient.ResponseSpec.class);
-        WebClient.ResponseSpec airQualityResponseSpec = mock(WebClient.ResponseSpec.class);
-
-        when(webClient.get()).thenReturn(uriSpec);
-        // Use thenAnswer to actually invoke the URI builder lambda, exercising those code paths.
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenAnswer(inv -> {
-            java.util.function.Function<org.springframework.web.util.UriBuilder, java.net.URI> fn =
-                    inv.getArgument(0);
-            fn.apply(UriComponentsBuilder.newInstance());
-            return headersSpec;
-        });
-        when(headersSpec.retrieve()).thenReturn(forecastResponseSpec, airQualityResponseSpec);
-        when(forecastResponseSpec.bodyToMono(OpenMeteoForecastResponse.class))
-                .thenReturn(Mono.just(forecast));
-        when(airQualityResponseSpec.bodyToMono(OpenMeteoAirQualityResponse.class))
-                .thenReturn(Mono.just(airQuality));
+        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
+        when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble())).thenReturn(airQuality);
 
         ForecastRequest request = new ForecastRequest(
                 54.7753, -1.5849, "Wildlife Reserve", LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
@@ -667,29 +482,6 @@ class OpenMeteoServiceTest {
         assertThat(result.get(1).solarEventTime()).isEqualTo(LocalDateTime.of(2026, 6, 21, 4, 0, 0));
         assertThat(result.get(0).temperatureCelsius()).isEqualTo(12.0);
         assertThat(result.get(0).precipitationProbability()).isEqualTo(20);
-    }
-
-    @Test
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    @DisplayName("getHourlyAtmosphericData() throws IllegalStateException when API returns null response")
-    void getHourlyAtmosphericData_whenApiReturnsNull_throwsIllegalStateException() {
-        WebClient.RequestHeadersUriSpec uriSpec = mock(WebClient.RequestHeadersUriSpec.class);
-        WebClient.RequestHeadersSpec headersSpec = mock(WebClient.RequestHeadersSpec.class);
-        WebClient.ResponseSpec responseSpec = mock(WebClient.ResponseSpec.class);
-
-        when(webClient.get()).thenReturn(uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(headersSpec);
-        when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.bodyToMono(any(Class.class))).thenReturn(Mono.empty());
-
-        ForecastRequest request = new ForecastRequest(
-                54.7753, -1.5849, "Wildlife Reserve", LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
-
-        assertThatThrownBy(() -> openMeteoService.getHourlyAtmosphericData(request,
-                LocalDateTime.of(2026, 6, 21, 3, 0, 0),
-                LocalDateTime.of(2026, 6, 21, 4, 0, 0)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("null response");
     }
 
     private OpenMeteoAirQualityResponse buildAirQualityResponse(

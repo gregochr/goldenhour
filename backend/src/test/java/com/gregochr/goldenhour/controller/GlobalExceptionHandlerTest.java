@@ -8,10 +8,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.NoSuchElementException;
 
@@ -43,12 +42,11 @@ class GlobalExceptionHandlerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
-    @DisplayName("WebClientResponseException is mapped to 502 Bad Gateway")
+    @DisplayName("RestClientResponseException is mapped to 502 Bad Gateway")
     void handleUpstreamError_returns502() throws Exception {
         when(commandFactory.create(any(), any(boolean.class), any(), any()))
-                .thenThrow(WebClientResponseException.create(
-                        HttpStatus.SERVICE_UNAVAILABLE.value(),
-                        "Service Unavailable",
+                .thenThrow(new RestClientResponseException(
+                        "Service Unavailable", 503, "Service Unavailable",
                         null, null, null));
 
         mockMvc.perform(post("/api/forecast/run"))

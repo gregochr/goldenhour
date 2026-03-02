@@ -15,15 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
+import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -31,7 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,18 +42,7 @@ import static org.mockito.Mockito.when;
 class TideServiceTest {
 
     @Mock
-    private WebClient webClient;
-
-    @SuppressWarnings("rawtypes")
-    @Mock
-    private WebClient.RequestHeadersUriSpec requestHeadersUriSpec;
-
-    @SuppressWarnings("rawtypes")
-    @Mock
-    private WebClient.RequestHeadersSpec requestHeadersSpec;
-
-    @Mock
-    private WebClient.ResponseSpec responseSpec;
+    private RestClient restClient;
 
     @Mock
     private TideExtremeRepository tideExtremeRepository;
@@ -69,7 +57,7 @@ class TideServiceTest {
 
     @BeforeEach
     void setUp() {
-        tideService = new TideService(webClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+        tideService = new TideService(restClient, tideExtremeRepository, worldTidesProperties, jobRunService);
     }
 
     // -------------------------------------------------------------------------
@@ -278,10 +266,17 @@ class TideServiceTest {
     @DisplayName("fetchAndStoreTideExtremes() stores entities when API returns valid response")
     void fetchAndStoreTideExtremes_validResponse_storesEntities() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        stubWebClientChain(Mono.just(buildWorldTidesResponse()));
+
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.get().uri(any(java.util.function.Function.class))
+                .retrieve().body(WorldTidesResponse.class))
+                .thenReturn(buildWorldTidesResponse());
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
 
         LocationEntity location = locationEntity();
-        tideService.fetchAndStoreTideExtremes(location);
+        service.fetchAndStoreTideExtremes(location);
 
         verify(tideExtremeRepository).deleteByLocationId(1L);
         verify(tideExtremeRepository).saveAll(any());
@@ -304,9 +299,16 @@ class TideServiceTest {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         WorldTidesResponse errorResponse = new WorldTidesResponse();
         errorResponse.setStatus(400);
-        stubWebClientChain(Mono.just(errorResponse));
 
-        tideService.fetchAndStoreTideExtremes(locationEntity());
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.get().uri(any(java.util.function.Function.class))
+                .retrieve().body(WorldTidesResponse.class))
+                .thenReturn(errorResponse);
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
 
         verify(tideExtremeRepository, never()).deleteByLocationId(anyLong());
         verify(tideExtremeRepository, never()).saveAll(any());
@@ -316,14 +318,17 @@ class TideServiceTest {
     @DisplayName("fetchAndStoreTideExtremes() swallows exception without throwing")
     void fetchAndStoreTideExtremes_exceptionDuringFetch_doesNotThrow() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        doReturn(requestHeadersUriSpec).when(webClient).get();
-        doReturn(requestHeadersSpec).when(requestHeadersUriSpec).uri(any(Function.class));
-        doReturn(responseSpec).when(requestHeadersSpec).retrieve();
-        doReturn(Mono.error(new RuntimeException("network error")))
-                .when(responseSpec).bodyToMono(WorldTidesResponse.class);
+
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.get().uri(any(java.util.function.Function.class))
+                .retrieve().body(WorldTidesResponse.class))
+                .thenThrow(new RuntimeException("network error"));
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
 
         // Should not throw
-        tideService.fetchAndStoreTideExtremes(locationEntity());
+        service.fetchAndStoreTideExtremes(locationEntity());
 
         verify(tideExtremeRepository, never()).deleteByLocationId(anyLong());
     }
@@ -464,14 +469,6 @@ class TideServiceTest {
                 .lat(55.7702)
                 .lon(-2.0054)
                 .build();
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private void stubWebClientChain(Mono<WorldTidesResponse> responseMono) {
-        doReturn(requestHeadersUriSpec).when(webClient).get();
-        doReturn(requestHeadersSpec).when(requestHeadersUriSpec).uri(any(Function.class));
-        doReturn(responseSpec).when(requestHeadersSpec).retrieve();
-        doReturn(responseMono).when(responseSpec).bodyToMono(WorldTidesResponse.class);
     }
 
     private WorldTidesResponse buildWorldTidesResponse() {

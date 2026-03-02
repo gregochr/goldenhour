@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.evaluation;
 
-import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.CacheCreation;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
@@ -10,7 +9,6 @@ import com.anthropic.models.messages.ServerToolUsage;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
-import com.anthropic.services.blocking.MessageService;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -41,10 +39,7 @@ import static org.mockito.Mockito.when;
 class OpusEvaluationStrategyTest {
 
     @Mock
-    private AnthropicClient anthropicClient;
-
-    @Mock
-    private MessageService messageService;
+    private AnthropicApiClient anthropicApiClient;
 
     @Mock
     private JobRunService jobRunService;
@@ -57,7 +52,7 @@ class OpusEvaluationStrategyTest {
         AnthropicProperties properties = new AnthropicProperties();
         properties.setModel("claude-opus-4-6");
         objectMapper = new ObjectMapper();
-        strategy = new OpusEvaluationStrategy(anthropicClient, properties, objectMapper, jobRunService);
+        strategy = new OpusEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
     }
 
     @Test
@@ -81,8 +76,7 @@ class OpusEvaluationStrategyTest {
                 + " \"summary\": \"Outstanding cloud canvas with clear low horizon."
                 + " Dust aerosols amplify warm red tones.\"}");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         SunsetEvaluation result = strategy.evaluate(data);
 

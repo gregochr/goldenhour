@@ -1,4 +1,7 @@
 spring:
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: jdbc:h2:file:/data/goldenhour
     driver-class-name: org.h2.Driver

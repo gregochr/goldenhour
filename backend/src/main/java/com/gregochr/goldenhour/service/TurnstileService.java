@@ -4,7 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Map;
@@ -21,7 +21,16 @@ public class TurnstileService {
     @Value("${turnstile.secret-key:}")
     private String secretKey;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestClient restClient;
+
+    /**
+     * Constructs a {@code TurnstileService}.
+     *
+     * @param restClient shared RestClient for outbound HTTP calls
+     */
+    public TurnstileService(RestClient restClient) {
+        this.restClient = restClient;
+    }
 
     /**
      * Verifies a Turnstile response token with Cloudflare.
@@ -44,7 +53,11 @@ public class TurnstileService {
                     "secret", secretKey,
                     "response", token
             );
-            Map<String, Object> response = restTemplate.postForObject(VERIFY_URL, request, Map.class);
+            Map<String, Object> response = restClient.post()
+                    .uri(VERIFY_URL)
+                    .body(request)
+                    .retrieve()
+                    .body(Map.class);
             if (response == null) {
                 LOG.warn("Turnstile verification returned null response");
                 return false;

@@ -15,8 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -62,7 +62,7 @@ public class TideService {
     /** Decimal precision for stored tide heights. */
     private static final int HEIGHT_SCALE = 3;
 
-    private final WebClient webClient;
+    private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
     private final WorldTidesProperties worldTidesProperties;
     private final JobRunService jobRunService;
@@ -70,14 +70,14 @@ public class TideService {
     /**
      * Constructs a {@code TideService}.
      *
-     * @param webClient              shared WebClient for outbound HTTP calls
+     * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
-    public TideService(WebClient webClient, TideExtremeRepository tideExtremeRepository,
+    public TideService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
-        this.webClient = webClient;
+        this.restClient = restClient;
         this.tideExtremeRepository = tideExtremeRepository;
         this.worldTidesProperties = worldTidesProperties;
         this.jobRunService = jobRunService;
@@ -128,7 +128,7 @@ public class TideService {
                     + "&length=" + FETCH_LENGTH_SECONDS + "&key=" + (apiKey.length() > 4
                     ? apiKey.substring(0, 4) + "***" : "***");
 
-            WorldTidesResponse response = webClient.get()
+            WorldTidesResponse response = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")
                             .queryParam("extremes")
@@ -139,8 +139,7 @@ public class TideService {
                             .queryParam("key", apiKey)
                             .build())
                     .retrieve()
-                    .bodyToMono(WorldTidesResponse.class)
-                    .block();
+                    .body(WorldTidesResponse.class);
 
             long durationMs = System.currentTimeMillis() - callStartMs;
 
@@ -378,8 +377,8 @@ public class TideService {
      * @return the HTTP status code, or null if not available
      */
     private Integer getStatusCode(Exception e) {
-        if (e instanceof WebClientResponseException wex) {
-            return wex.getStatusCode().value();
+        if (e instanceof RestClientResponseException rex) {
+            return rex.getStatusCode().value();
         }
         return null;
     }
