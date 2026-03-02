@@ -40,13 +40,13 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 
 | Layer | Technology |
 |---|---|
-| API | Spring Boot 3, Spring WebFlux (WebClient) |
+| API | Spring Boot 4, Spring WebClient |
 | AI evaluation | Claude (Haiku / Sonnet / Opus) via Anthropic Java SDK |
 | Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v1.2.0 (GitHub Packages) |
 | Weather data | Open-Meteo Forecast + Air Quality / CAMS APIs (free, no key) |
 | Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
 | Database | H2 file database + Flyway migrations (V1-V37) |
-| Security | Spring Security 6, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
+| Security | Spring Security 7, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
 | Frontend | React 18, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
 | Quality | Checkstyle, SpotBugs, JaCoCo (>=80%), ESLint, Vitest, Playwright |
