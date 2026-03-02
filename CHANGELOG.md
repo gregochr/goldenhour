@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (Mar 2, 2026)
+- **Spring Boot 4.0 migration** — upgraded from Spring Boot 3.x to 4.0.3 (Spring Security 7, Jackson 3)
+  - `spring-boot-starter-web` → `spring-boot-starter-webmvc`, `spring-boot-starter-webflux` → `spring-boot-starter-webclient`
+  - `flyway-core` → `spring-boot-starter-flyway`
+  - Jackson 2 → Jackson 3: `com.fasterxml.jackson.databind` → `tools.jackson.databind`
+  - Test annotations: `@MockBean` → `@MockitoBean`, new Boot 4.0 modularised test starters
+  - `spring-boot-starter-security-test` for `@WithMockUser` MockMvc integration
+  - Springdoc OpenAPI 2.3.0 → 3.0.1
+  - All 497 backend tests pass, Checkstyle/SpotBugs/JaCoCo clean
+
 ### Added (Mar 1, 2026)
 - **Responsive map popup** — popup width now uses `calc(100vw - 40px)` capped at `max-width: 600px`, so popups fit within phone viewports instead of overflowing at the hardcoded 600px
 - **Model Test button descriptions** — descriptive text below each button explaining what it does: which locations are tested, whether weather/tide data is fetched fresh, and that all three Anthropic models are always run
