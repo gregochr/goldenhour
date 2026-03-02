@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (Mar 2, 2026)
+- **Spring Framework 7 feature adoption** — virtual threads, RestClient, declarative resilience, and HTTP interface clients
+  - **Virtual threads** — `spring.threads.virtual.enabled: true` in both profiles; `forecastExecutor` uses `Executors.newVirtualThreadPerTaskExecutor()` (replaces sized `ThreadPoolTaskExecutor`)
+  - **RestClient replaces WebClient** — all HTTP clients migrated from reactive `WebClient.block()` to synchronous `RestClient`; Reactor/WebFlux removed from classpath entirely (`spring-boot-starter-webclient` + `reactor-test` dependencies dropped)
+  - **@HttpExchange interfaces** — `OpenMeteoForecastApi` and `OpenMeteoAirQualityApi` declarative interfaces proxied via `HttpServiceProxyFactory` + `RestClientAdapter`; `OpenMeteoClient` wraps both with `@Retryable`
+  - **Declarative retry** — `@EnableResilientMethods` + `@Retryable` (Spring Framework 7 `org.springframework.resilience`) replaces hand-rolled retry loops; `AnthropicApiClient` retries 529/content-filter, `OpenMeteoClient` retries 5xx/429; `MethodRetryPredicate` implementations: `ClaudeRetryPredicate`, `TransientHttpErrorPredicate`
+  - **@ConcurrencyLimit(8)** on `ForecastService.runForecasts()` — caps parallel evaluations, replacing thread pool sizing
+  - **TurnstileService** migrated from `RestTemplate` to `RestClient`
+  - **GlobalExceptionHandler** — `WebClientResponseException` → `RestClientResponseException`
+  - 541 backend tests (up from 535), all passing; Checkstyle/SpotBugs/JaCoCo clean
+  - 10 new files created, 25 modified; net -810 / +923 lines
+
 ### Added (Mar 2, 2026)
 - **PIT mutation testing** — `pitest-maven-plugin` 1.17.4 with JUnit 5 support; targets service, controller, and config packages; run locally with `./mvnw pitest:mutationCoverage`; HTML + XML reports in `target/pit-reports/`
   - Weekly CI workflow (`.github/workflows/pitest.yml`) runs every Monday 06:00 UTC with manual dispatch; uploads report as artifact
@@ -31,7 +43,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Test annotations: `@MockBean` → `@MockitoBean`, new Boot 4.0 modularised test starters
   - `spring-boot-starter-security-test` for `@WithMockUser` MockMvc integration
   - Springdoc OpenAPI 2.3.0 → 3.0.1
-  - All 534 backend tests pass, Checkstyle/SpotBugs/JaCoCo clean
+  - All 535 backend tests pass, Checkstyle/SpotBugs/JaCoCo clean
 
 ### Added (Mar 2, 2026)
 - **90 regression tests** — pre-v1.0 test hardening across backend and frontend

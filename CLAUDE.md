@@ -38,9 +38,11 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - `api_call_log` table (V20) records every API call with request/response details, duration, cost
   - Admin metrics dashboard shows last 7 days: total runs, success rate, slowest service, cost breakdown
   - Per-location failure tracking: `consecutive_failures`, auto-disable after 3 failures (V21)
-- **Retry robustness** ✓ — resilient API failure handling with exponential backoff
-  - Anthropic 529 (overloaded) retry logic: 1s → 2s → 4s, max 30s, 3 retries
+- **Retry robustness** ✓ — declarative `@Retryable` (Spring Framework 7) with exponential backoff
+  - Anthropic 529 (overloaded) + content filter retry via `AnthropicApiClient` + `ClaudeRetryPredicate`
+  - Open-Meteo/WorldTides 5xx/429 retry via `OpenMeteoClient` + `TransientHttpErrorPredicate`
   - Dead-letter mechanism for persistent location failures
+  - `@ConcurrencyLimit(8)` on `ForecastService.runForecasts()` caps parallel evaluations
   - Request/response logging interceptor captures all `/api/**` endpoints at INFO level
 - **Docker & CloudFlare Tunnel** ✓ — production deployment ready
   - `Dockerfile` with health checks, alpine base, non-root user
@@ -79,11 +81,12 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 goldenhour/
 ├── backend/               Spring Boot 4 app (port 8082 local)
 │   ├── src/main/java/com/gregochr/goldenhour/
-│   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties
+│   │   ├── client/        OpenMeteoForecastApi, OpenMeteoAirQualityApi (@HttpExchange interfaces)
+│   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties, TransientHttpErrorPredicate, ClaudeRetryPredicate
 │   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController, RegionController
 │   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, EmailVerificationTokenEntity, RegionEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
 │   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, EmailVerificationTokenRepository
-│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, ModelTestService, evaluation/, notification/
+│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, ModelTestService, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
 │   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
@@ -130,7 +133,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 
 - **No DTOs** — `ForecastController` returns entities directly; all fields auto-exposed.
 - **Backend-heavy** — all calculations (dayLabel, windCardinal, visibilityKm, azimuthDeg, tideAligned) computed on backend. Frontend is a pure render layer.
-- **Evaluation strategy** — flat hierarchy: `AbstractEvaluationStrategy` (shared prompts, retry logic, parsing) → `HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`, plus `NoOpEvaluationStrategy` for wildlife (no Claude call). Only `getEvaluationModel()` and `getModelName()` differ per Claude strategy. `EvaluationService` delegates to the strategy matching the admin-selected model for each run type.
+- **Evaluation strategy** — flat hierarchy: `AbstractEvaluationStrategy` (shared prompts, parsing) → `HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`, plus `NoOpEvaluationStrategy` for wildlife (no Claude call). Only `getEvaluationModel()` and `getModelName()` differ per Claude strategy. `AnthropicApiClient` handles API calls with declarative `@Retryable`. `EvaluationService` delegates to the strategy matching the admin-selected model for each run type.
 - **Command pattern** — `ForecastCommand` record encapsulates run parameters (run type, dates, locations, strategy, manual flag). `ForecastCommandFactory` builds commands from `RunType`, resolving the active model and strategy. `ForecastCommandExecutor` runs commands with parallel execution, skip logic, and metrics tracking. Controllers and schedulers are thin wrappers: `commandFactory.create()` → `commandExecutor.execute()`.
 - **Per-run-type model config** — `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE); each run button/endpoint uses its own configured model. `ModelSelectionService.getAllConfigs()` returns the full map.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
@@ -138,6 +141,9 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 - **Location metadata** — YAML is source of truth; `LocationService.@PostConstruct` seeds and syncs to DB on every startup.
 - **Layer inference** — cloud altitude layers are used as a proxy for directional cloud positioning. Low < 30% = solar horizon clear ✓; mid 30–60% = canvas above horizon ✓; high 20–60% = depth and texture ✓. True 5-point directional sampling deferred to v1.1. See `docs/product/directional_analysis_breakdown.md`.
 - **Aerosol proxy** — AOD + PM2.5 together proxy aerosol type: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (grey haze ✗). Implemented in evaluation prompt; no competitor does this.
+- **Virtual threads** — `spring.threads.virtual.enabled: true` in both profiles; Tomcat, `@Async`, and scheduling all use virtual threads. `forecastExecutor` bean uses `Executors.newVirtualThreadPerTaskExecutor()`.
+- **RestClient** — all HTTP clients use Spring's synchronous `RestClient` (no Reactor/WebFlux on classpath). `TideService`, `PushoverNotificationService`, `TurnstileService` inject `RestClient` directly. Open-Meteo calls go through `@HttpExchange` interfaces (`OpenMeteoForecastApi`, `OpenMeteoAirQualityApi`) proxied via `HttpServiceProxyFactory`.
+- **Declarative resilience** — `@EnableResilientMethods` in `AppConfig`; `@Retryable` on `AnthropicApiClient` and `OpenMeteoClient` with `MethodRetryPredicate` implementations (`ClaudeRetryPredicate`, `TransientHttpErrorPredicate`); `@ConcurrencyLimit(8)` on `ForecastService.runForecasts()`.
 - **Freemium UI** — breadcrumbs not paywalls: blur/lock for gated metrics, soft limits for horizon/locations, discovery moments for aerosol detail. See `docs/product/freemium_ui_strategy.md`.
 
 ---
@@ -423,17 +429,15 @@ Track performance of scheduled forecast runs and external API calls, stored in H
 - Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
 - Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 534 backend tests, all passing with ≥80% JaCoCo coverage
+- 541 backend tests, all passing with ≥80% JaCoCo coverage
 
 ### 9. Retry Robustness ✓ BUILT
 
-Each scheduled job run is resilient — a 429 or transient 5xx on one location/slot does not abort the entire run.
+Each scheduled job run is resilient — a 429 or transient 5xx on one location/slot does not abort the entire run. All retry logic uses Spring Framework 7's declarative `@Retryable` annotation (via `@EnableResilientMethods`).
 
-- **Open-Meteo and WorldTides**: already have `Retry.backoff(2, 5s)` for 5xx/429; WILDLIFE hourly path covered
-- **Anthropic**: retry on 529 (overloaded) with exponential backoff — 1s → 2s → 4s (max 30s, 3 retries)
-  - `AbstractEvaluationStrategy.invokeClaudeWithRetry()` with detailed logging
-  - Haiku, Sonnet, and Opus strategies all inherit retry logic
-  - Test coverage: `AbstractEvaluationStrategyTest` validates retry on 529, success on 2nd attempt
+- **Open-Meteo**: `@Retryable` on `OpenMeteoClient.fetchForecast()` / `fetchAirQuality()` with `TransientHttpErrorPredicate` (retries 5xx/429, 2 retries, 5s base delay)
+- **Anthropic**: `@Retryable` on `AnthropicApiClient.createMessage()` with `ClaudeRetryPredicate` (retries 529 overloaded + 400 content filter, 3 retries, 1s base, max 30s)
+- **Concurrency**: `@ConcurrencyLimit(8)` on `ForecastService.runForecasts()` caps parallel evaluations (replaces thread pool sizing)
 - **Per-location failure isolation**: `ForecastCommandExecutor` catches exceptions per location
   - Failures logged to `job_run` and `api_call_log` metrics with error messages
   - `ForecastService` logs API calls with status codes and error details
@@ -474,7 +478,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 534 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 541 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
