@@ -27,7 +27,11 @@ export default function BottomSheet({ open, onClose, children }) {
       <div
         data-testid="bottom-sheet-overlay"
         className="fixed inset-0 z-50 bg-black/50"
+        role="button"
+        tabIndex={-1}
+        aria-label="Close"
         onClick={onClose}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
       />
 
       {/* Sheet */}
