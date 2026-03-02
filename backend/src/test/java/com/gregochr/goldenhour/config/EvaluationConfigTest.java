@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
