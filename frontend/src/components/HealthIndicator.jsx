@@ -39,7 +39,7 @@ export default function HealthIndicator({ status, degraded, checkedAt }) {
     >
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />
       <span className="flex-shrink-0">{label}</span>
-      <InfoTip text={tooltip} />
+      <InfoTip text={tooltip} position="below" />
     </div>
   );
 }
