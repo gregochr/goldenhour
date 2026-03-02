@@ -510,6 +510,7 @@ export default function MapView({ locations, date }) {
                 date={date}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
+                darkMode
               />
             </div>
           </BottomSheet>

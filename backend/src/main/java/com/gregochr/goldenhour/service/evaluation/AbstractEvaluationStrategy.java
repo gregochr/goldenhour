@@ -431,6 +431,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                                         "summary", Map.of("type", "string"))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
+                                .putAdditionalProperty("additionalProperties", JsonValue.from(false))
                                 .build())
                         .build())
                 .build();

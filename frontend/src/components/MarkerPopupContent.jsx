@@ -136,6 +136,7 @@ PopupScoreRow.propTypes = {
  * @param {string} props.date - Selected date string (YYYY-MM-DD).
  * @param {function} props.onTideFetchedAt - Called with fetchedAt timestamp from TideIndicator.
  * @param {string|null} props.tideFetchedAt - Previously fetched tide timestamp for footer display.
+ * @param {boolean} [props.darkMode=false] - True when rendered on a dark surface (e.g. BottomSheet).
  */
 export default function MarkerPopupContent({
   location,
@@ -149,6 +150,7 @@ export default function MarkerPopupContent({
   date,
   onTideFetchedAt,
   tideFetchedAt,
+  darkMode = false,
 }) {
   const isSunrise = eventType === 'SUNRISE';
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
@@ -168,7 +170,7 @@ export default function MarkerPopupContent({
 
       {/* Row 1: Title + event time pill */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '8px' }}>
-        <div style={{ fontWeight: '800', fontSize: '17px', color: '#0f172a' }}>
+        <div style={{ fontWeight: '800', fontSize: '17px', color: darkMode ? '#EBEBEB' : '#0f172a' }}>
           {location.name}
         </div>
         {eventTime && (
@@ -227,7 +229,7 @@ export default function MarkerPopupContent({
             )}
           </div>
           {forecast.summary && (
-            <div style={{ fontSize: '12px', lineHeight: '1.5', color: '#3A3D45', marginBottom: '8px' }}>
+            <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
               {forecast.summary}
             </div>
           )}
@@ -330,7 +332,7 @@ export default function MarkerPopupContent({
 
               {/* Comfort rows */}
               {forecast.temperatureCelsius != null && (
-                <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: '#3A3D45', lineHeight: '1.8' }}>
+                <div style={{ borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, paddingTop: '6px', marginTop: '4px', fontSize: '12px', color: darkMode ? '#A0A0A0' : '#3A3D45', lineHeight: '1.8' }}>
                   <div style={{ display: 'flex', alignItems: 'center' }}><ThermometerIcon /><strong>{Math.round(forecast.temperatureCelsius)}°C</strong>&nbsp;· feels like {Math.round(forecast.apparentTemperatureCelsius ?? forecast.temperatureCelsius)}°C</div>
                   <div style={{ display: 'flex', alignItems: 'center' }}><WindIcon /><strong>{mpsToMph(forecast.windSpeed)} mph</strong>&nbsp;{degreesToCompass(forecast.windDirection)}</div>
                   <div style={{ display: 'flex', alignItems: 'center' }}><RainIcon /><strong>{forecast.precipitationProbabilityPercent ?? 0}%</strong>&nbsp;rain chance</div>
@@ -342,7 +344,7 @@ export default function MarkerPopupContent({
 
               {/* Footer: generated at (non-admin only — admin sees it always below) */}
               {role !== 'ADMIN' && forecast?.forecastRunAt && (
-                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
+                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
                   Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
                 </div>
               )}
@@ -351,7 +353,7 @@ export default function MarkerPopupContent({
 
           {/* Footer: always visible for ADMIN */}
           {role === 'ADMIN' && forecast?.forecastRunAt && (
-            <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid #e5e7eb', fontSize: '10px', color: '#9ca3af' }}>
+            <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
               Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
               {tideFetchedAt && (
                 <div>Tide data fetched: {formatGeneratedAtFull(tideFetchedAt)}</div>
@@ -385,4 +387,5 @@ MarkerPopupContent.propTypes = {
   date: PropTypes.string.isRequired,
   onTideFetchedAt: PropTypes.func,
   tideFetchedAt: PropTypes.string,
+  darkMode: PropTypes.bool,
 };
