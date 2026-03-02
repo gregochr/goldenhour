@@ -28,18 +28,25 @@ public class CostCalculator {
     /**
      * Calculates the cost of a single API call in pence.
      *
-     * <p>For Anthropic calls, the cost depends on the evaluation model (Haiku vs Sonnet).
+     * <p>For Anthropic calls, the cost depends on the evaluation model (Haiku, Sonnet, or Opus).
      * For other services, the cost is fixed per service.
      *
      * @param service the external service (ANTHROPIC, WORLD_TIDES, OPEN_METEO_*, etc.)
-     * @param model   the evaluation model for Anthropic calls (HAIKU or SONNET), or null for non-Anthropic
-     * @return cost in pence (e.g., 130 for Sonnet, 20 for WorldTides, 0 for OpenMeteo)
+     * @param model   the evaluation model for Anthropic calls (HAIKU, SONNET, or OPUS), or null
+     * @return cost in pence (e.g., 75 for Opus, 13 for Sonnet, 5 for Haiku, 0 for OpenMeteo)
      */
     public int calculateCost(ServiceName service, EvaluationModel model) {
         return switch (service) {
-            case ANTHROPIC -> model == EvaluationModel.HAIKU
-                    ? costProperties.getAnthropicHaikuPence()
-                    : costProperties.getAnthropicSonnetPence();
+            case ANTHROPIC -> {
+                if (model == null) {
+                    yield costProperties.getAnthropicSonnetPence();
+                }
+                yield switch (model) {
+                        case HAIKU -> costProperties.getAnthropicHaikuPence();
+                        case OPUS -> costProperties.getAnthropicOpusPence();
+                        default -> costProperties.getAnthropicSonnetPence();
+                    };
+            }
             case WORLD_TIDES -> costProperties.getWorldTidesPence();
             case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY -> costProperties.getOpenMeteoPence();
         };

@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.concurrent.Executor;
 
 /**
@@ -60,10 +61,12 @@ public class AppConfig {
     }
 
     /**
-     * Anthropic client for Claude API calls.
+     * Anthropic client for Claude API calls with connection pooling.
      *
      * <p>Configured from {@link AnthropicProperties}. Used exclusively by
      * {@code EvaluationService} — no other class accesses the Anthropic SDK directly.
+     * Connection pool sized to support parallel evaluation runs (5 idle connections,
+     * 2-minute keep-alive).
      *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}
@@ -72,6 +75,8 @@ public class AppConfig {
     public AnthropicClient anthropicClient(AnthropicProperties properties) {
         return AnthropicOkHttpClient.builder()
                 .apiKey(properties.getApiKey())
+                .maxIdleConnections(5)
+                .keepAliveDuration(Duration.ofMinutes(2))
                 .build();
     }
 }

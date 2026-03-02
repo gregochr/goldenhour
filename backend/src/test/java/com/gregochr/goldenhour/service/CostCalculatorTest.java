@@ -38,6 +38,18 @@ class CostCalculatorTest {
     }
 
     @Test
+    @DisplayName("calculateCost() returns Opus cost when model is OPUS")
+    void calculateCost_returnsOpusCost_whenModelIsOpus() {
+        CostProperties props = new CostProperties();
+        props.setAnthropicOpusPence(75);  // 7.5p in units of 1/10th pence
+        CostCalculator calculator = new CostCalculator(props);
+
+        int cost = calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.OPUS);
+
+        assertThat(cost).isEqualTo(75);
+    }
+
+    @Test
     @DisplayName("calculateCost() returns WorldTides cost for WORLD_TIDES service")
     void calculateCost_returnsWorldTidesCost_forWorldTidesService() {
         CostProperties props = new CostProperties();
