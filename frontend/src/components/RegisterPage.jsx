@@ -72,7 +72,7 @@ PrivacyModal.propTypes = {
 /**
  * Multi-step self-registration component with internal state machine.
  */
-export default function RegisterPage({ verifyToken, onBackToLogin }) {
+export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const { completeRegistration } = useAuth();
   const [step, setStep] = useState(verifyToken ? STEPS.VERIFY : STEPS.REGISTER);
   const [username, setUsername] = useState('');
@@ -549,8 +549,4 @@ export default function RegisterPage({ verifyToken, onBackToLogin }) {
 RegisterPage.propTypes = {
   verifyToken: PropTypes.string,
   onBackToLogin: PropTypes.func.isRequired,
-};
-
-RegisterPage.defaultProps = {
-  verifyToken: null,
 };

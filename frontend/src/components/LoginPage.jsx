@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 /**
  * Full-page login form rendered when the user has no valid session.
  */
-export default function LoginPage({ onRegister }) {
+export default function LoginPage({ onRegister = null }) {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -131,8 +131,4 @@ export default function LoginPage({ onRegister }) {
 
 LoginPage.propTypes = {
   onRegister: PropTypes.func,
-};
-
-LoginPage.defaultProps = {
-  onRegister: null,
 };

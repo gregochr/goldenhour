@@ -9,7 +9,7 @@ import axios from 'axios';
  * @param {Array<object>} props.locations - All locations with failure tracking fields.
  * @param {function} props.onReenabledLocation - Called when a location is re-enabled.
  */
-export default function LocationAlerts({ locations, onReenabledLocation }) {
+export default function LocationAlerts({ locations = [], onReenabledLocation = () => {} }) {
   const failingLocations = useMemo(
     () => locations.filter((loc) => loc.consecutiveFailures > 0),
     [locations],
@@ -91,9 +91,4 @@ LocationAlerts.propTypes = {
     }),
   ),
   onReenabledLocation: PropTypes.func,
-};
-
-LocationAlerts.defaultProps = {
-  locations: [],
-  onReenabledLocation: () => {},
 };
