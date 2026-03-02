@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import OutcomeModal from '../components/OutcomeModal.jsx';
 
 vi.mock('../api/forecastApi.js', () => ({
@@ -71,10 +72,11 @@ describe('OutcomeModal', () => {
   });
 
   it('shows error message on failed save', async () => {
+    const user = userEvent.setup();
     recordOutcome.mockRejectedValue(new Error('Network error'));
     renderModal();
 
-    fireEvent.click(screen.getByTestId('outcome-submit'));
+    await user.click(screen.getByTestId('outcome-submit'));
 
     await waitFor(() => {
       const alert = screen.getByRole('alert');
@@ -84,10 +86,11 @@ describe('OutcomeModal', () => {
   });
 
   it('shows "Saving..." while save is in progress', async () => {
+    const user = userEvent.setup();
     recordOutcome.mockReturnValue(new Promise(() => {})); // never resolves
     renderModal();
 
-    fireEvent.click(screen.getByTestId('outcome-submit'));
+    await user.click(screen.getByTestId('outcome-submit'));
 
     await waitFor(() => {
       expect(screen.getByText('Saving…')).toBeInTheDocument();
@@ -95,10 +98,11 @@ describe('OutcomeModal', () => {
   });
 
   it('shows success message after successful save', async () => {
+    const user = userEvent.setup();
     recordOutcome.mockResolvedValue({});
     renderModal();
 
-    fireEvent.click(screen.getByTestId('outcome-submit'));
+    await user.click(screen.getByTestId('outcome-submit'));
 
     await waitFor(() => {
       expect(screen.getByTestId('outcome-saved-message')).toBeInTheDocument();

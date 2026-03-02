@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -27,8 +27,6 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const checks = [
     { label: 'At least 8 characters', ok: newPassword.length >= 8 },
@@ -41,19 +39,15 @@ export default function ChangePasswordPage() {
 
   const allPassed = checks.every((c) => c.ok);
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    if (!allPassed) return;
-    setError('');
-    setLoading(true);
+  const [error, submitAction, isPending] = useActionState(async () => {
+    if (!allPassed) return '';
     try {
       await changePassword(newPassword);
+      return '';
     } catch (err) {
-      setError(err?.response?.data?.error ?? 'Failed to change password. Please try again.');
-    } finally {
-      setLoading(false);
+      return err?.response?.data?.error ?? 'Failed to change password. Please try again.';
     }
-  }
+  }, '');
 
   const EyeOpen = (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -80,7 +74,7 @@ export default function ChangePasswordPage() {
         </div>
 
         <form
-          onSubmit={handleSubmit}
+          action={submitAction}
           className="card flex flex-col gap-4"
         >
           <div>
@@ -103,7 +97,7 @@ export default function ChangePasswordPage() {
                 className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                disabled={loading}
+                disabled={isPending}
                 required
               />
               <button
@@ -130,7 +124,7 @@ export default function ChangePasswordPage() {
                 className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                disabled={loading}
+                disabled={isPending}
                 required
               />
               <button
@@ -160,9 +154,9 @@ export default function ChangePasswordPage() {
             type="submit"
             data-testid="cp-submit"
             className="btn-primary"
-            disabled={loading || !allPassed}
+            disabled={isPending || !allPassed}
           >
-            {loading ? 'Saving…' : 'Set new password'}
+            {isPending ? 'Saving…' : 'Set new password'}
           </button>
 
           <button
