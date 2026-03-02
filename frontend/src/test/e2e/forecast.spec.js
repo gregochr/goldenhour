@@ -17,13 +17,14 @@ async function loginAsAdmin(page) {
   const response = await page.request.post(`${BACKEND}/api/auth/login`, {
     data: { username: 'admin', password: 'golden2026' },
   });
-  const { accessToken, refreshToken, refreshExpiresAt } = await response.json();
-  await page.evaluate(({ token, refresh, refreshExpires }) => {
+  const { accessToken, refreshToken, refreshExpiresAt, username } = await response.json();
+  await page.evaluate(({ token, refresh, refreshExpires, user }) => {
     localStorage.setItem('goldenhour_token', token);
     localStorage.setItem('goldenhour_refresh', refresh);
     localStorage.setItem('goldenhour_role', 'ADMIN');
+    localStorage.setItem('goldenhour_username', user);
     localStorage.setItem('goldenhour_refresh_expires', refreshExpires);
-  }, { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt });
+  }, { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt, user: username });
 }
 
 // ---------------------------------------------------------------------------

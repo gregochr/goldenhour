@@ -103,6 +103,7 @@ public class AuthController {
         return ResponseEntity.ok(Map.of(
                 "accessToken", accessToken,
                 "refreshToken", rawRefresh,
+                "username", user.getUsername(),
                 "role", user.getRole().name(),
                 "expiresAt", expiresAt.toInstant().toString(),
                 "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
@@ -400,6 +401,7 @@ public class AuthController {
         return ResponseEntity.ok(Map.of(
                 "accessToken", accessToken,
                 "refreshToken", rawRefresh,
+                "username", user.getUsername(),
                 "role", user.getRole().name(),
                 "expiresAt", expiresAt.toInstant().toString(),
                 "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
