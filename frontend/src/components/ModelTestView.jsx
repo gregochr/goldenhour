@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { runModelTest, runModelTestForLocation, rerunModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
-import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
+import { formatCostGbp, formatTokens } from '../utils/formatCost';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -486,12 +486,12 @@ const ModelTestView = () => {
           role="dialog"
           aria-modal="true"
           aria-label="Summary"
-          onClick={() => setExpandedSummary(null)}
           data-testid="summary-dialog"
         >
+          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- backdrop dismiss */}
+          <div className="absolute inset-0" onClick={() => setExpandedSummary(null)} />
           <div
-            className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-3"
-            onClick={(e) => e.stopPropagation()}
+            className="relative bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-3"
           >
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-plex-text">
