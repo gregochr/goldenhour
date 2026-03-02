@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { runModelTest, runModelTestForLocation, rerunModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
+import { runModelTest, runModelTestForLocation, rerunModelTest, rerunModelTestDeterministic, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
@@ -26,6 +26,8 @@ const ModelTestView = () => {
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [runningLocation, setRunningLocation] = useState(false);
   const [rerunning, setRerunning] = useState(false);
+  const [rerunningDeterministic, setRerunningDeterministic] = useState(false);
+  const [parentResults, setParentResults] = useState([]);
   const [expandedSummary, setExpandedSummary] = useState(null);
 
   // Load locations and regions once for test summary
@@ -91,10 +93,21 @@ const ModelTestView = () => {
     if (selectedRunId === runId) {
       setSelectedRunId(null);
       setResults([]);
+      setParentResults([]);
       return;
     }
     setSelectedRunId(runId);
     loadResults(runId);
+
+    // Load parent results for SAME_DATA runs (for delta comparison)
+    const run = runs.find((r) => r.id === runId);
+    if (run?.rerunType === 'SAME_DATA' && run?.parentRunId) {
+      getModelTestResults(run.parentRunId)
+        .then((res) => setParentResults(res.data || []))
+        .catch(() => setParentResults([]));
+    } else {
+      setParentResults([]);
+    }
   };
 
   const handleRunTest = () => {
@@ -168,15 +181,16 @@ const ModelTestView = () => {
   const handleRerunTest = () => {
     if (!selectedRunId) return;
     const locationNames = [...new Set(results.map((r) => r.locationName))];
+    const testEntries = locationNames.map((name) => {
+      const r = results.find((res) => res.locationName === name);
+      return { region: r?.regionName || '', location: name };
+    });
     setConfirmDialog({
-      title: 'Re-run Model Test',
-      message: 'This will re-test the same locations with fresh weather data and fresh Anthropic API calls.',
+      title: 'Re-run (Fresh Data)',
+      message: 'Same locations, fresh weather data, all 3 models.',
       confirmLabel: 'Re-run',
       destructive: false,
-      testEntries: locationNames.map((name) => {
-        const r = results.find((res) => res.locationName === name);
-        return { region: r?.regionName || '', location: name };
-      }),
+      testEntries,
       onConfirm: async () => {
         setConfirmDialog(null);
         setRerunning(true);
@@ -187,6 +201,7 @@ const ModelTestView = () => {
           setRuns((prev) => [newRun, ...prev]);
           setSelectedRunId(newRun.id);
           loadResults(newRun.id);
+          setParentResults([]);
         } catch (err) {
           setError(err?.response?.data?.message || err.message || 'Re-run failed.');
         } finally {
@@ -196,7 +211,50 @@ const ModelTestView = () => {
     });
   };
 
-  const isAnyRunning = running || runningLocation || rerunning;
+  const handleRerunDeterministic = () => {
+    if (!selectedRunId) return;
+    const locationNames = [...new Set(results.map((r) => r.locationName))];
+    const testEntries = locationNames.map((name) => {
+      const r = results.find((res) => res.locationName === name);
+      return { region: r?.regionName || '', location: name };
+    });
+    const hasAtmosphericData = results.some((r) => r.atmosphericDataJson);
+    if (!hasAtmosphericData) {
+      setError('Cannot replay — this run has no stored atmospheric data (pre-V39 run).');
+      return;
+    }
+    setConfirmDialog({
+      title: 'Re-run (Same Data — Determinism Test)',
+      message: 'Same locations, identical weather data replayed from storage, all 3 models. Tests whether Claude produces consistent evaluations.',
+      confirmLabel: 'Re-run (Same Data)',
+      destructive: false,
+      testEntries,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRerunningDeterministic(true);
+        setError(null);
+        try {
+          const response = await rerunModelTestDeterministic(selectedRunId);
+          const newRun = response.data;
+          setRuns((prev) => [newRun, ...prev]);
+          setSelectedRunId(newRun.id);
+          loadResults(newRun.id);
+          // Load current run's results as parent for delta comparison
+          if (newRun.rerunType === 'SAME_DATA' && newRun.parentRunId) {
+            getModelTestResults(newRun.parentRunId)
+              .then((res) => setParentResults(res.data || []))
+              .catch(() => setParentResults([]));
+          }
+        } catch (err) {
+          setError(err?.response?.data?.message || err.message || 'Determinism re-run failed.');
+        } finally {
+          setRerunningDeterministic(false);
+        }
+      },
+    });
+  };
+
+  const isAnyRunning = running || runningLocation || rerunning || rerunningDeterministic;
 
   // Group results by region for display
   const groupedResults = results.reduce((acc, result) => {
@@ -210,21 +268,43 @@ const ModelTestView = () => {
 
   const regions = Object.values(groupedResults);
 
-  // Find Haiku baseline for delta calculation
-  const getDelta = (region, model, field) => {
-    const haikuResult = region.models['HAIKU'];
-    const modelResult = region.models[model];
-    if (!haikuResult || !modelResult || haikuResult[field] == null || modelResult[field] == null) {
-      return null;
+  const selectedRun = runs.find((r) => r.id === selectedRunId);
+  const isSameDataRun = selectedRun?.rerunType === 'SAME_DATA';
+
+  // Build parent results lookup for SAME_DATA delta comparison
+  const parentResultsMap = {};
+  if (isSameDataRun && parentResults.length > 0) {
+    for (const r of parentResults) {
+      parentResultsMap[`${r.locationName}-${r.evaluationModel}`] = r;
     }
+  }
+
+  // Delta calculation: for SAME_DATA runs compare against same model in parent run;
+  // for other runs compare against Haiku baseline within current run
+  const getDelta = (region, model, field) => {
+    const modelResult = region.models[model];
+    if (!modelResult || modelResult[field] == null) return null;
+
+    if (isSameDataRun && parentResults.length > 0) {
+      const parentResult = parentResultsMap[`${region.locationName}-${model}`];
+      if (!parentResult || parentResult[field] == null) return null;
+      return modelResult[field] - parentResult[field];
+    }
+
+    // Default: Haiku baseline within current run
+    const haikuResult = region.models['HAIKU'];
+    if (!haikuResult || haikuResult[field] == null) return null;
     return modelResult[field] - haikuResult[field];
   };
 
   const formatDelta = (delta) => {
     if (delta == null) return '';
-    if (delta === 0) return '';
+    if (delta === 0) return <span className="text-xs text-green-400 ml-1">=</span>;
     const sign = delta > 0 ? '+' : '';
-    const colour = delta > 0 ? 'text-green-400' : 'text-red-400';
+    const absVal = Math.abs(delta);
+    const colour = isSameDataRun
+      ? (absVal === 0 ? 'text-green-400' : absVal <= 5 ? 'text-amber-400' : 'text-red-400')
+      : (delta > 0 ? 'text-green-400' : 'text-red-400');
     return <span className={`text-xs ${colour} ml-1`}>{sign}{delta}</span>;
   };
 
@@ -271,7 +351,8 @@ const ModelTestView = () => {
           {isAnyRunning && (
             <span className="text-xs text-plex-text-muted">
               {running ? 'Testing all models across regions\u2026 this may take a minute.'
-                : rerunning ? 'Re-running test\u2026'
+                : rerunning ? 'Re-running test (fresh data)\u2026'
+                : rerunningDeterministic ? 'Re-running test (same data / determinism)\u2026'
                 : 'Testing single location\u2026'}
             </span>
           )}
@@ -303,6 +384,7 @@ const ModelTestView = () => {
               <thead>
                 <tr className="text-left text-plex-text-muted border-b border-plex-border">
                   <th className="py-2 pr-4">ID</th>
+                  <th className="py-2 pr-4">Type</th>
                   <th className="py-2 pr-4">Date</th>
                   <th className="py-2 pr-4">Target</th>
                   <th className="py-2 pr-4">Regions</th>
@@ -312,16 +394,44 @@ const ModelTestView = () => {
                 </tr>
               </thead>
               <tbody>
-                {runs.map((run) => (
+                {runs.map((run) => {
+                  const borderLeft = run.rerunType === 'FRESH_DATA'
+                    ? 'border-l-2 border-l-blue-500'
+                    : run.rerunType === 'SAME_DATA'
+                    ? 'border-l-2 border-l-amber-500'
+                    : '';
+                  return (
                   <tr
                     key={run.id}
-                    className={`border-b border-plex-border/50 cursor-pointer hover:bg-plex-surface-light transition-colors ${
+                    className={`border-b border-plex-border/50 cursor-pointer hover:bg-plex-surface-light transition-colors ${borderLeft} ${
                       selectedRunId === run.id ? 'bg-plex-surface-light' : ''
                     }`}
                     onClick={() => handleSelectRun(run.id)}
                     data-testid={`model-test-run-${run.id}`}
                   >
-                    <td className="py-2 pr-4 text-plex-text">{run.id}</td>
+                    <td className="py-2 pr-4 text-plex-text">
+                      {run.id}
+                      {run.parentRunId && (
+                        <button
+                          className="text-xs text-plex-text-muted hover:text-plex-text ml-1"
+                          title={`Parent: Run #${run.parentRunId}`}
+                          onClick={(e) => { e.stopPropagation(); handleSelectRun(run.parentRunId); }}
+                        >
+                          {'\u21A9'} #{run.parentRunId}
+                        </button>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {run.rerunType === 'FRESH_DATA' && (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-blue-900/30 text-blue-300">Fresh Data</span>
+                      )}
+                      {run.rerunType === 'SAME_DATA' && (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/30 text-amber-300">Same Data</span>
+                      )}
+                      {!run.rerunType && (
+                        <span className="text-xs text-plex-text-muted">Original</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-4 text-plex-text">{run.startedAt ? run.startedAt.slice(0, 19).replace('T', ' ') : run.targetDate}</td>
                     <td className="py-2 pr-4 text-plex-text">{run.targetType}</td>
                     <td className="py-2 pr-4 text-plex-text">{run.regionsCount}</td>
@@ -345,7 +455,8 @@ const ModelTestView = () => {
                     <td className="py-2 pr-4 text-plex-text-secondary">{formatDuration(run.durationMs)}</td>
                     <td className="py-2 pr-4 text-plex-text-secondary">{formatRunCost(run)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -355,9 +466,14 @@ const ModelTestView = () => {
       {/* Results comparison table */}
       {selectedRunId && (
         <div>
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
             <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
               Results for Run #{selectedRunId}
+              {isSameDataRun && parentResults.length > 0 && (
+                <span className="ml-2 text-amber-400 normal-case font-normal">
+                  Deltas show drift from parent run #{selectedRun.parentRunId}
+                </span>
+              )}
             </p>
             <button
               className="btn-secondary text-xs py-0.5 px-2"
@@ -365,9 +481,17 @@ const ModelTestView = () => {
               disabled={isAnyRunning || results.length === 0}
               data-testid="rerun-model-test-btn"
             >
-              {rerunning ? '\u27F3 Re-running\u2026' : '\u21BB Re-run'}
+              {rerunning ? '\u27F3 Re-running\u2026' : '\u21BB Fresh Data'}
             </button>
-            <span className="text-xs text-plex-text-muted">Same locations, fresh weather/tide data, all three models.</span>
+            <button
+              className="btn-secondary text-xs py-0.5 px-2"
+              onClick={handleRerunDeterministic}
+              disabled={isAnyRunning || results.length === 0 || !results.some((r) => r.atmosphericDataJson)}
+              title={!results.some((r) => r.atmosphericDataJson) ? 'No atmospheric data stored (pre-V39 run)' : 'Replay identical weather data to test Claude determinism'}
+              data-testid="rerun-deterministic-btn"
+            >
+              {rerunningDeterministic ? '\u27F3 Re-running\u2026' : '\u21BB Same Data'}
+            </button>
           </div>
           {loadingResults ? (
             <p className="text-sm text-plex-text-muted">Loading results\u2026</p>
@@ -432,7 +556,7 @@ const ModelTestView = () => {
                             {result?.succeeded ? (
                               <>
                                 {result.fierySkyPotential ?? '\u2014'}
-                                {model !== 'HAIKU' && formatDelta(getDelta(region, model, 'fierySkyPotential'))}
+                                {(isSameDataRun || model !== 'HAIKU') && formatDelta(getDelta(region, model, 'fierySkyPotential'))}
                               </>
                             ) : '\u2014'}
                           </td>
@@ -440,7 +564,7 @@ const ModelTestView = () => {
                             {result?.succeeded ? (
                               <>
                                 {result.goldenHourPotential ?? '\u2014'}
-                                {model !== 'HAIKU' && formatDelta(getDelta(region, model, 'goldenHourPotential'))}
+                                {(isSameDataRun || model !== 'HAIKU') && formatDelta(getDelta(region, model, 'goldenHourPotential'))}
                               </>
                             ) : '\u2014'}
                           </td>

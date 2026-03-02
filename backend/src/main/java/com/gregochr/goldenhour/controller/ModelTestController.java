@@ -75,6 +75,23 @@ public class ModelTestController {
     }
 
     /**
+     * Re-runs a previous model test using identical atmospheric data (no Open-Meteo calls).
+     *
+     * <p>Tests Claude's determinism by replaying the exact same input data through
+     * all three models.
+     *
+     * @param testRunId the ID of the previous test run to replay
+     * @return the completed new test run with summary metrics
+     */
+    @PostMapping("/rerun-determinism")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ModelTestRunEntity> rerunDeterminism(
+            @RequestParam Long testRunId) {
+        ModelTestRunEntity testRun = modelTestService.rerunTestDeterministic(testRunId);
+        return ResponseEntity.ok(testRun);
+    }
+
+    /**
      * Returns recent test runs (last 20).
      *
      * @return list of recent test runs

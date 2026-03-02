@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ModelTestResultEntity;
 import com.gregochr.goldenhour.entity.ModelTestRunEntity;
+import com.gregochr.goldenhour.entity.RerunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.ModelTestService;
 import org.junit.jupiter.api.DisplayName;
@@ -222,6 +223,53 @@ class ModelTestControllerTest {
     @WithMockUser(roles = "ADMIN")
     void rerunTest_missingTestRunId_returns400() throws Exception {
         mockMvc.perform(post("/api/model-test/rerun")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+    }
+
+    // --- rerun-determinism endpoint tests ---
+
+    @Test
+    @DisplayName("POST /api/model-test/rerun-determinism returns test run for ADMIN")
+    @WithMockUser(roles = "ADMIN")
+    void rerunDeterminism_returnsRunForAdmin() throws Exception {
+        ModelTestRunEntity run = ModelTestRunEntity.builder()
+                .id(3L)
+                .startedAt(LocalDateTime.now())
+                .targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET)
+                .regionsCount(1)
+                .succeeded(3)
+                .failed(0)
+                .totalCostPence(150)
+                .parentRunId(1L)
+                .rerunType(RerunType.SAME_DATA)
+                .build();
+        when(modelTestService.rerunTestDeterministic(1L)).thenReturn(run);
+
+        mockMvc.perform(post("/api/model-test/rerun-determinism?testRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(3))
+                .andExpect(jsonPath("$.succeeded").value(3))
+                .andExpect(jsonPath("$.parentRunId").value(1))
+                .andExpect(jsonPath("$.rerunType").value("SAME_DATA"));
+    }
+
+    @Test
+    @DisplayName("POST /api/model-test/rerun-determinism requires ADMIN role")
+    @WithMockUser(roles = "PRO_USER")
+    void rerunDeterminism_requiresAdminRole() throws Exception {
+        mockMvc.perform(post("/api/model-test/rerun-determinism?testRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/model-test/rerun-determinism without testRunId returns 400")
+    @WithMockUser(roles = "ADMIN")
+    void rerunDeterminism_missingTestRunId_returns400() throws Exception {
+        mockMvc.perform(post("/api/model-test/rerun-determinism")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
     }

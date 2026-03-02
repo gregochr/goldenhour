@@ -88,6 +88,15 @@ public class ModelTestRunEntity {
     @Column(name = "exchange_rate_gbp_per_usd")
     private Double exchangeRateGbpPerUsd;
 
+    /** ID of the parent run this was re-run from, or null for original runs. */
+    @Column(name = "parent_run_id")
+    private Long parentRunId;
+
+    /** Type of re-run, or null for original runs. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "rerun_type", length = 20)
+    private RerunType rerunType;
+
     /** Results for this test run (one per region/model combination). */
     @OneToMany(mappedBy = "testRunId")
     private List<ModelTestResultEntity> results;

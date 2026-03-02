@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -7,6 +9,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.ModelTestResultEntity;
 import com.gregochr.goldenhour.entity.ModelTestRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.RerunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -21,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -72,6 +76,8 @@ class ModelTestServiceTest {
     private ExchangeRateService exchangeRateService;
 
     private ModelTestService service;
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule());
 
     @BeforeEach
     void setUp() {
@@ -532,6 +538,8 @@ class ModelTestServiceTest {
         assertThat(result.getRegionsCount()).isEqualTo(1);
         assertThat(result.getSucceeded()).isEqualTo(3);
         assertThat(result.getFailed()).isEqualTo(0);
+        assertThat(result.getParentRunId()).isEqualTo(10L);
+        assertThat(result.getRerunType()).isEqualTo(RerunType.FRESH_DATA);
         verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
     }
 
@@ -556,5 +564,176 @@ class ModelTestServiceTest {
         assertThatThrownBy(() -> service.rerunTest(10L))
                 .isInstanceOf(NoSuchElementException.class)
                 .hasMessageContaining("No results found");
+    }
+
+    // --- rerunTestDeterministic tests ---
+
+    @Test
+    @DisplayName("rerunTestDeterministic uses stored atmospheric data without calling Open-Meteo")
+    void rerunTestDeterministic_usesStoredAtmosphericData() throws Exception {
+        AtmosphericData data = sampleAtmosphericData();
+        String dataJson = objectMapper.writeValueAsString(data);
+
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).build();
+        ModelTestResultEntity prevResult = ModelTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .regionId(1L).regionName("North East")
+                .targetDate(LocalDate.of(2026, 3, 1)).targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
+                .atmosphericDataJson(dataJson).build();
+
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of(prevResult));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(20L);
+            }
+            return e;
+        });
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
+                .thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ModelTestRunEntity result = service.rerunTestDeterministic(10L);
+
+        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getFailed()).isEqualTo(0);
+        assertThat(result.getRegionsCount()).isEqualTo(1);
+
+        // Verify NO Open-Meteo calls were made
+        verify(openMeteoService, never()).getAtmosphericData(any(), any());
+        verify(forecastService, never()).augmentWithTideData(any(), any(), any(), any());
+
+        // Verify 3 evaluations (one per model)
+        verify(evaluationService, times(3)).evaluateWithDetails(any(), any(), any());
+        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+    }
+
+    @Test
+    @DisplayName("rerunTestDeterministic sets parentRunId and SAME_DATA rerunType")
+    void rerunTestDeterministic_setsParentAndRerunType() throws Exception {
+        AtmosphericData data = sampleAtmosphericData();
+        String dataJson = objectMapper.writeValueAsString(data);
+
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).build();
+        ModelTestResultEntity prevResult = ModelTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .regionId(1L).regionName("North East")
+                .targetDate(LocalDate.of(2026, 3, 1)).targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
+                .atmosphericDataJson(dataJson).build();
+
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of(prevResult));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(20L);
+            }
+            return e;
+        });
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        lenient().when(costCalculator.calculateCost(any(), any())).thenReturn(50);
+        lenient().when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ModelTestRunEntity result = service.rerunTestDeterministic(10L);
+
+        assertThat(result.getParentRunId()).isEqualTo(10L);
+        assertThat(result.getRerunType()).isEqualTo(RerunType.SAME_DATA);
+    }
+
+    @Test
+    @DisplayName("rerunTestDeterministic throws when no results have atmospheric data")
+    void rerunTestDeterministic_failsWhenNoAtmosphericData() {
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).build();
+        ModelTestResultEntity prevResult = ModelTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .regionId(1L).regionName("North East")
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
+                .atmosphericDataJson(null).build();
+
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of(prevResult));
+
+        assertThatThrownBy(() -> service.rerunTestDeterministic(10L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No atmospheric data stored");
+    }
+
+    @Test
+    @DisplayName("rerunTestDeterministic throws when run not found")
+    void rerunTestDeterministic_runNotFound() {
+        when(testRunRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.rerunTestDeterministic(99L))
+                .isInstanceOf(NoSuchElementException.class)
+                .hasMessageContaining("Test run not found: 99");
+    }
+
+    // --- Atmospheric data population tests ---
+
+    @Test
+    @DisplayName("runTest populates atmospheric data JSON on successful results")
+    void runTest_populatesAtmosphericDataJson() {
+        RegionEntity r = region(1L, "North East");
+        LocationEntity loc = location(1L, "Durham", r, Set.of(LocationType.LANDSCAPE));
+        AtmosphericData data = sampleAtmosphericData();
+
+        when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(r));
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(1L);
+            }
+            return e;
+        });
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+        when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
+        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
+                .thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+
+        ArgumentCaptor<ModelTestResultEntity> captor = ArgumentCaptor.forClass(ModelTestResultEntity.class);
+        when(testResultRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.runTest();
+
+        List<ModelTestResultEntity> saved = captor.getAllValues();
+        assertThat(saved).hasSize(3);
+        for (ModelTestResultEntity result : saved) {
+            assertThat(result.getAtmosphericDataJson()).isNotNull();
+            assertThat(result.getAtmosphericDataJson()).contains("\"lowCloudPercent\":20");
+            assertThat(result.getLowCloudPercent()).isEqualTo(20);
+            assertThat(result.getMidCloudPercent()).isEqualTo(40);
+            assertThat(result.getHighCloudPercent()).isEqualTo(30);
+            assertThat(result.getVisibilityMetres()).isEqualTo(15000);
+            assertThat(result.getHumidityPercent()).isEqualTo(65);
+            assertThat(result.getWeatherCode()).isEqualTo(2);
+        }
     }
 }
