@@ -478,6 +478,46 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/login returns 400 when Turnstile verification fails")
+    void login_turnstileFailed_returns400() throws Exception {
+        when(turnstileService.verify(any())).thenReturn(false);
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"golden2026\","
+                                + "\"turnstileToken\":\"bad-token\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password returns 400 when Turnstile verification fails")
+    void changePassword_turnstileFailed_returns400() throws Exception {
+        when(turnstileService.verify(any())).thenReturn(false);
+        String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + validJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPassword\":\"NewPass1!\",\"turnstileToken\":\"bad-token\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/set-password returns 400 when Turnstile verification fails")
+    void setPassword_turnstileFailed_returns400() throws Exception {
+        when(turnstileService.verify(any())).thenReturn(false);
+
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":42,\"password\":\"MyP@ssw0rd!\","
+                                + "\"turnstileToken\":\"bad-token\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
+    }
+
+    @Test
     @DisplayName("POST /api/auth/logout returns 200")
     void logout_validRequest_returns200() throws Exception {
         String rawRefresh = jwtService.generateRefreshToken();

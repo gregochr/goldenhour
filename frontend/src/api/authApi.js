@@ -7,10 +7,11 @@ const BASE_URL = '/api/auth';
  *
  * @param {string} username - The login name.
  * @param {string} password - The plain-text password.
+ * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
-export async function login(username, password) {
-  const response = await axios.post(`${BASE_URL}/login`, { username, password });
+export async function login(username, password, turnstileToken) {
+  const response = await axios.post(`${BASE_URL}/login`, { username, password, turnstileToken });
   return response.data;
 }
 
@@ -40,10 +41,11 @@ export async function logout(refreshToken) {
  * Requires a valid access token (attached automatically by the global axios interceptor).
  *
  * @param {string} newPassword - The new plain-text password.
+ * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{message: string}>}
  */
-export async function changePassword(newPassword) {
-  const response = await axios.post(`${BASE_URL}/change-password`, { newPassword });
+export async function changePassword(newPassword, turnstileToken) {
+  const response = await axios.post(`${BASE_URL}/change-password`, { newPassword, turnstileToken });
   return response.data;
 }
 
@@ -101,9 +103,10 @@ export async function verifyEmail(token) {
  *
  * @param {number} userId - The user's ID from the verification step.
  * @param {string} password - The chosen password.
+ * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @returns {Promise<{accessToken: string, refreshToken: string, role: string, expiresAt: string}>}
  */
-export async function setPasswordForNewUser(userId, password) {
-  const response = await axios.post(`${BASE_URL}/set-password`, { userId, password });
+export async function setPasswordForNewUser(userId, password, turnstileToken) {
+  const response = await axios.post(`${BASE_URL}/set-password`, { userId, password, turnstileToken });
   return response.data;
 }

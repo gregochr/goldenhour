@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser } from '../api/authApi.js';
+import TurnstileWidget from './TurnstileWidget.jsx';
 
 const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS' };
 
@@ -89,64 +90,9 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [turnstileToken, setTurnstileToken] = useState('');
-  const turnstileRef = useRef(null);
-  const turnstileWidgetId = useRef(null);
-
-  // Render Turnstile widget when on REGISTER step.
-  // The script loads async/defer, so poll until window.turnstile is available.
-  useEffect(() => {
-    if (step !== STEPS.REGISTER || !turnstileRef.current) return;
-
-    let cancelled = false;
-
-    function renderWidget() {
-      if (cancelled || !turnstileRef.current) return;
-      if (turnstileWidgetId.current != null) {
-        window.turnstile.remove(turnstileWidgetId.current);
-      }
-      turnstileWidgetId.current = window.turnstile.render(turnstileRef.current, {
-        sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY,
-        theme: 'dark',
-        callback: (token) => setTurnstileToken(token),
-        'expired-callback': () => setTurnstileToken(''),
-        'error-callback': () => setTurnstileToken(''),
-      });
-    }
-
-    if (typeof window.turnstile !== 'undefined') {
-      renderWidget();
-    } else {
-      // Poll every 200ms for up to 10s until the script loads
-      let elapsed = 0;
-      const interval = setInterval(() => {
-        elapsed += 200;
-        if (typeof window.turnstile !== 'undefined') {
-          clearInterval(interval);
-          renderWidget();
-        } else if (elapsed >= 10000) {
-          clearInterval(interval);
-        }
-      }, 200);
-      // Clean up interval on unmount
-      const cleanup = () => clearInterval(interval);
-      return () => {
-        cancelled = true;
-        cleanup();
-        if (turnstileWidgetId.current != null && window.turnstile) {
-          window.turnstile.remove(turnstileWidgetId.current);
-          turnstileWidgetId.current = null;
-        }
-      };
-    }
-
-    return () => {
-      cancelled = true;
-      if (turnstileWidgetId.current != null && window.turnstile) {
-        window.turnstile.remove(turnstileWidgetId.current);
-        turnstileWidgetId.current = null;
-      }
-    };
-  }, [step]);
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const [spTurnstileToken, setSpTurnstileToken] = useState('');
+  const [spTurnstileResetKey, setSpTurnstileResetKey] = useState(0);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -208,11 +154,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
       setStep(STEPS.CHECK_EMAIL);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
-      // Reset Turnstile on failure so user can retry
       setTurnstileToken('');
-      if (turnstileWidgetId.current != null && window.turnstile) {
-        window.turnstile.reset(turnstileWidgetId.current);
-      }
+      setTurnstileResetKey((k) => k + 1);
     } finally {
       setLoading(false);
     }
@@ -245,15 +188,17 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
   async function handleSetPassword(event) {
     event.preventDefault();
-    if (!allPassed) return;
+    if (!allPassed || !spTurnstileToken) return;
     setError('');
     setLoading(true);
     try {
-      const data = await setPasswordForNewUser(userId, password);
+      const data = await setPasswordForNewUser(userId, password, spTurnstileToken);
       completeRegistration(data);
       setStep(STEPS.SUCCESS);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Failed to set password. Please try again.');
+      setSpTurnstileToken('');
+      setSpTurnstileResetKey((k) => k + 1);
     } finally {
       setLoading(false);
     }
@@ -356,7 +301,11 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               <span>Send me occasional emails about new features and photography tips</span>
             </label>
 
-            <div ref={turnstileRef} data-testid="turnstile-widget" className="flex justify-center" />
+            <TurnstileWidget
+              key={`reg-${turnstileResetKey}`}
+              onVerify={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken('')}
+            />
 
             {error && (
               <p className="text-xs text-red-400" role="alert" data-testid="reg-error">{error}</p>
@@ -517,6 +466,12 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               ))}
             </ul>
 
+            <TurnstileWidget
+              key={`sp-${spTurnstileResetKey}`}
+              onVerify={(token) => setSpTurnstileToken(token)}
+              onExpire={() => setSpTurnstileToken('')}
+            />
+
             {error && (
               <p className="text-xs text-red-400" role="alert" data-testid="sp-error">{error}</p>
             )}
@@ -525,7 +480,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               type="submit"
               data-testid="sp-submit"
               className="btn-primary"
-              disabled={loading || !allPassed}
+              disabled={loading || !allPassed || !spTurnstileToken}
             >
               {loading ? 'Setting up...' : 'Complete registration'}
             </button>

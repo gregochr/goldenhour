@@ -1,6 +1,7 @@
 import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
+import TurnstileWidget from './TurnstileWidget.jsx';
 
 /**
  * Full-page login form rendered when the user has no valid session.
@@ -8,13 +9,19 @@ import { useAuth } from '../context/AuthContext.jsx';
 export default function LoginPage({ onRegister = null }) {
   const { login } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
   const [error, submitAction, isPending] = useActionState(async (_prev, formData) => {
+    const token = formData.get('turnstile-token');
+    if (!token) return 'Please complete the verification challenge.';
     try {
-      await login(formData.get('username'), formData.get('password'));
+      await login(formData.get('username'), formData.get('password'), token);
       return '';
-    } catch {
-      return 'Invalid username or password.';
+    } catch (err) {
+      setTurnstileToken('');
+      setTurnstileResetKey((k) => k + 1);
+      return err?.response?.data?.error ?? 'Invalid username or password.';
     }
   }, '');
 
@@ -86,6 +93,13 @@ export default function LoginPage({ onRegister = null }) {
             </div>
           </div>
 
+          <input type="hidden" name="turnstile-token" value={turnstileToken} />
+          <TurnstileWidget
+            key={turnstileResetKey}
+            onVerify={(token) => setTurnstileToken(token)}
+            onExpire={() => setTurnstileToken('')}
+          />
+
           {error && (
             <p className="text-xs text-red-400" role="alert" data-testid="login-error">
               {error}
@@ -96,7 +110,7 @@ export default function LoginPage({ onRegister = null }) {
             type="submit"
             data-testid="login-submit"
             className="btn-primary"
-            disabled={isPending}
+            disabled={isPending || !turnstileToken}
           >
             {isPending ? 'Signing in…' : 'Sign in'}
           </button>
