@@ -1,6 +1,7 @@
 import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
+import TurnstileWidget from './TurnstileWidget.jsx';
 
 /** Checks a single complexity rule and returns a styled list item. */
 function CheckItem({ ok, label }) {
@@ -27,6 +28,8 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
   const checks = [
     { label: 'At least 8 characters', ok: newPassword.length >= 8 },
@@ -40,11 +43,13 @@ export default function ChangePasswordPage() {
   const allPassed = checks.every((c) => c.ok);
 
   const [error, submitAction, isPending] = useActionState(async () => {
-    if (!allPassed) return '';
+    if (!allPassed || !turnstileToken) return '';
     try {
-      await changePassword(newPassword);
+      await changePassword(newPassword, turnstileToken);
       return '';
     } catch (err) {
+      setTurnstileToken('');
+      setTurnstileResetKey((k) => k + 1);
       return err?.response?.data?.error ?? 'Failed to change password. Please try again.';
     }
   }, '');
@@ -144,6 +149,12 @@ export default function ChangePasswordPage() {
             ))}
           </ul>
 
+          <TurnstileWidget
+            key={turnstileResetKey}
+            onVerify={(token) => setTurnstileToken(token)}
+            onExpire={() => setTurnstileToken('')}
+          />
+
           {error && (
             <p className="text-xs text-red-400" role="alert" data-testid="cp-error">
               {error}
@@ -154,7 +165,7 @@ export default function ChangePasswordPage() {
             type="submit"
             data-testid="cp-submit"
             className="btn-primary"
-            disabled={isPending || !allPassed}
+            disabled={isPending || !allPassed || !turnstileToken}
           >
             {isPending ? 'Saving…' : 'Set new password'}
           </button>

@@ -43,8 +43,8 @@ export function AuthProvider({ children }) {
     () => readStorage(MARKETING_OPT_IN_KEY) !== 'false'
   );
 
-  const login = useCallback(async (username, password) => {
-    const data = await apiLogin(username, password);
+  const login = useCallback(async (username, password, turnstileToken) => {
+    const data = await apiLogin(username, password, turnstileToken);
     localStorage.setItem(TOKEN_KEY, data.accessToken);
     localStorage.setItem(REFRESH_KEY, data.refreshToken);
     localStorage.setItem(ROLE_KEY, data.role);
@@ -82,8 +82,8 @@ export function AuthProvider({ children }) {
     setMarketingEmailOptIn(true);
   }, []);
 
-  const changePassword = useCallback(async (newPassword) => {
-    await apiChangePassword(newPassword);
+  const changePassword = useCallback(async (newPassword, turnstileToken) => {
+    await apiChangePassword(newPassword, turnstileToken);
     localStorage.removeItem(MUST_CHANGE_KEY);
     setMustChangePassword(false);
   }, []);

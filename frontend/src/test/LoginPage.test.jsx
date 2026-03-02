@@ -1,11 +1,23 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import LoginPage from '../components/LoginPage.jsx';
 import { AuthProvider } from '../context/AuthContext.jsx';
 import * as AuthApi from '../api/authApi.js';
 
 vi.mock('../api/authApi.js');
+
+function installTurnstileMock() {
+  window.turnstile = {
+    render: vi.fn((_container, opts) => {
+      // Auto-solve: immediately invoke callback with a dummy token
+      if (opts.callback) opts.callback('test-turnstile-token');
+      return 'widget-id-1';
+    }),
+    remove: vi.fn(),
+    reset: vi.fn(),
+  };
+}
 
 const renderWithAuth = (component) =>
   render(<AuthProvider>{component}</AuthProvider>);
@@ -13,6 +25,11 @@ const renderWithAuth = (component) =>
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    installTurnstileMock();
+  });
+
+  afterEach(() => {
+    delete window.turnstile;
   });
 
   it('renders the login form with username and password fields', () => {
@@ -33,7 +50,7 @@ describe('LoginPage', () => {
     expect(passwordInput).toHaveAttribute('type', 'text');
   });
 
-  it('calls login with username and password on form submit', async () => {
+  it('calls login with username, password, and turnstile token on form submit', async () => {
     const user = userEvent.setup();
     vi.spyOn(AuthApi, 'login').mockResolvedValue(undefined);
     renderWithAuth(<LoginPage />);
@@ -43,7 +60,7 @@ describe('LoginPage', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
     await waitFor(() => {
-      expect(AuthApi.login).toHaveBeenCalledWith('testuser', 'password123');
+      expect(AuthApi.login).toHaveBeenCalledWith('testuser', 'password123', 'test-turnstile-token');
     });
   });
 
@@ -73,5 +90,11 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /signing in/i })).toBeDisabled();
     });
+  });
+
+  it('renders the Turnstile widget', () => {
+    renderWithAuth(<LoginPage />);
+    expect(screen.getByTestId('turnstile-widget')).toBeInTheDocument();
+    expect(window.turnstile.render).toHaveBeenCalled();
   });
 });

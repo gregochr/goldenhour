@@ -61,6 +61,12 @@ public class AuthController {
         String username = body.get("username");
         String password = body.get("password");
 
+        String turnstileToken = body.get("turnstileToken");
+        if (!turnstileService.verify(turnstileToken)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
+        }
+
         AppUserEntity user = userRepository.findByUsername(username).orElse(null);
 
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
@@ -120,6 +126,12 @@ public class AuthController {
         if (username == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Not authenticated"));
+        }
+
+        String turnstileToken = body.get("turnstileToken");
+        if (!turnstileService.verify(turnstileToken)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
         }
 
         String newPassword = body.get("newPassword");
@@ -336,6 +348,12 @@ public class AuthController {
         if (userIdObj == null || password == null || password.isBlank()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "userId and password are required"));
+        }
+
+        String turnstileToken = (String) body.get("turnstileToken");
+        if (!turnstileService.verify(turnstileToken)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
         }
 
         Long userId;
