@@ -13,7 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Test annotations: `@MockBean` → `@MockitoBean`, new Boot 4.0 modularised test starters
   - `spring-boot-starter-security-test` for `@WithMockUser` MockMvc integration
   - Springdoc OpenAPI 2.3.0 → 3.0.1
-  - All 497 backend tests pass, Checkstyle/SpotBugs/JaCoCo clean
+  - All 534 backend tests pass, Checkstyle/SpotBugs/JaCoCo clean
+
+### Added (Mar 2, 2026)
+- **90 regression tests** — pre-v1.0 test hardening across backend and frontend
+  - Backend (37 new, 497 → 534): RequestLoggingInterceptor (17), LocationController edge cases (+7), RegionController 404s (+4), UserController DELETE (+5), ModelTestController validation (+4)
+  - Frontend (53 new, 57 → 110): conversions-extra (22), ScoreBar (10), SessionExpiryBanner (10), OutcomeModal (11)
 
 ### Added (Mar 1, 2026)
 - **Responsive map popup** — popup width now uses `calc(100vw - 40px)` capped at `max-width: 600px`, so popups fit within phone viewports instead of overflowing at the hardcoded 600px
