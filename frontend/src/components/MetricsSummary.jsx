@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
 
 /**
  * 7-day summary card showing aggregated job run statistics.
@@ -9,7 +10,7 @@ import PropTypes from 'prop-types';
  * - Overall success rate
  * - Slowest service (by avg latency)
  * - Evaluation count
- * - Total operational cost
+ * - Total operational cost (token-based with GBP/USD)
  */
 const MetricsSummary = ({ runs, apiCalls }) => {
   if (!runs || runs.length === 0) {
@@ -29,7 +30,18 @@ const MetricsSummary = ({ runs, apiCalls }) => {
   const successRate = totalEvaluations > 0
     ? (totalSucceeded / totalEvaluations) * 100
     : 0;
-  const totalCostPence = runs.reduce((sum, run) => sum + (run.totalCostPence || 0), 0);
+
+  // Aggregate costs — prefer micro-dollars when available
+  const totalCostMicroDollars = runs.reduce(
+    (sum, run) => sum + (run.totalCostMicroDollars || 0), 0);
+  const totalCostPence = runs.reduce(
+    (sum, run) => sum + (run.totalCostPence || 0), 0);
+
+  // Use the most recent exchange rate from the runs that have one
+  const latestRunWithRate = runs.find((r) => r.exchangeRateGbpPerUsd);
+  const exchangeRate = latestRunWithRate?.exchangeRateGbpPerUsd;
+
+  const hasCost = totalCostMicroDollars > 0 || totalCostPence > 0;
 
   // Count runs by job type
   const runsByType = runs.reduce((acc, run) => {
@@ -64,7 +76,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Total Runs */}
       <div className="card">
         <div className="text-sm font-medium text-plex-text-secondary">Total Runs</div>
-        <p className="text-xs text-plex-text-muted mt-1">Number of forecast job runs over the last 7 days, grouped by job type (SONNET, HAIKU, WILDLIFE, TIDE)</p>
+        <p className="text-xs text-plex-text-muted mt-1">Number of forecast job runs over the last 7 days, grouped by job type</p>
         <div className="mt-3 text-3xl font-bold text-plex-text">{totalRuns}</div>
         <div className="mt-2 text-xs text-plex-text-muted">
           {Object.entries(runsByType).map(([type, count]) => (
@@ -76,7 +88,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Success Rate */}
       <div className="card">
         <div className="text-sm font-medium text-plex-text-secondary">Success Rate</div>
-        <p className="text-xs text-plex-text-muted mt-1">Percentage of location evaluations that completed without error. Failures may indicate API issues, bad data, or transient network problems</p>
+        <p className="text-xs text-plex-text-muted mt-1">Percentage of location evaluations that completed without error</p>
         <div className="mt-3 text-3xl font-bold text-plex-text">{successRate.toFixed(3)}%</div>
         <div className="mt-2 text-xs text-plex-text-muted">
           {totalSucceeded.toLocaleString()} succeeded, {totalFailed.toLocaleString()} failed
@@ -86,7 +98,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Slowest Service */}
       <div className="card">
         <div className="text-sm font-medium text-plex-text-secondary">Slowest Service</div>
-        <p className="text-xs text-plex-text-muted mt-1">External service with the highest average response time. Long latencies may indicate API rate limits, degradation, or geographic latency</p>
+        <p className="text-xs text-plex-text-muted mt-1">External service with the highest average response time</p>
         {slowestService ? (
           <>
             <div className="mt-3 text-lg font-semibold text-plex-text">{slowestService.service}</div>
@@ -100,17 +112,26 @@ const MetricsSummary = ({ runs, apiCalls }) => {
       {/* Evaluation Count */}
       <div className="card">
         <div className="text-sm font-medium text-plex-text-secondary">Evaluations</div>
-        <p className="text-xs text-plex-text-muted mt-1">Total location-date combinations evaluated using the active model. One location across 8 days = 8 evaluations</p>
+        <p className="text-xs text-plex-text-muted mt-1">Total location-date combinations evaluated</p>
         <div className="mt-3 text-3xl font-bold text-plex-text">{totalEvaluations.toLocaleString()}</div>
         <div className="mt-1 text-xs text-plex-text-muted">in {totalRuns} runs</div>
       </div>
 
       {/* Total Cost */}
-      {totalCostPence > 0 && (
+      {hasCost && (
         <div className="card">
           <div className="text-sm font-medium text-plex-text-secondary">Total Cost</div>
-          <p className="text-xs text-plex-text-muted mt-1">Operational cost of API calls over the past 7 days. Anthropic (Haiku 0.5p, Sonnet 1.3p), WorldTides (0.2p), Open-Meteo (free)</p>
-          <div className="mt-3 text-3xl font-bold text-plex-gold">£{(totalCostPence / 1000).toFixed(3)}</div>
+          <p className="text-xs text-plex-text-muted mt-1">
+            {totalCostMicroDollars > 0 ? 'Token-based pricing (actual usage)' : 'Estimated flat-rate pricing'}
+          </p>
+          <div className="mt-3 text-3xl font-bold text-plex-gold">
+            {formatCostGbp(totalCostMicroDollars, exchangeRate, totalCostPence)}
+          </div>
+          {totalCostMicroDollars > 0 && (
+            <div className="mt-1 text-sm text-plex-text-muted">
+              {formatCostUsd(totalCostMicroDollars)}
+            </div>
+          )}
           <div className="mt-2 text-xs text-plex-text-muted">
             {totalRuns} runs, {totalEvaluations} evaluations
           </div>
@@ -130,6 +151,8 @@ MetricsSummary.propTypes = {
       succeeded: PropTypes.number,
       failed: PropTypes.number,
       totalCostPence: PropTypes.number,
+      totalCostMicroDollars: PropTypes.number,
+      exchangeRateGbpPerUsd: PropTypes.number,
     })
   ).isRequired,
   apiCalls: PropTypes.arrayOf(

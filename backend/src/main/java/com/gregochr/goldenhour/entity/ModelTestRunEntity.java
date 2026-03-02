@@ -80,6 +80,14 @@ public class ModelTestRunEntity {
     @Builder.Default
     private Integer totalCostPence = 0;
 
+    /** Total cost of all evaluations in micro-dollars (1 dollar = 1,000,000 micro-dollars). */
+    @Column(name = "total_cost_micro_dollars")
+    private Long totalCostMicroDollars;
+
+    /** USD-to-GBP exchange rate at the time this test ran, for historical GBP conversion. */
+    @Column(name = "exchange_rate_gbp_per_usd")
+    private Double exchangeRateGbpPerUsd;
+
     /** Results for this test run (one per region/model combination). */
     @OneToMany(mappedBy = "testRunId")
     private List<ModelTestResultEntity> results;

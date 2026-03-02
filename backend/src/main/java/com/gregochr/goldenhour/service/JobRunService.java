@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import org.slf4j.Logger;
@@ -29,6 +31,7 @@ public class JobRunService {
     private final JobRunRepository jobRunRepository;
     private final ApiCallLogRepository apiCallLogRepository;
     private final CostCalculator costCalculator;
+    private final ExchangeRateService exchangeRateService;
 
     /**
      * Constructs a {@code JobRunService}.
@@ -36,17 +39,22 @@ public class JobRunService {
      * @param jobRunRepository     repository for job run entities
      * @param apiCallLogRepository repository for API call log entities
      * @param costCalculator       service for calculating API call costs
+     * @param exchangeRateService  service for fetching exchange rates
      */
     public JobRunService(JobRunRepository jobRunRepository,
             ApiCallLogRepository apiCallLogRepository,
-            CostCalculator costCalculator) {
+            CostCalculator costCalculator,
+            ExchangeRateService exchangeRateService) {
         this.jobRunRepository = jobRunRepository;
         this.apiCallLogRepository = apiCallLogRepository;
         this.costCalculator = costCalculator;
+        this.exchangeRateService = exchangeRateService;
     }
 
     /**
      * Starts a new job run with the given run type and optional evaluation model.
+     *
+     * <p>Fetches today's exchange rate and stores it on the run for historical GBP conversion.
      *
      * @param runType           the type of forecast run
      * @param triggeredManually whether this run was triggered manually (true) or by scheduler (false)
@@ -55,6 +63,13 @@ public class JobRunService {
      */
     public JobRunEntity startRun(RunType runType, boolean triggeredManually,
             EvaluationModel evaluationModel) {
+        Double exchangeRate = null;
+        try {
+            exchangeRate = exchangeRateService.getCurrentRate();
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch exchange rate for job run: {}", e.getMessage());
+        }
+
         JobRunEntity jobRun = JobRunEntity.builder()
                 .runType(runType)
                 .evaluationModel(evaluationModel)
@@ -64,12 +79,65 @@ public class JobRunService {
                 .failed(0)
                 .totalCostPence(0)
                 .triggeredManually(triggeredManually)
+                .exchangeRateGbpPerUsd(exchangeRate)
                 .build();
         return jobRunRepository.save(jobRun);
     }
 
     /**
-     * Records a single API call made during a job run.
+     * Records an Anthropic API call with token usage for accurate cost calculation.
+     *
+     * @param jobRunId       the job run ID
+     * @param durationMs     duration in milliseconds
+     * @param statusCode     HTTP status code
+     * @param responseBody   response body on error, or null on success
+     * @param succeeded      true if the call succeeded
+     * @param errorMessage   brief error message if failed, or null
+     * @param model          evaluation model (HAIKU, SONNET, or OPUS)
+     * @param tokenUsage     token counts from the API response
+     * @param isBatch        whether this was a batch API call
+     * @param targetDate     target date for forecast evaluations, or null
+     * @param targetType     target type (SUNRISE/SUNSET), or null
+     * @return the newly created API call log entity
+     */
+    public ApiCallLogEntity logAnthropicApiCall(Long jobRunId,
+            long durationMs, Integer statusCode, String responseBody,
+            boolean succeeded, String errorMessage, EvaluationModel model,
+            TokenUsage tokenUsage, boolean isBatch,
+            LocalDate targetDate, TargetType targetType) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        int costPence = costCalculator.calculateCost(ServiceName.ANTHROPIC, model);
+        long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage, isBatch);
+
+        ApiCallLogEntity log = ApiCallLogEntity.builder()
+                .jobRunId(jobRunId)
+                .service(ServiceName.ANTHROPIC)
+                .calledAt(now)
+                .completedAt(now)
+                .durationMs(durationMs)
+                .requestMethod("POST")
+                .requestUrl("https://api.anthropic.com/v1/messages")
+                .statusCode(statusCode)
+                .responseBody(responseBody)
+                .succeeded(succeeded)
+                .errorMessage(errorMessage)
+                .costPence(costPence)
+                .createdAt(now)
+                .evaluationModel(model)
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .inputTokens(tokenUsage.inputTokens())
+                .outputTokens(tokenUsage.outputTokens())
+                .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                .isBatch(isBatch)
+                .costMicroDollars(costMicroDollars)
+                .build();
+        return apiCallLogRepository.save(log);
+    }
+
+    /**
+     * Records a single API call made during a job run (legacy method, for non-Anthropic services).
      *
      * @param jobRunId       the job run ID
      * @param service        the service name
@@ -86,13 +154,16 @@ public class JobRunService {
      * @param targetType     target type (SUNRISE/SUNSET) for forecast evaluations, or null
      * @return the newly created API call log entity
      */
+    @SuppressWarnings("deprecation")
     public ApiCallLogEntity logApiCall(Long jobRunId, ServiceName service,
             String requestMethod, String requestUrl, String requestBody,
             long durationMs, Integer statusCode, String responseBody,
             boolean succeeded, String errorMessage, EvaluationModel model,
-            LocalDate targetDate, com.gregochr.goldenhour.entity.TargetType targetType) {
+            LocalDate targetDate, TargetType targetType) {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         int costPence = costCalculator.calculateCost(service, model);
+        long costMicroDollars = (service == ServiceName.ANTHROPIC)
+                ? 0 : costCalculator.calculateFlatCostMicroDollars(service);
 
         ApiCallLogEntity log = ApiCallLogEntity.builder()
                 .jobRunId(jobRunId)
@@ -112,6 +183,7 @@ public class JobRunService {
                 .evaluationModel(model)
                 .targetDate(targetDate)
                 .targetType(targetType)
+                .costMicroDollars(costMicroDollars)
                 .build();
         return apiCallLogRepository.save(log);
     }
@@ -166,7 +238,7 @@ public class JobRunService {
     /**
      * Completes a job run with success and failure counts.
      *
-     * <p>Also calculates the total cost from all associated API calls.
+     * <p>Aggregates both legacy cost (pence) and new token-based cost (micro-dollars).
      *
      * @param jobRun   the job run to complete
      * @param succeeded number of successful evaluations
@@ -181,7 +253,12 @@ public class JobRunService {
         List<ApiCallLogEntity> apiCalls = apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(jobRun.getId());
         int totalCostPence = apiCalls.stream()
                 .map(ApiCallLogEntity::getCostPence)
+                .filter(c -> c != null)
                 .reduce(0, Integer::sum);
+        long totalCostMicroDollars = apiCalls.stream()
+                .map(ApiCallLogEntity::getCostMicroDollars)
+                .filter(c -> c != null)
+                .reduce(0L, Long::sum);
 
         // Set date range if dates are provided
         if (dates != null && !dates.isEmpty()) {
@@ -196,6 +273,7 @@ public class JobRunService {
         jobRun.setSucceeded(succeeded);
         jobRun.setFailed(failed);
         jobRun.setTotalCostPence(totalCostPence);
+        jobRun.setTotalCostMicroDollars(totalCostMicroDollars);
         jobRunRepository.save(jobRun);
     }
 

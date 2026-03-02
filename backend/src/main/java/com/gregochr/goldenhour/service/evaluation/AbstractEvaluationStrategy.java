@@ -14,11 +14,11 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.JobRunService;
 
 import com.anthropic.errors.AnthropicServiceException;
@@ -208,6 +208,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
         try {
             Message response = invokeClaude(data);
+            TokenUsage tokenUsage = extractTokenUsage(response);
 
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
@@ -220,16 +221,16 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             long durationMs = System.currentTimeMillis() - startMs;
             statusCode = 200;
 
-            LOG.info("Anthropic -> {} {}: rating={}/5 fiery={}/100 golden={}/100 ({}ms)",
+            LOG.info("Anthropic -> {} {}: rating={}/5 fiery={}/100 golden={}/100 ({}ms, {}tok)",
                     data.locationName(), data.targetType(),
                     result.rating(), result.fierySkyPotential(),
-                    result.goldenHourPotential(), durationMs);
+                    result.goldenHourPotential(), durationMs, tokenUsage.totalTokens());
 
             // Log API call to metrics if jobRun is available
             if (jobRun != null && jobRunService != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
-                        "POST", "https://api.anthropic.com/v1/messages", null,
+                jobRunService.logAnthropicApiCall(jobRun.getId(),
                         durationMs, statusCode, null, true, null, getEvaluationModel(),
+                        tokenUsage, false,
                         data.solarEventTime().toLocalDate(), data.targetType());
             }
 
@@ -258,9 +259,9 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             // Log failed Anthropic API call to metrics if jobRun is available
             LOG.error("Anthropic evaluation failed: {}", e.getMessage(), e);
             if (jobRun != null && jobRunService != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
-                        "POST", "https://api.anthropic.com/v1/messages", null,
+                jobRunService.logAnthropicApiCall(jobRun.getId(),
                         durationMs, statusCode, errorMessage, false, errorMessage, getEvaluationModel(),
+                        TokenUsage.EMPTY, false,
                         data.solarEventTime().toLocalDate(), data.targetType());
             }
 
@@ -284,6 +285,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
         try {
             Message response = invokeClaude(data);
+            TokenUsage tokenUsage = extractTokenUsage(response);
 
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
@@ -295,19 +297,19 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             SunsetEvaluation result = parseEvaluation(text, objectMapper);
             long durationMs = System.currentTimeMillis() - startMs;
 
-            LOG.info("Anthropic -> {} {}: rating={}/5 fiery={}/100 golden={}/100 ({}ms)",
+            LOG.info("Anthropic -> {} {}: rating={}/5 fiery={}/100 golden={}/100 ({}ms, {}tok)",
                     data.locationName(), data.targetType(),
                     result.rating(), result.fierySkyPotential(),
-                    result.goldenHourPotential(), durationMs);
+                    result.goldenHourPotential(), durationMs, tokenUsage.totalTokens());
 
             if (jobRun != null && jobRunService != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
-                        "POST", "https://api.anthropic.com/v1/messages", null,
+                jobRunService.logAnthropicApiCall(jobRun.getId(),
                         durationMs, 200, null, true, null, getEvaluationModel(),
+                        tokenUsage, false,
                         data.solarEventTime().toLocalDate(), data.targetType());
             }
 
-            return new EvaluationDetail(result, userMessage, text, durationMs);
+            return new EvaluationDetail(result, userMessage, text, durationMs, tokenUsage);
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             int statusCode = 500;
@@ -317,14 +319,29 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
             LOG.error("Anthropic evaluation failed: {}", e.getMessage(), e);
             if (jobRun != null && jobRunService != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.ANTHROPIC,
-                        "POST", "https://api.anthropic.com/v1/messages", null,
+                jobRunService.logAnthropicApiCall(jobRun.getId(),
                         durationMs, statusCode, e.getMessage(), false, e.getMessage(),
-                        getEvaluationModel(), data.solarEventTime().toLocalDate(), data.targetType());
+                        getEvaluationModel(), TokenUsage.EMPTY, false,
+                        data.solarEventTime().toLocalDate(), data.targetType());
             }
 
             throw e;
         }
+    }
+
+    /**
+     * Extracts token usage from Claude's response for cost calculation.
+     *
+     * @param response the Claude API response
+     * @return token usage breakdown, or {@link TokenUsage#EMPTY} if usage is unavailable
+     */
+    TokenUsage extractTokenUsage(Message response) {
+        var u = response.usage();
+        return new TokenUsage(
+                u.inputTokens(),
+                u.outputTokens(),
+                u.cacheCreationInputTokens().orElse(0L),
+                u.cacheReadInputTokens().orElse(0L));
     }
 
     /**

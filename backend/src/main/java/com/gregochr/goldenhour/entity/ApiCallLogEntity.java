@@ -106,4 +106,29 @@ public class ApiCallLogEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "target_type", length = 10)
     private TargetType targetType;
+
+    /** Number of standard input tokens consumed (Anthropic calls only). */
+    @Column(name = "input_tokens")
+    private Long inputTokens;
+
+    /** Number of output tokens generated (Anthropic calls only). */
+    @Column(name = "output_tokens")
+    private Long outputTokens;
+
+    /** Number of tokens written to the prompt cache (Anthropic calls only). */
+    @Column(name = "cache_creation_input_tokens")
+    private Long cacheCreationInputTokens;
+
+    /** Number of tokens read from the prompt cache (Anthropic calls only). */
+    @Column(name = "cache_read_input_tokens")
+    private Long cacheReadInputTokens;
+
+    /** Whether this call used the Anthropic batch API (50% discount). */
+    @Column(name = "is_batch", nullable = false)
+    @Builder.Default
+    private Boolean isBatch = false;
+
+    /** Cost of this API call in micro-dollars (1 dollar = 1,000,000 micro-dollars). */
+    @Column(name = "cost_micro_dollars")
+    private Long costMicroDollars;
 }

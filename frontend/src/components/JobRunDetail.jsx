@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { getApiCalls } from '../api/metricsApi';
+import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 
 /**
  * Expandable detail view for a job run showing all API calls.
@@ -9,6 +10,8 @@ import { getApiCalls } from '../api/metricsApi';
  * - Service name
  * - Call count
  * - Average duration
+ * - Cost (token-based micro-dollars with GBP conversion)
+ * - Token breakdown for Anthropic calls
  * - Error count and rate
  */
 const JobRunDetail = ({ jobRun }) => {
@@ -39,29 +42,45 @@ const JobRunDetail = ({ jobRun }) => {
     return <div className="text-red-400 text-sm">Error: {error}</div>;
   }
 
+  const exchangeRate = jobRun.exchangeRateGbpPerUsd;
+
   // Group API calls by service
   const serviceStats = apiCalls.reduce((acc, call) => {
     if (!acc[call.service]) {
       acc[call.service] = {
         calls: [],
         totalDuration: 0,
-        totalCost: 0,
+        totalCostPence: 0,
+        totalCostMicroDollars: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheWriteTokens: 0,
+        totalCacheReadTokens: 0,
         count: 0,
         errorCount: 0,
       };
     }
-    acc[call.service].calls.push(call);
-    acc[call.service].totalDuration += call.durationMs || 0;
-    acc[call.service].totalCost += call.costPence || 0;
-    acc[call.service].count += 1;
+    const s = acc[call.service];
+    s.calls.push(call);
+    s.totalDuration += call.durationMs || 0;
+    s.totalCostPence += call.costPence || 0;
+    s.totalCostMicroDollars += call.costMicroDollars || 0;
+    s.totalInputTokens += call.inputTokens || 0;
+    s.totalOutputTokens += call.outputTokens || 0;
+    s.totalCacheWriteTokens += call.cacheCreationInputTokens || 0;
+    s.totalCacheReadTokens += call.cacheReadInputTokens || 0;
+    s.count += 1;
     if (!call.succeeded) {
-      acc[call.service].errorCount += 1;
+      s.errorCount += 1;
     }
     return acc;
   }, {});
 
   // Calculate grand total cost
-  const totalCostPence = Object.values(serviceStats).reduce((sum, stats) => sum + stats.totalCost, 0);
+  const totalCostMicroDollars = Object.values(serviceStats)
+    .reduce((sum, stats) => sum + stats.totalCostMicroDollars, 0);
+  const totalCostPence = Object.values(serviceStats)
+    .reduce((sum, stats) => sum + stats.totalCostPence, 0);
 
   // Calculate evaluation summary
   const locationsProcessed = jobRun.locationsProcessed || 0;
@@ -114,8 +133,26 @@ const JobRunDetail = ({ jobRun }) => {
                     {stats.count} calls, avg {Math.round(stats.totalDuration / stats.count)}ms
                   </div>
                   <div className="text-xs text-plex-gold mt-1 font-semibold">
-                    Cost: £{(stats.totalCost / 1000).toFixed(3)}
+                    Cost: {formatCostGbp(stats.totalCostMicroDollars, exchangeRate, stats.totalCostPence)}
+                    {stats.totalCostMicroDollars > 0 && (
+                      <span className="text-plex-text-muted font-normal ml-2">
+                        ({formatCostUsd(stats.totalCostMicroDollars)})
+                      </span>
+                    )}
                   </div>
+                  {/* Token breakdown for Anthropic */}
+                  {service === 'ANTHROPIC' && stats.totalInputTokens > 0 && (
+                    <div className="text-xs text-plex-text-muted mt-1">
+                      Tokens: {formatTokens(stats.totalInputTokens)} in
+                      {' / '}{formatTokens(stats.totalOutputTokens)} out
+                      {stats.totalCacheWriteTokens > 0 && (
+                        <> / {formatTokens(stats.totalCacheWriteTokens)} cache write</>
+                      )}
+                      {stats.totalCacheReadTokens > 0 && (
+                        <> / {formatTokens(stats.totalCacheReadTokens)} cache read</>
+                      )}
+                    </div>
+                  )}
                   {stats.errorCount > 0 && (
                     <div className={`text-xs mt-1 ${(stats.errorCount / stats.count) < 0.05 ? 'text-yellow-400' : 'text-red-400'}`}>
                       {stats.errorCount} failures ({((stats.errorCount / stats.count) * 100).toFixed(2)}%)
@@ -171,7 +208,6 @@ const JobRunDetail = ({ jobRun }) => {
               .sort((a, b) => {
                 const [dateA, eventA, modelA] = a.split('|');
                 const [dateB, eventB, modelB] = b.split('|');
-                // Sort by date, then event, then model
                 if (dateA !== dateB) return dateA.localeCompare(dateB);
                 if (eventA !== eventB) return eventA.localeCompare(eventB);
                 return modelA.localeCompare(modelB);
@@ -228,11 +264,20 @@ const JobRunDetail = ({ jobRun }) => {
       )}
 
       {/* Total cost */}
-      {totalCostPence > 0 && (
+      {(totalCostMicroDollars > 0 || totalCostPence > 0) && (
         <div className="mt-3 pt-3 border-t border-plex-border">
           <div className="flex justify-between items-center">
             <span className="font-medium text-plex-text text-sm">Total Cost</span>
-            <span className="text-lg font-bold text-plex-gold">£{(totalCostPence / 1000).toFixed(3)}</span>
+            <div className="text-right">
+              <span className="text-lg font-bold text-plex-gold">
+                {formatCostGbp(totalCostMicroDollars, exchangeRate, totalCostPence)}
+              </span>
+              {totalCostMicroDollars > 0 && (
+                <div className="text-xs text-plex-text-muted">
+                  {formatCostUsd(totalCostMicroDollars)}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -246,6 +291,7 @@ JobRunDetail.propTypes = {
     locationsProcessed: PropTypes.number,
     minTargetDate: PropTypes.string,
     maxTargetDate: PropTypes.string,
+    exchangeRateGbpPerUsd: PropTypes.number,
   }).isRequired,
 };
 

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.config.CostProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.model.TokenUsage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -13,114 +14,141 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CostCalculatorTest {
 
+    private CostCalculator calculator() {
+        return new CostCalculator(new CostProperties());
+    }
+
+    // --- Token-based micro-dollar tests ---
+
     @Test
-    @DisplayName("calculateCost() returns Sonnet cost when model is SONNET")
-    void calculateCost_returnsSonnetCost_whenModelIsSonnet() {
-        CostProperties props = new CostProperties();
-        props.setAnthropicSonnetPence(13);  // 1.3p in units of 1/10th pence
-        CostCalculator calculator = new CostCalculator(props);
-
-        int cost = calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET);
-
-        assertThat(cost).isEqualTo(13);
+    @DisplayName("calculateCostMicroDollars() for Haiku: 500 input tokens = 500 µ$")
+    void calculateCostMicroDollars_haiku_inputTokens() {
+        TokenUsage usage = new TokenUsage(500, 0, 0, 0);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage);
+        // 500 tokens * $1.00/MTok = 500 µ$
+        assertThat(cost).isEqualTo(500);
     }
 
     @Test
-    @DisplayName("calculateCost() returns Haiku cost when model is HAIKU")
-    void calculateCost_returnsHaikuCost_whenModelIsHaiku() {
-        CostProperties props = new CostProperties();
-        props.setAnthropicHaikuPence(5);  // 0.5p in units of 1/10th pence
-        CostCalculator calculator = new CostCalculator(props);
-
-        int cost = calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU);
-
-        assertThat(cost).isEqualTo(5);
+    @DisplayName("calculateCostMicroDollars() for Haiku: 100 output tokens = 500 µ$")
+    void calculateCostMicroDollars_haiku_outputTokens() {
+        TokenUsage usage = new TokenUsage(0, 100, 0, 0);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage);
+        // 100 tokens * $5.00/MTok = 500 µ$
+        assertThat(cost).isEqualTo(500);
     }
 
     @Test
-    @DisplayName("calculateCost() returns Opus cost when model is OPUS")
-    void calculateCost_returnsOpusCost_whenModelIsOpus() {
-        CostProperties props = new CostProperties();
-        props.setAnthropicOpusPence(75);  // 7.5p in units of 1/10th pence
-        CostCalculator calculator = new CostCalculator(props);
-
-        int cost = calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.OPUS);
-
-        assertThat(cost).isEqualTo(75);
+    @DisplayName("calculateCostMicroDollars() for Opus: mixed tokens")
+    void calculateCostMicroDollars_opus_mixedTokens() {
+        TokenUsage usage = new TokenUsage(1000, 100, 500, 200);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.OPUS, usage);
+        // Input: 1000 * 5.00 = 5000
+        // Output: 100 * 25.00 = 2500
+        // Cache write: 500 * 6.25 = 3125
+        // Cache read: 200 * 0.50 = 100
+        // Total: 10725
+        assertThat(cost).isEqualTo(10725);
     }
 
     @Test
-    @DisplayName("calculateCost() returns WorldTides cost for WORLD_TIDES service")
-    void calculateCost_returnsWorldTidesCost_forWorldTidesService() {
-        CostProperties props = new CostProperties();
-        props.setWorldTidesPence(2);  // 0.2p in units of 1/10th pence
-        CostCalculator calculator = new CostCalculator(props);
-
-        int cost = calculator.calculateCost(ServiceName.WORLD_TIDES);
-
-        assertThat(cost).isEqualTo(2);
+    @DisplayName("calculateCostMicroDollars() for Sonnet: cache write tokens")
+    void calculateCostMicroDollars_sonnet_cacheWriteTokens() {
+        TokenUsage usage = new TokenUsage(0, 0, 1000, 0);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET, usage);
+        // 1000 tokens * $3.75/MTok = 3750 µ$
+        assertThat(cost).isEqualTo(3750);
     }
 
     @Test
-    @DisplayName("calculateCost() returns zero cost for OPEN_METEO_FORECAST")
-    void calculateCost_returnsZeroCost_forOpenMeteoForecast() {
-        CostProperties props = new CostProperties();
-        props.setOpenMeteoPence(0);
-        CostCalculator calculator = new CostCalculator(props);
+    @DisplayName("calculateCostMicroDollars() for Haiku: cache read tokens")
+    void calculateCostMicroDollars_haiku_cacheReadTokens() {
+        TokenUsage usage = new TokenUsage(0, 0, 0, 1000);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage);
+        // 1000 tokens * $0.10/MTok = 100 µ$
+        assertThat(cost).isEqualTo(100);
+    }
 
-        int cost = calculator.calculateCost(ServiceName.OPEN_METEO_FORECAST);
+    @Test
+    @DisplayName("calculateCostMicroDollars() with batch flag halves cost")
+    void calculateCostMicroDollars_batch_halvesCost() {
+        TokenUsage usage = new TokenUsage(1000, 0, 0, 0);
+        long normalCost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage, false);
+        long batchCost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage, true);
+        assertThat(batchCost).isEqualTo(normalCost / 2);
+    }
 
+    @Test
+    @DisplayName("calculateCostMicroDollars() returns 0 for EMPTY usage")
+    void calculateCostMicroDollars_empty_returnsZero() {
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET, TokenUsage.EMPTY);
         assertThat(cost).isZero();
     }
 
     @Test
-    @DisplayName("calculateCost() returns zero cost for OPEN_METEO_AIR_QUALITY")
-    void calculateCost_returnsZeroCost_forOpenMeteoAirQuality() {
-        CostProperties props = new CostProperties();
-        props.setOpenMeteoPence(0);
-        CostCalculator calculator = new CostCalculator(props);
-
-        int cost = calculator.calculateCost(ServiceName.OPEN_METEO_AIR_QUALITY);
-
+    @DisplayName("calculateCostMicroDollars() returns 0 for null usage")
+    void calculateCostMicroDollars_nullUsage_returnsZero() {
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET, null);
         assertThat(cost).isZero();
     }
 
     @Test
-    @DisplayName("calculateCost() returns Sonnet cost for Anthropic when model is null")
-    void calculateCost_returnsSonnetCost_whenModelIsNull() {
-        CostProperties props = new CostProperties();
-        props.setAnthropicSonnetPence(13);  // 1.3p in units of 1/10th pence
-        CostCalculator calculator = new CostCalculator(props);
+    @DisplayName("calculateCostMicroDollars() returns 0 for null model")
+    void calculateCostMicroDollars_nullModel_returnsZero() {
+        long cost = calculator().calculateCostMicroDollars(null, new TokenUsage(100, 50, 0, 0));
+        assertThat(cost).isZero();
+    }
 
-        // When model is null, it defaults to Sonnet (the more expensive option)
-        int cost = calculator.calculateCost(ServiceName.ANTHROPIC, null);
+    // --- Flat cost micro-dollar tests ---
 
-        assertThat(cost).isEqualTo(13);
+    @Test
+    @DisplayName("calculateFlatCostMicroDollars() for WorldTides returns configured value")
+    void calculateFlatCostMicroDollars_worldTides() {
+        assertThat(calculator().calculateFlatCostMicroDollars(ServiceName.WORLD_TIDES))
+                .isEqualTo(3000);
     }
 
     @Test
-    @DisplayName("calculateCost() respects custom cost values from properties")
-    void calculateCost_respectsCustomCostValues() {
-        CostProperties props = new CostProperties();
-        props.setAnthropicHaikuPence(8);  // custom 0.8p
-        props.setAnthropicSonnetPence(15);  // custom 1.5p
-        props.setWorldTidesPence(3);  // custom 0.3p
-        CostCalculator calculator = new CostCalculator(props);
+    @DisplayName("calculateFlatCostMicroDollars() for OpenMeteo returns 0")
+    void calculateFlatCostMicroDollars_openMeteo() {
+        assertThat(calculator().calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).isZero();
+        assertThat(calculator().calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_AIR_QUALITY)).isZero();
+    }
 
-        assertThat(calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU)).isEqualTo(8);
-        assertThat(calculator.calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).isEqualTo(15);
-        assertThat(calculator.calculateCost(ServiceName.WORLD_TIDES)).isEqualTo(3);
+    // --- Legacy flat-rate tests (backward compatibility) ---
+
+    @Test
+    @DisplayName("calculateCost() legacy: returns Haiku cost for HAIKU model")
+    @SuppressWarnings("deprecation")
+    void calculateCost_legacy_haiku() {
+        assertThat(calculator().calculateCost(ServiceName.ANTHROPIC, EvaluationModel.HAIKU)).isEqualTo(5);
     }
 
     @Test
-    @DisplayName("calculateCost() overload without model works for non-Anthropic services")
-    void calculateCost_overloadWithoutModel_worksForNonAnthropicServices() {
-        CostProperties props = new CostProperties();
-        props.setWorldTidesPence(20);
-        CostCalculator calculator = new CostCalculator(props);
+    @DisplayName("calculateCost() legacy: returns Sonnet cost for SONNET model")
+    @SuppressWarnings("deprecation")
+    void calculateCost_legacy_sonnet() {
+        assertThat(calculator().calculateCost(ServiceName.ANTHROPIC, EvaluationModel.SONNET)).isEqualTo(13);
+    }
 
-        int cost = calculator.calculateCost(ServiceName.WORLD_TIDES);
+    @Test
+    @DisplayName("calculateCost() legacy: returns Opus cost for OPUS model")
+    @SuppressWarnings("deprecation")
+    void calculateCost_legacy_opus() {
+        assertThat(calculator().calculateCost(ServiceName.ANTHROPIC, EvaluationModel.OPUS)).isEqualTo(75);
+    }
 
-        assertThat(cost).isEqualTo(20);
+    @Test
+    @DisplayName("calculateCost() legacy: returns WorldTides cost")
+    @SuppressWarnings("deprecation")
+    void calculateCost_legacy_worldTides() {
+        assertThat(calculator().calculateCost(ServiceName.WORLD_TIDES)).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("calculateCost() legacy: returns zero for OpenMeteo")
+    @SuppressWarnings("deprecation")
+    void calculateCost_legacy_openMeteo() {
+        assertThat(calculator().calculateCost(ServiceName.OPEN_METEO_FORECAST)).isZero();
     }
 }

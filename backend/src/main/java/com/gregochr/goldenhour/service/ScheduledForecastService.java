@@ -29,25 +29,43 @@ public class ScheduledForecastService {
     private final TideService tideService;
     private final LocationService locationService;
     private final JobRunService jobRunService;
+    private final ExchangeRateService exchangeRateService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
      *
-     * @param commandFactory   builds forecast commands
-     * @param commandExecutor  executes forecast commands
-     * @param tideService      the service that fetches and stores tide extremes
-     * @param locationService  the service providing persisted locations
-     * @param jobRunService    the service for tracking job run metrics
+     * @param commandFactory       builds forecast commands
+     * @param commandExecutor      executes forecast commands
+     * @param tideService          the service that fetches and stores tide extremes
+     * @param locationService      the service providing persisted locations
+     * @param jobRunService        the service for tracking job run metrics
+     * @param exchangeRateService  the service for fetching exchange rates
      */
     public ScheduledForecastService(ForecastCommandFactory commandFactory,
             ForecastCommandExecutor commandExecutor,
             TideService tideService, LocationService locationService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService, ExchangeRateService exchangeRateService) {
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
         this.tideService = tideService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
+        this.exchangeRateService = exchangeRateService;
+    }
+
+    /**
+     * Warms the exchange rate cache for today, called before forecast runs.
+     *
+     * <p>If the Frankfurter API is unavailable, falls back to the most recent cached rate.
+     */
+    // @Scheduled(cron = "0 55 5 * * *")
+    public void refreshExchangeRate() {
+        try {
+            double rate = exchangeRateService.getCurrentRate();
+            LOG.info("Exchange rate warmed: {} GBP/USD", rate);
+        } catch (Exception e) {
+            LOG.warn("Exchange rate refresh failed — will use fallback: {}", e.getMessage());
+        }
     }
 
     /**

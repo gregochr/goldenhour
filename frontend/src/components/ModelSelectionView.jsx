@@ -12,21 +12,21 @@ const MODEL_INFO = {
   HAIKU: {
     name: 'Haiku',
     description: 'Fast, cost-efficient model. Returns 1-5 star rating.',
-    costPerRun: '~\u00a32-3',
+    pricing: '$1/MTok in, $5/MTok out',
     speed: 'Fast',
     recommended: true,
   },
   SONNET: {
     name: 'Sonnet',
     description: 'Advanced model. Returns detailed 0-100 scores for fiery sky and golden hour potential.',
-    costPerRun: '~\u00a36',
+    pricing: '$3/MTok in, $15/MTok out',
     speed: 'Moderate',
     recommended: false,
   },
   OPUS: {
     name: 'Opus',
     description: 'Highest accuracy model. Returns detailed 0-100 scores with the deepest reasoning.',
-    costPerRun: '~\u00a330',
+    pricing: '$5/MTok in, $25/MTok out',
     speed: 'Slower',
     recommended: false,
   },
@@ -184,7 +184,7 @@ export default function ModelSelectionView() {
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
-                  <span className="font-medium">Cost per run:</span> {info.costPerRun}
+                  <span className="font-medium">Pricing:</span> {info.pricing}
                 </div>
                 <div>
                   <span className="font-medium">Speed:</span> {info.speed}
