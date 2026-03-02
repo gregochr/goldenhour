@@ -11,6 +11,12 @@ import PropTypes from 'prop-types';
 export default function TurnstileWidget({ onVerify, onExpire }) {
   const containerRef = useRef(null);
   const widgetIdRef = useRef(null);
+  const onVerifyRef = useRef(onVerify);
+  const onExpireRef = useRef(onExpire);
+
+  // Keep refs up to date without re-running the effect
+  onVerifyRef.current = onVerify;
+  onExpireRef.current = onExpire;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -25,9 +31,9 @@ export default function TurnstileWidget({ onVerify, onExpire }) {
       widgetIdRef.current = window.turnstile.render(containerRef.current, {
         sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY,
         theme: 'dark',
-        callback: (token) => onVerify(token),
-        'expired-callback': () => onExpire(),
-        'error-callback': () => onExpire(),
+        callback: (token) => onVerifyRef.current(token),
+        'expired-callback': () => onExpireRef.current(),
+        'error-callback': () => onExpireRef.current(),
       });
     }
 
@@ -61,7 +67,7 @@ export default function TurnstileWidget({ onVerify, onExpire }) {
         widgetIdRef.current = null;
       }
     };
-  }, [onVerify, onExpire]);
+  }, []);
 
   return <div ref={containerRef} data-testid="turnstile-widget" className="flex justify-center" />;
 }
