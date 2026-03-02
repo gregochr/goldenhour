@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
@@ -254,9 +254,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
     status: (loc) => loc.enabled ? 'Enabled' : 'Disabled',
   }), []);
 
+  const [optimisticLocations, addOptimisticLocation] = useOptimistic(locations, (current, toggledId) =>
+    current.map((loc) => loc.id === toggledId ? { ...loc, enabled: !loc.enabled } : loc),
+  );
+  const [, startToggleTransition] = useTransition();
+
   const sf = useSortAndFilter('name', 'asc', locationAccessors);
 
-  const filteredLocations = useMemo(() => sf.apply(locations), [sf, locations]);
+  const filteredLocations = useMemo(() => sf.apply(optimisticLocations), [sf, optimisticLocations]);
 
   async function refreshLocations() {
     try {
@@ -414,13 +419,16 @@ export default function LocationManagementView({ onLocationsChanged }) {
     }
   }
 
-  async function handleToggleEnabled(loc) {
-    try {
-      await setLocationEnabled(loc.id, !loc.enabled);
-      await refreshLocations();
-    } catch (err) {
-      console.error('Failed to toggle location enabled:', err);
-    }
+  function handleToggleEnabled(loc) {
+    startToggleTransition(async () => {
+      addOptimisticLocation(loc.id);
+      try {
+        await setLocationEnabled(loc.id, !loc.enabled);
+        await refreshLocations();
+      } catch (err) {
+        console.error('Failed to toggle location enabled:', err);
+      }
+    });
   }
 
   // Auto-set tide when location type changes

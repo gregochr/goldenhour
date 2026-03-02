@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import axios from 'axios';
 import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
@@ -175,9 +175,14 @@ export default function UserManagementView() {
     status: (u) => u.enabled ? 'Enabled' : 'Disabled',
   }), []);
 
+  const [optimisticUsers, addOptimisticUser] = useOptimistic(users, (current, toggledId) =>
+    current.map((u) => u.id === toggledId ? { ...u, enabled: !u.enabled } : u),
+  );
+  const [, startToggleTransition] = useTransition();
+
   const sf = useSortAndFilter('username', 'asc', userAccessors);
 
-  const filteredUsers = useMemo(() => sf.apply(users), [sf, users]);
+  const filteredUsers = useMemo(() => sf.apply(optimisticUsers), [sf, optimisticUsers]);
 
   async function fetchUsers() {
     try {
@@ -291,13 +296,16 @@ export default function UserManagementView() {
     }
   }
 
-  async function handleToggleEnabled(user) {
-    try {
-      await updateUserEnabled(user.id, !user.enabled);
-      await fetchUsers();
-    } catch (err) {
-      console.error('Failed to toggle user enabled:', err);
-    }
+  function handleToggleEnabled(user) {
+    startToggleTransition(async () => {
+      addOptimisticUser(user.id);
+      try {
+        await updateUserEnabled(user.id, !user.enabled);
+        await fetchUsers();
+      } catch (err) {
+        console.error('Failed to toggle user enabled:', err);
+      }
+    });
   }
 
   function handleResetPassword(user) {

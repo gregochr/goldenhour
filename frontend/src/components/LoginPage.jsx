@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -7,24 +7,16 @@ import { useAuth } from '../context/AuthContext.jsx';
  */
 export default function LoginPage({ onRegister = null }) {
   const { login } = useAuth();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setError('');
-    setLoading(true);
+  const [error, submitAction, isPending] = useActionState(async (_prev, formData) => {
     try {
-      await login(username, password);
+      await login(formData.get('username'), formData.get('password'));
+      return '';
     } catch {
-      setError('Invalid username or password.');
-    } finally {
-      setLoading(false);
+      return 'Invalid username or password.';
     }
-  }
+  }, '');
 
   return (
     <div className="min-h-screen bg-plex-bg flex items-center justify-center px-4">
@@ -38,7 +30,7 @@ export default function LoginPage({ onRegister = null }) {
         </div>
 
         <form
-          onSubmit={handleSubmit}
+          action={submitAction}
           className="card flex flex-col gap-4"
         >
           <p className="text-sm font-semibold text-plex-text">Sign in</p>
@@ -49,13 +41,12 @@ export default function LoginPage({ onRegister = null }) {
             </label>
             <input
               id="login-username"
+              name="username"
               type="text"
               data-testid="login-username"
               autoComplete="username"
               className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={loading}
+              disabled={isPending}
               required
             />
           </div>
@@ -67,13 +58,12 @@ export default function LoginPage({ onRegister = null }) {
             <div className="relative">
               <input
                 id="login-password"
+                name="password"
                 type={showPassword ? 'text' : 'password'}
                 data-testid="login-password"
                 autoComplete="current-password"
                 className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={loading}
+                disabled={isPending}
                 required
               />
               <button
@@ -106,9 +96,9 @@ export default function LoginPage({ onRegister = null }) {
             type="submit"
             data-testid="login-submit"
             className="btn-primary"
-            disabled={loading}
+            disabled={isPending}
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {isPending ? 'Signing in…' : 'Sign in'}
           </button>
 
           {onRegister && (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { recordOutcome } from '../api/forecastApi.js';
 
@@ -27,14 +27,9 @@ export default function OutcomeModal({
   const [fierySkyActual, setFierySkyActual] = useState('');
   const [goldenHourActual, setGoldenHourActual] = useState('');
   const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [saveError, setSaveError] = useState(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    setSaveError(null);
+  const [saveError, submitAction, isPending] = useActionState(async () => {
     try {
       await recordOutcome({
         locationLat,
@@ -49,12 +44,11 @@ export default function OutcomeModal({
       });
       setSaved(true);
       setTimeout(onSaved, 1500);
+      return null;
     } catch (err) {
-      setSaveError(err.response?.data?.message || err.message || 'Failed to save outcome.');
-    } finally {
-      setSaving(false);
+      return err.response?.data?.message || err.message || 'Failed to save outcome.';
     }
-  };
+  }, null);
 
   return (
     <div
@@ -78,7 +72,7 @@ export default function OutcomeModal({
             </button>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form action={submitAction} className="flex flex-col gap-4">
             <fieldset>
               <legend className="text-sm text-plex-text-secondary mb-2">Did you go out?</legend>
               <div className="flex gap-3">
@@ -176,9 +170,9 @@ export default function OutcomeModal({
                 type="submit"
                 data-testid="outcome-submit"
                 className="btn-primary"
-                disabled={saving}
+                disabled={isPending}
               >
-                {saving ? 'Saving…' : 'Save outcome'}
+                {isPending ? 'Saving…' : 'Save outcome'}
               </button>
             </div>
           </form>

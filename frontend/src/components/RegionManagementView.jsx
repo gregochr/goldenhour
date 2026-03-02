@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { fetchRegions, addRegion, updateRegion, setRegionEnabled } from '../api/regionApi.js';
 
@@ -57,8 +57,13 @@ export default function RegionManagementView() {
   const [sortKey, setSortKey] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
 
+  const [optimisticRegions, addOptimisticRegion] = useOptimistic(regions, (current, toggledId) =>
+    current.map((r) => r.id === toggledId ? { ...r, enabled: !r.enabled } : r),
+  );
+  const [, startToggleTransition] = useTransition();
+
   const sortedRegions = useMemo(() => {
-    const sorted = [...regions];
+    const sorted = [...optimisticRegions];
     sorted.sort((a, b) => {
       let va, vb;
       if (sortKey === 'name') { va = a.name; vb = b.name; }
@@ -69,7 +74,7 @@ export default function RegionManagementView() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [regions, sortKey, sortDir]);
+  }, [optimisticRegions, sortKey, sortDir]);
 
   function handleSort(key) {
     if (sortKey === key) {
@@ -137,13 +142,16 @@ export default function RegionManagementView() {
     }
   }
 
-  async function handleToggleEnabled(region) {
-    try {
-      await setRegionEnabled(region.id, !region.enabled);
-      await refreshRegions();
-    } catch (err) {
-      console.error('Failed to toggle region enabled:', err);
-    }
+  function handleToggleEnabled(region) {
+    startToggleTransition(async () => {
+      addOptimisticRegion(region.id);
+      try {
+        await setRegionEnabled(region.id, !region.enabled);
+        await refreshRegions();
+      } catch (err) {
+        console.error('Failed to toggle region enabled:', err);
+      }
+    });
   }
 
   const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold';
