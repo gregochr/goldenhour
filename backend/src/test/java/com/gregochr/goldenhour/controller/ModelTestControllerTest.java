@@ -216,4 +216,37 @@ class ModelTestControllerTest {
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    @DisplayName("POST /api/model-test/rerun without testRunId returns 400")
+    @WithMockUser(roles = "ADMIN")
+    void rerunTest_missingTestRunId_returns400() throws Exception {
+        mockMvc.perform(post("/api/model-test/rerun")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+    }
+
+    // --- Unauthenticated access ---
+
+    @Test
+    @DisplayName("POST /api/model-test/run returns 401 when unauthenticated")
+    void runTest_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/model-test/run")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /api/model-test/runs returns 401 when unauthenticated")
+    void getRecentRuns_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/model-test/runs"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /api/model-test/results returns 401 when unauthenticated")
+    void getResults_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/model-test/results?testRunId=1"))
+                .andExpect(status().isUnauthorized());
+    }
 }

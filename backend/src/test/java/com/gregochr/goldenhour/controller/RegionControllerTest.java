@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -155,6 +156,50 @@ class RegionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"enabled\":false}"))
                 .andExpect(status().isForbidden());
+    }
+
+    // --- 404 edge cases ---
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/regions/{id} returns 404 when region does not exist")
+    void updateRegion_notFound_returns404() throws Exception {
+        when(regionService.update(eq(999L), any(UpdateRegionRequest.class)))
+                .thenThrow(new NoSuchElementException("Region not found: 999"));
+
+        mockMvc.perform(put("/api/regions/999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"New Name\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/regions/{id}/enabled returns 404 when region does not exist")
+    void setRegionEnabled_notFound_returns404() throws Exception {
+        when(regionService.setEnabled(999L, false))
+                .thenThrow(new NoSuchElementException("Region not found: 999"));
+
+        mockMvc.perform(put("/api/regions/999/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /api/regions returns 401 when unauthenticated")
+    void getRegions_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/regions"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("POST /api/regions returns 401 when unauthenticated")
+    void addRegion_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/regions")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Test\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     private RegionEntity buildRegion(Long id, String name) {
