@@ -116,3 +116,13 @@
 .animate-slide-up {
   animation: slide-up 200ms ease-out;
 }
+
+/* Popup content refresh pulse — brief skeleton flash then fade-in */
+@keyframes popup-refresh {
+  0%   { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+.animate-popup-refresh {
+  animation: popup-refresh 300ms ease-out;
+}

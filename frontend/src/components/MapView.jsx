@@ -464,19 +464,21 @@ export default function MapView({ locations, date }) {
               >
                 {!isMobile && (
                   <Popup maxWidth={9999} maxHeight={600}>
-                    <MarkerPopupContent
-                      location={loc}
-                      forecast={forecast}
-                      hourlyData={hourlyData}
-                      eventType={eventType}
-                      isPureWildlife={isPureWildlife}
-                      isExpanded={expandedPopup === loc.name}
-                      onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
-                      role={role}
-                      date={date}
-                      onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
-                      tideFetchedAt={tideFetchedAt[loc.name] ?? null}
-                    />
+                    <div key={`${date}-${eventType}`} className="animate-popup-refresh">
+                      <MarkerPopupContent
+                        location={loc}
+                        forecast={forecast}
+                        hourlyData={hourlyData}
+                        eventType={eventType}
+                        isPureWildlife={isPureWildlife}
+                        isExpanded={expandedPopup === loc.name}
+                        onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
+                        role={role}
+                        date={date}
+                        onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
+                        tideFetchedAt={tideFetchedAt[loc.name] ?? null}
+                      />
+                    </div>
                   </Popup>
                 )}
               </Marker>
@@ -495,19 +497,21 @@ export default function MapView({ locations, date }) {
             open
             onClose={() => { setSelectedLocationName(null); setExpandedPopup(null); }}
           >
-            <MarkerPopupContent
-              location={loc}
-              forecast={forecast}
-              hourlyData={hourlyData}
-              eventType={eventType}
-              isPureWildlife={isPureWildlife}
-              isExpanded={expandedPopup === loc.name}
-              onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
-              role={role}
-              date={date}
-              onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
-              tideFetchedAt={tideFetchedAt[loc.name] ?? null}
-            />
+            <div key={`${date}-${eventType}`} className="animate-popup-refresh">
+              <MarkerPopupContent
+                location={loc}
+                forecast={forecast}
+                hourlyData={hourlyData}
+                eventType={eventType}
+                isPureWildlife={isPureWildlife}
+                isExpanded={expandedPopup === loc.name}
+                onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
+                role={role}
+                date={date}
+                onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
+                tideFetchedAt={tideFetchedAt[loc.name] ?? null}
+              />
+            </div>
           </BottomSheet>
         );
       })()}
