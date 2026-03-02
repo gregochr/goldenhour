@@ -223,10 +223,10 @@ Users can self-register at the login page — email verification is required, an
 ## Running tests
 
 ```bash
-# Backend (JUnit 5, 497 tests, >=80% coverage enforced by JaCoCo)
+# Backend (JUnit 5, 534 tests, >=80% coverage enforced by JaCoCo)
 cd backend && ./mvnw clean verify
 
-# Frontend component tests (Vitest, 57 tests)
+# Frontend component tests (Vitest, 110 tests)
 cd frontend && npm test
 
 # Frontend end-to-end (Playwright — requires app running)
