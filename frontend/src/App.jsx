@@ -78,10 +78,12 @@ function AppInner() {
     visibleLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
   )].sort();
 
-  // Default to the first available date when data loads.
+  // Default to today (or the nearest future date) when data loads.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const defaultDate = allDates.find((d) => d >= todayStr) ?? allDates[allDates.length - 1] ?? null;
   const effectiveDate = (selectedDate && allDates.includes(selectedDate))
     ? selectedDate
-    : allDates[0] ?? null;
+    : defaultDate;
 
   const isDown = healthStatus === 'DOWN';
 
