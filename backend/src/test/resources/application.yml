@@ -14,10 +14,6 @@ spring:
   mail:
     host: localhost
     port: 25
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
 anthropic:
   api-key: test-key
   model: claude-sonnet-4-5-20250929

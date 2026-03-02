@@ -21,10 +21,6 @@ spring:
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
-
 notifications:
   schedule:
     cron: "0 30 7 * * *"

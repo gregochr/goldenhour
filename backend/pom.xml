@@ -34,16 +34,16 @@
 
         <!-- ==================== Spring Boot Core ==================== -->
 
-        <!-- REST API -->
+        <!-- REST API (renamed from spring-boot-starter-web in Boot 4.0) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
 
-        <!-- WebClient for Windy API and Pushover API calls -->
+        <!-- WebClient for Open-Meteo, WorldTides, and Pushover API calls -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
+            <artifactId>spring-boot-starter-webclient</artifactId>
         </dependency>
 
         <!-- JPA / Database persistence -->
@@ -81,14 +81,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Flyway core -->
+        <!-- Flyway (Boot 4.0 starter wraps flyway-core + auto-configuration) -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
-
-        <!-- Note: flyway-database-postgresql is a Flyway 10+ module; Spring Boot 3.2.x
-             uses Flyway 9.x where PostgreSQL support is bundled in flyway-core. -->
 
         <!-- ==================== Caching ==================== -->
 
@@ -125,25 +122,15 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- Jackson - JSON serialisation -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-
-        <!-- Jackson JSR310 - LocalDate/LocalDateTime serialisation -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
-        </dependency>
+        <!-- Jackson 3 — managed by Boot 4.0; JSR-310 auto-discovered -->
 
         <!-- ==================== API Docs ==================== -->
 
-        <!-- Springdoc OpenAPI - auto-generates Swagger UI from controllers -->
+        <!-- Springdoc OpenAPI - auto-generates Swagger UI from controllers (3.x for Boot 4.0) -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>2.3.0</version>
+            <version>3.0.1</version>
         </dependency>
 
         <!-- ==================== Security ==================== -->
@@ -192,10 +179,22 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Spring Security Test - @WithMockUser and MockMvc security support -->
+        <!-- Spring Boot 4.0 modularised test starters -->
         <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-test</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Security Test - @WithMockUser and MockMvc security support (Boot 4.0 starter) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
             <scope>test</scope>
         </dependency>
 
