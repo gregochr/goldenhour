@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 2, 2026)
+- **Mobile bottom sheet for map markers** — on viewports ≤639px (below Tailwind `sm:` breakpoint), tapping a map marker opens a slide-up bottom sheet instead of a cramped Leaflet popup; scrollable content, tap-to-dismiss overlay, close button, body scroll lock; desktop keeps existing Leaflet popup unchanged
+  - `useIsMobile` hook (MediaQueryList-based, listens for resize/orientation changes)
+  - `BottomSheet` component (overlay + sheet + drag handle pill + close button, 200ms slide-up animation)
+  - `MarkerPopupContent` extracted from MapView — shared by both Leaflet popup (desktop) and bottom sheet (mobile)
+  - 11 new tests (7 BottomSheet, 4 useIsMobile) — 127 frontend tests total
+
 ### Changed (Mar 2, 2026)
 - **Spring Boot 4.0 migration** — upgraded from Spring Boot 3.x to 4.0.3 (Spring Security 7, Jackson 3)
   - `spring-boot-starter-web` → `spring-boot-starter-webmvc`, `spring-boot-starter-webflux` → `spring-boot-starter-webclient`
