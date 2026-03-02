@@ -41,6 +41,8 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
   }
 
   const isPast = (date) => date < today;
+  const isFirst = dates.length > 0 && selectedDate === dates[0];
+  const isLast = dates.length > 0 && selectedDate === dates[dates.length - 1];
 
   // Find the boundary between past and today/future for the divider
   const firstTodayOrFutureIdx = dates.findIndex((d) => d >= today);
@@ -51,7 +53,12 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
       {/* Left arrow */}
       <button
         onClick={() => scroll(-1)}
-        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-plex-surface-light text-plex-text-muted hover:text-plex-text hover:bg-plex-border transition-colors"
+        disabled={isFirst}
+        className={`shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
+          isFirst
+            ? 'bg-plex-surface-light/50 text-plex-text-muted/30 cursor-not-allowed'
+            : 'bg-plex-surface-light text-plex-text-muted hover:text-plex-text hover:bg-plex-border'
+        }`}
         aria-label="Scroll dates left"
       >
         &#x2039;
@@ -91,7 +98,12 @@ export default function DateStrip({ dates, selectedDate, onSelect }) {
       {/* Right arrow */}
       <button
         onClick={() => scroll(1)}
-        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-plex-surface-light text-plex-text-muted hover:text-plex-text hover:bg-plex-border transition-colors"
+        disabled={isLast}
+        className={`shrink-0 w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
+          isLast
+            ? 'bg-plex-surface-light/50 text-plex-text-muted/30 cursor-not-allowed'
+            : 'bg-plex-surface-light text-plex-text-muted hover:text-plex-text hover:bg-plex-border'
+        }`}
         aria-label="Scroll dates right"
       >
         &#x203A;
