@@ -186,7 +186,7 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             Integer rating = node.has("rating") ? node.get("rating").asInt() : null;
             int fierySky = node.get("fiery_sky").asInt();
             int goldenHour = node.get("golden_hour").asInt();
-            String summary = node.get("summary").asText();
+            String summary = node.get("summary").stringValue();
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary);
         } catch (Exception jsonException) {
             return parseWithRegexFallback(text, jsonException);
