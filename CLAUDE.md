@@ -33,10 +33,16 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Session countdown (`Session: 30d`) in header for ADMIN users
 - Backend health indicator: green/red dot in header (ADMIN only), polls `/actuator/health` every 30 s
 - **Command + Strategy patterns** ✓ — GoF Command pattern (`ForecastCommand`, `ForecastCommandFactory`, `ForecastCommandExecutor`) cleanly separates what to run from how to run it; `RunType` enum replaces both `JobName` and `ModelConfigType`; `NoOpEvaluationStrategy` for wildlife locations
+- **Token-based cost tracking** ✓ — actual token-based micro-dollar pricing from Anthropic SDK, replacing flat per-call pence estimates
+  - `TokenUsage` record extracts input, output, cache creation, and cache read tokens from every Claude API response
+  - Costs stored in micro-dollars (1 USD = 1,000,000 µ$) using real per-model USD/MTok rates with cache and batch discount support
+  - `ExchangeRateService` fetches daily USD-to-GBP from Frankfurter API (ECB data); `exchange_rate` table caches rates; exchange rate snapshot per job run for historically accurate GBP conversion
+  - V38 migration: token columns + micro-dollar costs on `api_call_log`, `model_test_result`, `job_run`, `model_test_run`; new `exchange_rate` table
+  - Frontend shows both GBP and USD costs with per-call token breakdown; legacy pence fallback for old data
 - **Job run metrics** ✓ — persistent tracking of all scheduled forecast runs and external API calls with cost aggregation
-  - `job_run` table (V20) tracks run type, evaluation model, duration, success/failure counts, total cost in pence
-  - `api_call_log` table (V20) records every API call with request/response details, duration, cost
-  - Admin metrics dashboard shows last 7 days: total runs, success rate, slowest service, cost breakdown
+  - `job_run` table (V20) tracks run type, evaluation model, duration, success/failure counts, total cost in pence and micro-dollars
+  - `api_call_log` table (V20) records every API call with request/response details, duration, cost, token counts
+  - Admin metrics dashboard shows last 7 days: total runs, success rate, slowest service, cost breakdown in GBP and USD
   - Per-location failure tracking: `consecutive_failures`, auto-disable after 3 failures (V21)
 - **Retry robustness** ✓ — declarative `@Retryable` (Spring Framework 7) with exponential backoff
   - Anthropic 529 (overloaded) + content filter retry via `AnthropicApiClient` + `ClaudeRetryPredicate`
@@ -84,16 +90,16 @@ goldenhour/
 │   │   ├── client/        OpenMeteoForecastApi, OpenMeteoAirQualityApi (@HttpExchange interfaces)
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties, TransientHttpErrorPredicate, ClaudeRetryPredicate
 │   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController, RegionController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, EmailVerificationTokenEntity, RegionEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
-│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, EmailVerificationTokenRepository
-│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ModelSelectionService, ModelTestService, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
-│   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, etc.
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, EmailVerificationTokenEntity, RegionEntity, ExchangeRateEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType
+│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, EmailVerificationTokenRepository, ExchangeRateRepository
+│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ExchangeRateService, ModelSelectionService, ModelTestService, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
+│   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, TokenUsage, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V35 Flyway migrations
+│       └── db/migration/            V1–V38 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
@@ -203,6 +209,7 @@ jwt:
 | V35 | `marketing_email_opt_in` on `app_user` — marketing email preference (default TRUE) |
 | V36 | `last_login_at` column on `app_user` — user login timestamp |
 | V37 | Rename `last_login_at` → `last_active_at` on `app_user` — throttled activity tracking |
+| V38 | Token columns (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `is_batch`, `cost_micro_dollars`) on `api_call_log` and `model_test_result`; `total_cost_micro_dollars` + `exchange_rate_gbp_per_usd` on `job_run` and `model_test_run`; new `exchange_rate` table |
 
 ---
 
@@ -421,15 +428,17 @@ Generate keys once: `openssl ecparam -name prime256v1 -genkey -noout -out vapid_
 
 Track performance of scheduled forecast runs and external API calls, stored in H2.
 
-- `job_run` table: `id`, `run_type` (VERY_SHORT_TERM/SHORT_TERM/LONG_TERM/WEATHER/TIDE), `evaluation_model` (HAIKU/SONNET/OPUS/WILDLIFE, nullable), `started_at`, `completed_at`, `duration_ms`, `locations_processed`, `succeeded`, `failed`, `total_cost_pence`
-- `api_call_log` table: `id`, `job_run_id` (FK), `service` (OPEN_METEO_FORECAST/OPEN_METEO_AIR_QUALITY/WORLD_TIDES/ANTHROPIC), `called_at`, `completed_at`, `duration_ms`, `request_method`, `request_url`, `request_body`, `status_code`, `response_body`, `succeeded`, `error_message`, `cost_pence`
-- `JobRunService` records run metrics (start/complete with RunType + EvaluationModel)
-- `CostCalculator` service computes API call costs by service and model
+- `job_run` table: `id`, `run_type` (VERY_SHORT_TERM/SHORT_TERM/LONG_TERM/WEATHER/TIDE), `evaluation_model` (HAIKU/SONNET/OPUS/WILDLIFE, nullable), `started_at`, `completed_at`, `duration_ms`, `locations_processed`, `succeeded`, `failed`, `total_cost_pence`, `total_cost_micro_dollars`, `exchange_rate_gbp_per_usd`
+- `api_call_log` table: `id`, `job_run_id` (FK), `service` (OPEN_METEO_FORECAST/OPEN_METEO_AIR_QUALITY/WORLD_TIDES/ANTHROPIC), `called_at`, `completed_at`, `duration_ms`, `request_method`, `request_url`, `request_body`, `status_code`, `response_body`, `succeeded`, `error_message`, `cost_pence`, `cost_micro_dollars`, `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `is_batch`
+- `exchange_rate` table: `id`, `rate_date` (unique), `gbp_per_usd`, `fetched_at` — daily USD-to-GBP rate cache from Frankfurter API
+- `JobRunService` records run metrics (start/complete with RunType + EvaluationModel); `logAnthropicApiCall()` extracts token usage and computes micro-dollar costs
+- `CostCalculator` computes token-based micro-dollar costs per model (Haiku/Sonnet/Opus rates) with cache and batch discount; also flat micro-dollar costs for non-Anthropic services
+- `ExchangeRateService` fetches/caches daily USD-to-GBP from Frankfurter API (ECB data); fallback to most recent cached rate
 - `JobMetricsController` endpoints: `GET /api/metrics/job-runs`, `GET /api/metrics/api-calls`
-- Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
-- Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
-- Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 541 backend tests, all passing with ≥80% JaCoCo coverage
+- Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats, costs in both GBP and USD, per-call token breakdown
+- Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking), V38 (token columns, micro-dollar costs, exchange rate)
+- Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`; `formatCost.js` utility for GBP/USD formatting
+- 569 backend tests, all passing with ≥80% JaCoCo coverage
 
 ### 9. Retry Robustness ✓ BUILT
 
@@ -478,7 +487,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 541 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 569 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```

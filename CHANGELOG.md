@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 2, 2026)
+- **Token-based cost tracking** — replaces flat per-call pence estimates with actual token-based micro-dollar pricing from Anthropic SDK responses
+  - `TokenUsage` record captures input, output, cache creation, and cache read tokens from every `Message.usage()` response
+  - `CostCalculator` computes costs in micro-dollars (1 USD = 1,000,000 µ$) using real per-model USD/MTok rates: Haiku ($1/$5), Sonnet ($3/$15), Opus ($5/$25), with cache write/read rates and 50% batch discount
+  - `ExchangeRateService` fetches daily USD-to-GBP rate from Frankfurter API (ECB data, no API key); caches in `exchange_rate` table; falls back to most recent cached rate on failure
+  - Exchange rate snapshot stored per `job_run` and `model_test_run` so historical costs convert at the rate from the day they were incurred
+  - V38 migration: token columns + `cost_micro_dollars` on `api_call_log` and `model_test_result`; `total_cost_micro_dollars` + `exchange_rate_gbp_per_usd` on `job_run` and `model_test_run`; new `exchange_rate` table
+  - `AbstractEvaluationStrategy.extractTokenUsage()` reads all four token categories from SDK response
+  - `JobRunService.logAnthropicApiCall()` records tokens + micro-dollar cost per call; `completeRun()` aggregates both legacy pence and micro-dollar totals
+  - `ModelTestService` populates token fields and micro-dollar costs on test results and runs
+  - Frontend `formatCost.js` utility: `formatCostGbp()` (with legacy pence fallback), `formatCostUsd()`, `formatTokens()`
+  - `MetricsSummary` shows both GBP and USD totals; `JobRunDetail` shows per-call token breakdown (input/output/cache write/cache read); `JobRunsGrid` uses token-based costs; `ModelTestView` adds Tokens and Cost columns
+  - `ModelSelectionView` shows real per-model pricing rates instead of hardcoded estimates
+  - Legacy `cost_pence` / `total_cost_pence` columns retained for backward compatibility
+  - 569 backend tests (up from 565), all passing; Checkstyle/SpotBugs/JaCoCo clean
+
 ### Changed (Mar 2, 2026)
 - **Spring Framework 7 feature adoption** — virtual threads, RestClient, declarative resilience, and HTTP interface clients
   - **Virtual threads** — `spring.threads.virtual.enabled: true` in both profiles; `forecastExecutor` uses `Executors.newVirtualThreadPerTaskExecutor()` (replaces sized `ThreadPoolTaskExecutor`)
