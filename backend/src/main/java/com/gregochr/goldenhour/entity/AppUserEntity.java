@@ -74,6 +74,7 @@ public class AppUserEntity implements UserDetails {
     private boolean passwordChangeRequired;
 
     /** Whether the user has opted in to marketing emails (feature updates, photography tips). */
+    @Builder.Default
     @Column(name = "marketing_email_opt_in", nullable = false)
     private boolean marketingEmailOptIn = true;
 
