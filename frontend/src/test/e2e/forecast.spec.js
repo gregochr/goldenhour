@@ -128,9 +128,16 @@ test.describe('Manage view — ADMIN', () => {
     await expect(manageButton).toBeVisible();
     await manageButton.click();
 
-    // Sub-tabs should be visible
-    await expect(page.getByTestId('manage-tab-users')).toBeVisible({ timeout: 5000 });
+    // Group tabs should be visible
+    await expect(page.getByTestId('manage-group-data')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('manage-group-operations')).toBeVisible();
+
+    // Data sub-tabs should be visible by default
+    await expect(page.getByTestId('manage-tab-users')).toBeVisible();
     await expect(page.getByTestId('manage-tab-locations')).toBeVisible();
+
+    // Switch to Operations group and verify its sub-tabs
+    await page.getByTestId('manage-group-operations').click();
     await expect(page.getByTestId('manage-tab-metrics')).toBeVisible();
     await expect(page.getByTestId('manage-tab-models')).toBeVisible();
   });
