@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (Mar 2, 2026)
+- **H2 driver missing from fat JAR** — removed `<optional>true</optional>` from the H2 dependency in `pom.xml`; Spring Boot 4 excludes optional dependencies from the packaged JAR, causing `Cannot load driver class: org.h2.Driver` at startup in Docker
+- **Jackson serialization config incompatible with Boot 4** — removed `spring.jackson.serialization.write-dates-as-timestamps: false` from `application.yml`; Spring Boot 4 uses `tools.jackson.databind` (Jackson 3) which doesn't recognise the old enum constant format; the default is already `false`
+
 ### Added (Mar 2, 2026)
 - **Mobile bottom sheet for map markers** — on viewports ≤639px (below Tailwind `sm:` breakpoint), tapping a map marker opens a slide-up bottom sheet instead of a cramped Leaflet popup; scrollable content, tap-to-dismiss overlay, close button, body scroll lock; desktop keeps existing Leaflet popup unchanged
   - `useIsMobile` hook (MediaQueryList-based, listens for resize/orientation changes)
