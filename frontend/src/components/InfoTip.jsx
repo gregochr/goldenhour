@@ -8,8 +8,9 @@ import PropTypes from 'prop-types';
  * @param {object} props
  * @param {string} props.text - The help text to display.
  * @param {string} [props.className] - Optional extra classes on the wrapper.
+ * @param {'above'|'below'} [props.position='above'] - Where the popover appears.
  */
-export default function InfoTip({ text, className = '' }) {
+export default function InfoTip({ text, className = '', position = 'above' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -41,7 +42,7 @@ export default function InfoTip({ text, className = '' }) {
       </button>
       {open && (
         <span
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 text-xs rounded shadow-lg whitespace-normal max-w-[220px] z-50 bg-plex-surface text-plex-text border border-plex-border"
+          className={`absolute left-1/2 -translate-x-1/2 px-2.5 py-1.5 text-xs rounded shadow-lg whitespace-normal max-w-[220px] z-50 bg-plex-surface text-plex-text border border-plex-border ${position === 'below' ? 'top-full mt-1.5' : 'bottom-full mb-1.5'}`}
           data-testid="infotip-popover"
         >
           {text}
@@ -54,4 +55,5 @@ export default function InfoTip({ text, className = '' }) {
 InfoTip.propTypes = {
   text: PropTypes.string.isRequired,
   className: PropTypes.string,
+  position: PropTypes.oneOf(['above', 'below']),
 };
