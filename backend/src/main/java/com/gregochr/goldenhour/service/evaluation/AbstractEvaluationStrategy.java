@@ -1,10 +1,15 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.core.JsonValue;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
+import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.anthropic.models.messages.OutputConfig;
 import com.anthropic.models.messages.TextBlock;
+import com.anthropic.models.messages.TextBlockParam;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
@@ -22,6 +27,8 @@ import com.anthropic.errors.AnthropicServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -82,9 +89,8 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             + "- If the tide aligns with the photographer's preference, factor this favourably\n"
             + "- If not aligned, briefly mention the tide limitation but don't heavily penalise"
             + " unless extreme\n\n"
-            + "Respond ONLY with raw JSON (no code fences):\n"
-            + "{\"rating\": <1-5>,\"fiery_sky\": <0-100>, \"golden_hour\": <0-100>,"
-            + " \"summary\": \"<2 sentences>\"}\n\n"
+            + "Output your evaluation as JSON with these fields: "
+            + "rating (1-5), fiery_sky (0-100), golden_hour (0-100), summary (2 sentences).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
@@ -339,7 +345,12 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                         MessageCreateParams.builder()
                                 .model(getModelName())
                                 .maxTokens(MAX_TOKENS)
-                                .system(getSystemPrompt())
+                                .systemOfTextBlockParams(List.of(
+                                        TextBlockParam.builder()
+                                                .text(getSystemPrompt())
+                                                .cacheControl(CacheControlEphemeral.builder().build())
+                                                .build()))
+                                .outputConfig(buildOutputConfig())
                                 .addUserMessage(userMessage)
                                 .build());
             } catch (AnthropicServiceException serviceEx) {
@@ -413,6 +424,33 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
         sb.append("\n").append(getPromptSuffix());
         return sb.toString();
+    }
+
+    /**
+     * Builds the structured output configuration constraining Claude's response to our JSON schema.
+     *
+     * <p>The schema requires four fields: {@code rating} (integer 1-5), {@code fiery_sky}
+     * (integer 0-100), {@code golden_hour} (integer 0-100), and {@code summary} (string).
+     * Claude's output is guaranteed to conform to this schema, making parse failures
+     * extremely unlikely.
+     *
+     * @return the output configuration with JSON schema constraint
+     */
+    private OutputConfig buildOutputConfig() {
+        return OutputConfig.builder()
+                .format(JsonOutputFormat.builder()
+                        .schema(JsonOutputFormat.Schema.builder()
+                                .putAdditionalProperty("type", JsonValue.from("object"))
+                                .putAdditionalProperty("properties", JsonValue.from(Map.of(
+                                        "rating", Map.of("type", "integer"),
+                                        "fiery_sky", Map.of("type", "integer"),
+                                        "golden_hour", Map.of("type", "integer"),
+                                        "summary", Map.of("type", "string"))))
+                                .putAdditionalProperty("required", JsonValue.from(
+                                        List.of("rating", "fiery_sky", "golden_hour", "summary")))
+                                .build())
+                        .build())
+                .build();
     }
 
     /**

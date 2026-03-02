@@ -24,6 +24,9 @@ public class CostProperties {
     /** Cost of a single Sonnet (Claude 3.5 Sonnet) API call (1.3p = 13 units of 1/10th pence). */
     private Integer anthropicSonnetPence = 13;
 
+    /** Cost of a single Opus (Claude 4 Opus) API call (7.5p = 75 units of 1/10th pence). */
+    private Integer anthropicOpusPence = 75;
+
     /** Cost of a single WorldTides API call (0.2p = 2 units of 1/10th pence). */
     private Integer worldTidesPence = 2;
 

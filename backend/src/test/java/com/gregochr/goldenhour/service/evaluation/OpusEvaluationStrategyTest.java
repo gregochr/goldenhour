@@ -1,10 +1,13 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.models.messages.CacheCreation;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.Model;
+import com.anthropic.models.messages.ServerToolUsage;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.services.blocking.MessageService;
@@ -99,13 +102,23 @@ class OpusEvaluationStrategyTest {
                 .id("msg_test_opus")
                 .model(Model.of("claude-opus-4-6"))
                 .content(List.of(contentBlock))
-                .stopReason(Message.StopReason.END_TURN)
+                .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
                 .usage(Usage.builder()
                         .inputTokens(10)
                         .outputTokens(20)
+                        .cacheCreation(CacheCreation.builder()
+                                .ephemeral5mInputTokens(0)
+                                .ephemeral1hInputTokens(0)
+                                .build())
                         .cacheCreationInputTokens(0L)
                         .cacheReadInputTokens(0L)
+                        .inferenceGeo("us")
+                        .serverToolUse(ServerToolUsage.builder()
+                                .webSearchRequests(0)
+                                .webFetchRequests(0)
+                                .build())
+                        .serviceTier(Usage.ServiceTier.of("standard"))
                         .build())
                 .build();
     }
