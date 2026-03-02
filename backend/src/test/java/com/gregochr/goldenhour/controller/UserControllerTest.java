@@ -22,8 +22,11 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -396,6 +399,58 @@ class UserControllerTest {
     void resendVerification_asLiteUser_returns403() throws Exception {
         mockMvc.perform(post("/api/users/1/resend-verification"))
                 .andExpect(status().isForbidden());
+    }
+
+    // --- DELETE /api/users/{id} endpoint ---
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} returns 200 when user is successfully deleted")
+    void deleteUser_asAdmin_returns200() throws Exception {
+        doNothing().when(userService).deleteUser(eq(2L), eq("admin"));
+
+        mockMvc.perform(delete("/api/users/2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("User deleted"));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} returns 409 when admin tries to delete themselves")
+    void deleteUser_selfDeletion_returns409() throws Exception {
+        doThrow(new IllegalStateException("Cannot delete your own account"))
+                .when(userService).deleteUser(eq(1L), eq("admin"));
+
+        mockMvc.perform(delete("/api/users/1"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Cannot delete your own account"));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} returns 400 when user does not exist")
+    void deleteUser_notFound_returns400() throws Exception {
+        doThrow(new IllegalArgumentException("User not found: 99"))
+                .when(userService).deleteUser(eq(99L), eq("admin"));
+
+        mockMvc.perform(delete("/api/users/99"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found: 99"));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("DELETE /api/users/{id} returns 403 for non-ADMIN")
+    void deleteUser_nonAdmin_returns403() throws Exception {
+        mockMvc.perform(delete("/api/users/1"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("DELETE /api/users/{id} returns 401 when unauthenticated")
+    void deleteUser_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(delete("/api/users/1"))
+                .andExpect(status().isUnauthorized());
     }
 
     private AppUserEntity buildUser(Long id, String username, UserRole role) {

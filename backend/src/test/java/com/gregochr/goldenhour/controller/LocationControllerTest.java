@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
+import java.util.NoSuchElementException;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -177,6 +179,81 @@ class LocationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"goldenHourType\":\"SUNSET\"}"))
                 .andExpect(status().isForbidden());
+    }
+
+    // --- resetLocationFailures endpoint ---
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/reset-failures returns 200 with the reset entity")
+    void resetFailures_asAdmin_returnsResetEntity() throws Exception {
+        LocationEntity entity = buildEntity(1L, "Durham UK", 54.7753, -1.5849);
+        when(locationService.resetFailures("Durham UK")).thenReturn(entity);
+
+        mockMvc.perform(put("/api/locations/reset-failures?name=Durham UK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Durham UK"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /api/locations/reset-failures returns 403 for non-ADMIN")
+    void resetFailures_nonAdmin_returns403() throws Exception {
+        mockMvc.perform(put("/api/locations/reset-failures?name=Durham UK"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/reset-failures returns 404 when location not found")
+    void resetFailures_unknownLocation_returns404() throws Exception {
+        when(locationService.resetFailures("Unknown"))
+                .thenThrow(new NoSuchElementException("Location not found: Unknown"));
+
+        mockMvc.perform(put("/api/locations/reset-failures?name=Unknown"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("PUT /api/locations/reset-failures returns 401 when unauthenticated")
+    void resetFailures_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(put("/api/locations/reset-failures?name=Test"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- 404 edge cases for existing endpoints ---
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} returns 404 when location does not exist")
+    void updateLocation_notFound_returns404() throws Exception {
+        when(locationService.update(eq(999L), any(UpdateLocationRequest.class)))
+                .thenThrow(new NoSuchElementException("Location not found: 999"));
+
+        mockMvc.perform(put("/api/locations/999")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"goldenHourType\":\"SUNSET\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id}/enabled returns 404 when location does not exist")
+    void setLocationEnabled_notFound_returns404() throws Exception {
+        when(locationService.setEnabled(999L, false))
+                .thenThrow(new NoSuchElementException("Location not found: 999"));
+
+        mockMvc.perform(put("/api/locations/999/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /api/locations returns 401 when unauthenticated")
+    void getLocations_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/locations"))
+                .andExpect(status().isUnauthorized());
     }
 
     private LocationEntity buildEntity(Long id, String name, double lat, double lon) {
