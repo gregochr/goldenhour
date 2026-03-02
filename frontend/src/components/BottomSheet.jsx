@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 
 /**
@@ -21,7 +22,7 @@ export default function BottomSheet({ open, onClose, children }) {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div data-testid="bottom-sheet-root">
       {/* Backdrop */}
       <div
@@ -62,7 +63,8 @@ export default function BottomSheet({ open, onClose, children }) {
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
