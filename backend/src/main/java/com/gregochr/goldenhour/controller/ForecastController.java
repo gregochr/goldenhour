@@ -83,10 +83,11 @@ public class ForecastController {
     @GetMapping
     public List<ForecastEvaluationEntity> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(7);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         return locationService.findAllEnabled().stream()
                 .flatMap(loc -> repository.findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        loc.getName(), today, horizon).stream())
+                        loc.getName(), from, horizon).stream())
                 .toList();
     }
 
