@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { runModelTest, runModelTestForLocation, rerunModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
-import { formatCostGbp, formatTokens } from '../utils/formatCost';
+import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -235,12 +235,16 @@ const ModelTestView = () => {
   };
 
   const formatRunCost = (run) => {
-    return formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence);
+    const gbp = formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence);
+    const usd = formatCostUsd(run.totalCostMicroDollars);
+    return usd !== '\u2014' ? `${gbp} (${usd})` : gbp;
   };
 
   const formatResultCost = (result, run) => {
     const exchangeRate = run ? run.exchangeRateGbpPerUsd : null;
-    return formatCostGbp(result.costMicroDollars, exchangeRate, result.costPence);
+    const gbp = formatCostGbp(result.costMicroDollars, exchangeRate, result.costPence);
+    const usd = formatCostUsd(result.costMicroDollars);
+    return usd !== '\u2014' ? `${gbp} (${usd})` : gbp;
   };
 
   return (

@@ -64,7 +64,7 @@ function AuthGate() {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout, sessionDaysRemaining } = useAuth();
+  const { isAdmin, logout, username, sessionDaysRemaining } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const { status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt } = useHealthStatus();
   const [viewMode, setViewMode] = useState('map');
@@ -107,9 +107,9 @@ function AppInner() {
             >
               Sign out
             </button>
-            {isAdmin && sessionDaysRemaining !== null && (
+            {username && (
               <p className="text-xs text-plex-text-muted">
-                Session: {sessionDaysRemaining}d
+                {username}{isAdmin && sessionDaysRemaining !== null && ` · ${sessionDaysRemaining}d`}
               </p>
             )}
           </div>
