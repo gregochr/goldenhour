@@ -29,7 +29,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Job run metrics with cost tracking and per-location failure detection
 - Resilient API calls with exponential backoff retry and dead-letter mechanism for persistent failures
 - Geographic regions for location grouping
-- Responsive map popup — fits within phone viewports (calc-based width capped at 600px on desktop)
+- Mobile bottom sheet — on small viewports, tapping a marker opens a slide-up bottom sheet instead of a cramped Leaflet popup; desktop keeps the existing popup
 - Star rating filter chips on map — toggle any permutation of 1-5 stars to show only matching locations
 - Last-active tracking — updated on every authenticated request (throttled to once per hour)
 - Backend health indicator in header (ADMIN), session expiry warnings
@@ -226,7 +226,7 @@ Users can self-register at the login page — email verification is required, an
 # Backend (JUnit 5, 534 tests, >=80% coverage enforced by JaCoCo)
 cd backend && ./mvnw clean verify
 
-# Frontend component tests (Vitest, 110 tests)
+# Frontend component tests (Vitest, 127 tests)
 cd frontend && npm test
 
 # Frontend end-to-end (Playwright — requires app running)
