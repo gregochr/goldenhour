@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -140,4 +141,79 @@ public class ModelTestResultEntity {
     /** UTC timestamp when this result was created. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    // --- Atmospheric data (V39) ---
+
+    /** Serialised AtmosphericData JSON for exact replay in determinism re-runs. */
+    @Lob
+    @Column(name = "atmospheric_data_json")
+    private String atmosphericDataJson;
+
+    /** Low cloud cover percentage (0-100). */
+    @Column(name = "low_cloud_percent")
+    private Integer lowCloudPercent;
+
+    /** Mid-level cloud cover percentage (0-100). */
+    @Column(name = "mid_cloud_percent")
+    private Integer midCloudPercent;
+
+    /** High cloud cover percentage (0-100). */
+    @Column(name = "high_cloud_percent")
+    private Integer highCloudPercent;
+
+    /** Visibility in metres. */
+    @Column(name = "visibility_metres")
+    private Integer visibilityMetres;
+
+    /** Wind speed in metres per second. */
+    @Column(name = "wind_speed_ms")
+    private BigDecimal windSpeedMs;
+
+    /** Wind direction in degrees (0-360). */
+    @Column(name = "wind_direction_degrees")
+    private Integer windDirectionDegrees;
+
+    /** Precipitation in millimetres. */
+    @Column(name = "precipitation_mm")
+    private BigDecimal precipitationMm;
+
+    /** Relative humidity percentage (0-100). */
+    @Column(name = "humidity_percent")
+    private Integer humidityPercent;
+
+    /** WMO weather code. */
+    @Column(name = "weather_code")
+    private Integer weatherCode;
+
+    /** PM2.5 particulate matter concentration. */
+    @Column(name = "pm25")
+    private BigDecimal pm25;
+
+    /** Dust concentration in micrograms per cubic metre. */
+    @Column(name = "dust_ugm3")
+    private BigDecimal dustUgm3;
+
+    /** Aerosol optical depth. */
+    @Column(name = "aerosol_optical_depth")
+    private BigDecimal aerosolOpticalDepth;
+
+    /** Air temperature in degrees Celsius. */
+    @Column(name = "temperature_celsius")
+    private Double temperatureCelsius;
+
+    /** Apparent (feels-like) temperature in degrees Celsius. */
+    @Column(name = "apparent_temperature_celsius")
+    private Double apparentTemperatureCelsius;
+
+    /** Probability of precipitation (0-100). */
+    @Column(name = "precipitation_probability")
+    private Integer precipitationProbability;
+
+    /** Tide state at the time of the solar event. */
+    @Column(name = "tide_state", length = 20)
+    private String tideState;
+
+    /** Whether the tide was aligned with the location's preferred tide type. */
+    @Column(name = "tide_aligned")
+    private Boolean tideAligned;
 }

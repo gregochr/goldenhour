@@ -44,6 +44,16 @@ export const rerunModelTest = (testRunId) => {
 };
 
 /**
+ * Re-runs a previous model test using identical atmospheric data (determinism test).
+ *
+ * @param {number} testRunId - Previous test run ID to replay
+ * @returns {Promise} Response with the completed new test run
+ */
+export const rerunModelTestDeterministic = (testRunId) => {
+  return axios.post(`/api/model-test/rerun-determinism?testRunId=${testRunId}`);
+};
+
+/**
  * Fetch results for a specific model test run.
  *
  * @param {number} testRunId - Test run ID
