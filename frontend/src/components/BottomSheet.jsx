@@ -27,7 +27,8 @@ export default function BottomSheet({ open, onClose, children }) {
       {/* Backdrop */}
       <div
         data-testid="bottom-sheet-overlay"
-        className="fixed inset-0 z-50 bg-black/50"
+        className="fixed inset-0 bg-black/50"
+        style={{ zIndex: 9999 }}
         role="button"
         tabIndex={-1}
         aria-label="Close"
@@ -40,8 +41,8 @@ export default function BottomSheet({ open, onClose, children }) {
         role="dialog"
         aria-modal="true"
         data-testid="bottom-sheet"
-        className="fixed bottom-0 left-0 right-0 z-50 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up"
-        style={{ maxHeight: '60vh' }}
+        className="fixed bottom-0 left-0 right-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up"
+        style={{ zIndex: 10000, maxHeight: '60vh' }}
       >
         {/* Drag handle */}
         <div className="flex justify-center pt-2 pb-1">

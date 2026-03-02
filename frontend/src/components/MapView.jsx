@@ -399,7 +399,7 @@ export default function MapView({ locations, date }) {
       <div
         data-testid="map-container"
         className="rounded-lg overflow-hidden ring-1 ring-gray-700"
-        style={{ height: '500px' }}
+        style={{ height: '500px', position: 'relative', zIndex: 0 }}
       >
         <MapContainer
           bounds={bounds}
