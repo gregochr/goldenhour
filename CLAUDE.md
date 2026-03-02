@@ -5,7 +5,7 @@
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
 - **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, PostgreSQL persistence, scheduled runs, email/Web Push/macOS toast notifications.
-- **Frontend**: React 18 + Vite + Tailwind — map view (Leaflet), forecast timeline, outcome recording, JWT-authenticated.
+- **Frontend**: React 19 + Vite + Tailwind — map view (Leaflet), forecast timeline, outcome recording, JWT-authenticated.
 - **Future**: macOS menu bar widget (Tauri).
 
 ---
@@ -91,7 +91,7 @@ goldenhour/
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
 │       └── db/migration/            V1–V35 Flyway migrations
-├── frontend/              React 18 + Vite (port 5173)
+├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
 │       ├── components/    LoginPage, ChangePasswordPage, ManageView, MapView, ForecastTimeline, ...

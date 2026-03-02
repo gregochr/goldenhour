@@ -13,6 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - 11 new tests (7 BottomSheet, 4 useIsMobile) — 127 frontend tests total
 
 ### Changed (Mar 2, 2026)
+- **React 19 upgrade** — `react` and `react-dom` 18.3.1 → 19.2.4, `react-leaflet` 4.2.1 → 5.0.0
+  - Migrated all 4 `defaultProps` usages to JavaScript default parameters (deprecated in React 19): LocationAlerts, JobRunsGrid, LoginPage, RegisterPage
+  - Supersedes two separate Dependabot PRs that couldn't be merged individually due to peer dependency conflicts
 - **Spring Boot 4.0 migration** — upgraded from Spring Boot 3.x to 4.0.3 (Spring Security 7, Jackson 3)
   - `spring-boot-starter-web` → `spring-boot-starter-webmvc`, `spring-boot-starter-webflux` → `spring-boot-starter-webclient`
   - `flyway-core` → `spring-boot-starter-flyway`

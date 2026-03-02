@@ -47,7 +47,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 | Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
 | Database | H2 file database + Flyway migrations (V1-V37) |
 | Security | Spring Security 7, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
-| Frontend | React 18, Vite, Tailwind CSS v4, Leaflet |
+| Frontend | React 19, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
 | Quality | Checkstyle, SpotBugs, JaCoCo (>=80%), ESLint, Vitest, Playwright |
 
