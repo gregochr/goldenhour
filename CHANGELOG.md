@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 2, 2026)
+- **PIT mutation testing** — `pitest-maven-plugin` 1.17.4 with JUnit 5 support; targets service, controller, and config packages; run locally with `./mvnw pitest:mutationCoverage`; HTML + XML reports in `target/pit-reports/`
+  - Weekly CI workflow (`.github/workflows/pitest.yml`) runs every Monday 06:00 UTC with manual dispatch; uploads report as artifact
+
 ### Fixed (Mar 2, 2026)
 - **H2 driver missing from fat JAR** — removed `<optional>true</optional>` from the H2 dependency in `pom.xml`; Spring Boot 4 excludes optional dependencies from the packaged JAR, causing `Cannot load driver class: org.h2.Driver` at startup in Docker
 - **Jackson serialization config incompatible with Boot 4** — removed `spring.jackson.serialization.write-dates-as-timestamps: false` from `application.yml`; Spring Boot 4 uses `tools.jackson.databind` (Jackson 3) which doesn't recognise the old enum constant format; the default is already `false`

@@ -198,6 +198,13 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- JUnit Platform Launcher - required by PIT mutation testing (must align with junit-platform-engine) -->
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Reactor Test - WebFlux/WebClient testing -->
         <dependency>
             <groupId>io.projectreactor</groupId>
@@ -366,6 +373,54 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+
+            <!-- PIT Mutation Testing — run manually: ./mvnw pitest:mutationCoverage -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <version>1.17.4</version>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-junit5-plugin</artifactId>
+                        <version>1.2.1</version>
+                    </dependency>
+                </dependencies>
+                <configuration>
+                    <targetClasses>
+                        <param>com.gregochr.goldenhour.service.*</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.*</param>
+                        <param>com.gregochr.goldenhour.service.notification.*</param>
+                        <param>com.gregochr.goldenhour.controller.*</param>
+                        <param>com.gregochr.goldenhour.config.*</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>com.gregochr.goldenhour.*</param>
+                    </targetTests>
+                    <excludedClasses>
+                        <param>com.gregochr.goldenhour.GoldenHourApplication</param>
+                    </excludedClasses>
+                    <mutators>
+                        <mutator>DEFAULTS</mutator>
+                    </mutators>
+                    <parseSurefireConfig>false</parseSurefireConfig>
+                    <timeoutConstant>10000</timeoutConstant>
+                    <threads>4</threads>
+                    <outputFormats>
+                        <outputFormat>HTML</outputFormat>
+                        <outputFormat>XML</outputFormat>
+                    </outputFormats>
+                    <jvmArgs>
+                        <jvmArg>-Dnet.bytebuddy.experimental=true</jvmArg>
+                        <jvmArg>--add-opens</jvmArg>
+                        <jvmArg>java.base/java.lang=ALL-UNNAMED</jvmArg>
+                        <jvmArg>--add-opens</jvmArg>
+                        <jvmArg>java.base/java.lang.reflect=ALL-UNNAMED</jvmArg>
+                        <jvmArg>--add-opens</jvmArg>
+                        <jvmArg>java.base/java.util=ALL-UNNAMED</jvmArg>
+                    </jvmArgs>
+                </configuration>
             </plugin>
 
         </plugins>
