@@ -86,42 +86,44 @@ export default function ManageView({ onComplete }) {
         ))}
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'users' && (
-        <div className="card">
-          <UserManagementView />
-        </div>
-      )}
+      {/* Tab content — keyed wrapper replays fade-in on every tab switch */}
+      <div key={activeTab} className="animate-popup-refresh">
+        {activeTab === 'users' && (
+          <div className="card">
+            <UserManagementView />
+          </div>
+        )}
 
-      {activeTab === 'locations' && (
-        <div className="card">
-          <LocationManagementView onLocationsChanged={onComplete} />
-        </div>
-      )}
+        {activeTab === 'locations' && (
+          <div className="card">
+            <LocationManagementView onLocationsChanged={onComplete} />
+          </div>
+        )}
 
-      {activeTab === 'regions' && (
-        <div className="card">
-          <RegionManagementView />
-        </div>
-      )}
+        {activeTab === 'regions' && (
+          <div className="card">
+            <RegionManagementView />
+          </div>
+        )}
 
-      {activeTab === 'metrics' && (
-        <div className="card flex flex-col gap-4">
-          <p className="text-sm font-semibold text-plex-text">Job Run Metrics</p>
-          <JobRunsMetricsView />
-        </div>
-      )}
+        {activeTab === 'metrics' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Job Run Metrics</p>
+            <JobRunsMetricsView />
+          </div>
+        )}
 
-      {activeTab === 'models' && (
-        <ModelSelectionView />
-      )}
+        {activeTab === 'models' && (
+          <ModelSelectionView />
+        )}
 
-      {activeTab === 'modeltest' && (
-        <div className="card flex flex-col gap-4">
-          <p className="text-sm font-semibold text-plex-text">Model Comparison Test</p>
-          <ModelTestView />
-        </div>
-      )}
+        {activeTab === 'modeltest' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Model Comparison Test</p>
+            <ModelTestView />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
