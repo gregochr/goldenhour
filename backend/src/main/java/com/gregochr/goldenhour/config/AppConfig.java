@@ -2,69 +2,67 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
-import org.springframework.beans.factory.annotation.Value;
+import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
+import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.resilience.annotation.EnableResilientMethods;
 import org.springframework.scheduling.annotation.EnableAsync;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.support.RestClientAdapter;
+import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
 import java.time.Duration;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
  * Core Spring application configuration.
  *
- * <p>Provides shared infrastructure beans, enables the caching layer, and enables
- * asynchronous method execution (for {@code @Async} methods such as email sending).
- * Caffeine is the in-memory cache provider (declared as a dependency in {@code pom.xml}
- * and auto-configured by Spring Boot when on the classpath).
+ * <p>Provides shared infrastructure beans, enables the caching layer, enables
+ * asynchronous method execution (for {@code @Async} methods such as email sending),
+ * and enables resilient method processing ({@code @Retryable}, {@code @ConcurrencyLimit}).
  */
 @Configuration
 @EnableCaching
 @EnableAsync
+@EnableResilientMethods
 public class AppConfig {
 
     /**
-     * Shared {@link WebClient} instance for outbound HTTP calls.
+     * Shared {@link RestClient} instance for outbound HTTP calls.
      *
-     * <p>Used by {@code OpenMeteoService} (Open-Meteo APIs) and
+     * <p>Used by {@code TideService} (WorldTides API) and
      * {@code PushoverNotificationService} (Pushover REST API).
+     * Open-Meteo calls use dedicated {@code @HttpExchange} proxies instead.
      *
-     * @param builder Spring Boot's auto-configured builder
-     * @return a WebClient built from the default builder
+     * @return a RestClient instance
      */
     @Bean
-    public WebClient webClient(WebClient.Builder builder) {
-        return builder.build();
+    public RestClient restClient() {
+        return RestClient.create();
     }
 
     /**
      * Executor used to run forecast evaluations in parallel.
      *
-     * <p>Pool size is configurable via {@code forecast.parallelism} (default: 8).
-     * Spring manages lifecycle — the pool is shut down cleanly on application stop.
+     * <p>Uses virtual threads — each forecast task gets its own lightweight thread
+     * (~1 KB each vs ~1 MB for platform threads). No pool sizing needed;
+     * concurrency is controlled by {@code @ConcurrencyLimit} on the service methods.
      *
-     * @param parallelism maximum number of concurrent forecast calls
-     * @return a configured thread pool executor
+     * @return a virtual-thread-per-task executor
      */
     @Bean
-    public Executor forecastExecutor(@Value("${forecast.parallelism:8}") int parallelism) {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(parallelism);
-        executor.setMaxPoolSize(parallelism);
-        executor.setThreadNamePrefix("forecast-worker-");
-        executor.setDaemon(true);
-        executor.initialize();
-        return executor;
+    public Executor forecastExecutor() {
+        return Executors.newVirtualThreadPerTaskExecutor();
     }
 
     /**
      * Anthropic client for Claude API calls with connection pooling.
      *
      * <p>Configured from {@link AnthropicProperties}. Used exclusively by
-     * {@code EvaluationService} — no other class accesses the Anthropic SDK directly.
+     * {@code AnthropicApiClient} — no other class accesses the Anthropic SDK directly.
      * Connection pool sized to support parallel evaluation runs (5 idle connections,
      * 2-minute keep-alive).
      *
@@ -78,5 +76,33 @@ public class AppConfig {
                 .maxIdleConnections(5)
                 .keepAliveDuration(Duration.ofMinutes(2))
                 .build();
+    }
+
+    /**
+     * Proxy for the Open-Meteo Forecast API backed by {@link RestClient}.
+     *
+     * @return a typed proxy implementing {@link OpenMeteoForecastApi}
+     */
+    @Bean
+    OpenMeteoForecastApi openMeteoForecastApi() {
+        RestClient client = RestClient.builder()
+                .baseUrl("https://api.open-meteo.com")
+                .build();
+        return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
+                .build().createClient(OpenMeteoForecastApi.class);
+    }
+
+    /**
+     * Proxy for the Open-Meteo Air Quality API backed by {@link RestClient}.
+     *
+     * @return a typed proxy implementing {@link OpenMeteoAirQualityApi}
+     */
+    @Bean
+    OpenMeteoAirQualityApi openMeteoAirQualityApi() {
+        RestClient client = RestClient.builder()
+                .baseUrl("https://air-quality-api.open-meteo.com")
+                .build();
+        return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
+                .build().createClient(OpenMeteoAirQualityApi.class);
     }
 }

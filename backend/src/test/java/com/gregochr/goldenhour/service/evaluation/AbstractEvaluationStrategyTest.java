@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.evaluation;
 
-import com.anthropic.client.AnthropicClient;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.CacheCreation;
 import com.anthropic.models.messages.ContentBlock;
@@ -11,7 +10,6 @@ import com.anthropic.models.messages.ServerToolUsage;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
-import com.anthropic.services.blocking.MessageService;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -42,7 +40,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,6 +49,9 @@ import static org.mockito.Mockito.when;
  * <p>Uses a concrete {@code TestEvaluationStrategy} inner class to test
  * the shared logic in the abstract base (user message construction, Claude API
  * call, and response parsing).
+ *
+ * <p>Retry behaviour is now handled by {@code @Retryable} on {@link AnthropicApiClient}
+ * and tested separately.
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractEvaluationStrategyTest {
@@ -59,10 +59,7 @@ class AbstractEvaluationStrategyTest {
     private static final String TEST_SUFFIX = "Test suffix.";
 
     @Mock
-    private AnthropicClient anthropicClient;
-
-    @Mock
-    private MessageService messageService;
+    private AnthropicApiClient anthropicApiClient;
 
     @Mock
     private JobRunService jobRunService;
@@ -73,7 +70,7 @@ class AbstractEvaluationStrategyTest {
     void setUp() {
         AnthropicProperties properties = new AnthropicProperties();
         properties.setModel("claude-sonnet-4-5-20250929");
-        strategy = new TestEvaluationStrategy(anthropicClient, properties, new ObjectMapper(), jobRunService);
+        strategy = new TestEvaluationStrategy(anthropicApiClient, properties, new ObjectMapper(), jobRunService);
     }
 
     @Test
@@ -84,8 +81,7 @@ class AbstractEvaluationStrategyTest {
                 "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
                 + " \"summary\": \"Promising conditions.\"}");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         SunsetEvaluation result = strategy.evaluate(data);
 
@@ -108,8 +104,7 @@ class AbstractEvaluationStrategyTest {
                 .usage(buildUsage())
                 .build();
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
                 .isInstanceOf(IllegalStateException.class)
@@ -174,85 +169,18 @@ class AbstractEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluate() retries on Anthropic 529 error and succeeds on 2nd attempt")
-    void evaluate_retries529_succeeds() {
-        AtmosphericData data = buildAtmosphericData();
-        Message successResponse = buildMessage(
-                "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
-                + " \"summary\": \"Promising conditions.\"}");
-
-        AnthropicServiceException overloadedException = buildServiceException(529, "overloaded");
-
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class)))
-                .thenThrow(overloadedException)
-                .thenReturn(successResponse);
-
-        SunsetEvaluation result = strategy.evaluate(data);
-
-        assertThat(result.rating()).isEqualTo(4);
-        assertThat(result.fierySkyPotential()).isEqualTo(70);
-        assertThat(result.goldenHourPotential()).isEqualTo(75);
-    }
-
-    @Test
-    @DisplayName("evaluate() retries on content filtering 400 and succeeds on 2nd attempt")
-    void evaluate_retriesContentFilter_succeeds() {
-        AtmosphericData data = buildAtmosphericData();
-        Message successResponse = buildMessage(
-                "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 60,"
-                + " \"summary\": \"Moderate conditions.\"}");
-
-        AnthropicServiceException contentFilterException = buildServiceException(
-                400, "Output blocked by content filtering policy");
-
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class)))
-                .thenThrow(contentFilterException)
-                .thenReturn(successResponse);
-
-        SunsetEvaluation result = strategy.evaluate(data);
-
-        assertThat(result.rating()).isEqualTo(3);
-        assertThat(result.fierySkyPotential()).isEqualTo(50);
-    }
-
-    @Test
-    @DisplayName("evaluate() throws after exhausting retries on content filtering 400")
-    void evaluate_contentFilter_exhaustsRetries_throws() {
-        AtmosphericData data = buildAtmosphericData();
-
-        AnthropicServiceException contentFilterException = buildServiceException(
-                400, "Output blocked by content filtering policy");
-
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class)))
-                .thenThrow(contentFilterException);
-
-        assertThatThrownBy(() -> strategy.evaluate(data))
-                .isInstanceOf(AnthropicServiceException.class);
-
-        // 1 initial + 3 retries = 4 calls total
-        verify(messageService, times(4)).create(any(MessageCreateParams.class));
-    }
-
-    @Test
-    @DisplayName("evaluate() does not retry non-content-filter 400 errors")
-    void evaluate_nonContentFilter400_noRetry() {
+    @DisplayName("evaluate() propagates non-retryable Anthropic errors")
+    void evaluate_nonRetryableError_propagates() {
         AtmosphericData data = buildAtmosphericData();
 
         AnthropicServiceException badRequestException = buildServiceException(
                 400, "invalid_request_error: max_tokens must be positive");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class)))
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenThrow(badRequestException);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
                 .isInstanceOf(AnthropicServiceException.class);
-
-        // Only 1 call — no retry for non-content-filter 400
-        verify(messageService, times(1)).create(any(MessageCreateParams.class));
     }
 
     @Test
@@ -264,8 +192,7 @@ class AbstractEvaluationStrategyTest {
                 "{\"rating\": 3, \"fiery_sky\": 70, \"golden_hour\": 75,"
                 + " \"summary\": \"Good conditions.\"}");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         strategy.evaluate(data, jobRun);
 
@@ -304,8 +231,8 @@ class AbstractEvaluationStrategyTest {
         AnthropicServiceException rateLimitException = buildServiceException(
                 429, "API rate limit exceeded");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenThrow(rateLimitException);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenThrow(rateLimitException);
 
         try {
             strategy.evaluate(data, jobRun);
@@ -340,8 +267,7 @@ class AbstractEvaluationStrategyTest {
                 + " \"summary\": \"Promising conditions.\"}";
         Message response = buildMessage(rawJson);
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         EvaluationDetail detail = strategy.evaluateWithDetails(data, null);
 
@@ -363,8 +289,7 @@ class AbstractEvaluationStrategyTest {
                 "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 60,"
                 + " \"summary\": \"Moderate conditions.\"}");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         strategy.evaluateWithDetails(data, jobRun);
 
@@ -382,8 +307,7 @@ class AbstractEvaluationStrategyTest {
 
         AnthropicServiceException exception = buildServiceException(500, "Internal error");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenThrow(exception);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenThrow(exception);
 
         assertThatThrownBy(() -> strategy.evaluateWithDetails(data, jobRun))
                 .isInstanceOf(AnthropicServiceException.class);
@@ -437,9 +361,9 @@ class AbstractEvaluationStrategyTest {
      */
     private static class TestEvaluationStrategy extends AbstractEvaluationStrategy {
 
-        TestEvaluationStrategy(AnthropicClient client, AnthropicProperties properties,
+        TestEvaluationStrategy(AnthropicApiClient anthropicApiClient, AnthropicProperties properties,
                 ObjectMapper objectMapper, JobRunService jobRunService) {
-            super(client, properties, objectMapper, jobRunService);
+            super(anthropicApiClient, properties, objectMapper, jobRunService);
         }
 
         @Override

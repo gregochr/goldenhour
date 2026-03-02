@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.evaluation;
 
-import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.CacheCreation;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
@@ -10,7 +9,6 @@ import com.anthropic.models.messages.ServerToolUsage;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
-import com.anthropic.services.blocking.MessageService;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -42,10 +40,7 @@ import static org.mockito.Mockito.when;
 class HaikuEvaluationStrategyTest {
 
     @Mock
-    private AnthropicClient anthropicClient;
-
-    @Mock
-    private MessageService messageService;
+    private AnthropicApiClient anthropicApiClient;
 
     @Mock
     private JobRunService jobRunService;
@@ -58,7 +53,7 @@ class HaikuEvaluationStrategyTest {
         AnthropicProperties properties = new AnthropicProperties();
         properties.setModel("claude-haiku-4-5-20251001");
         objectMapper = new ObjectMapper();
-        strategy = new HaikuEvaluationStrategy(anthropicClient, properties, objectMapper, jobRunService);
+        strategy = new HaikuEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
     }
 
     @Test
@@ -97,8 +92,7 @@ class HaikuEvaluationStrategyTest {
                 "{\"rating\": 3, \"fiery_sky\": 45, \"golden_hour\": 60,"
                 + " \"summary\": \"Some cloud cover limits potential.\"}");
 
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.create(any(MessageCreateParams.class))).thenReturn(response);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         SunsetEvaluation result = strategy.evaluate(data);
 

@@ -7,7 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.client.RestClient;
 
 import java.time.LocalDate;
 import java.util.Map;
@@ -26,17 +26,17 @@ public class PushoverNotificationService {
     private static final String PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json";
 
     private final NotificationProperties properties;
-    private final WebClient webClient;
+    private final RestClient restClient;
 
     /**
      * Constructs a {@code PushoverNotificationService}.
      *
      * @param properties notification configuration
-     * @param webClient  shared WebClient for outbound HTTP
+     * @param restClient shared RestClient for outbound HTTP
      */
-    public PushoverNotificationService(NotificationProperties properties, WebClient webClient) {
+    public PushoverNotificationService(NotificationProperties properties, RestClient restClient) {
         this.properties = properties;
-        this.webClient = webClient;
+        this.restClient = restClient;
     }
 
     /**
@@ -59,13 +59,12 @@ public class PushoverNotificationService {
                 "title", buildTitle(locationName, targetType, date),
                 "message", buildMessage(evaluation));
 
-        webClient.post()
+        restClient.post()
                 .uri(PUSHOVER_API_URL)
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
+                .body(body)
                 .retrieve()
-                .toBodilessEntity()
-                .block();
+                .toBodilessEntity();
         if (evaluation.rating() != null) {
             LOG.info("Pushover sent — {} {} {} rating={}/5", locationName, targetType, date,
                     evaluation.rating());

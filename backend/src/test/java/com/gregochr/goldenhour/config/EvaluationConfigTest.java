@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.config;
 
-import com.anthropic.client.AnthropicClient;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
@@ -23,7 +23,7 @@ import static org.mockito.Mockito.mock;
 class EvaluationConfigTest {
 
     private final EvaluationConfig config = new EvaluationConfig();
-    private final AnthropicClient client = mock(AnthropicClient.class);
+    private final AnthropicApiClient anthropicApiClient = mock(AnthropicApiClient.class);
     private final AnthropicProperties properties = new AnthropicProperties();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final JobRunService jobRunService = mock(JobRunService.class);
@@ -31,7 +31,8 @@ class EvaluationConfigTest {
     @Test
     @DisplayName("haikuEvaluationStrategy() returns a HaikuEvaluationStrategy")
     void haikuEvaluationStrategy_returnsHaikuEvaluationStrategy() {
-        EvaluationStrategy strategy = config.haikuEvaluationStrategy(client, properties, objectMapper, jobRunService);
+        EvaluationStrategy strategy = config.haikuEvaluationStrategy(
+                anthropicApiClient, properties, objectMapper, jobRunService);
 
         assertThat(strategy).isInstanceOf(HaikuEvaluationStrategy.class);
     }
@@ -39,7 +40,8 @@ class EvaluationConfigTest {
     @Test
     @DisplayName("sonnetEvaluationStrategy() returns a SonnetEvaluationStrategy")
     void sonnetEvaluationStrategy_returnsSonnetEvaluationStrategy() {
-        EvaluationStrategy strategy = config.sonnetEvaluationStrategy(client, properties, objectMapper, jobRunService);
+        EvaluationStrategy strategy = config.sonnetEvaluationStrategy(
+                anthropicApiClient, properties, objectMapper, jobRunService);
 
         assertThat(strategy).isInstanceOf(SonnetEvaluationStrategy.class);
     }
@@ -47,7 +49,8 @@ class EvaluationConfigTest {
     @Test
     @DisplayName("opusEvaluationStrategy() returns an OpusEvaluationStrategy")
     void opusEvaluationStrategy_returnsOpusEvaluationStrategy() {
-        EvaluationStrategy strategy = config.opusEvaluationStrategy(client, properties, objectMapper, jobRunService);
+        EvaluationStrategy strategy = config.opusEvaluationStrategy(
+                anthropicApiClient, properties, objectMapper, jobRunService);
 
         assertThat(strategy).isInstanceOf(OpusEvaluationStrategy.class);
     }

@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.service.notification.MacOsToastNotificationServic
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.resilience.annotation.ConcurrencyLimit;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -130,6 +131,7 @@ public class ForecastService {
      * @param jobRun       the parent job run for metrics tracking, or {@code null} if called from controller
      * @return the saved entities in evaluation order
      */
+    @ConcurrencyLimit(8)
     public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
             Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes,
             EvaluationModel model, JobRunEntity jobRun) {
