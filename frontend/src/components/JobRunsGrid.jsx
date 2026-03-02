@@ -13,7 +13,7 @@ import InfoTip from './InfoTip.jsx';
  * - Color-coded status badges
  * - Expandable rows for per-service breakdown
  */
-const JobRunsGrid = ({ runs, onLoadMore, hasMore, loading }) => {
+const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => {
   const [sortBy, setSortBy] = useState('date'); // date, duration, succeeded
   const [expandedId, setExpandedId] = useState(null);
 
@@ -161,11 +161,6 @@ JobRunsGrid.propTypes = {
   onLoadMore: PropTypes.func.isRequired,
   hasMore: PropTypes.bool,
   loading: PropTypes.bool,
-};
-
-JobRunsGrid.defaultProps = {
-  hasMore: false,
-  loading: false,
 };
 
 export default JobRunsGrid;
