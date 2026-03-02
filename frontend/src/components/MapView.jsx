@@ -275,11 +275,14 @@ export default function MapView({ locations, date }) {
         return types.length === 0 || types.some((t) => activeTypeFilters.has(t));
       });
 
+  const hasUnrated = typeFiltered.some((loc) => getRatingForLocation(loc) == null);
+
   const visibleLocations = activeRatingFilters.size === 0
     ? typeFiltered
     : typeFiltered.filter((loc) => {
         const rating = getRatingForLocation(loc);
-        return rating != null && activeRatingFilters.has(rating);
+        if (rating == null) return activeRatingFilters.has('unrated');
+        return activeRatingFilters.has(rating);
       });
 
   if (!date || locations.length === 0) {
@@ -341,6 +344,20 @@ export default function MapView({ locations, date }) {
             {star}&#9733;
           </button>
         ))}
+        <button
+          onClick={() => toggleRatingFilter('unrated')}
+          disabled={!hasUnrated}
+          data-testid="star-filter-unrated"
+          className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+            !hasUnrated
+              ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
+              : activeRatingFilters.has('unrated')
+                ? 'bg-plex-text-muted/20 border-plex-text-muted/50 text-plex-text-secondary'
+                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+          }`}
+        >
+          ?
+        </button>
         {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0) && (
           <button
             onClick={() => { setActiveTypeFilters(new Set()); setActiveRatingFilters(new Set()); }}
