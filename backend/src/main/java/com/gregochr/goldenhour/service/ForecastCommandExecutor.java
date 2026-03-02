@@ -142,11 +142,17 @@ public class ForecastCommandExecutor {
         // Collect results — join() blocks until each future completes.
         List<ForecastEvaluationEntity> results = new ArrayList<>();
         for (CompletableFuture<List<ForecastEvaluationEntity>> future : futures) {
-            List<ForecastEvaluationEntity> taskResults = future.join();
-            if (taskResults != null && !taskResults.isEmpty()) {
-                results.addAll(taskResults);
-                succeeded.addAndGet(taskResults.size());
-            } else {
+            try {
+                List<ForecastEvaluationEntity> taskResults = future.join();
+                if (taskResults != null && !taskResults.isEmpty()) {
+                    results.addAll(taskResults);
+                    succeeded.addAndGet(taskResults.size());
+                } else {
+                    failed.incrementAndGet();
+                }
+            } catch (Exception e) {
+                LOG.error("Future join failed for {} [{}]: {}",
+                        runType, evaluationModel, e.getMessage(), e);
                 failed.incrementAndGet();
             }
         }
