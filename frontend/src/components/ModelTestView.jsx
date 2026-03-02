@@ -26,6 +26,7 @@ const ModelTestView = () => {
   const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [runningLocation, setRunningLocation] = useState(false);
   const [rerunning, setRerunning] = useState(false);
+  const [expandedSummary, setExpandedSummary] = useState(null);
 
   // Load locations and regions once for test summary
   useEffect(() => {
@@ -301,7 +302,7 @@ const ModelTestView = () => {
                   <th className="py-2 pr-4">Date</th>
                   <th className="py-2 pr-4">Target</th>
                   <th className="py-2 pr-4">Regions</th>
-                  <th className="py-2 pr-4">OK / Fail</th>
+                  <th className="py-2 pr-4">OK / Fail / Total</th>
                   <th className="py-2 pr-4">Duration</th>
                   <th className="py-2 pr-4">Cost</th>
                 </tr>
@@ -321,9 +322,21 @@ const ModelTestView = () => {
                     <td className="py-2 pr-4 text-plex-text">{run.targetType}</td>
                     <td className="py-2 pr-4 text-plex-text">{run.regionsCount}</td>
                     <td className="py-2 pr-4">
-                      <span className="text-green-400">{run.succeeded}</span>
-                      {' / '}
-                      <span className={run.failed > 0 ? 'text-red-400' : 'text-plex-text-muted'}>{run.failed}</span>
+                      {(() => {
+                        const total = (run.succeeded || 0) + (run.failed || 0);
+                        const allPassed = run.failed === 0 && total > 0;
+                        const allFailed = run.succeeded === 0 && total > 0;
+                        const totalColour = allPassed ? 'text-green-400' : allFailed ? 'text-red-400' : 'text-amber-400';
+                        return (
+                          <>
+                            <span className="text-green-400">{run.succeeded}</span>
+                            {' / '}
+                            <span className={run.failed > 0 ? 'text-red-400' : 'text-plex-text-muted'}>{run.failed}</span>
+                            {' / '}
+                            <span className={totalColour}>{total}</span>
+                          </>
+                        );
+                      })()}
                     </td>
                     <td className="py-2 pr-4 text-plex-text-secondary">{formatDuration(run.durationMs)}</td>
                     <td className="py-2 pr-4 text-plex-text-secondary">{formatRunCost(run)}</td>
@@ -440,8 +453,18 @@ const ModelTestView = () => {
                           <td className="py-2 pr-4 text-plex-text-secondary">
                             {formatDuration(result?.durationMs)}
                           </td>
-                          <td className="py-2 pr-4 text-plex-text-secondary text-xs max-w-xs truncate">
-                            {result?.succeeded ? (result.summary || '\u2014') : (
+                          <td className="py-2 pr-4 text-plex-text-secondary text-xs max-w-xs">
+                            {result?.succeeded ? (
+                              result.summary ? (
+                                <button
+                                  className="text-left truncate block max-w-xs hover:text-plex-text transition-colors cursor-pointer"
+                                  title="Click to view full summary"
+                                  onClick={(e) => { e.stopPropagation(); setExpandedSummary({ model, region: region.regionName, text: result.summary }); }}
+                                >
+                                  {result.summary}
+                                </button>
+                              ) : '\u2014'
+                            ) : (
                               <span className="text-red-400">{result?.errorMessage || 'Error'}</span>
                             )}
                           </td>
@@ -453,6 +476,39 @@ const ModelTestView = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Expanded summary modal */}
+      {expandedSummary && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Summary"
+          onClick={() => setExpandedSummary(null)}
+          data-testid="summary-dialog"
+        >
+          <div
+            className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-plex-text">
+                {expandedSummary.model} — {expandedSummary.region}
+              </p>
+              <button
+                onClick={() => setExpandedSummary(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-full text-plex-text-muted hover:text-plex-text transition-colors"
+                aria-label="Close"
+              >
+                &#x2715;
+              </button>
+            </div>
+            <p className="text-sm text-plex-text-secondary leading-relaxed whitespace-pre-wrap">
+              {expandedSummary.text}
+            </p>
+          </div>
         </div>
       )}
 
