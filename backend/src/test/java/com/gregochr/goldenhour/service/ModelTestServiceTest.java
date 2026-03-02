@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.ModelTestResultRepository;
 import com.gregochr.goldenhour.repository.ModelTestRunRepository;
@@ -67,6 +68,8 @@ class ModelTestServiceTest {
     private SolarService solarService;
     @Mock
     private CostCalculator costCalculator;
+    @Mock
+    private ExchangeRateService exchangeRateService;
 
     private ModelTestService service;
 
@@ -74,7 +77,8 @@ class ModelTestServiceTest {
     void setUp() {
         service = new ModelTestService(regionRepository, locationRepository,
                 testRunRepository, testResultRepository, openMeteoService,
-                forecastService, evaluationService, solarService, costCalculator);
+                forecastService, evaluationService, solarService, costCalculator,
+                exchangeRateService);
     }
 
     private RegionEntity region(Long id, String name) {
@@ -110,7 +114,7 @@ class ModelTestServiceTest {
         return new EvaluationDetail(
                 new SunsetEvaluation(4, 65, 70, "Good conditions for " + model),
                 "prompt text", "{\"rating\":4,\"fiery_sky\":65,\"golden_hour\":70}",
-                1500L);
+                1500L, new TokenUsage(400, 80, 200, 100));
     }
 
     @Test
@@ -118,6 +122,7 @@ class ModelTestServiceTest {
     void runTest_noRegions() {
         when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             e.setId(1L);
@@ -157,6 +162,9 @@ class ModelTestServiceTest {
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
                 .thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.runTest();
@@ -165,6 +173,8 @@ class ModelTestServiceTest {
         assertThat(result.getSucceeded()).isEqualTo(3);
         assertThat(result.getFailed()).isEqualTo(0);
         assertThat(result.getTotalCostPence()).isEqualTo(150);
+        assertThat(result.getTotalCostMicroDollars()).isEqualTo(16200L);
+        assertThat(result.getExchangeRateGbpPerUsd()).isEqualTo(0.79);
 
         // 3 results saved (one per model)
         verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
@@ -178,6 +188,7 @@ class ModelTestServiceTest {
 
         when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(r));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(wildLoc));
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             if (e.getId() == null) {
@@ -224,6 +235,9 @@ class ModelTestServiceTest {
                 .thenReturn(sampleDetail(EvaluationModel.OPUS));
         lenient().when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any()))
                 .thenReturn(50);
+        lenient().when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.runTest();
@@ -242,6 +256,7 @@ class ModelTestServiceTest {
 
         when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(r));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             if (e.getId() == null) {
@@ -373,6 +388,9 @@ class ModelTestServiceTest {
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
                 .thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.runTestForLocation(1L);
@@ -381,6 +399,7 @@ class ModelTestServiceTest {
         assertThat(result.getSucceeded()).isEqualTo(3);
         assertThat(result.getFailed()).isEqualTo(0);
         assertThat(result.getTotalCostPence()).isEqualTo(150);
+        assertThat(result.getTotalCostMicroDollars()).isEqualTo(16200L);
         verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
     }
 
@@ -441,6 +460,7 @@ class ModelTestServiceTest {
 
         when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             if (e.getId() == null) {
@@ -502,6 +522,9 @@ class ModelTestServiceTest {
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
                 .thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.rerunTest(10L);

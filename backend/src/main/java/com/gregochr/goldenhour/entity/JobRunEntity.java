@@ -89,6 +89,14 @@ public class JobRunEntity {
     @Column(name = "max_target_date")
     private java.time.LocalDate maxTargetDate;
 
+    /** Total cost of all API calls in micro-dollars (1 dollar = 1,000,000 micro-dollars). */
+    @Column(name = "total_cost_micro_dollars")
+    private Long totalCostMicroDollars;
+
+    /** USD-to-GBP exchange rate at the time this run started, for historical GBP conversion. */
+    @Column(name = "exchange_rate_gbp_per_usd")
+    private Double exchangeRateGbpPerUsd;
+
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;

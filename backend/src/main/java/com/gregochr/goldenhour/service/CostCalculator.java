@@ -3,13 +3,14 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.config.CostProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.model.TokenUsage;
 import org.springframework.stereotype.Service;
 
 /**
  * Calculates operational costs for external API calls.
  *
- * <p>Used by {@code JobRunService} to track the cost of each API call and aggregate
- * total costs per job run for monitoring and reporting.
+ * <p>Token-based calculations return costs in micro-dollars (1 dollar = 1,000,000 µ$).
+ * Legacy flat-rate methods are retained for backward compatibility.
  */
 @Service
 public class CostCalculator {
@@ -26,15 +27,62 @@ public class CostCalculator {
     }
 
     /**
-     * Calculates the cost of a single API call in pence.
+     * Calculates cost from actual token usage in micro-dollars.
      *
-     * <p>For Anthropic calls, the cost depends on the evaluation model (Haiku, Sonnet, or Opus).
-     * For other services, the cost is fixed per service.
-     *
-     * @param service the external service (ANTHROPIC, WORLD_TIDES, OPEN_METEO_*, etc.)
-     * @param model   the evaluation model for Anthropic calls (HAIKU, SONNET, or OPUS), or null
-     * @return cost in pence (e.g., 75 for Opus, 13 for Sonnet, 5 for Haiku, 0 for OpenMeteo)
+     * @param model   the Anthropic model used
+     * @param usage   token counts from the API response
+     * @param isBatch whether this was a batch API call (50% discount)
+     * @return cost in micro-dollars
      */
+    public long calculateCostMicroDollars(EvaluationModel model, TokenUsage usage, boolean isBatch) {
+        if (usage == null || model == null) {
+            return 0;
+        }
+        long cost = microDollarsForTokens(usage.inputTokens(), getInputRate(model))
+                + microDollarsForTokens(usage.outputTokens(), getOutputRate(model))
+                + microDollarsForTokens(usage.cacheCreationInputTokens(), getCacheWriteRate(model))
+                + microDollarsForTokens(usage.cacheReadInputTokens(), getCacheReadRate(model));
+        return isBatch ? cost / 2 : cost;
+    }
+
+    /**
+     * Calculates cost from actual token usage in micro-dollars (non-batch).
+     *
+     * @param model the Anthropic model used
+     * @param usage token counts from the API response
+     * @return cost in micro-dollars
+     */
+    public long calculateCostMicroDollars(EvaluationModel model, TokenUsage usage) {
+        return calculateCostMicroDollars(model, usage, false);
+    }
+
+    /**
+     * Calculates flat cost for non-Anthropic services in micro-dollars.
+     *
+     * @param service the external service
+     * @return cost in micro-dollars
+     */
+    public long calculateFlatCostMicroDollars(ServiceName service) {
+        return switch (service) {
+            case WORLD_TIDES -> costProperties.getWorldTidesMicroDollars();
+            case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY -> costProperties.getOpenMeteoMicroDollars();
+            case ANTHROPIC -> 0;
+        };
+    }
+
+    // --- Legacy flat-rate methods (deprecated) ---
+
+    /**
+     * Calculates the cost of a single API call in pence (legacy flat rate).
+     *
+     * @param service the external service
+     * @param model   the evaluation model for Anthropic calls, or null
+     * @return cost in pence
+     * @deprecated Use {@link #calculateCostMicroDollars(EvaluationModel, TokenUsage)} for Anthropic
+     *             or {@link #calculateFlatCostMicroDollars(ServiceName)} for other services.
+     */
+    @Deprecated
+    @SuppressWarnings("deprecation")
     public int calculateCost(ServiceName service, EvaluationModel model) {
         return switch (service) {
             case ANTHROPIC -> {
@@ -57,8 +105,50 @@ public class CostCalculator {
      *
      * @param service the external service
      * @return cost in pence
+     * @deprecated Use {@link #calculateFlatCostMicroDollars(ServiceName)} instead.
      */
+    @Deprecated
     public int calculateCost(ServiceName service) {
         return calculateCost(service, null);
+    }
+
+    private long microDollarsForTokens(long tokens, double usdPerMTok) {
+        return Math.round((double) tokens * usdPerMTok);
+    }
+
+    private double getInputRate(EvaluationModel model) {
+        return switch (model) {
+            case HAIKU -> costProperties.getHaikuInputUsdPerMtok();
+            case SONNET -> costProperties.getSonnetInputUsdPerMtok();
+            case OPUS -> costProperties.getOpusInputUsdPerMtok();
+            default -> costProperties.getSonnetInputUsdPerMtok();
+        };
+    }
+
+    private double getOutputRate(EvaluationModel model) {
+        return switch (model) {
+            case HAIKU -> costProperties.getHaikuOutputUsdPerMtok();
+            case SONNET -> costProperties.getSonnetOutputUsdPerMtok();
+            case OPUS -> costProperties.getOpusOutputUsdPerMtok();
+            default -> costProperties.getSonnetOutputUsdPerMtok();
+        };
+    }
+
+    private double getCacheWriteRate(EvaluationModel model) {
+        return switch (model) {
+            case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
+            case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
+            case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
+            default -> costProperties.getSonnetCacheWriteUsdPerMtok();
+        };
+    }
+
+    private double getCacheReadRate(EvaluationModel model) {
+        return switch (model) {
+            case HAIKU -> costProperties.getHaikuCacheReadUsdPerMtok();
+            case SONNET -> costProperties.getSonnetCacheReadUsdPerMtok();
+            case OPUS -> costProperties.getOpusCacheReadUsdPerMtok();
+            default -> costProperties.getSonnetCacheReadUsdPerMtok();
+        };
     }
 }

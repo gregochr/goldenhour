@@ -117,6 +117,26 @@ public class ModelTestResultEntity {
     @Column(name = "error_message", length = 500)
     private String errorMessage;
 
+    /** Number of standard input tokens consumed. */
+    @Column(name = "input_tokens")
+    private Long inputTokens;
+
+    /** Number of output tokens generated. */
+    @Column(name = "output_tokens")
+    private Long outputTokens;
+
+    /** Number of tokens written to the prompt cache. */
+    @Column(name = "cache_creation_input_tokens")
+    private Long cacheCreationInputTokens;
+
+    /** Number of tokens read from the prompt cache. */
+    @Column(name = "cache_read_input_tokens")
+    private Long cacheReadInputTokens;
+
+    /** Cost of this evaluation in micro-dollars (1 dollar = 1,000,000 micro-dollars). */
+    @Column(name = "cost_micro_dollars")
+    private Long costMicroDollars;
+
     /** UTC timestamp when this result was created. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

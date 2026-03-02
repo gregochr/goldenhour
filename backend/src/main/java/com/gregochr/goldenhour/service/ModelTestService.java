@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.ForecastRequest;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.ModelTestResultRepository;
 import com.gregochr.goldenhour.repository.ModelTestRunRepository;
@@ -50,6 +51,7 @@ public class ModelTestService {
     private final EvaluationService evaluationService;
     private final SolarService solarService;
     private final CostCalculator costCalculator;
+    private final ExchangeRateService exchangeRateService;
 
     /**
      * Constructs a {@code ModelTestService}.
@@ -63,6 +65,7 @@ public class ModelTestService {
      * @param evaluationService     evaluation service (delegates to strategies)
      * @param solarService          solar calculation service
      * @param costCalculator        API cost calculator
+     * @param exchangeRateService   exchange rate service for GBP conversion
      */
     public ModelTestService(RegionRepository regionRepository,
             LocationRepository locationRepository,
@@ -72,7 +75,8 @@ public class ModelTestService {
             ForecastService forecastService,
             EvaluationService evaluationService,
             SolarService solarService,
-            CostCalculator costCalculator) {
+            CostCalculator costCalculator,
+            ExchangeRateService exchangeRateService) {
         this.regionRepository = regionRepository;
         this.locationRepository = locationRepository;
         this.testRunRepository = testRunRepository;
@@ -82,6 +86,7 @@ public class ModelTestService {
         this.evaluationService = evaluationService;
         this.solarService = solarService;
         this.costCalculator = costCalculator;
+        this.exchangeRateService = exchangeRateService;
     }
 
     /**
@@ -100,6 +105,7 @@ public class ModelTestService {
         // Determine target date and type
         TargetType targetType = resolveTargetType(now, allLocations);
         LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
+        Double exchangeRate = fetchExchangeRate();
 
         LOG.info("Model test started — {} regions, target: {} {}", regions.size(), targetDate, targetType);
 
@@ -111,11 +117,13 @@ public class ModelTestService {
                 .succeeded(0)
                 .failed(0)
                 .totalCostPence(0)
+                .exchangeRateGbpPerUsd(exchangeRate)
                 .build());
 
         int succeeded = 0;
         int failed = 0;
         int totalCostPence = 0;
+        long totalCostMicroDollars = 0;
         int regionsProcessed = 0;
 
         for (RegionEntity region : regions) {
@@ -149,9 +157,13 @@ public class ModelTestService {
                 try {
                     EvaluationDetail detail = evaluationService.evaluateWithDetails(
                             atmosphericData, model, null);
+                    TokenUsage tokenUsage = detail.tokenUsage() != null
+                            ? detail.tokenUsage() : TokenUsage.EMPTY;
                     int costPence = costCalculator.calculateCost(
                             com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                    long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
                     totalCostPence += costPence;
+                    totalCostMicroDollars += costMicroDollars;
                     succeeded++;
 
                     testResultRepository.save(ModelTestResultEntity.builder()
@@ -171,6 +183,11 @@ public class ModelTestService {
                             .responseJson(detail.rawResponse())
                             .durationMs(detail.durationMs())
                             .costPence(costPence)
+                            .inputTokens(tokenUsage.inputTokens())
+                            .outputTokens(tokenUsage.outputTokens())
+                            .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                            .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                            .costMicroDollars(costMicroDollars)
                             .succeeded(true)
                             .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                             .build());
@@ -185,7 +202,8 @@ public class ModelTestService {
             }
         }
 
-        return completeRun(testRun, now, regionsProcessed, succeeded, failed, totalCostPence);
+        return completeRun(testRun, now, regionsProcessed, succeeded, failed,
+                totalCostPence, totalCostMicroDollars);
     }
 
     /**
@@ -225,6 +243,7 @@ public class ModelTestService {
         LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
         RegionEntity region = location.getRegion();
 
+        Double exchangeRate = fetchExchangeRate();
         LOG.info("Single-location model test started — location '{}', target: {} {}",
                 location.getName(), targetDate, targetType);
 
@@ -236,11 +255,13 @@ public class ModelTestService {
                 .succeeded(0)
                 .failed(0)
                 .totalCostPence(0)
+                .exchangeRateGbpPerUsd(exchangeRate)
                 .build());
 
         int succeeded = 0;
         int failed = 0;
         int totalCostPence = 0;
+        long totalCostMicroDollars = 0;
 
         // Fetch atmospheric data once for all three models
         AtmosphericData atmosphericData;
@@ -255,7 +276,8 @@ public class ModelTestService {
                         targetDate, targetType, model, 0,
                         "Weather data fetch failed: " + e.getMessage()));
             }
-            return completeRun(testRun, now, 1, succeeded, failed, totalCostPence);
+            return completeRun(testRun, now, 1, succeeded, failed,
+                    totalCostPence, totalCostMicroDollars);
         }
 
         // Run each model against the same data
@@ -263,9 +285,13 @@ public class ModelTestService {
             try {
                 EvaluationDetail detail = evaluationService.evaluateWithDetails(
                         atmosphericData, model, null);
+                TokenUsage tokenUsage = detail.tokenUsage() != null
+                        ? detail.tokenUsage() : TokenUsage.EMPTY;
                 int costPence = costCalculator.calculateCost(
                         com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
                 totalCostPence += costPence;
+                totalCostMicroDollars += costMicroDollars;
                 succeeded++;
 
                 testResultRepository.save(ModelTestResultEntity.builder()
@@ -285,6 +311,11 @@ public class ModelTestService {
                         .responseJson(detail.rawResponse())
                         .durationMs(detail.durationMs())
                         .costPence(costPence)
+                        .inputTokens(tokenUsage.inputTokens())
+                        .outputTokens(tokenUsage.outputTokens())
+                        .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                        .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                        .costMicroDollars(costMicroDollars)
                         .succeeded(true)
                         .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                         .build());
@@ -298,7 +329,8 @@ public class ModelTestService {
             }
         }
 
-        return completeRun(testRun, now, 1, succeeded, failed, totalCostPence);
+        return completeRun(testRun, now, 1, succeeded, failed,
+                totalCostPence, totalCostMicroDollars);
     }
 
     /**
@@ -332,6 +364,7 @@ public class ModelTestService {
         TargetType targetType = resolveTargetType(now, allLocations);
         LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
 
+        Double exchangeRate = fetchExchangeRate();
         LOG.info("Re-running model test #{} — {} locations, target: {} {}",
                 previousRunId, locationMap.size(), targetDate, targetType);
 
@@ -343,11 +376,13 @@ public class ModelTestService {
                 .succeeded(0)
                 .failed(0)
                 .totalCostPence(0)
+                .exchangeRateGbpPerUsd(exchangeRate)
                 .build());
 
         int succeeded = 0;
         int failed = 0;
         int totalCostPence = 0;
+        long totalCostMicroDollars = 0;
         int locationsProcessed = 0;
 
         for (ModelTestResultEntity ref : locationMap.values()) {
@@ -385,9 +420,13 @@ public class ModelTestService {
                 try {
                     EvaluationDetail detail = evaluationService.evaluateWithDetails(
                             atmosphericData, model, null);
+                    TokenUsage tokenUsage = detail.tokenUsage() != null
+                            ? detail.tokenUsage() : TokenUsage.EMPTY;
                     int costPence = costCalculator.calculateCost(
                             com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                    long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
                     totalCostPence += costPence;
+                    totalCostMicroDollars += costMicroDollars;
                     succeeded++;
 
                     testResultRepository.save(ModelTestResultEntity.builder()
@@ -407,6 +446,11 @@ public class ModelTestService {
                             .responseJson(detail.rawResponse())
                             .durationMs(detail.durationMs())
                             .costPence(costPence)
+                            .inputTokens(tokenUsage.inputTokens())
+                            .outputTokens(tokenUsage.outputTokens())
+                            .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                            .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                            .costMicroDollars(costMicroDollars)
                             .succeeded(true)
                             .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                             .build());
@@ -421,7 +465,8 @@ public class ModelTestService {
             }
         }
 
-        return completeRun(testRun, now, locationsProcessed, succeeded, failed, totalCostPence);
+        return completeRun(testRun, now, locationsProcessed, succeeded, failed,
+                totalCostPence, totalCostMicroDollars);
     }
 
     /**
@@ -494,7 +539,8 @@ public class ModelTestService {
     }
 
     private ModelTestRunEntity completeRun(ModelTestRunEntity testRun, LocalDateTime startedAt,
-            int regionsProcessed, int succeeded, int failed, int totalCostPence) {
+            int regionsProcessed, int succeeded, int failed, int totalCostPence,
+            long totalCostMicroDollars) {
         LocalDateTime completedAt = LocalDateTime.now(ZoneOffset.UTC);
         testRun.setCompletedAt(completedAt);
         testRun.setDurationMs(java.time.Duration.between(startedAt, completedAt).toMillis());
@@ -502,12 +548,22 @@ public class ModelTestService {
         testRun.setSucceeded(succeeded);
         testRun.setFailed(failed);
         testRun.setTotalCostPence(totalCostPence);
+        testRun.setTotalCostMicroDollars(totalCostMicroDollars);
         testRun = testRunRepository.save(testRun);
 
-        LOG.info("Model test complete — {} regions, {} succeeded, {} failed, {}p cost",
-                regionsProcessed, succeeded, failed, totalCostPence);
+        LOG.info("Model test complete — {} regions, {} succeeded, {} failed, {}µ$ cost",
+                regionsProcessed, succeeded, failed, totalCostMicroDollars);
 
         return testRun;
+    }
+
+    private Double fetchExchangeRate() {
+        try {
+            return exchangeRateService.getCurrentRate();
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch exchange rate for model test: {}", e.getMessage());
+            return null;
+        }
     }
 
     private boolean hasColourTypes(LocationEntity loc) {

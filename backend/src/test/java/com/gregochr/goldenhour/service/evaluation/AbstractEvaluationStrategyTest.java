@@ -14,11 +14,11 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,7 +37,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -49,9 +48,6 @@ import static org.mockito.Mockito.when;
  * <p>Uses a concrete {@code TestEvaluationStrategy} inner class to test
  * the shared logic in the abstract base (user message construction, Claude API
  * call, and response parsing).
- *
- * <p>Retry behaviour is now handled by {@code @Retryable} on {@link AnthropicApiClient}
- * and tested separately.
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractEvaluationStrategyTest {
@@ -101,7 +97,7 @@ class AbstractEvaluationStrategyTest {
                 .content(List.of())
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
-                .usage(buildUsage())
+                .usage(buildUsage(10, 20, 0, 0))
                 .build();
 
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
@@ -133,41 +129,6 @@ class AbstractEvaluationStrategyTest {
         assertThat(message).contains("High 30%");
     }
 
-    private Message buildMessage(String text) {
-        TextBlock textBlock = TextBlock.builder()
-                .text(text)
-                .citations(List.of())
-                .build();
-        ContentBlock contentBlock = ContentBlock.ofText(textBlock);
-        return Message.builder()
-                .id("msg_test")
-                .model(Model.of("claude-sonnet-4-5-20250929"))
-                .content(List.of(contentBlock))
-                .stopReason(StopReason.END_TURN)
-                .stopSequence(Optional.empty())
-                .usage(buildUsage())
-                .build();
-    }
-
-    private Usage buildUsage() {
-        return Usage.builder()
-                .inputTokens(10)
-                .outputTokens(20)
-                .cacheCreation(CacheCreation.builder()
-                        .ephemeral5mInputTokens(0)
-                        .ephemeral1hInputTokens(0)
-                        .build())
-                .cacheCreationInputTokens(0L)
-                .cacheReadInputTokens(0L)
-                .inferenceGeo("us")
-                .serverToolUse(ServerToolUsage.builder()
-                        .webSearchRequests(0)
-                        .webFetchRequests(0)
-                        .build())
-                .serviceTier(Usage.ServiceTier.of("standard"))
-                .build();
-    }
-
     @Test
     @DisplayName("evaluate() propagates non-retryable Anthropic errors")
     void evaluate_nonRetryableError_propagates() {
@@ -184,47 +145,34 @@ class AbstractEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluate() logs API call success with 200 status when jobRun is provided")
-    void evaluate_logsApiCallSuccess() {
+    @DisplayName("evaluate() logs Anthropic API call with token usage when jobRun is provided")
+    void evaluate_logsAnthropicApiCallWithTokenUsage() {
         AtmosphericData data = buildAtmosphericData();
         JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
         Message response = buildMessage(
                 "{\"rating\": 3, \"fiery_sky\": 70, \"golden_hour\": 75,"
-                + " \"summary\": \"Good conditions.\"}");
+                + " \"summary\": \"Good conditions.\"}",
+                500, 80, 200, 100);
 
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         strategy.evaluate(data, jobRun);
 
-        ArgumentCaptor<Long> jobRunIdCaptor = ArgumentCaptor.forClass(Long.class);
-        ArgumentCaptor<ServiceName> serviceCaptor = ArgumentCaptor.forClass(ServiceName.class);
-        ArgumentCaptor<String> methodCaptor = ArgumentCaptor.forClass(String.class);
-        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<TokenUsage> tokenCaptor = ArgumentCaptor.forClass(TokenUsage.class);
+        verify(jobRunService).logAnthropicApiCall(
+                eq(1L), anyLong(), eq(200), any(), eq(true), any(),
+                eq(EvaluationModel.SONNET), tokenCaptor.capture(), eq(false), any(), any());
 
-        verify(jobRunService).logApiCall(
-                jobRunIdCaptor.capture(),
-                serviceCaptor.capture(),
-                methodCaptor.capture(),
-                urlCaptor.capture(),
-                any(),
-                anyLong(),
-                eq(200),
-                any(),
-                eq(true),
-                any(),
-                any(),
-                any(),
-                any());
-
-        assertThat(jobRunIdCaptor.getValue()).isEqualTo(1L);
-        assertThat(serviceCaptor.getValue()).isEqualTo(ServiceName.ANTHROPIC);
-        assertThat(methodCaptor.getValue()).isEqualTo("POST");
-        assertThat(urlCaptor.getValue()).contains("api.anthropic.com");
+        TokenUsage captured = tokenCaptor.getValue();
+        assertThat(captured.inputTokens()).isEqualTo(500);
+        assertThat(captured.outputTokens()).isEqualTo(80);
+        assertThat(captured.cacheCreationInputTokens()).isEqualTo(200);
+        assertThat(captured.cacheReadInputTokens()).isEqualTo(100);
     }
 
     @Test
-    @DisplayName("evaluate() logs API call failure with error message when jobRun is provided")
-    void evaluate_logsApiCallFailure() {
+    @DisplayName("evaluate() logs failure with EMPTY token usage when jobRun is provided")
+    void evaluate_logsFailureWithEmptyTokenUsage() {
         AtmosphericData data = buildAtmosphericData();
         JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
 
@@ -240,32 +188,21 @@ class AbstractEvaluationStrategyTest {
             // Expected to throw
         }
 
-        ArgumentCaptor<Boolean> succeededCaptor = ArgumentCaptor.forClass(Boolean.class);
-        verify(jobRunService).logApiCall(
-                eq(1L),
-                eq(ServiceName.ANTHROPIC),
-                eq("POST"),
-                contains("api.anthropic.com"),
-                any(),
-                anyLong(),
-                eq(429),
-                any(),
-                succeededCaptor.capture(),
-                any(),
-                any(),
-                any(),
-                any());
+        ArgumentCaptor<TokenUsage> tokenCaptor = ArgumentCaptor.forClass(TokenUsage.class);
+        verify(jobRunService).logAnthropicApiCall(
+                eq(1L), anyLong(), eq(429), any(), eq(false), any(),
+                eq(EvaluationModel.SONNET), tokenCaptor.capture(), eq(false), any(), any());
 
-        assertThat(succeededCaptor.getValue()).isFalse();
+        assertThat(tokenCaptor.getValue()).isEqualTo(TokenUsage.EMPTY);
     }
 
     @Test
-    @DisplayName("evaluateWithDetails() returns prompt and raw response alongside evaluation")
+    @DisplayName("evaluateWithDetails() returns prompt, raw response, and token usage")
     void evaluateWithDetails_returnsFull() {
         AtmosphericData data = buildAtmosphericData();
         String rawJson = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
                 + " \"summary\": \"Promising conditions.\"}";
-        Message response = buildMessage(rawJson);
+        Message response = buildMessage(rawJson, 400, 60, 0, 150);
 
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
@@ -278,11 +215,15 @@ class AbstractEvaluationStrategyTest {
         assertThat(detail.promptSent()).endsWith(TEST_SUFFIX);
         assertThat(detail.rawResponse()).isEqualTo(rawJson);
         assertThat(detail.durationMs()).isGreaterThanOrEqualTo(0);
+        assertThat(detail.tokenUsage()).isNotNull();
+        assertThat(detail.tokenUsage().inputTokens()).isEqualTo(400);
+        assertThat(detail.tokenUsage().outputTokens()).isEqualTo(60);
+        assertThat(detail.tokenUsage().cacheReadInputTokens()).isEqualTo(150);
     }
 
     @Test
-    @DisplayName("evaluateWithDetails() logs API call when jobRun provided")
-    void evaluateWithDetails_logsApiCall() {
+    @DisplayName("evaluateWithDetails() logs Anthropic API call when jobRun provided")
+    void evaluateWithDetails_logsAnthropicApiCall() {
         AtmosphericData data = buildAtmosphericData();
         JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
         Message response = buildMessage(
@@ -293,10 +234,9 @@ class AbstractEvaluationStrategyTest {
 
         strategy.evaluateWithDetails(data, jobRun);
 
-        verify(jobRunService).logApiCall(
-                eq(1L), eq(ServiceName.ANTHROPIC), eq("POST"),
-                contains("api.anthropic.com"), any(), anyLong(),
-                eq(200), any(), eq(true), any(), any(), any(), any());
+        verify(jobRunService).logAnthropicApiCall(
+                eq(1L), anyLong(), eq(200), any(), eq(true), any(),
+                eq(EvaluationModel.SONNET), any(TokenUsage.class), eq(false), any(), any());
     }
 
     @Test
@@ -313,12 +253,25 @@ class AbstractEvaluationStrategyTest {
                 .isInstanceOf(AnthropicServiceException.class);
 
         ArgumentCaptor<Boolean> succeededCaptor = ArgumentCaptor.forClass(Boolean.class);
-        verify(jobRunService).logApiCall(
-                eq(1L), eq(ServiceName.ANTHROPIC), eq("POST"),
-                contains("api.anthropic.com"), any(), anyLong(),
-                eq(500), any(), succeededCaptor.capture(), any(), any(), any(), any());
+        verify(jobRunService).logAnthropicApiCall(
+                eq(1L), anyLong(), eq(500), any(), succeededCaptor.capture(), any(),
+                eq(EvaluationModel.SONNET), eq(TokenUsage.EMPTY), eq(false), any(), any());
 
         assertThat(succeededCaptor.getValue()).isFalse();
+    }
+
+    @Test
+    @DisplayName("extractTokenUsage() extracts all four token categories from SDK response")
+    void extractTokenUsage_extractsAllCategories() {
+        Message response = buildMessage("{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 60,"
+                + " \"summary\": \"Test.\"}", 500, 80, 200, 100);
+
+        TokenUsage usage = strategy.extractTokenUsage(response);
+
+        assertThat(usage.inputTokens()).isEqualTo(500);
+        assertThat(usage.outputTokens()).isEqualTo(80);
+        assertThat(usage.cacheCreationInputTokens()).isEqualTo(200);
+        assertThat(usage.cacheReadInputTokens()).isEqualTo(100);
     }
 
     @Test
@@ -333,10 +286,49 @@ class AbstractEvaluationStrategyTest {
         assertThat(result.goldenHourPotential()).isEqualTo(60);
     }
 
-    /**
-     * Builds a mock {@link AnthropicServiceException} with the given status code and message.
-     * Uses lenient stubs since not all paths check getMessage().
-     */
+    // --- Helper methods ---
+
+    private Message buildMessage(String text) {
+        return buildMessage(text, 10, 20, 0, 0);
+    }
+
+    private Message buildMessage(String text, long inputTokens, long outputTokens,
+            long cacheCreationTokens, long cacheReadTokens) {
+        TextBlock textBlock = TextBlock.builder()
+                .text(text)
+                .citations(List.of())
+                .build();
+        ContentBlock contentBlock = ContentBlock.ofText(textBlock);
+        return Message.builder()
+                .id("msg_test")
+                .model(Model.of("claude-sonnet-4-5-20250929"))
+                .content(List.of(contentBlock))
+                .stopReason(StopReason.END_TURN)
+                .stopSequence(Optional.empty())
+                .usage(buildUsage(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens))
+                .build();
+    }
+
+    private Usage buildUsage(long inputTokens, long outputTokens,
+            long cacheCreationTokens, long cacheReadTokens) {
+        return Usage.builder()
+                .inputTokens(inputTokens)
+                .outputTokens(outputTokens)
+                .cacheCreation(CacheCreation.builder()
+                        .ephemeral5mInputTokens(0)
+                        .ephemeral1hInputTokens(0)
+                        .build())
+                .cacheCreationInputTokens(cacheCreationTokens)
+                .cacheReadInputTokens(cacheReadTokens)
+                .inferenceGeo("us")
+                .serverToolUse(ServerToolUsage.builder()
+                        .webSearchRequests(0)
+                        .webFetchRequests(0)
+                        .build())
+                .serviceTier(Usage.ServiceTier.of("standard"))
+                .build();
+    }
+
     private AnthropicServiceException buildServiceException(int statusCode, String message) {
         AnthropicServiceException ex = mock(AnthropicServiceException.class);
         org.mockito.Mockito.lenient().when(ex.statusCode()).thenReturn(statusCode);
@@ -357,7 +349,6 @@ class AbstractEvaluationStrategyTest {
 
     /**
      * Concrete test implementation of the abstract strategy.
-     * Overrides prompt suffix for test isolation; inherits parseEvaluation() from base.
      */
     private static class TestEvaluationStrategy extends AbstractEvaluationStrategy {
 

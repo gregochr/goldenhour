@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { runModelTest, runModelTestForLocation, rerunModelTest, getModelTestRuns, getModelTestResults } from '../api/modelTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
+import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -232,9 +233,13 @@ const ModelTestView = () => {
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const formatCost = (pence) => {
-    if (pence == null || pence === 0) return '\u2014';
-    return `${pence}p`;
+  const formatRunCost = (run) => {
+    return formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence);
+  };
+
+  const formatResultCost = (result, run) => {
+    const exchangeRate = run ? run.exchangeRateGbpPerUsd : null;
+    return formatCostGbp(result.costMicroDollars, exchangeRate, result.costPence);
   };
 
   return (
@@ -321,7 +326,7 @@ const ModelTestView = () => {
                       <span className={run.failed > 0 ? 'text-red-400' : 'text-plex-text-muted'}>{run.failed}</span>
                     </td>
                     <td className="py-2 pr-4 text-plex-text-secondary">{formatDuration(run.durationMs)}</td>
-                    <td className="py-2 pr-4 text-plex-text-secondary">{formatCost(run.totalCostPence)}</td>
+                    <td className="py-2 pr-4 text-plex-text-secondary">{formatRunCost(run)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -362,6 +367,8 @@ const ModelTestView = () => {
                     <th className="py-2 pr-4">Rating</th>
                     <th className="py-2 pr-4">Fiery Sky</th>
                     <th className="py-2 pr-4">Golden Hour</th>
+                    <th className="py-2 pr-4">Tokens</th>
+                    <th className="py-2 pr-4">Cost</th>
                     <th className="py-2 pr-4">Duration</th>
                     <th className="py-2 pr-4 max-w-xs">Summary</th>
                   </tr>
@@ -419,6 +426,16 @@ const ModelTestView = () => {
                                 {model !== 'HAIKU' && formatDelta(getDelta(region, model, 'goldenHourPotential'))}
                               </>
                             ) : '\u2014'}
+                          </td>
+                          <td className="py-2 pr-4 text-plex-text-secondary text-xs">
+                            {result?.succeeded && (result.inputTokens || result.outputTokens)
+                              ? `${formatTokens((result.inputTokens || 0) + (result.outputTokens || 0))}`
+                              : '\u2014'}
+                          </td>
+                          <td className="py-2 pr-4 text-plex-text-secondary text-xs">
+                            {result?.succeeded
+                              ? formatResultCost(result, runs.find((r) => r.id === selectedRunId))
+                              : '\u2014'}
                           </td>
                           <td className="py-2 pr-4 text-plex-text-secondary">
                             {formatDuration(result?.durationMs)}

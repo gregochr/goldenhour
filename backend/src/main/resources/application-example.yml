@@ -35,11 +35,28 @@ notifications:
     enabled: true
 
 cost:
-  # API call costs in units of 1/10th pence (e.g., 0.5p = 5, 1.3p = 13)
-  anthropic-haiku-pence: 5        # 0.5p per call
-  anthropic-sonnet-pence: 13      # 1.3p per call
-  world-tides-pence: 2            # 0.2p per call
-  open-meteo-pence: 0             # free (included in subscription)
+  # Token-based pricing (USD per million tokens) — matches Anthropic published rates
+  haiku-input-usd-per-mtok: 1.00
+  haiku-output-usd-per-mtok: 5.00
+  haiku-cache-write-usd-per-mtok: 1.25
+  haiku-cache-read-usd-per-mtok: 0.10
+  sonnet-input-usd-per-mtok: 3.00
+  sonnet-output-usd-per-mtok: 15.00
+  sonnet-cache-write-usd-per-mtok: 3.75
+  sonnet-cache-read-usd-per-mtok: 0.30
+  opus-input-usd-per-mtok: 5.00
+  opus-output-usd-per-mtok: 25.00
+  opus-cache-write-usd-per-mtok: 6.25
+  opus-cache-read-usd-per-mtok: 0.50
+  # Non-Anthropic flat costs (micro-dollars)
+  world-tides-micro-dollars: 3000   # ~$0.003 per call
+  open-meteo-micro-dollars: 0       # free
+  # Legacy flat-rate fields (deprecated, kept for backward compatibility)
+  anthropic-haiku-pence: 5
+  anthropic-sonnet-pence: 13
+  anthropic-opus-pence: 75
+  world-tides-pence: 2
+  open-meteo-pence: 0
 
 forecast:
   locations:

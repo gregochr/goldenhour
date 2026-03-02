@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
@@ -96,7 +97,7 @@ class EvaluationServiceTest {
     void evaluateWithDetails_haiku_delegatesToHaikuStrategy() {
         AtmosphericData data = buildAtmosphericData();
         EvaluationDetail expected = new EvaluationDetail(
-                new SunsetEvaluation(4, 65, 70, "Good."), "prompt", "raw", 500L);
+                new SunsetEvaluation(4, 65, 70, "Good."), "prompt", "raw", 500L, TokenUsage.EMPTY);
         when(haikuStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
 
         EvaluationDetail result = evaluationService.evaluateWithDetails(data, EvaluationModel.HAIKU, null);
@@ -110,7 +111,7 @@ class EvaluationServiceTest {
     void evaluateWithDetails_sonnet_delegatesToSonnetStrategy() {
         AtmosphericData data = buildAtmosphericData();
         EvaluationDetail expected = new EvaluationDetail(
-                new SunsetEvaluation(4, 70, 75, "Good."), "prompt", "raw", 800L);
+                new SunsetEvaluation(4, 70, 75, "Good."), "prompt", "raw", 800L, TokenUsage.EMPTY);
         when(sonnetStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
 
         EvaluationDetail result = evaluationService.evaluateWithDetails(data, EvaluationModel.SONNET, null);
@@ -124,7 +125,7 @@ class EvaluationServiceTest {
     void evaluateWithDetails_opus_delegatesToOpusStrategy() {
         AtmosphericData data = buildAtmosphericData();
         EvaluationDetail expected = new EvaluationDetail(
-                new SunsetEvaluation(5, 85, 80, "Outstanding."), "prompt", "raw", 1200L);
+                new SunsetEvaluation(5, 85, 80, "Outstanding."), "prompt", "raw", 1200L, TokenUsage.EMPTY);
         when(opusStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
 
         EvaluationDetail result = evaluationService.evaluateWithDetails(data, EvaluationModel.OPUS, null);
