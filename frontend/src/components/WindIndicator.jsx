@@ -20,7 +20,6 @@ export default function WindIndicator({ windSpeed, windDirection }) {
         className="text-xl leading-none"
         style={{ transform: `rotate(${windDirection}deg)` }}
         aria-hidden="true"
-        title={`Wind direction: ${compass}`}
       >
         ↑
       </div>

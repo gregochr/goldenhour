@@ -40,7 +40,6 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
     <div className="flex flex-wrap gap-1">
       {goldenMeta && (
         <span
-          title={goldenMeta.label}
           className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
             bg-plex-gold/10 text-plex-gold border border-plex-gold/30"
         >
@@ -53,7 +52,6 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
         return (
           <span
             key={type}
-            title={meta.label}
             className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
               bg-plex-surface-light text-plex-text-secondary border border-plex-border"
           >
@@ -67,7 +65,6 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
         return (
           <span
             key={type}
-            title={meta.short}
             className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
               bg-cyan-950 text-cyan-300 border border-cyan-800/60"
           >

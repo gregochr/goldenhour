@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import HealthIndicator from '../components/HealthIndicator.jsx';
 
 describe('HealthIndicator', () => {
@@ -24,19 +24,20 @@ describe('HealthIndicator', () => {
     expect(indicator).toHaveClass('text-red-400');
   });
 
-  it('renders amber dot and DEGRADED text with tooltip listing failed components', () => {
+  it('renders amber dot and DEGRADED text with InfoTip listing failed components', () => {
     render(<HealthIndicator status="DEGRADED" degraded={['mail']} checkedAt={new Date('2026-03-01T12:30:45')} />);
     expect(screen.getByText('DEGRADED')).toBeInTheDocument();
     const indicator = screen.getByTestId('health-indicator');
     expect(indicator).toHaveClass('bg-amber-900/30');
     expect(indicator).toHaveClass('text-amber-400');
-    expect(indicator.title).toContain('mail unavailable');
+    // InfoTip is rendered inside the indicator
+    expect(screen.getByTestId('infotip-trigger')).toBeInTheDocument();
   });
 
-  it('shows tooltip with status and timestamp', () => {
+  it('shows InfoTip with status detail on click', () => {
     render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} />);
-    const indicator = screen.getByTestId('health-indicator');
-    expect(indicator).toHaveAttribute('title');
-    expect(indicator.title).toContain('Up at');
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('infotip-popover').textContent).toContain('Up at');
   });
 });

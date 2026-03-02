@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import InfoTip from './InfoTip.jsx';
 
 /**
  * Health status indicator: green (UP), amber (DEGRADED), red (DOWN).
@@ -35,10 +36,10 @@ export default function HealthIndicator({ status, degraded, checkedAt }) {
     <div
       className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg font-medium border ${bgClass}`}
       data-testid="health-indicator"
-      title={tooltip}
     >
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />
       <span className="flex-shrink-0">{label}</span>
+      <InfoTip text={tooltip} />
     </div>
   );
 }
