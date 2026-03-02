@@ -107,9 +107,9 @@ function AppInner() {
             >
               Sign out
             </button>
-            {username && (
+            {(username || (isAdmin && sessionDaysRemaining !== null)) && (
               <p className="text-xs text-plex-text-muted">
-                {username}{isAdmin && sessionDaysRemaining !== null && ` · ${sessionDaysRemaining}d`}
+                {username}{username && isAdmin && sessionDaysRemaining !== null && ' · '}{isAdmin && sessionDaysRemaining !== null && `${sessionDaysRemaining}d`}
               </p>
             )}
           </div>
