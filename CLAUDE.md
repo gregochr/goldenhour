@@ -4,7 +4,7 @@
 
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
-- **Backend**: Spring Boot 3 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, PostgreSQL persistence, scheduled runs, email/Web Push/macOS toast notifications.
+- **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, PostgreSQL persistence, scheduled runs, email/Web Push/macOS toast notifications.
 - **Frontend**: React 18 + Vite + Tailwind — map view (Leaflet), forecast timeline, outcome recording, JWT-authenticated.
 - **Future**: macOS menu bar widget (Tauri).
 
@@ -77,7 +77,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 ```
 goldenhour/
-├── backend/               Spring Boot 3 app (port 8082 local)
+├── backend/               Spring Boot 4 app (port 8082 local)
 │   ├── src/main/java/com/gregochr/goldenhour/
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties
 │   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController, RegionController
@@ -423,7 +423,7 @@ Track performance of scheduled forecast runs and external API calls, stored in H
 - Admin Manage tab → "Job Runs" tab: shows last N job runs with per-service breakdown, 7-day summary stats
 - Flyway migrations: V20 (job_run + api_call_log tables), V21 (location failure tracking)
 - Frontend components: `JobRunsMetricsView`, `JobRunsGrid`, `JobRunDetail`, `MetricsSummary`
-- 479 backend tests, all passing with ≥80% JaCoCo coverage
+- 497 backend tests, all passing with ≥80% JaCoCo coverage
 
 ### 9. Retry Robustness ✓ BUILT
 
