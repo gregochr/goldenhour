@@ -311,7 +311,7 @@ export default function UserManagementView() {
   function handleResetPassword(user) {
     setConfirmDialog({
       title: 'Reset Password',
-      message: `Reset password for ${user.username}? A temporary password will be generated.`,
+      message: `Reset password for ${user.username}? A temporary password will be generated and emailed to them. They will be required to set a new password on next login.`,
       confirmLabel: 'Reset',
       onConfirm: async () => {
         setConfirmDialog(null);
