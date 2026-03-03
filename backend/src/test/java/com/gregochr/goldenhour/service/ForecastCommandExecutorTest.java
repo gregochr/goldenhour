@@ -1,13 +1,13 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
+import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,12 +21,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -57,7 +56,10 @@ class ForecastCommandExecutorTest {
     private ForecastCommandFactory commandFactory;
 
     @Mock
-    private ForecastEvaluationRepository forecastRepository;
+    private OptimisationSkipEvaluator optimisationSkipEvaluator;
+
+    @Mock
+    private OptimisationStrategyService optimisationStrategyService;
 
     @Mock
     private HaikuEvaluationStrategy haikuStrategy;
@@ -98,15 +100,17 @@ class ForecastCommandExecutorTest {
                 .thenReturn(LocalDateTime.MAX);
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                 .thenReturn(LocalDateTime.MAX);
-        lenient().when(forecastRepository
-                .findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(any(), any(), any()))
-                .thenReturn(List.of());
         lenient().when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
+        lenient().when(optimisationSkipEvaluator.shouldSkip(any(), anyString(), any(), any()))
+                .thenReturn(false);
+        lenient().when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
+        lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
 
         // Use synchronous executor
         executor = new ForecastCommandExecutor(
                 forecastService, locationService, jobRunService, solarService,
-                commandFactory, Runnable::run, forecastRepository);
+                commandFactory, Runnable::run, optimisationSkipEvaluator,
+                optimisationStrategyService);
     }
 
     @Test
@@ -231,139 +235,81 @@ class ForecastCommandExecutorTest {
     }
 
     // -------------------------------------------------------------------------
-    // Long-term forecast optimization: skip T+3+ if exists
+    // Optimisation skip delegation
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("execute() skips T+3+ dates where forecasts already exist")
-    void execute_skipsExistingLongTermForecasts() {
+    @DisplayName("execute() delegates skip decision to OptimisationSkipEvaluator")
+    void execute_delegatesToSkipEvaluator() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDate t3 = today.plusDays(3);
-        LocalDate t4 = today.plusDays(4);
-        LocalDate t5 = today.plusDays(5);
+        List<LocalDate> dates = List.of(today);
 
-        // T+5 already exists
-        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                eq("Durham UK"), eq(t5), any()))
-                .thenReturn(List.of(
-                        ForecastEvaluationEntity.builder()
-                                .id(1L).locationName("Durham UK").targetDate(t5)
-                                .targetType(TargetType.SUNRISE)
-                                .forecastRunAt(LocalDateTime.now().minusDays(1))
-                                .build()
-                ));
-        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                eq("Durham UK"), argThat(d -> !d.equals(t5)), any()))
-                .thenReturn(List.of());
+        var strategies = List.of(
+                OptimisationStrategyEntity.builder()
+                        .strategyType(OptimisationStrategyType.SKIP_LOW_RATED)
+                        .enabled(true).paramValue(3).build());
+        when(optimisationStrategyService.getEnabledStrategies(RunType.VERY_SHORT_TERM))
+                .thenReturn(strategies);
 
-        ForecastCommand cmd = new ForecastCommand(RunType.LONG_TERM, List.of(t3, t4, t5),
-                List.of(durham()), haikuStrategy, false);
-
-        executor.execute(cmd);
-
-        // T+3 and T+4 should run (2 target types each = 4), T+5 should be skipped
-        verify(forecastService, times(4))
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.HAIKU), any());
-    }
-
-    // -------------------------------------------------------------------------
-    // Opus optimisation: skip low-rated or missing prior evaluations
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Opus run proceeds when prior evaluation has rating >= 3")
-    void opusRun_withHighPriorRating_doesNotSkip() {
-        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.OPUS);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-
-        ForecastEvaluationEntity prior = ForecastEvaluationEntity.builder()
-                .id(1L).locationName("Durham UK").targetDate(today)
-                .targetType(TargetType.SUNRISE).rating(4)
-                .forecastRunAt(LocalDateTime.now().minusHours(2))
-                .build();
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq("Durham UK"), eq(today), any()))
-                .thenReturn(Optional.of(prior));
-
-        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, List.of(today),
+        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
                 List.of(durham()), haikuStrategy, true);
 
         executor.execute(cmd);
 
-        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), eq(today), any(TargetType.class), any(),
-                        eq(EvaluationModel.OPUS), any());
+        // Verify evaluator was called for each target type
+        verify(optimisationSkipEvaluator, times(EXPECTED_CALLS_PER_DAY))
+                .shouldSkip(eq(strategies), eq("Durham UK"), eq(today), any(TargetType.class));
     }
 
     @Test
-    @DisplayName("Opus run skips when prior evaluation has rating < 3")
-    void opusRun_withLowPriorRating_skips() {
-        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.OPUS);
+    @DisplayName("execute() skips when OptimisationSkipEvaluator returns true")
+    void execute_skipsWhenEvaluatorSaysSkip() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today);
 
-        ForecastEvaluationEntity prior = ForecastEvaluationEntity.builder()
-                .id(1L).locationName("Durham UK").targetDate(today)
-                .targetType(TargetType.SUNRISE).rating(2)
-                .forecastRunAt(LocalDateTime.now().minusHours(2))
-                .build();
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq("Durham UK"), eq(today), any()))
-                .thenReturn(Optional.of(prior));
+        when(optimisationSkipEvaluator.shouldSkip(any(), anyString(), any(), any()))
+                .thenReturn(true);
 
-        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, List.of(today),
+        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
                 List.of(durham()), haikuStrategy, true);
 
         executor.execute(cmd);
 
+        // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), eq(today), any(TargetType.class), any(),
-                        eq(EvaluationModel.OPUS), any());
+                .runForecasts(any(), anyDouble(), anyDouble(), any(),
+                        any(), any(), any(), any(), any());
     }
 
     @Test
-    @DisplayName("Opus run skips when no prior evaluation exists")
-    void opusRun_withNoPriorEvaluation_skips() {
-        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.OPUS);
+    @DisplayName("execute() captures active strategies on job run")
+    void execute_capturesStrategiesOnJobRun() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq("Durham UK"), eq(today), any()))
-                .thenReturn(Optional.empty());
-
-        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, List.of(today),
-                List.of(durham()), haikuStrategy, true);
-
-        executor.execute(cmd);
-
-        verify(forecastService, never())
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), eq(today), any(TargetType.class), any(),
-                        eq(EvaluationModel.OPUS), any());
-    }
-
-    @Test
-    @DisplayName("Haiku run never triggers Opus skip logic")
-    void haikuRun_neverSkipsViaOpusLogic() {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2));
+        List<LocalDate> dates = List.of(today);
+        when(optimisationStrategyService.serialiseEnabledStrategies(RunType.SHORT_TERM))
+                .thenReturn("SKIP_LOW_RATED(3),REQUIRE_PRIOR");
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
-                List.of(durham()), haikuStrategy, false);
+                List.of(durham()), haikuStrategy, true);
 
         executor.execute(cmd);
 
-        int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
-        verify(forecastService, times(expectedCalls))
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.HAIKU), any());
-        // findTop query should never be called for non-Opus
-        verify(forecastRepository, never())
-                .findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                        any(), any(), any());
+        verify(jobRunService).startRun(
+                eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU),
+                eq("SKIP_LOW_RATED(3),REQUIRE_PRIOR"));
+    }
+
+    @Test
+    @DisplayName("Wildlife run does not load optimisation strategies")
+    void execute_wildlife_noStrategies() {
+        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        ForecastCommand cmd = new ForecastCommand(RunType.WEATHER, List.of(today),
+                List.of(wildlifeReserve()), noOpStrategy, false);
+
+        executor.execute(cmd);
+
+        verify(optimisationStrategyService, never()).getEnabledStrategies(any());
     }
 }

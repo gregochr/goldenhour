@@ -1,10 +1,13 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
+import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,10 +16,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDateTime;
 import java.util.EnumMap;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -26,7 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Tests for {@link ModelsController} — validates per-run-type model selection endpoints.
+ * Tests for {@link ModelsController} — validates per-run-type model selection
+ * and optimisation strategy endpoints.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -41,6 +48,9 @@ class ModelsControllerTest {
     @MockitoBean
     private ModelSelectionService modelSelectionService;
 
+    @MockitoBean
+    private OptimisationStrategyService optimisationStrategyService;
+
     private Map<RunType, EvaluationModel> buildDefaultConfigs() {
         Map<RunType, EvaluationModel> configs = new EnumMap<>(RunType.class);
         configs.put(RunType.VERY_SHORT_TERM, EvaluationModel.HAIKU);
@@ -50,10 +60,11 @@ class ModelsControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/models returns available models and per-run-type configs")
+    @DisplayName("GET /api/models returns available models, configs, and optimisation strategies")
     void getAvailableModels_returnsConfigsMap() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         mockMvc.perform(get("/api/models")
                 .header("Authorization", "Bearer " + token))
@@ -64,9 +75,11 @@ class ModelsControllerTest {
                 .andExpect(content().string(containsString("OPUS")))
                 .andExpect(jsonPath("$.configs.VERY_SHORT_TERM").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.SHORT_TERM").value("HAIKU"))
-                .andExpect(jsonPath("$.configs.LONG_TERM").value("HAIKU"));
+                .andExpect(jsonPath("$.configs.LONG_TERM").value("HAIKU"))
+                .andExpect(jsonPath("$.optimisationStrategies").exists());
 
         verify(modelSelectionService).getAllConfigs();
+        verify(optimisationStrategyService).getAllConfigs();
     }
 
     @Test
@@ -74,6 +87,7 @@ class ModelsControllerTest {
     void getAvailableModels_excludesWildlife() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         String body = mockMvc.perform(get("/api/models")
                 .header("Authorization", "Bearer " + token))
@@ -147,6 +161,74 @@ class ModelsControllerTest {
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
                 .content("{\"runType\":\"SHORT_TERM\",\"model\":\"INVALID_MODEL\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // -------------------------------------------------------------------------
+    // Optimisation strategy endpoints
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("PUT /api/models/optimisation with ADMIN enables strategy")
+    void updateOptimisation_admin_succeeds() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        var updated = OptimisationStrategyEntity.builder()
+                .runType(RunType.VERY_SHORT_TERM)
+                .strategyType(OptimisationStrategyType.SKIP_LOW_RATED)
+                .enabled(true)
+                .paramValue(4)
+                .updatedAt(LocalDateTime.now())
+                .build();
+        when(optimisationStrategyService.updateStrategy(
+                eq(RunType.VERY_SHORT_TERM), eq(OptimisationStrategyType.SKIP_LOW_RATED),
+                eq(true), eq(4)))
+                .thenReturn(updated);
+
+        mockMvc.perform(put("/api/models/optimisation")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"VERY_SHORT_TERM\","
+                        + "\"strategyType\":\"SKIP_LOW_RATED\","
+                        + "\"enabled\":true,\"paramValue\":4}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
+                .andExpect(jsonPath("$.strategyType").value("SKIP_LOW_RATED"))
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.paramValue").value(4));
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/optimisation without ADMIN returns 403")
+    void updateOptimisation_nonAdmin_forbidden() throws Exception {
+        String userToken = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+
+        mockMvc.perform(put("/api/models/optimisation")
+                .header("Authorization", "Bearer " + userToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"SKIP_LOW_RATED\",\"enabled\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/optimisation without token returns 401")
+    void updateOptimisation_noToken_unauthorized() throws Exception {
+        mockMvc.perform(put("/api/models/optimisation")
+                .contentType("application/json")
+                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"SKIP_LOW_RATED\",\"enabled\":true}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/optimisation with conflict returns 400")
+    void updateOptimisation_conflict_returnsBadRequest() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(optimisationStrategyService.updateStrategy(any(), any(), eq(true), any()))
+                .thenThrow(new IllegalArgumentException("EVALUATE_ALL conflicts with skip strategies"));
+
+        mockMvc.perform(put("/api/models/optimisation")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"EVALUATE_ALL\",\"enabled\":true}"))
                 .andExpect(status().isBadRequest());
     }
 }
