@@ -2,14 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ModelSelectionView from '../components/ModelSelectionView.jsx';
 
-// Mock the API module
+// Mock the API modules
 vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
   setActiveModel: vi.fn(),
   updateOptimisationStrategy: vi.fn(),
 }));
 
+vi.mock('../api/forecastApi', () => ({
+  fetchLocations: vi.fn(),
+}));
+
 import { getAvailableModels, updateOptimisationStrategy } from '../api/modelsApi';
+import { fetchLocations } from '../api/forecastApi';
+
+const MOCK_LOCATIONS = [
+  { id: 1, name: 'Durham', enabled: true, locationType: ['LANDSCAPE'] },
+  { id: 2, name: 'Bamburgh', enabled: true, locationType: ['SEASCAPE'] },
+  { id: 3, name: 'Farne Islands', enabled: true, locationType: ['WILDLIFE'] },
+  { id: 4, name: 'Disabled', enabled: false, locationType: ['LANDSCAPE'] },
+];
 
 const MOCK_DATA = {
   available: ['HAIKU', 'SONNET', 'OPUS'],
@@ -50,18 +62,20 @@ describe('ModelSelectionView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAvailableModels.mockResolvedValue(MOCK_DATA);
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
   });
 
   it('renders model cards and strategy toggles', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Haiku')).toBeInTheDocument();
+      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Sonnet')).toBeInTheDocument();
-    expect(screen.getByText('Opus')).toBeInTheDocument();
     expect(screen.getByText('Cost Optimisation')).toBeInTheDocument();
+    expect(screen.getByTestId('cost-estimate-table')).toBeInTheDocument();
+    // 2 enabled non-wildlife locations × 2 days × 2 targets = 8 calls
+    expect(screen.getByText(/8 Claude calls per run/)).toBeInTheDocument();
   });
 
   it('renders config tabs', async () => {
