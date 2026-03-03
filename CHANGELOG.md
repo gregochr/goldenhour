@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 3, 2026)
+- **Radial progress arcs on map markers** — SVG-based arc gauges replace plain coloured circles
+  - PRO/ADMIN: two half-arcs (left = Fiery Sky orange, right = Golden Hour gold) filling bottom-up proportionally to 0–100 score
+  - LITE: single proportional ring based on 1–5 star rating
+  - Wildlife: plain green circle with eagle emoji (no arcs)
+  - No-data: plain grey circle with ? (no arcs)
+  - `markerUtils.js` extracted for testability: `buildMarkerSvg`, `scoreColour`, `markerLabelAndColour`, `RATING_COLOURS`
+  - Marker label shows star rating (e.g. "4★") with rating-graded colour for all users
+- **MarkerPopupContent tests** — 28 tests covering role-based score bar visibility, coastal tide display, wildlife and no-data rendering
+- **useForecasts regression tests** — 6 tests including wildlife location inclusion, disabled location exclusion
+
+### Fixed (Mar 3, 2026)
+- **Wildlife locations missing from map** — `useForecasts` now builds location list from the full locations API response, not just forecast rows; wildlife locations without evaluations are no longer dropped
+- **goldenHourType no longer filters evaluations** — `shouldEvaluateSunrise()` and `shouldEvaluateSunset()` now always return true; both sunrise and sunset forecasts are generated for every non-wildlife location regardless of `goldenHourType` (which is photographer preference metadata, not an evaluation filter)
+- **Wildlife marker colour** — toned down from `#4ade80` to `#16a34a` (green-600) for consistency with popup header
+- **Vite proxy default** — changed from port 8083 to 8082 to match actual backend port
+
 ### Changed (Mar 3, 2026)
 - **Merge REQUIRE_PRIOR into SKIP_LOW_RATED** — SKIP_LOW_RATED now also skips when no prior evaluation exists, reducing strategies from 6 to 5
   - V40 migration: deletes REQUIRE_PRIOR rows from `optimisation_strategy` table

@@ -20,29 +20,7 @@ const popupStyles = `
   }
 `;
 import InfoTip from './InfoTip.jsx';
-
-/**
- * Maps an average 0–100 score to a marker colour.
- * @param {number|null} avg
- * @returns {string} hex colour
- */
-function scoreColour(avg) {
-  if (avg == null) return '#3A3D45';
-  if (avg > 80)   return '#E5A00D'; // plex gold
-  if (avg > 60)   return '#CC8A00'; // plex gold-dark
-  if (avg > 40)   return '#A06E00'; // warm bronze
-  if (avg > 20)   return '#6B5000'; // dark bronze
-  return '#6B6B6B';                 // muted
-}
-
-/** Maps a 1–5 Haiku rating to a marker colour. */
-const RATING_COLOURS = {
-  1: '#6B6B6B',
-  2: '#6B5000',
-  3: '#A06E00',
-  4: '#CC8A00',
-  5: '#E5A00D',
-};
+import { scoreColour, buildMarkerSvg, markerLabelAndColour, RATING_COLOURS } from './markerUtils.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
@@ -113,42 +91,22 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
 }
 
 /**
- * Creates a custom Leaflet DivIcon for a location marker.
+ * Creates a custom Leaflet DivIcon for a location marker with radial progress arcs.
  *
- * @param {number|null} rating - Haiku 1–5 rating, or null for Sonnet rows.
- * @param {number|null} fierySky - Fiery sky score 0–100, or null for Haiku rows.
- * @param {number|null} goldenHour - Golden hour score 0–100, or null for Haiku rows.
+ * @param {number|null} rating - Star rating 1–5, or null.
+ * @param {number|null} fierySky - Fiery sky score 0–100, or null.
+ * @param {number|null} goldenHour - Golden hour score 0–100, or null.
  * @param {string} locationName - Display name shown beneath the marker.
  * @param {boolean} [isPureWildlife=false] - If true, renders a green wildlife marker.
  * @returns {L.DivIcon}
  */
 function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false) {
-  let colour, label;
-  if (isPureWildlife) {
-    colour = '#4ade80'; // green
-    label = '🦅';
-  } else if (rating != null) {
-    colour = RATING_COLOURS[rating] ?? '#6B6B6B';
-    label = `${rating}★`;
-  } else {
-    const avg = (fierySky != null && goldenHour != null)
-      ? Math.round((fierySky + goldenHour) / 2)
-      : null;
-    colour = scoreColour(avg);
-    label = avg != null ? avg : '?';
-  }
+  const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
 
+  const svg = buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife);
   const html = `
     <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-      <div style="
-        background:${colour};
-        border-radius:50%;
-        width:40px;height:40px;
-        display:flex;align-items:center;justify-content:center;
-        font-size:17px;font-weight:800;color:#0f172a;
-        box-shadow:0 2px 10px rgba(0,0,0,0.7);
-        border:2px solid rgba(255,255,255,0.2);
-      ">${label}</div>
+      ${svg}
       <div style="
         background:rgba(15,23,42,0.85);
         color:#f1f5f9;
@@ -164,9 +122,9 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
   return L.divIcon({
     html,
     className: '',
-    iconSize: [100, 58],
-    iconAnchor: [50, 20],
-    popupAnchor: [0, -24],
+    iconSize: [100, 62],
+    iconAnchor: [50, 22],
+    popupAnchor: [0, -26],
   });
 }
 
@@ -444,8 +402,8 @@ export default function MapView({ locations, date }) {
             const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
             const icon = makeMarkerIcon(
               forecast?.rating ?? null,
-              forecast?.fierySkyPotential ?? null,
-              forecast?.goldenHourPotential ?? null,
+              role !== 'LITE_USER' ? (forecast?.fierySkyPotential ?? null) : null,
+              role !== 'LITE_USER' ? (forecast?.goldenHourPotential ?? null) : null,
               loc.name,
               isPureWildlife,
             );

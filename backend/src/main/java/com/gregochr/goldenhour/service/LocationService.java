@@ -254,27 +254,29 @@ public class LocationService {
     /**
      * Returns {@code true} if a sunrise evaluation should be run for this location.
      *
+     * <p>Always returns {@code true} — {@code goldenHourType} is photographer preference
+     * metadata, not an evaluation filter. Both sunrise and sunset are always evaluated so
+     * photographers can visit any location at either time.
+     *
      * @param location the location to check
-     * @return {@code true} for {@code SUNRISE}, {@code BOTH_TIMES}, and {@code ANYTIME}
+     * @return always {@code true}
      */
     public boolean shouldEvaluateSunrise(LocationEntity location) {
-        GoldenHourType type = location.getGoldenHourType();
-        return type == GoldenHourType.SUNRISE
-                || type == GoldenHourType.BOTH_TIMES
-                || type == GoldenHourType.ANYTIME;
+        return true;
     }
 
     /**
      * Returns {@code true} if a sunset evaluation should be run for this location.
      *
+     * <p>Always returns {@code true} — {@code goldenHourType} is photographer preference
+     * metadata, not an evaluation filter. Both sunrise and sunset are always evaluated so
+     * photographers can visit any location at either time.
+     *
      * @param location the location to check
-     * @return {@code true} for {@code SUNSET}, {@code BOTH_TIMES}, and {@code ANYTIME}
+     * @return always {@code true}
      */
     public boolean shouldEvaluateSunset(LocationEntity location) {
-        GoldenHourType type = location.getGoldenHourType();
-        return type == GoldenHourType.SUNSET
-                || type == GoldenHourType.BOTH_TIMES
-                || type == GoldenHourType.ANYTIME;
+        return true;
     }
 
     /**
