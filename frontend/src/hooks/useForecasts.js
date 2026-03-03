@@ -28,29 +28,30 @@ export function useForecasts() {
         .slice(0, 10);
 
       const [forecasts, locationMeta] = await Promise.all([fetchForecasts(), fetchLocations()]);
-      const locationGroups = groupForecastsByLocation(forecasts);
+      const forecastGroups = groupForecastsByLocation(forecasts);
+      const forecastByName = Object.fromEntries(forecastGroups.map((g) => [g.name, g]));
 
-      // Build a lookup from name → metadata for O(1) merging.
-      const metaByName = Object.fromEntries(
-        locationMeta.map((l) => [l.name, {
+      // Start from the full location list so locations without forecast rows
+      // (e.g. pure-WILDLIFE) still appear on the map.
+      const allLocations = locationMeta
+        .filter((l) => l.enabled !== false)
+        .map((l) => ({
+          name: l.name,
+          lat: l.lat,
+          lon: l.lon,
+          forecastsByDate: forecastByName[l.name]?.forecastsByDate ?? new Map(),
           locationType: l.locationType ?? [],
           tideType: l.tideType ?? [],
           goldenHourType: l.goldenHourType ?? 'BOTH_TIMES',
-          enabled: l.enabled !== false,
-        }])
-      );
+        }));
 
       const outcomeResults = await Promise.all(
-        locationGroups.map((loc) => fetchOutcomes(loc.lat, loc.lon, from, to))
+        allLocations.map((loc) => fetchOutcomes(loc.lat, loc.lon, from, to))
       );
 
       setLocations(
-        locationGroups.map((loc, i) => ({
+        allLocations.map((loc, i) => ({
           ...loc,
-          locationType: metaByName[loc.name]?.locationType ?? [],
-          tideType: metaByName[loc.name]?.tideType ?? [],
-          goldenHourType: metaByName[loc.name]?.goldenHourType ?? 'BOTH_TIMES',
-          enabled: metaByName[loc.name]?.enabled !== false,
           outcomes: outcomeResults[i],
         }))
       );

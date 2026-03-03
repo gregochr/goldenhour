@@ -364,56 +364,28 @@ class LocationServiceTest {
         assertThat(result.getConsecutiveFailures()).isEqualTo(2);
     }
 
-    // --- shouldEvaluateSunrise ---
+    // --- shouldEvaluateSunrise / shouldEvaluateSunset ---
+    // goldenHourType is photographer preference metadata, not an evaluation filter.
+    // Both methods always return true so every location gets sunrise AND sunset evaluations.
 
     @Test
-    @DisplayName("shouldEvaluateSunrise() returns true for SUNRISE")
-    void shouldEvaluateSunrise_sunrise_returnsTrue() {
-        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.SUNRISE))).isTrue();
+    @DisplayName("shouldEvaluateSunrise() returns true for all golden hour types")
+    void shouldEvaluateSunrise_alwaysTrue() {
+        for (GoldenHourType type : GoldenHourType.values()) {
+            assertThat(locationService.shouldEvaluateSunrise(entityWithType(type)))
+                    .as("shouldEvaluateSunrise for %s", type)
+                    .isTrue();
+        }
     }
 
     @Test
-    @DisplayName("shouldEvaluateSunrise() returns false for SUNSET")
-    void shouldEvaluateSunrise_sunset_returnsFalse() {
-        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.SUNSET))).isFalse();
-    }
-
-    @Test
-    @DisplayName("shouldEvaluateSunrise() returns true for BOTH_TIMES")
-    void shouldEvaluateSunrise_bothTimes_returnsTrue() {
-        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.BOTH_TIMES))).isTrue();
-    }
-
-    @Test
-    @DisplayName("shouldEvaluateSunrise() returns true for ANYTIME")
-    void shouldEvaluateSunrise_anytime_returnsTrue() {
-        assertThat(locationService.shouldEvaluateSunrise(entityWithType(GoldenHourType.ANYTIME))).isTrue();
-    }
-
-    // --- shouldEvaluateSunset ---
-
-    @Test
-    @DisplayName("shouldEvaluateSunset() returns false for SUNRISE")
-    void shouldEvaluateSunset_sunrise_returnsFalse() {
-        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.SUNRISE))).isFalse();
-    }
-
-    @Test
-    @DisplayName("shouldEvaluateSunset() returns true for SUNSET")
-    void shouldEvaluateSunset_sunset_returnsTrue() {
-        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.SUNSET))).isTrue();
-    }
-
-    @Test
-    @DisplayName("shouldEvaluateSunset() returns true for BOTH_TIMES")
-    void shouldEvaluateSunset_bothTimes_returnsTrue() {
-        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.BOTH_TIMES))).isTrue();
-    }
-
-    @Test
-    @DisplayName("shouldEvaluateSunset() returns true for ANYTIME")
-    void shouldEvaluateSunset_anytime_returnsTrue() {
-        assertThat(locationService.shouldEvaluateSunset(entityWithType(GoldenHourType.ANYTIME))).isTrue();
+    @DisplayName("shouldEvaluateSunset() returns true for all golden hour types")
+    void shouldEvaluateSunset_alwaysTrue() {
+        for (GoldenHourType type : GoldenHourType.values()) {
+            assertThat(locationService.shouldEvaluateSunset(entityWithType(type)))
+                    .as("shouldEvaluateSunset for %s", type)
+                    .isTrue();
+        }
     }
 
     // --- isCoastal ---
