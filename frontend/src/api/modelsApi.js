@@ -1,10 +1,10 @@
 import axios from 'axios';
 
 /**
- * Fetch available evaluation models and active model per run type.
+ * Fetch available evaluation models, active model per run type, and optimisation strategies.
  *
- * @returns {Promise<{available: string[], configs: Object<string, string>}>}
- *   available models and per-run-type active models
+ * @returns {Promise<{available: string[], configs: Object<string, string>, optimisationStrategies: Object}>}
+ *   available models, per-run-type active models, and optimisation strategies
  */
 export async function getAvailableModels() {
   try {
@@ -29,6 +29,30 @@ export async function setActiveModel(runType, model) {
     return response.data;
   } catch (error) {
     console.error('Failed to set active model:', error);
+    throw error;
+  }
+}
+
+/**
+ * Toggle an optimisation strategy for a specific run type (admin only).
+ *
+ * @param {string} runType - run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM)
+ * @param {string} strategyType - strategy name (SKIP_LOW_RATED, SKIP_EXISTING, etc.)
+ * @param {boolean} enabled - whether to enable or disable
+ * @param {number|null} paramValue - optional integer parameter (e.g. min rating threshold)
+ * @returns {Promise<{runType: string, strategyType: string, enabled: boolean, paramValue: *}>}
+ */
+export async function updateOptimisationStrategy(runType, strategyType, enabled, paramValue = null) {
+  try {
+    const response = await axios.put('/api/models/optimisation', {
+      runType,
+      strategyType,
+      enabled,
+      paramValue,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Failed to update optimisation strategy:', error);
     throw error;
   }
 }

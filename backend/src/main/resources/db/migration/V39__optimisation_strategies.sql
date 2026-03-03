@@ -1,0 +1,57 @@
+-- V39: Configurable cost optimisation strategies per run type
+
+CREATE TABLE optimisation_strategy (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_type VARCHAR(20) NOT NULL,
+    strategy_type VARCHAR(30) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    param_value INT,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT uq_opt_run_strategy UNIQUE (run_type, strategy_type)
+);
+
+-- Seed 18 rows: 6 strategies x 3 run types, matching current hard-coded behavior
+-- VERY_SHORT_TERM: SKIP_LOW_RATED(3) ON, REQUIRE_PRIOR ON, others OFF
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('VERY_SHORT_TERM', 'SKIP_LOW_RATED', TRUE, 3, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('VERY_SHORT_TERM', 'REQUIRE_PRIOR', TRUE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('VERY_SHORT_TERM', 'SKIP_EXISTING', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('VERY_SHORT_TERM', 'FORCE_IMMINENT', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('VERY_SHORT_TERM', 'FORCE_STALE', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('VERY_SHORT_TERM', 'EVALUATE_ALL', FALSE, NULL, CURRENT_TIMESTAMP);
+
+-- SHORT_TERM: all OFF
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('SHORT_TERM', 'SKIP_LOW_RATED', FALSE, 3, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('SHORT_TERM', 'REQUIRE_PRIOR', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('SHORT_TERM', 'SKIP_EXISTING', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('SHORT_TERM', 'FORCE_IMMINENT', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('SHORT_TERM', 'FORCE_STALE', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('SHORT_TERM', 'EVALUATE_ALL', FALSE, NULL, CURRENT_TIMESTAMP);
+
+-- LONG_TERM: SKIP_EXISTING ON, others OFF
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('LONG_TERM', 'SKIP_LOW_RATED', FALSE, 3, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('LONG_TERM', 'REQUIRE_PRIOR', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('LONG_TERM', 'SKIP_EXISTING', TRUE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('LONG_TERM', 'FORCE_IMMINENT', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('LONG_TERM', 'FORCE_STALE', FALSE, NULL, CURRENT_TIMESTAMP);
+INSERT INTO optimisation_strategy (run_type, strategy_type, enabled, param_value, updated_at)
+VALUES ('LONG_TERM', 'EVALUATE_ALL', FALSE, NULL, CURRENT_TIMESTAMP);
+
+-- Add active_strategies column to job_run for audit trail
+ALTER TABLE job_run ADD COLUMN active_strategies VARCHAR(255);

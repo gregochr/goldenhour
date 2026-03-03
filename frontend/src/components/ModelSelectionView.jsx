@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getAvailableModels, setActiveModel } from '../api/modelsApi.js';
+import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi.js';
+import { fetchLocations } from '../api/forecastApi.js';
 import InfoTip from './InfoTip.jsx';
 
 const CONFIG_TABS = [
@@ -12,39 +13,84 @@ const MODEL_INFO = {
   HAIKU: {
     name: 'Haiku',
     description: 'Fast, cost-efficient model. Returns 1-5 star rating.',
-    pricing: '$1/MTok in, $5/MTok out',
+    typicalCost: '~$0.002',
+    tokenRates: '$1/MTok in, $5/MTok out',
     speed: 'Fast',
     recommended: true,
   },
   SONNET: {
     name: 'Sonnet',
     description: 'Advanced model. Returns detailed 0-100 scores for fiery sky and golden hour potential.',
-    pricing: '$3/MTok in, $15/MTok out',
+    typicalCost: '~$0.005',
+    tokenRates: '$3/MTok in, $15/MTok out',
     speed: 'Moderate',
     recommended: false,
   },
   OPUS: {
     name: 'Opus',
     description: 'Highest accuracy model. Returns detailed 0-100 scores with the deepest reasoning.',
-    pricing: '$5/MTok in, $25/MTok out',
+    typicalCost: '~$0.008',
+    tokenRates: '$5/MTok in, $25/MTok out',
     speed: 'Slower',
     recommended: false,
   },
 };
 
+/** Typical cost per call in USD, used for run cost estimates. */
+const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
+
+/** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
+const DAYS_PER_RUN = { VERY_SHORT_TERM: 2, SHORT_TERM: 3, LONG_TERM: 3 };
+
+const STRATEGY_INFO = {
+  SKIP_LOW_RATED: {
+    label: 'Skip Low-Rated',
+    description: 'Skip slots where no prior evaluation exists, or the prior star rating is below the threshold. Saves cost by not re-evaluating locations with consistently poor conditions.',
+    hasParam: true,
+    paramLabel: 'Min rating',
+    paramMin: 1,
+    paramMax: 5,
+  },
+  SKIP_EXISTING: {
+    label: 'Skip Already-Evaluated',
+    description: 'Skip slots where a forecast already exists for this location, date, and time of day (sunrise or sunset). Avoids paying for a second evaluation when one already exists.',
+  },
+  FORCE_IMMINENT: {
+    label: 'Always Evaluate Today',
+    description: 'Override any skip rules for today\'s sunrise or sunset — always get a fresh evaluation for imminent events, even if an earlier run already scored them.',
+  },
+  FORCE_STALE: {
+    label: 'Re-evaluate Stale Data',
+    description: 'Override skip rules when the existing evaluation was generated before today. Ensures forecasts are refreshed with the latest weather data, even if a prior evaluation exists.',
+  },
+  EVALUATE_ALL: {
+    label: 'Evaluate Everything (JFDI)',
+    description: 'Ignore all skip logic — evaluate every slot for every location regardless of prior data. Useful for a full refresh, but maximises API cost.',
+  },
+};
+
+const CONFLICTS = {
+  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING'],
+  SKIP_LOW_RATED: ['SKIP_EXISTING', 'EVALUATE_ALL'],
+  SKIP_EXISTING: ['SKIP_LOW_RATED', 'EVALUATE_ALL'],
+  FORCE_IMMINENT: [],
+  FORCE_STALE: [],
+};
+
 /**
- * Admin-only view for selecting the active evaluation model per run type.
- * Shows three sub-tabs (Very Short-Term, Short-Term, Long-Term) each with
- * an independent model picker.
+ * Admin-only view for selecting the active evaluation model per run type
+ * and configuring cost optimisation strategies.
  */
 export default function ModelSelectionView() {
   const [availableModels, setAvailableModels] = useState([]);
   const [configs, setConfigs] = useState({});
+  const [strategies, setStrategies] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [switching, setSwitching] = useState(false);
   const [activeTab, setActiveTab] = useState('VERY_SHORT_TERM');
+  const [locationCount, setLocationCount] = useState(0);
 
   useEffect(() => {
     fetchModels();
@@ -54,9 +100,15 @@ export default function ModelSelectionView() {
     try {
       setLoading(true);
       setError(null);
-      const data = await getAvailableModels();
+      const [data, locations] = await Promise.all([getAvailableModels(), fetchLocations()]);
       setAvailableModels(data.available || []);
       setConfigs(data.configs || {});
+      setStrategies(data.optimisationStrategies || {});
+      // Count enabled non-wildlife locations (wildlife doesn't use Claude)
+      const evalLocations = (locations || []).filter(
+        (l) => l.enabled !== false && !(l.locationType?.length === 1 && l.locationType[0] === 'WILDLIFE')
+      );
+      setLocationCount(evalLocations.length);
     } catch (err) {
       setError('Failed to load available models');
       console.error(err);
@@ -85,6 +137,50 @@ export default function ModelSelectionView() {
     }
   };
 
+  const handleStrategyToggle = async (runType, strategyType, newEnabled, paramValue = null) => {
+    try {
+      setError(null);
+      setSuccess(null);
+      const result = await updateOptimisationStrategy(runType, strategyType, newEnabled, paramValue);
+      // Update local state
+      setStrategies((prev) => {
+        const updated = { ...prev };
+        const list = (updated[runType] || []).map((s) =>
+          s.strategyType === result.strategyType
+            ? { ...s, enabled: result.enabled, paramValue: result.paramValue || s.paramValue }
+            : s
+        );
+        updated[runType] = list;
+        return updated;
+      });
+      const info = STRATEGY_INFO[strategyType];
+      setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data || `Failed to update ${strategyType}`;
+      setError(typeof msg === 'string' ? msg : `Failed to update ${strategyType}`);
+      console.error(err);
+    }
+  };
+
+  const handleParamChange = async (runType, strategyType, newParam) => {
+    try {
+      setError(null);
+      await updateOptimisationStrategy(runType, strategyType, true, newParam);
+      setStrategies((prev) => {
+        const updated = { ...prev };
+        const list = (updated[runType] || []).map((s) =>
+          s.strategyType === strategyType ? { ...s, paramValue: newParam } : s
+        );
+        updated[runType] = list;
+        return updated;
+      });
+    } catch (err) {
+      setError(`Failed to update parameter for ${strategyType}`);
+      console.error(err);
+    }
+  };
+
   if (loading) {
     return (
       <div className="card">
@@ -103,6 +199,17 @@ export default function ModelSelectionView() {
   }
 
   const activeModelForTab = configs[activeTab] || 'HAIKU';
+  const tabStrategies = strategies[activeTab] || [];
+
+  // Determine which strategies are blocked by currently-enabled ones
+  const enabledTypes = tabStrategies.filter((s) => s.enabled).map((s) => s.strategyType);
+  const getConflictReason = (strategyType) => {
+    if (enabledTypes.includes(strategyType)) return null; // already enabled, no conflict
+    const conflicts = CONFLICTS[strategyType] || [];
+    const blocking = conflicts.filter((c) => enabledTypes.includes(c));
+    if (blocking.length === 0) return null;
+    return `Conflicts with ${blocking.map((b) => STRATEGY_INFO[b]?.label || b).join(', ')}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -184,10 +291,14 @@ export default function ModelSelectionView() {
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
-                  <span className="font-medium">Pricing:</span> {info.pricing}
+                  <span className="font-medium">Typical cost:</span>{' '}
+                  <span className="text-plex-text">{info.typicalCost}/call</span>
                 </div>
                 <div>
                   <span className="font-medium">Speed:</span> {info.speed}
+                </div>
+                <div className="text-xs opacity-70">
+                  Token rates: {info.tokenRates}
                 </div>
               </div>
 
@@ -208,11 +319,145 @@ export default function ModelSelectionView() {
         })}
       </div>
 
+      {/* Cost estimate table for the active run type */}
+      {DAYS_PER_RUN[activeTab] && locationCount > 0 && (
+        <div className="card border border-plex-border">
+          <h3 className="font-semibold text-plex-text mb-1">
+            Estimated run cost
+            <span className="font-normal text-sm text-plex-text-secondary ml-2">
+              ({locationCount} location{locationCount !== 1 ? 's' : ''}, {DAYS_PER_RUN[activeTab]} days, sunrise + sunset)
+            </span>
+          </h3>
+          <p className="text-xs text-plex-text-secondary mb-3">
+            {locationCount * DAYS_PER_RUN[activeTab] * 2} Claude calls per run, before optimisation strategies
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="cost-estimate-table">
+              <thead>
+                <tr className="text-left text-plex-text-secondary border-b border-plex-border">
+                  <th className="pb-2 pr-4">Model</th>
+                  <th className="pb-2 pr-4 text-right">Per call</th>
+                  <th className="pb-2 text-right">Run total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {['HAIKU', 'SONNET', 'OPUS'].map((model) => {
+                  const calls = locationCount * DAYS_PER_RUN[activeTab] * 2;
+                  const total = (COST_PER_CALL[model] * calls).toFixed(2);
+                  const isActive = model === activeModelForTab;
+                  return (
+                    <tr
+                      key={model}
+                      className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}
+                    >
+                      <td className="py-1.5 pr-4 font-medium">
+                        {MODEL_INFO[model].name}
+                        {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right font-mono text-xs">
+                        {MODEL_INFO[model].typicalCost}
+                      </td>
+                      <td className="py-1.5 text-right font-mono text-xs">${total}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Cost Optimisation Strategies */}
+      {tabStrategies.length > 0 && (
+        <div className="card border border-plex-border">
+          <h3 className="font-semibold text-plex-text mb-4">Cost Optimisation</h3>
+          <div className="space-y-3">
+            {tabStrategies
+              .filter((s) => STRATEGY_INFO[s.strategyType])
+              .map((strategy) => {
+                const info = STRATEGY_INFO[strategy.strategyType];
+                const conflictReason = getConflictReason(strategy.strategyType);
+                const isDisabled = conflictReason !== null;
+
+                return (
+                  <div
+                    key={strategy.strategyType}
+                    className={`flex items-center justify-between py-2 px-3 rounded-lg ${
+                      strategy.enabled
+                        ? 'bg-green-900/10 border border-green-800/30'
+                        : isDisabled
+                          ? 'bg-plex-surface opacity-60'
+                          : 'bg-plex-surface hover:bg-plex-surface-light'
+                    }`}
+                    data-testid={`strategy-row-${strategy.strategyType}`}
+                  >
+                    <div className="flex-1 min-w-0 mr-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-plex-text">
+                          {info.label}
+                        </span>
+                        <InfoTip text={info.description} />
+                      </div>
+                      {isDisabled && (
+                        <p className="text-xs text-yellow-500 mt-1">{conflictReason}</p>
+                      )}
+                      {/* Parameter slider for SKIP_LOW_RATED */}
+                      {info.hasParam && strategy.enabled && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-plex-text-secondary">{info.paramLabel}:</span>
+                          <div className="flex gap-1">
+                            {[1, 2, 3, 4, 5].map((val) => (
+                              <button
+                                key={val}
+                                onClick={() => handleParamChange(activeTab, strategy.strategyType, val)}
+                                className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                                  (strategy.paramValue || 3) === val
+                                    ? 'bg-plex-gold text-gray-900'
+                                    : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border'
+                                }`}
+                                data-testid={`param-${strategy.strategyType}-${val}`}
+                              >
+                                {val}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() =>
+                        handleStrategyToggle(
+                          activeTab,
+                          strategy.strategyType,
+                          !strategy.enabled,
+                          strategy.paramValue
+                        )
+                      }
+                      disabled={isDisabled && !strategy.enabled}
+                      className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                        strategy.enabled
+                          ? 'bg-green-600/30 text-green-400 hover:bg-green-600/50'
+                          : isDisabled
+                            ? 'bg-plex-border text-plex-text-muted cursor-not-allowed'
+                            : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'
+                      }`}
+                      data-testid={`strategy-toggle-${strategy.strategyType}`}
+                    >
+                      {strategy.enabled ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       <div className="bg-plex-surface border border-plex-border rounded-lg p-4 text-sm text-plex-text-secondary">
         <p className="font-medium text-plex-text mb-2">About model configuration</p>
         <ul className="space-y-1 text-xs">
           <li>Each run type can use a different Claude model independently</li>
           <li>Use a more accurate model (Opus/Sonnet) for imminent forecasts, cheaper (Haiku) for distant ones</li>
+          <li>Cost optimisation strategies control which slots are skipped to save API costs</li>
           <li>Wildlife-only locations automatically display weather data without AI evaluation</li>
           <li>Previous forecasts are preserved with their original model</li>
           <li>Haiku offers excellent value for most use cases</li>

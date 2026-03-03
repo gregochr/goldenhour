@@ -5,8 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (Mar 3, 2026)
+- **Merge REQUIRE_PRIOR into SKIP_LOW_RATED** — SKIP_LOW_RATED now also skips when no prior evaluation exists, reducing strategies from 6 to 5
+  - V40 migration: deletes REQUIRE_PRIOR rows from `optimisation_strategy` table
+  - `OptimisationSkipEvaluator`: SKIP_LOW_RATED checks `latest.isEmpty()` first, then rating threshold
+  - Mutual exclusion rules updated (REQUIRE_PRIOR entries removed)
+- **Improved strategy labels and descriptions** — all five strategies have clearer names and actionable descriptions in the Admin UI
+  - Skip Existing → "Skip Already-Evaluated", Force Imminent → "Always Evaluate Today", Force Stale → "Re-evaluate Stale Data", Evaluate All → "Evaluate Everything (JFDI)"
+- **Per-call cost estimates in Run Config** — model cards show typical cost per call; cost estimate table shows run total based on actual configured location count
+- **Configurable Vite proxy target** — `VITE_API_TARGET` env var in `frontend/.env` switches between local dev (8083) and Docker prod (8082); `/actuator` also proxied
+
 ### Fixed (Mar 3, 2026)
+- **Disabled button UX** — `btn-primary` and `btn-secondary` now show visible disabled state (40% opacity, not-allowed cursor)
+- **Add Location hint** — "Review & Confirm" button shows helper text when in place search mode without a geocode result
 - **Vitest 4 compatibility** — `useIsMobile.test.js` replaced `vi.spyOn(window, 'matchMedia')` with `vi.stubGlobal('matchMedia', ...)` because `window.matchMedia` is `undefined` in Vitest 4's jsdom environment
+
+### Added (Mar 3, 2026)
+- **Configurable cost optimisation strategies** — five toggleable strategies per run type replace hard-coded Opus gate and long-term skip logic
+  - Strategies: SKIP_LOW_RATED (threshold param), SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL (JFDI mode)
+  - V39 migration: `optimisation_strategy` table (15 rows seeded), `active_strategies` column on `job_run` for audit trail
+  - `OptimisationSkipEvaluator` evaluates strategies with shared DB lookup; `OptimisationStrategyService` handles CRUD + mutual exclusion validation
+  - `ForecastCommandExecutor` refactored to delegate skip logic to evaluator instead of hard-coded methods
+  - Admin UI: "Cost Optimisation" section in Run Config tab with toggle pills, parameter buttons, and conflict indicators
+  - `PUT /api/models/optimisation` endpoint for strategy toggles; `GET /api/models` now includes strategy data
+  - Job Runs grid shows active strategies as badges; EVALUATE_ALL displays distinct "JFDI" badge
+  - **LocationManagementView tests** — 8 new tests covering add form, disabled states, and hint messages
+  - 607 backend tests, 151 frontend tests; all passing
 
 ### Added (Mar 2, 2026)
 - **Token-based cost tracking** — replaces flat per-call pence estimates with actual token-based micro-dollar pricing from Anthropic SDK responses
