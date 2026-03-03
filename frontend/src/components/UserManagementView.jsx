@@ -2,6 +2,8 @@ import React, { useEffect, useOptimistic, useState, useTransition, useMemo } fro
 import PropTypes from 'prop-types';
 import axios from 'axios';
 import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
+import Pagination from './Pagination.jsx';
+import usePagination from '../hooks/usePagination.js';
 
 /**
  * Sortable, filterable header cell for data tables.
@@ -16,12 +18,12 @@ import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, 
  * @param {function} props.onFilter - Called with new filter value.
  * @param {string} [props.filterPlaceholder] - Placeholder for filter input.
  */
-function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder }) {
+function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder, className = '' }) {
   const active = currentSortKey === sortKey;
   const arrow = active ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
   return (
-    <th className="pb-1 font-medium align-bottom">
+    <th className={`pb-1 font-medium align-bottom ${className}`}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -52,6 +54,7 @@ SortableHeader.propTypes = {
   filterValue: PropTypes.string.isRequired,
   onFilter: PropTypes.func.isRequired,
   filterPlaceholder: PropTypes.string,
+  className: PropTypes.string,
 };
 
 /**
@@ -183,6 +186,8 @@ export default function UserManagementView() {
   const sf = useSortAndFilter('username', 'asc', userAccessors);
 
   const filteredUsers = useMemo(() => sf.apply(optimisticUsers), [sf, optimisticUsers]);
+
+  const { pageItems: pageUsers, ...pagination } = usePagination(filteredUsers);
 
   async function fetchUsers() {
     try {
@@ -410,26 +415,26 @@ export default function UserManagementView() {
 
           {!usersLoading && users.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left" data-testid="users-table">
+              <table className="w-full text-sm text-left table-fixed" data-testid="users-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Username" sortKey="username" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
-                    <SortableHeader label="Email" sortKey="email" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
-                    <SortableHeader label="Role" sortKey="role" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
-                    <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
-                    <SortableHeader label="Last Active" sortKey="lastActive" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
-                    <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium align-top">
+                    <SortableHeader label="Username" sortKey="username" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
+                    <SortableHeader label="Email" sortKey="email" className="w-[22%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
+                    <SortableHeader label="Role" sortKey="role" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
+                    <SortableHeader label="Created" sortKey="created" className="w-[11%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Last Active" sortKey="lastActive" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
+                    <SortableHeader label="Status" sortKey="status" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium align-top w-[19%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((user) => (
+                  {pageUsers.map((user) => (
                     <tr key={user.id} className={`border-b border-plex-surface last:border-0 ${!user.enabled ? 'opacity-50' : ''}`}>
-                      <td className="py-2 text-plex-text">{user.username}</td>
-                      <td className="py-2 text-plex-text-secondary text-xs">{user.email || '—'}</td>
+                      <td className="py-2 text-plex-text truncate" title={user.username}>{user.username}</td>
+                      <td className="py-2 text-plex-text-secondary text-xs truncate" title={user.email || ''}>{user.email || '—'}</td>
                       <td className="py-2">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${
                           user.role === 'ADMIN'
@@ -503,8 +508,26 @@ export default function UserManagementView() {
                       </td>
                     </tr>
                   )}
+                  {pageUsers.length > 0 && pageUsers.length < pagination.pageSize && (
+                    Array.from({ length: pagination.pageSize - pageUsers.length }, (_, i) => (
+                      <tr key={`spacer-${i}`} aria-hidden="true">
+                        <td colSpan={7} className="py-2 text-sm">&nbsp;</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
+              <Pagination
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                pageSize={pagination.pageSize}
+                totalItems={filteredUsers.length}
+                onNextPage={pagination.nextPage}
+                onPrevPage={pagination.prevPage}
+                onFirstPage={pagination.firstPage}
+                onLastPage={pagination.lastPage}
+                onSetPageSize={pagination.setPageSize}
+              />
             </div>
           )}
         </>

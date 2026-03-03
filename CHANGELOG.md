@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 4, 2026)
+- **Client-side pagination for Locations and Users tables** — shared `usePagination` hook and `Pagination` component
+  - Default page size of 10 with 10/25/50 size chips
+  - First/Prev/Next/Last navigation buttons with "Showing X-Y of Z" summary
+  - `table-fixed` with explicit column widths prevents column shifting between pages
+  - Spacer rows on partial last page keep pagination controls anchored (no layout jump)
+  - Resets to page 1 when filters change; pagination hidden when all items fit on one page
+  - Truncated cell content with hover tooltips for long names/emails
+  - 32 new tests: `usePagination.test.js` (13), `Pagination.test.jsx` (13), `UserManagementView.test.jsx` (4), `LocationManagementView.test.jsx` (+2)
+
 ### Added (Mar 3, 2026)
 - **Marker clustering** — `react-leaflet-cluster` groups nearby markers at low zoom levels
   - Clusters display marker count with grey→gold background based on average child rating

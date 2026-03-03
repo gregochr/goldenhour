@@ -4,6 +4,8 @@ import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocod
 import { fetchRegions } from '../api/regionApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
+import Pagination from './Pagination.jsx';
+import usePagination from '../hooks/usePagination.js';
 
 const GOLDEN_HOUR_TYPES = [
   { value: 'BOTH_TIMES', label: 'Both Times' },
@@ -92,12 +94,12 @@ function firstOrDefault(set, fallback) {
  * @param {function} props.onFilter - Called with new filter value.
  * @param {string} [props.filterPlaceholder] - Placeholder for filter input.
  */
-function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder }) {
+function SortableHeader({ label, sortKey, currentSortKey, currentSortDir, onSort, filterValue, onFilter, filterPlaceholder, className = '' }) {
   const active = currentSortKey === sortKey;
   const arrow = active ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
   return (
-    <th className="pb-1 font-medium align-bottom">
+    <th className={`pb-1 font-medium align-bottom ${className}`}>
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -128,6 +130,7 @@ SortableHeader.propTypes = {
   filterValue: PropTypes.string.isRequired,
   onFilter: PropTypes.func.isRequired,
   filterPlaceholder: PropTypes.string,
+  className: PropTypes.string,
 };
 
 /**
@@ -262,6 +265,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const sf = useSortAndFilter('name', 'asc', locationAccessors);
 
   const filteredLocations = useMemo(() => sf.apply(optimisticLocations), [sf, optimisticLocations]);
+
+  const { pageItems: pageLocations, ...pagination } = usePagination(filteredLocations);
 
   async function refreshLocations() {
     try {
@@ -481,33 +486,33 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
           {!loading && locations.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left" data-testid="locations-table">
+              <table className="w-full text-sm text-left table-fixed" data-testid="locations-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Name" sortKey="name" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
-                    <th className="pb-1 font-medium align-top">
+                    <SortableHeader label="Name" sortKey="name" className="w-[18%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
+                    <th className="pb-1 font-medium align-top w-[12%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Coords</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
-                    <SortableHeader label="Type" sortKey="type" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('type')} onFilter={(v) => sf.setFilter('type', v)} />
-                    <SortableHeader label="Region" sortKey="region" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
-                    <SortableHeader label="Solar" sortKey="solar" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
-                    <SortableHeader label="Tide" sortKey="tide" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('tide')} onFilter={(v) => sf.setFilter('tide', v)} />
-                    <SortableHeader label="Created" sortKey="created" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
-                    <SortableHeader label="Status" sortKey="status" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium align-top">
+                    <SortableHeader label="Type" sortKey="type" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('type')} onFilter={(v) => sf.setFilter('type', v)} />
+                    <SortableHeader label="Region" sortKey="region" className="w-[12%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
+                    <SortableHeader label="Solar" sortKey="solar" className="w-[11%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
+                    <SortableHeader label="Tide" sortKey="tide" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('tide')} onFilter={(v) => sf.setFilter('tide', v)} />
+                    <SortableHeader label="Created" sortKey="created" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium align-top w-[8%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLocations.map((loc) => (
+                  {pageLocations.map((loc) => (
                     <tr
                       key={loc.id}
                       className={`border-b border-plex-surface last:border-0 ${!loc.enabled ? 'opacity-50' : ''}`}
                     >
-                      <td className="py-2 text-plex-text">
+                      <td className="py-2 text-plex-text truncate" title={loc.name}>
                         {loc.name}
                         {loc.consecutiveFailures > 0 && !loc.disabledReason && (
                           <span className="inline-flex items-center gap-0.5 ml-1.5">
@@ -569,8 +574,26 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       </td>
                     </tr>
                   )}
+                  {pageLocations.length > 0 && pageLocations.length < pagination.pageSize && (
+                    Array.from({ length: pagination.pageSize - pageLocations.length }, (_, i) => (
+                      <tr key={`spacer-${i}`} aria-hidden="true">
+                        <td colSpan={9} className="py-2 text-sm">&nbsp;</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
+              <Pagination
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                pageSize={pagination.pageSize}
+                totalItems={filteredLocations.length}
+                onNextPage={pagination.nextPage}
+                onPrevPage={pagination.prevPage}
+                onFirstPage={pagination.firstPage}
+                onLastPage={pagination.lastPage}
+                onSetPageSize={pagination.setPageSize}
+              />
             </div>
           )}
 
