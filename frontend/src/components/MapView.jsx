@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
+import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
@@ -20,7 +22,7 @@ const popupStyles = `
   }
 `;
 import InfoTip from './InfoTip.jsx';
-import { scoreColour, buildMarkerSvg, markerLabelAndColour, RATING_COLOURS } from './markerUtils.js';
+import { scoreColour, buildMarkerSvg, markerLabelAndColour, createClusterIcon, RATING_COLOURS } from './markerUtils.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
@@ -113,9 +115,10 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
         font-size:10px;font-weight:600;
         padding:2px 7px;border-radius:4px;
         white-space:nowrap;
+        max-width:90px;overflow:hidden;text-overflow:ellipsis;
         box-shadow:0 1px 4px rgba(0,0,0,0.5);
         border:1px solid rgba(255,255,255,0.08);
-      ">${locationName}</div>
+      " title="${locationName}">${locationName}</div>
     </div>
   `;
 
@@ -124,6 +127,9 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
     className: '',
     iconSize: [100, 62],
     iconAnchor: [50, 22],
+    rating: rating,
+    fierySky: fierySky,
+    goldenHour: goldenHour,
     popupAnchor: [0, -26],
   });
 }
@@ -398,50 +404,61 @@ export default function MapView({ locations, date }) {
             />
           )}
 
-          {visibleLocations.map((loc) => {
-            const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
-            const icon = makeMarkerIcon(
-              forecast?.rating ?? null,
-              role !== 'LITE_USER' ? (forecast?.fierySkyPotential ?? null) : null,
-              role !== 'LITE_USER' ? (forecast?.goldenHourPotential ?? null) : null,
-              loc.name,
-              isPureWildlife,
-            );
+          <MarkerClusterGroup
+            chunkedLoading
+            iconCreateFunction={(cluster) => createClusterIcon(cluster, role)}
+            maxClusterRadius={60}
+            disableClusteringAtZoom={10}
+            showCoverageOnHover={false}
+            spiderfyOnMaxZoom
+            zoomToBoundsOnClick
+            animate
+          >
+            {visibleLocations.map((loc) => {
+              const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
+              const icon = makeMarkerIcon(
+                forecast?.rating ?? null,
+                role !== 'LITE_USER' ? (forecast?.fierySkyPotential ?? null) : null,
+                role !== 'LITE_USER' ? (forecast?.goldenHourPotential ?? null) : null,
+                loc.name,
+                isPureWildlife,
+              );
 
-            return (
-              <Marker
-                key={loc.name}
-                position={[loc.lat, loc.lon]}
-                icon={icon}
-                eventHandlers={{
-                  click: () => setSelectedLocationName(loc.name),
-                  ...(isMobile ? {} : {
-                    popupclose: () => { setSelectedLocationName(null); setExpandedPopup(null); },
-                  }),
-                }}
-              >
-                {!isMobile && (
-                  <Popup maxWidth={9999} maxHeight={600}>
-                    <div key={`${date}-${eventType}`} className="animate-popup-refresh">
-                      <MarkerPopupContent
-                        location={loc}
-                        forecast={forecast}
-                        hourlyData={hourlyData}
-                        eventType={eventType}
-                        isPureWildlife={isPureWildlife}
-                        isExpanded={expandedPopup === loc.name}
-                        onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
-                        role={role}
-                        date={date}
-                        onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
-                        tideFetchedAt={tideFetchedAt[loc.name] ?? null}
-                      />
-                    </div>
-                  </Popup>
-                )}
-              </Marker>
-            );
-          })}
+              return (
+                <Marker
+                  key={loc.name}
+                  position={[loc.lat, loc.lon]}
+                  icon={icon}
+                  eventHandlers={{
+                    click: () => setSelectedLocationName(loc.name),
+                    ...(isMobile ? {} : {
+                      popupclose: () => { setSelectedLocationName(null); setExpandedPopup(null); },
+                    }),
+                  }}
+                >
+                  {!isMobile && (
+                    <Popup maxWidth={9999} maxHeight={600}>
+                      <div key={`${date}-${eventType}`} className="animate-popup-refresh">
+                        <MarkerPopupContent
+                          location={loc}
+                          forecast={forecast}
+                          hourlyData={hourlyData}
+                          eventType={eventType}
+                          isPureWildlife={isPureWildlife}
+                          isExpanded={expandedPopup === loc.name}
+                          onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
+                          role={role}
+                          date={date}
+                          onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
+                          tideFetchedAt={tideFetchedAt[loc.name] ?? null}
+                        />
+                      </div>
+                    </Popup>
+                  )}
+                </Marker>
+              );
+            })}
+          </MarkerClusterGroup>
         </MapContainer>
       </div>
 

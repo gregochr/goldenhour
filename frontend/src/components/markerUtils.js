@@ -2,6 +2,7 @@
  * Utility functions for building map marker SVGs and computing score colours.
  * Extracted from MapView for testability.
  */
+import L from 'leaflet';
 
 /** Half-circumference of the arc circle (radius 19). */
 const HALF_CIRC = Math.PI * 19;
@@ -123,4 +124,71 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
   <circle cx="22" cy="22" r="17" fill="${colour}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
   <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="#0f172a">${label}</text>
 </svg>`;
+}
+
+/**
+ * Creates a custom Leaflet DivIcon for a marker cluster group.
+ * Background colour follows the grey→gold ramp based on average child rating.
+ * PRO/ADMIN users see fiery sky (left) and golden hour (right) half-arc progress.
+ * Sized by cluster child count.
+ *
+ * @param {object} cluster - Leaflet MarkerCluster instance.
+ * @param {string} [role] - User role (ADMIN/PRO_USER/LITE_USER).
+ * @returns {L.DivIcon}
+ */
+export function createClusterIcon(cluster, role) {
+  const count = cluster.getChildCount();
+  let size = 40;
+  if (count >= 20) size = 56;
+  else if (count >= 10) size = 48;
+
+  const markers = cluster.getAllChildMarkers();
+
+  const ratings = markers
+    .map((m) => m.options.icon?.options?.rating)
+    .filter((r) => r != null);
+  const avgScore = ratings.length > 0
+    ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length) * 20
+    : null;
+  const bg = scoreColour(avgScore);
+
+  const fieryScores = markers
+    .map((m) => m.options.icon?.options?.fierySky)
+    .filter((s) => s != null);
+  const goldenScores = markers
+    .map((m) => m.options.icon?.options?.goldenHour)
+    .filter((s) => s != null);
+  const avgFiery = fieryScores.length > 0
+    ? fieryScores.reduce((sum, v) => sum + v, 0) / fieryScores.length
+    : null;
+  const avgGolden = goldenScores.length > 0
+    ? goldenScores.reduce((sum, v) => sum + v, 0) / goldenScores.length
+    : null;
+
+  const showArcs = role !== 'LITE_USER' && avgFiery != null && avgGolden != null;
+
+  let arcsHtml = '';
+  if (showArcs) {
+    arcsHtml = `<circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3"/>`;
+    if (avgFiery > 0) {
+      const fill = HALF_CIRC * (avgFiery / 100);
+      arcsHtml += `<path d="${LEFT_ARC}" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`;
+    }
+    if (avgGolden > 0) {
+      const fill = HALF_CIRC * (avgGolden / 100);
+      arcsHtml += `<path d="${RIGHT_ARC}" fill="none" stroke="#E5A00D" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`;
+    }
+  }
+
+  const html = `<svg width="${size}" height="${size}" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.7))">
+  ${arcsHtml}
+  <circle cx="22" cy="22" r="17" fill="${bg}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
+  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="#0f172a">${count}</text>
+</svg>`;
+
+  return L.divIcon({
+    html,
+    className: '',
+    iconSize: L.point(size, size),
+  });
 }

@@ -65,6 +65,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - Single-location test: `POST /run-location?locationId=X` with location picker modal
   - Re-run previous test: `POST /rerun?testRunId=X` with same locations, fresh data
   - Run row toggle: click expanded run to collapse
+- **Marker clustering** ✓ — `react-leaflet-cluster` groups nearby markers at low zoom (< 10); dark-themed cluster icons with count, background colour from grey→gold based on average child rating, fiery sky / golden hour arc progress for PRO/ADMIN; long location name labels truncated with ellipsis (90px max-width, full name on hover)
 - **Star rating filter** ✓ — 5 toggle chips (1★–5★) on the map filter bar; any permutation selectable; AND-ed with location type filters
 - **Last active tracking** ✓ — `lastActiveAt` column (V37) updated on every authenticated API request, throttled to once per hour; replaces login-only `lastLoginAt`
 - **Self-registration with email verification** ✓ — users sign up with email + username, verify via emailed link, set their own password
