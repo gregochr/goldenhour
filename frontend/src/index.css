@@ -44,11 +44,11 @@
   }
 
   .btn-primary {
-    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-gold hover:bg-plex-gold-light text-gray-900 focus:ring-plex-gold;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-gold hover:bg-plex-gold-light text-gray-900 focus:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-gold;
   }
 
   .btn-secondary {
-    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus:ring-plex-border;
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus:ring-plex-border disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
   }
 }
 

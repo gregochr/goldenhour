@@ -97,6 +97,10 @@ public class JobRunEntity {
     @Column(name = "exchange_rate_gbp_per_usd")
     private Double exchangeRateGbpPerUsd;
 
+    /** Comma-separated list of enabled optimisation strategy names at run start (audit trail). */
+    @Column(name = "active_strategies")
+    private String activeStrategies;
+
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;

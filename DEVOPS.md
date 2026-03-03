@@ -1,23 +1,32 @@
 # Golden Hour — Developer Scratchpad
 
+## Ports
+
+| Service | Local dev | Docker prod |
+|---------|-----------|-------------|
+| Backend (Spring Boot) | 8083 | 8082 |
+| Frontend (Vite) | 5173 | — (served via CloudFlare) |
+
+Frontend proxy target is configured in `frontend/.env` (`VITE_API_TARGET`).
+Default: `http://localhost:8083`. For Docker prod: `http://localhost:8082`.
+
 ## Kill Processes
 
 ```bash
-# Kill backend (Spring Boot on port 8082)
-lsof -ti:8082 | xargs kill -9
+# Kill backend (Spring Boot — local dev on 8083, Docker prod on 8082)
+lsof -ti:8083 | xargs kill -9
 
 # Kill frontend (Vite dev server on port 5173)
 lsof -ti:5173 | xargs kill -9
 
 # Kill both
-lsof -ti:8082 | xargs kill -9; lsof -ti:5173 | xargs kill -9
+lsof -ti:8083 | xargs kill -9; lsof -ti:5173 | xargs kill -9
 ```
 
 ## Start Services
 
 ```bash
-# Start backend (from backend directory, with local H2 profile)
-export ANTHROPIC_API_KEY=sk-ant-...
+# Start backend (from backend directory, with local H2 profile — port 8083)
 cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 
 # Start frontend (from frontend directory)
@@ -57,8 +66,8 @@ cd frontend && npm run test:e2e
 # Reset local H2 database (delete files)
 rm backend/data/goldenhour.mv.db backend/data/goldenhour.lock.db
 
-# Access H2 console while backend is running
-# URL: http://localhost:8082/h2-console
+# Access H2 console while backend is running (local dev)
+# URL: http://localhost:8083/h2-console
 # JDBC URL: jdbc:h2:file:./data/goldenhour
 # User: sa
 # Password: (empty)
@@ -68,21 +77,21 @@ rm backend/data/goldenhour.mv.db backend/data/goldenhour.lock.db
 
 ```bash
 # Login and get tokens
-curl -s -X POST http://127.0.0.1:8082/api/auth/login \
+curl -s -X POST http://127.0.0.1:8083/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"golden2026"}' | python3 -m json.tool
 
 # Get forecast (requires token from above)
 TOKEN=eyJ... # paste from login response
-curl -s http://127.0.0.1:8082/api/forecast \
+curl -s http://127.0.0.1:8083/api/forecast \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
 # Trigger forecast run
-curl -s -X POST http://127.0.0.1:8082/api/forecast/run \
+curl -s -X POST http://127.0.0.1:8083/api/forecast/run \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
 # Get all locations
-curl -s http://127.0.0.1:8082/api/locations \
+curl -s http://127.0.0.1:8083/api/locations \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 ```
 
@@ -131,7 +140,7 @@ git reset --hard origin/main
 ## Useful URLs (when services are running)
 
 - Frontend: http://localhost:5173
-- Backend API: http://127.0.0.1:8082
+- Backend API: http://127.0.0.1:8083
 - H2 Console: http://localhost:8082/h2-console
 - Spring Actuator Health: http://localhost:8082/actuator/health
 - Playwright HTML Report: `frontend/test-results/` (after running E2E tests)

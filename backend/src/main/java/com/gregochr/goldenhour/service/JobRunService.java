@@ -56,13 +56,29 @@ public class JobRunService {
      *
      * <p>Fetches today's exchange rate and stores it on the run for historical GBP conversion.
      *
-     * @param runType           the type of forecast run
-     * @param triggeredManually whether this run was triggered manually (true) or by scheduler (false)
-     * @param evaluationModel   the Claude model used (null for WEATHER/TIDE)
+     * @param runType            the type of forecast run
+     * @param triggeredManually  whether this run was triggered manually (true) or by scheduler (false)
+     * @param evaluationModel    the Claude model used (null for WEATHER/TIDE)
      * @return the newly created job run entity
      */
     public JobRunEntity startRun(RunType runType, boolean triggeredManually,
             EvaluationModel evaluationModel) {
+        return startRun(runType, triggeredManually, evaluationModel, null);
+    }
+
+    /**
+     * Starts a new job run with the given run type, evaluation model, and active strategies.
+     *
+     * <p>Fetches today's exchange rate and stores it on the run for historical GBP conversion.
+     *
+     * @param runType            the type of forecast run
+     * @param triggeredManually  whether this run was triggered manually (true) or by scheduler (false)
+     * @param evaluationModel    the Claude model used (null for WEATHER/TIDE)
+     * @param activeStrategies   comma-separated list of enabled strategy names, or null
+     * @return the newly created job run entity
+     */
+    public JobRunEntity startRun(RunType runType, boolean triggeredManually,
+            EvaluationModel evaluationModel, String activeStrategies) {
         Double exchangeRate = null;
         try {
             exchangeRate = exchangeRateService.getCurrentRate();
@@ -80,6 +96,7 @@ public class JobRunService {
                 .totalCostPence(0)
                 .triggeredManually(triggeredManually)
                 .exchangeRateGbpPerUsd(exchangeRate)
+                .activeStrategies(activeStrategies)
                 .build();
         return jobRunRepository.save(jobRun);
     }
