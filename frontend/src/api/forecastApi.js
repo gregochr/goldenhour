@@ -16,8 +16,8 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, attempt a single token refresh before clearing session.
-let isRefreshing = false;
+// On 401, attempt a single token refresh and queue concurrent requests.
+let refreshPromise = null;
 
 axios.interceptors.response.use(
   (response) => response,
@@ -25,27 +25,38 @@ axios.interceptors.response.use(
     const original = error.config;
     const storedRefresh = localStorage.getItem(REFRESH_KEY);
 
-    // Only attempt refresh if we have a refresh token and haven't already tried.
-    if (error.response?.status === 401 && !original._retried && !isRefreshing && storedRefresh) {
-      original._retried = true;
-      isRefreshing = true;
-      try {
-        const data = await refreshAccessToken(storedRefresh);
+    if (error.response?.status !== 401 || original._retried || !storedRefresh) {
+      return Promise.reject(error);
+    }
+
+    original._retried = true;
+
+    // If a refresh is already in flight, wait for it then retry with the new token.
+    if (refreshPromise) {
+      await refreshPromise;
+      original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
+      return axios(original);
+    }
+
+    // First 401 triggers the refresh; concurrent 401s await the same promise.
+    refreshPromise = refreshAccessToken(storedRefresh)
+      .then((data) => {
         localStorage.setItem(TOKEN_KEY, data.accessToken);
         if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
-        original.headers['Authorization'] = `Bearer ${data.accessToken}`;
-        isRefreshing = false;
-        return axios(original);
-      } catch {
-        // Refresh failed — clear session so AuthGate shows LoginPage.
+      })
+      .catch(() => {
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(REFRESH_KEY);
         localStorage.removeItem('goldenhour_role');
-        isRefreshing = false;
         window.location.href = '/';
-      }
-    }
-    return Promise.reject(error);
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+
+    await refreshPromise;
+    original.headers['Authorization'] = `Bearer ${localStorage.getItem(TOKEN_KEY)}`;
+    return axios(original);
   }
 );
 
