@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Mar 3, 2026)
+- **Marker clustering** — `react-leaflet-cluster` groups nearby markers at low zoom levels
+  - Clusters display marker count with grey→gold background based on average child rating
+  - PRO/ADMIN cluster icons include fiery sky (orange) and golden hour (gold) half-arc progress from averaged scores
+  - LITE users see plain coloured cluster circles (no arcs)
+  - `disableClusteringAtZoom={10}` ensures individual markers at close zoom
+  - `maxClusterRadius={60}` for moderate clustering density
+  - Long location name labels truncated with ellipsis (90px max-width); full name shown on hover via `title` attribute
+  - `createClusterIcon` in `markerUtils.js` with 15 unit tests
 - **Radial progress arcs on map markers** — SVG-based arc gauges replace plain coloured circles
   - PRO/ADMIN: two half-arcs (left = Fiery Sky orange, right = Golden Hour gold) filling bottom-up proportionally to 0–100 score
   - LITE: single proportional ring based on 1–5 star rating
