@@ -5,6 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (Mar 3, 2026)
+- **Vitest 4 compatibility** — `useIsMobile.test.js` replaced `vi.spyOn(window, 'matchMedia')` with `vi.stubGlobal('matchMedia', ...)` because `window.matchMedia` is `undefined` in Vitest 4's jsdom environment
+
 ### Added (Mar 2, 2026)
 - **Token-based cost tracking** — replaces flat per-call pence estimates with actual token-based micro-dollar pricing from Anthropic SDK responses
   - `TokenUsage` record captures input, output, cache creation, and cache read tokens from every `Message.usage()` response
