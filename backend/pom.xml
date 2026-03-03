@@ -362,6 +362,23 @@
                 </executions>
             </plugin>
 
+            <!-- OWASP Dependency-Check — CI-only; run with: ./mvnw dependency-check:check -->
+            <plugin>
+                <groupId>org.owasp</groupId>
+                <artifactId>dependency-check-maven</artifactId>
+                <version>12.1.1</version>
+                <configuration>
+                    <failBuildOnCVSS>7</failBuildOnCVSS>
+                    <suppressionFile>dependency-check-suppressions.xml</suppressionFile>
+                    <formats>
+                        <format>HTML</format>
+                        <format>JSON</format>
+                    </formats>
+                    <!-- NVD API key speeds up database updates from ~30min to ~30sec -->
+                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                </configuration>
+            </plugin>
+
             <!-- PIT Mutation Testing — run manually: ./mvnw pitest:mutationCoverage -->
             <plugin>
                 <groupId>org.pitest</groupId>

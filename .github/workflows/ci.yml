@@ -36,12 +36,26 @@ jobs:
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
 
+      - name: OWASP Dependency-Check (backend)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress
+
       - name: Upload JaCoCo coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: backend/target/site/jacoco/
+
+      - name: Upload OWASP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-backend-report
+          path: backend/target/dependency-check-report.*
 
   # ── Frontend ─────────────────────────────────────────────────────────────────
   frontend:
@@ -66,6 +80,9 @@ jobs:
 
       - name: Unit tests (Vitest)
         run: cd frontend && npm test
+
+      - name: OWASP Dependency Audit (frontend)
+        run: cd frontend && npm audit --audit-level=high
 
       - name: Build
         run: cd frontend && npm run build

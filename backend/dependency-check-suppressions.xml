@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- Add suppressions for confirmed false positives here.
+         Example:
+         <suppress>
+             <notes>False positive: H2 is only used in tests and local dev, not exposed.</notes>
+             <cve>CVE-2022-45868</cve>
+         </suppress>
+    -->
+</suppressions>
