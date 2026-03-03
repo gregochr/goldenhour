@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi.js';
+import { fetchLocations } from '../api/forecastApi.js';
 import InfoTip from './InfoTip.jsx';
 
 const CONFIG_TABS = [
@@ -12,25 +13,34 @@ const MODEL_INFO = {
   HAIKU: {
     name: 'Haiku',
     description: 'Fast, cost-efficient model. Returns 1-5 star rating.',
-    pricing: '$1/MTok in, $5/MTok out',
+    typicalCost: '~$0.002',
+    tokenRates: '$1/MTok in, $5/MTok out',
     speed: 'Fast',
     recommended: true,
   },
   SONNET: {
     name: 'Sonnet',
     description: 'Advanced model. Returns detailed 0-100 scores for fiery sky and golden hour potential.',
-    pricing: '$3/MTok in, $15/MTok out',
+    typicalCost: '~$0.005',
+    tokenRates: '$3/MTok in, $15/MTok out',
     speed: 'Moderate',
     recommended: false,
   },
   OPUS: {
     name: 'Opus',
     description: 'Highest accuracy model. Returns detailed 0-100 scores with the deepest reasoning.',
-    pricing: '$5/MTok in, $25/MTok out',
+    typicalCost: '~$0.008',
+    tokenRates: '$5/MTok in, $25/MTok out',
     speed: 'Slower',
     recommended: false,
   },
 };
+
+/** Typical cost per call in USD, used for run cost estimates. */
+const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
+
+/** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
+const DAYS_PER_RUN = { VERY_SHORT_TERM: 2, SHORT_TERM: 3, LONG_TERM: 3 };
 
 const STRATEGY_INFO = {
   SKIP_LOW_RATED: {
@@ -85,6 +95,7 @@ export default function ModelSelectionView() {
   const [success, setSuccess] = useState(null);
   const [switching, setSwitching] = useState(false);
   const [activeTab, setActiveTab] = useState('VERY_SHORT_TERM');
+  const [locationCount, setLocationCount] = useState(0);
 
   useEffect(() => {
     fetchModels();
@@ -94,10 +105,15 @@ export default function ModelSelectionView() {
     try {
       setLoading(true);
       setError(null);
-      const data = await getAvailableModels();
+      const [data, locations] = await Promise.all([getAvailableModels(), fetchLocations()]);
       setAvailableModels(data.available || []);
       setConfigs(data.configs || {});
       setStrategies(data.optimisationStrategies || {});
+      // Count enabled non-wildlife locations (wildlife doesn't use Claude)
+      const evalLocations = (locations || []).filter(
+        (l) => l.enabled !== false && !(l.locationType?.length === 1 && l.locationType[0] === 'WILDLIFE')
+      );
+      setLocationCount(evalLocations.length);
     } catch (err) {
       setError('Failed to load available models');
       console.error(err);
@@ -280,10 +296,14 @@ export default function ModelSelectionView() {
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
-                  <span className="font-medium">Pricing:</span> {info.pricing}
+                  <span className="font-medium">Typical cost:</span>{' '}
+                  <span className="text-plex-text">{info.typicalCost}/call</span>
                 </div>
                 <div>
                   <span className="font-medium">Speed:</span> {info.speed}
+                </div>
+                <div className="text-xs opacity-70">
+                  Token rates: {info.tokenRates}
                 </div>
               </div>
 
@@ -303,6 +323,54 @@ export default function ModelSelectionView() {
           );
         })}
       </div>
+
+      {/* Cost estimate table for the active run type */}
+      {DAYS_PER_RUN[activeTab] && locationCount > 0 && (
+        <div className="card border border-plex-border">
+          <h3 className="font-semibold text-plex-text mb-1">
+            Estimated run cost
+            <span className="font-normal text-sm text-plex-text-secondary ml-2">
+              ({locationCount} location{locationCount !== 1 ? 's' : ''}, {DAYS_PER_RUN[activeTab]} days, sunrise + sunset)
+            </span>
+          </h3>
+          <p className="text-xs text-plex-text-secondary mb-3">
+            {locationCount * DAYS_PER_RUN[activeTab] * 2} Claude calls per run, before optimisation strategies
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="cost-estimate-table">
+              <thead>
+                <tr className="text-left text-plex-text-secondary border-b border-plex-border">
+                  <th className="pb-2 pr-4">Model</th>
+                  <th className="pb-2 pr-4 text-right">Per call</th>
+                  <th className="pb-2 text-right">Run total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {['HAIKU', 'SONNET', 'OPUS'].map((model) => {
+                  const calls = locationCount * DAYS_PER_RUN[activeTab] * 2;
+                  const total = (COST_PER_CALL[model] * calls).toFixed(2);
+                  const isActive = model === activeModelForTab;
+                  return (
+                    <tr
+                      key={model}
+                      className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}
+                    >
+                      <td className="py-1.5 pr-4 font-medium">
+                        {MODEL_INFO[model].name}
+                        {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right font-mono text-xs">
+                        {MODEL_INFO[model].typicalCost}
+                      </td>
+                      <td className="py-1.5 text-right font-mono text-xs">${total}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Cost Optimisation Strategies */}
       {tabStrategies.length > 0 && (
