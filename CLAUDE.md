@@ -21,7 +21,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH_TIDE/LOW_TIDE/ANY_TIDE/MID_TIDE/NOT_COASTAL), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
 - Sunrise/sunset azimuth lines on map
 - **Two scores** ✓ — Fiery Sky Potential (0–100, dramatic colour) and Golden Hour Potential (0–100, light quality) alongside the 1–5 star rating; V17 columns, differentiated weighting in the shared evaluation prompt
-- **Configurable cost optimisation strategies** ✓ — six toggleable strategies per run type (SKIP_LOW_RATED, REQUIRE_PRIOR, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL), managed via Admin UI "Run Config" tab; mutual exclusion validation; `optimisation_strategy` table (V39); `OptimisationSkipEvaluator` replaces hard-coded Opus gate and long-term skip logic; active strategies snapshot on each `job_run` for audit
+- **Configurable cost optimisation strategies** ✓ — five toggleable strategies per run type (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL), managed via Admin UI "Run Config" tab; mutual exclusion validation; `optimisation_strategy` table (V39); `OptimisationSkipEvaluator` replaces hard-coded Opus gate and long-term skip logic; active strategies snapshot on each `job_run` for audit; REQUIRE_PRIOR merged into SKIP_LOW_RATED (V40)
 - **Per-run-type model config** ✓ — three independent model configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Flat evaluation strategy hierarchy: Haiku, Sonnet, Opus all extend `AbstractEvaluationStrategy` directly with shared prompts; differentiation is purely which Anthropic model is used
 - Wildlife location UI: pure-WILDLIFE locations get hourly comfort rows (temp/wind/rain) between sunrise and sunset, green 🦅 marker; no Claude call
@@ -99,7 +99,7 @@ goldenhour/
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V39 Flyway migrations
+│       └── db/migration/            V1–V40 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
@@ -141,7 +141,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 - **Backend-heavy** — all calculations (dayLabel, windCardinal, visibilityKm, azimuthDeg, tideAligned) computed on backend. Frontend is a pure render layer.
 - **Evaluation strategy** — flat hierarchy: `AbstractEvaluationStrategy` (shared prompts, parsing) → `HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`, plus `NoOpEvaluationStrategy` for wildlife (no Claude call). Only `getEvaluationModel()` and `getModelName()` differ per Claude strategy. `AnthropicApiClient` handles API calls with declarative `@Retryable`. `EvaluationService` delegates to the strategy matching the admin-selected model for each run type.
 - **Command pattern** — `ForecastCommand` record encapsulates run parameters (run type, dates, locations, strategy, manual flag). `ForecastCommandFactory` builds commands from `RunType`, resolving the active model and strategy. `ForecastCommandExecutor` runs commands with parallel execution, configurable optimisation strategies, and metrics tracking. Controllers and schedulers are thin wrappers: `commandFactory.create()` → `commandExecutor.execute()`.
-- **Optimisation strategies** — `OptimisationSkipEvaluator` evaluates six configurable strategies (SKIP_LOW_RATED, REQUIRE_PRIOR, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL) loaded once per run from `optimisation_strategy` table. Mutual exclusion validation prevents conflicting combinations. Active strategies are snapshotted on each `job_run` record for audit. Replaces hard-coded Opus gate and long-term skip logic. **Phase 2 (planned)**: BATCH_API strategy — submit evaluations via Anthropic Batch API (50% cost savings, results within 24h); `OptimisationStrategyType.BATCH_API` enum defined but not yet seeded or UI-exposed.
+- **Optimisation strategies** — `OptimisationSkipEvaluator` evaluates five configurable strategies (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL) loaded once per run from `optimisation_strategy` table. SKIP_LOW_RATED also covers the "no prior evaluation" case (formerly REQUIRE_PRIOR, merged in V40). Mutual exclusion validation prevents conflicting combinations. Active strategies are snapshotted on each `job_run` record for audit. Replaces hard-coded Opus gate and long-term skip logic.
 - **Per-run-type model config** — `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE); each run button/endpoint uses its own configured model. `ModelSelectionService.getAllConfigs()` returns the full map.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **CORS** — configured in `SecurityConfig` via `CorsConfigurationSource` bean; `allowedOriginPatterns` covers `localhost:*` and LAN subnets.
@@ -211,7 +211,8 @@ jwt:
 | V36 | `last_login_at` column on `app_user` — user login timestamp |
 | V37 | Rename `last_login_at` → `last_active_at` on `app_user` — throttled activity tracking |
 | V38 | Token columns (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `is_batch`, `cost_micro_dollars`) on `api_call_log` and `model_test_result`; `total_cost_micro_dollars` + `exchange_rate_gbp_per_usd` on `job_run` and `model_test_run`; new `exchange_rate` table |
-| V39 | `optimisation_strategy` table (6 strategies × 3 run types seeded); `active_strategies` column on `job_run` |
+| V39 | `optimisation_strategy` table (5 strategies × 3 run types seeded); `active_strategies` column on `job_run` |
+| V40 | Remove REQUIRE_PRIOR strategy (merged into SKIP_LOW_RATED) |
 
 ---
 

@@ -6,7 +6,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8082',
+        target: process.env.VITE_API_TARGET || 'http://localhost:8083',
+        changeOrigin: true,
+      },
+      '/actuator': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:8083',
         changeOrigin: true,
       },
     },

@@ -26,11 +26,10 @@ import java.util.stream.Collectors;
  *   <li><b>FORCE_IMMINENT</b> — if today's event hasn't occurred yet, never skip</li>
  *   <li><b>FORCE_STALE</b> — if latest eval was generated before today, never skip</li>
  *   <li><b>SKIP_EXISTING</b> — if any forecast exists for this slot, skip</li>
- *   <li><b>SKIP_LOW_RATED</b> — if prior rating &lt; threshold, skip</li>
- *   <li><b>REQUIRE_PRIOR</b> — if no prior evaluation exists, skip</li>
+ *   <li><b>SKIP_LOW_RATED</b> — if no prior evaluation exists or prior rating &lt; threshold, skip</li>
  * </ol>
  *
- * <p>The DB query for the latest evaluation is shared between SKIP_LOW_RATED, REQUIRE_PRIOR,
+ * <p>The DB query for the latest evaluation is shared between SKIP_LOW_RATED
  * and FORCE_STALE to avoid duplicate lookups.
  */
 @Service
@@ -81,7 +80,6 @@ public class OptimisationSkipEvaluator {
 
         // Shared lookup for strategies that need the latest evaluation
         boolean needsLatest = activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)
-                || activeTypes.contains(OptimisationStrategyType.REQUIRE_PRIOR)
                 || activeTypes.contains(OptimisationStrategyType.FORCE_STALE);
 
         Optional<ForecastEvaluationEntity> latest = Optional.empty();
@@ -117,32 +115,26 @@ public class OptimisationSkipEvaluator {
             if (!existing.isEmpty()) {
                 LOG.info("SKIP_EXISTING — skipping {} {} on {} (exists from {})",
                         locationName, targetType, targetDate,
-                        existing.get(0).getForecastRunAt());
+                        existing.getFirst().getForecastRunAt());
                 return true;
             }
         }
 
-        // 5. SKIP_LOW_RATED — skip if prior rating below threshold
+        // 5. SKIP_LOW_RATED — skip if no prior exists OR prior rating below threshold
         if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)) {
+            if (latest.isEmpty()) {
+                LOG.info("SKIP_LOW_RATED — skipping {} {} on {} (no prior evaluation)",
+                        locationName, targetType, targetDate);
+                return true;
+            }
             int minRating = strategyMap.get(OptimisationStrategyType.SKIP_LOW_RATED)
                     .getParamValue() != null
                     ? strategyMap.get(OptimisationStrategyType.SKIP_LOW_RATED).getParamValue()
                     : 3;
-            if (latest.isPresent()) {
-                Integer rating = latest.get().getRating();
-                if (rating != null && rating < minRating) {
-                    LOG.info("SKIP_LOW_RATED — skipping {} {} on {} (prior rating {} < {})",
-                            locationName, targetType, targetDate, rating, minRating);
-                    return true;
-                }
-            }
-        }
-
-        // 6. REQUIRE_PRIOR — skip if no prior evaluation exists
-        if (activeTypes.contains(OptimisationStrategyType.REQUIRE_PRIOR)) {
-            if (latest.isEmpty()) {
-                LOG.info("REQUIRE_PRIOR — skipping {} {} on {} (no prior evaluation)",
-                        locationName, targetType, targetDate);
+            Integer rating = latest.get().getRating();
+            if (rating != null && rating < minRating) {
+                LOG.info("SKIP_LOW_RATED — skipping {} {} on {} (prior rating {} < {})",
+                        locationName, targetType, targetDate, rating, minRating);
                 return true;
             }
         }

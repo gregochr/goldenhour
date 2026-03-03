@@ -158,21 +158,6 @@ class OptimisationStrategyServiceTest {
     }
 
     @Test
-    @DisplayName("SKIP_EXISTING conflicts with REQUIRE_PRIOR")
-    void skipExisting_conflictsWithRequirePrior() {
-        var entity = strategy(RunType.SHORT_TERM, OptimisationStrategyType.SKIP_EXISTING, false, null);
-        var existing = strategy(RunType.SHORT_TERM, OptimisationStrategyType.REQUIRE_PRIOR, true, null);
-        when(repository.findByRunTypeAndStrategyType(RunType.SHORT_TERM,
-                OptimisationStrategyType.SKIP_EXISTING)).thenReturn(Optional.of(entity));
-        when(repository.findByRunTypeAndEnabledTrue(RunType.SHORT_TERM)).thenReturn(List.of(existing));
-
-        assertThatThrownBy(() -> service.updateStrategy(RunType.SHORT_TERM,
-                OptimisationStrategyType.SKIP_EXISTING, true, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("SKIP_EXISTING conflicts with REQUIRE_PRIOR");
-    }
-
-    @Test
     @DisplayName("SKIP_LOW_RATED conflicts with EVALUATE_ALL")
     void skipLowRated_conflictsWithEvaluateAll() {
         var entity = strategy(RunType.SHORT_TERM, OptimisationStrategyType.SKIP_LOW_RATED, false, 3);
@@ -211,12 +196,12 @@ class OptimisationStrategyServiceTest {
     @DisplayName("serialiseEnabledStrategies formats with params")
     void serialise_formatsWithParams() {
         var s1 = strategy(RunType.VERY_SHORT_TERM, OptimisationStrategyType.SKIP_LOW_RATED, true, 3);
-        var s2 = strategy(RunType.VERY_SHORT_TERM, OptimisationStrategyType.REQUIRE_PRIOR, true, null);
+        var s2 = strategy(RunType.VERY_SHORT_TERM, OptimisationStrategyType.FORCE_IMMINENT, true, null);
         when(repository.findByRunTypeAndEnabledTrue(RunType.VERY_SHORT_TERM)).thenReturn(List.of(s1, s2));
 
         String result = service.serialiseEnabledStrategies(RunType.VERY_SHORT_TERM);
 
-        assertThat(result).isEqualTo("SKIP_LOW_RATED(3),REQUIRE_PRIOR");
+        assertThat(result).isEqualTo("SKIP_LOW_RATED(3),FORCE_IMMINENT");
     }
 
     @Test

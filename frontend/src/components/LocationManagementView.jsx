@@ -752,18 +752,23 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
           {error && <p className="text-xs text-red-400">{error}</p>}
 
-          <div className="flex justify-between">
-            <button className="btn-secondary text-sm" onClick={handleCancel}>
-              Cancel
-            </button>
-            <button
-              className="btn-primary text-sm"
-              onClick={handleAddReviewConfirm}
-              disabled={manualEntry ? (!manualName.trim() || !manualLat || !manualLon) : !geocodeResult}
-              data-testid="review-confirm-btn"
-            >
-              Review & Confirm
-            </button>
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between">
+              <button className="btn-secondary text-sm" onClick={handleCancel}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleAddReviewConfirm}
+                disabled={manualEntry ? (!manualName.trim() || !manualLat || !manualLon) : !geocodeResult}
+                data-testid="review-confirm-btn"
+              >
+                Review & Confirm
+              </button>
+            </div>
+            {!manualEntry && !geocodeResult && (
+              <p className="text-xs text-plex-text-muted text-right">Search for a place above, or switch to manual entry</p>
+            )}
           </div>
         </div>
       )}
