@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 3, 2026)
+- **Configurable cost optimisation strategies** — six toggleable strategies per run type replace hard-coded Opus gate and long-term skip logic
+  - Strategies: SKIP_LOW_RATED (threshold param), REQUIRE_PRIOR, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL (JFDI mode)
+  - V39 migration: `optimisation_strategy` table (18 rows seeded), `active_strategies` column on `job_run` for audit trail
+  - `OptimisationSkipEvaluator` evaluates strategies with shared DB lookup; `OptimisationStrategyService` handles CRUD + mutual exclusion validation
+  - `ForecastCommandExecutor` refactored to delegate skip logic to evaluator instead of hard-coded methods
+  - Admin UI: "Cost Optimisation" section in Run Config tab with toggle pills, parameter buttons, and conflict indicators
+  - `PUT /api/models/optimisation` endpoint for strategy toggles; `GET /api/models` now includes strategy data
+  - Job Runs grid shows active strategies as badges; EVALUATE_ALL displays distinct "JFDI" badge
+  - 607 backend tests (up from 569), 143 frontend tests (up from 127); all passing
+  - **Phase 2 (planned)**: BATCH_API strategy — submit evaluations via Anthropic Batch API (50% cost savings, results within 24h); enum defined but not yet implemented
+
 ### Fixed (Mar 3, 2026)
 - **Vitest 4 compatibility** — `useIsMobile.test.js` replaced `vi.spyOn(window, 'matchMedia')` with `vi.stubGlobal('matchMedia', ...)` because `window.matchMedia` is `undefined` in Vitest 4's jsdom environment
 

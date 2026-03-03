@@ -99,6 +99,26 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                       <div className="text-xs text-plex-text-muted mt-1">
                         {new Date(run.startedAt).toLocaleString()} · {formatDuration(run.durationMs)}
                       </div>
+                      {run.activeStrategies && (
+                        <div className="flex flex-wrap gap-1 mt-1" data-testid={`strategies-${run.id}`}>
+                          {run.activeStrategies.split(',').map((s) => {
+                            const trimmed = s.trim();
+                            const isJfdi = trimmed === 'EVALUATE_ALL';
+                            return (
+                              <span
+                                key={trimmed}
+                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  isJfdi
+                                    ? 'bg-orange-900/30 text-orange-400'
+                                    : 'bg-plex-surface-light text-plex-text-secondary'
+                                }`}
+                              >
+                                {isJfdi ? 'JFDI' : trimmed}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                       {(run.totalCostMicroDollars > 0 || run.totalCostPence > 0) && (
                         <div className="text-xs text-plex-gold mt-1 font-semibold">
                           Cost: {formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence)}
