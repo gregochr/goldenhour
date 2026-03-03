@@ -33,7 +33,7 @@ const MOCK_DATA = {
   optimisationStrategies: {
     VERY_SHORT_TERM: [
       { strategyType: 'SKIP_LOW_RATED', enabled: true, paramValue: 3 },
-      { strategyType: 'REQUIRE_PRIOR', enabled: true, paramValue: null },
+
       { strategyType: 'SKIP_EXISTING', enabled: false, paramValue: null },
       { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
       { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
@@ -41,7 +41,7 @@ const MOCK_DATA = {
     ],
     SHORT_TERM: [
       { strategyType: 'SKIP_LOW_RATED', enabled: false, paramValue: 3 },
-      { strategyType: 'REQUIRE_PRIOR', enabled: false, paramValue: null },
+
       { strategyType: 'SKIP_EXISTING', enabled: false, paramValue: null },
       { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
       { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
@@ -49,7 +49,7 @@ const MOCK_DATA = {
     ],
     LONG_TERM: [
       { strategyType: 'SKIP_LOW_RATED', enabled: false, paramValue: 3 },
-      { strategyType: 'REQUIRE_PRIOR', enabled: false, paramValue: null },
+
       { strategyType: 'SKIP_EXISTING', enabled: true, paramValue: null },
       { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
       { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
@@ -96,7 +96,6 @@ describe('ModelSelectionView', () => {
       expect(screen.getByTestId('strategy-toggle-SKIP_LOW_RATED')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('strategy-toggle-REQUIRE_PRIOR')).toBeInTheDocument();
     expect(screen.getByTestId('strategy-toggle-SKIP_EXISTING')).toBeInTheDocument();
     expect(screen.getByTestId('strategy-toggle-EVALUATE_ALL')).toBeInTheDocument();
   });
@@ -108,7 +107,6 @@ describe('ModelSelectionView', () => {
       expect(screen.getByTestId('strategy-toggle-SKIP_LOW_RATED')).toHaveTextContent('ON');
     });
 
-    expect(screen.getByTestId('strategy-toggle-REQUIRE_PRIOR')).toHaveTextContent('ON');
     expect(screen.getByTestId('strategy-toggle-SKIP_EXISTING')).toHaveTextContent('OFF');
   });
 
@@ -119,7 +117,7 @@ describe('ModelSelectionView', () => {
       expect(screen.getByTestId('strategy-row-SKIP_EXISTING')).toBeInTheDocument();
     });
 
-    // SKIP_EXISTING should show conflict because SKIP_LOW_RATED and REQUIRE_PRIOR are ON
+    // SKIP_EXISTING should show conflict because SKIP_LOW_RATED is ON
     const skipExistingRow = screen.getByTestId('strategy-row-SKIP_EXISTING');
     expect(skipExistingRow).toHaveTextContent('Conflicts with');
   });

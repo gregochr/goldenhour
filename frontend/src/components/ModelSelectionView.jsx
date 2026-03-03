@@ -45,39 +45,34 @@ const DAYS_PER_RUN = { VERY_SHORT_TERM: 2, SHORT_TERM: 3, LONG_TERM: 3 };
 const STRATEGY_INFO = {
   SKIP_LOW_RATED: {
     label: 'Skip Low-Rated',
-    description: 'Skip slots where the prior evaluation has a star rating below the threshold.',
+    description: 'Skip slots where no prior evaluation exists, or the prior star rating is below the threshold. Saves cost by not re-evaluating locations with consistently poor conditions.',
     hasParam: true,
     paramLabel: 'Min rating',
     paramMin: 1,
     paramMax: 5,
   },
-  REQUIRE_PRIOR: {
-    label: 'Require Prior',
-    description: 'Skip slots with no prior evaluation — only re-evaluate known slots.',
-  },
   SKIP_EXISTING: {
-    label: 'Skip Existing',
-    description: 'Skip slots where any forecast already exists for this location/date/target.',
+    label: 'Skip Already-Evaluated',
+    description: 'Skip slots where a forecast already exists for this location, date, and time of day (sunrise or sunset). Avoids paying for a second evaluation when one already exists.',
   },
   FORCE_IMMINENT: {
-    label: 'Force Imminent',
-    description: 'Override skips for today\'s events — always evaluate imminent sunrise/sunset.',
+    label: 'Always Evaluate Today',
+    description: 'Override any skip rules for today\'s sunrise or sunset — always get a fresh evaluation for imminent events, even if an earlier run already scored them.',
   },
   FORCE_STALE: {
-    label: 'Force Stale',
-    description: 'Override skips if the latest evaluation was generated before today.',
+    label: 'Re-evaluate Stale Data',
+    description: 'Override skip rules when the existing evaluation was generated before today. Ensures forecasts are refreshed with the latest weather data, even if a prior evaluation exists.',
   },
   EVALUATE_ALL: {
-    label: 'Evaluate All (JFDI)',
-    description: 'Disable all skip logic — evaluate every slot regardless of prior data.',
+    label: 'Evaluate Everything (JFDI)',
+    description: 'Ignore all skip logic — evaluate every slot for every location regardless of prior data. Useful for a full refresh, but maximises API cost.',
   },
 };
 
 const CONFLICTS = {
-  EVALUATE_ALL: ['SKIP_LOW_RATED', 'REQUIRE_PRIOR', 'SKIP_EXISTING'],
+  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING'],
   SKIP_LOW_RATED: ['SKIP_EXISTING', 'EVALUATE_ALL'],
-  REQUIRE_PRIOR: ['SKIP_EXISTING', 'EVALUATE_ALL'],
-  SKIP_EXISTING: ['SKIP_LOW_RATED', 'REQUIRE_PRIOR', 'EVALUATE_ALL'],
+  SKIP_EXISTING: ['SKIP_LOW_RATED', 'EVALUATE_ALL'],
   FORCE_IMMINENT: [],
   FORCE_STALE: [],
 };

@@ -55,7 +55,6 @@ public class OptimisationStrategyService {
         // UI-visible strategy types (excludes BATCH_API)
         OptimisationStrategyType[] uiTypes = {
                 OptimisationStrategyType.SKIP_LOW_RATED,
-                OptimisationStrategyType.REQUIRE_PRIOR,
                 OptimisationStrategyType.SKIP_EXISTING,
                 OptimisationStrategyType.FORCE_IMMINENT,
                 OptimisationStrategyType.FORCE_STALE,
@@ -75,8 +74,7 @@ public class OptimisationStrategyService {
 
     private static boolean isDefaultEnabled(RunType rt, OptimisationStrategyType st) {
         if (rt == RunType.VERY_SHORT_TERM) {
-            return st == OptimisationStrategyType.SKIP_LOW_RATED
-                    || st == OptimisationStrategyType.REQUIRE_PRIOR;
+            return st == OptimisationStrategyType.SKIP_LOW_RATED;
         }
         if (rt == RunType.LONG_TERM) {
             return st == OptimisationStrategyType.SKIP_EXISTING;
@@ -112,9 +110,8 @@ public class OptimisationStrategyService {
      *
      * <p>Mutual exclusions enforced:
      * <ul>
-     *   <li>EVALUATE_ALL enabled → disables SKIP_LOW_RATED, REQUIRE_PRIOR, SKIP_EXISTING</li>
+     *   <li>EVALUATE_ALL enabled → disables SKIP_LOW_RATED, SKIP_EXISTING</li>
      *   <li>SKIP_EXISTING ↔ SKIP_LOW_RATED (cannot both be enabled)</li>
-     *   <li>SKIP_EXISTING ↔ REQUIRE_PRIOR (cannot both be enabled)</li>
      * </ul>
      *
      * @param runType      the run type
@@ -150,7 +147,7 @@ public class OptimisationStrategyService {
     /**
      * Serialises enabled strategies for a run type into a compact audit string.
      *
-     * <p>Format example: {@code "SKIP_LOW_RATED(3),REQUIRE_PRIOR"}
+     * <p>Format example: {@code "SKIP_LOW_RATED(3),FORCE_IMMINENT"}
      *
      * @param runType the run type
      * @return comma-separated string of enabled strategy names with params
@@ -184,11 +181,10 @@ public class OptimisationStrategyService {
         switch (strategyType) {
             case EVALUATE_ALL -> {
                 if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)
-                        || activeTypes.contains(OptimisationStrategyType.REQUIRE_PRIOR)
                         || activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)) {
                     throw new IllegalArgumentException(
                             "EVALUATE_ALL conflicts with skip strategies. "
-                            + "Disable SKIP_LOW_RATED, REQUIRE_PRIOR, and SKIP_EXISTING first.");
+                            + "Disable SKIP_LOW_RATED and SKIP_EXISTING first.");
                 }
             }
             case SKIP_LOW_RATED -> {
@@ -201,24 +197,10 @@ public class OptimisationStrategyService {
                             "SKIP_LOW_RATED conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
                 }
             }
-            case REQUIRE_PRIOR -> {
-                if (activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)) {
-                    throw new IllegalArgumentException(
-                            "REQUIRE_PRIOR conflicts with SKIP_EXISTING. Disable SKIP_EXISTING first.");
-                }
-                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
-                    throw new IllegalArgumentException(
-                            "REQUIRE_PRIOR conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
-                }
-            }
             case SKIP_EXISTING -> {
                 if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)) {
                     throw new IllegalArgumentException(
                             "SKIP_EXISTING conflicts with SKIP_LOW_RATED. Disable SKIP_LOW_RATED first.");
-                }
-                if (activeTypes.contains(OptimisationStrategyType.REQUIRE_PRIOR)) {
-                    throw new IllegalArgumentException(
-                            "SKIP_EXISTING conflicts with REQUIRE_PRIOR. Disable REQUIRE_PRIOR first.");
                 }
                 if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
                     throw new IllegalArgumentException(

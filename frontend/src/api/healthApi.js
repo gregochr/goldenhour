@@ -12,11 +12,7 @@ const SOFT_COMPONENTS = new Set(['mail']);
  */
 export async function getHealth() {
   try {
-    const backendUrl = import.meta.env.DEV
-      ? 'http://localhost:8082/actuator/health'
-      : '/actuator/health';
-
-    const response = await axios.get(backendUrl, { timeout: 5000 });
+    const response = await axios.get('/actuator/health', { timeout: 5000 });
     const data = response.data;
     const components = data.components || {};
 

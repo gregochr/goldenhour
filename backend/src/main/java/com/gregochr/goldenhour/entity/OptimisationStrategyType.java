@@ -8,11 +8,8 @@ package com.gregochr.goldenhour.entity;
  */
 public enum OptimisationStrategyType {
 
-    /** Skip if prior evaluation's star rating is below the configured threshold. */
+    /** Skip if no prior evaluation exists or prior rating is below the configured threshold. */
     SKIP_LOW_RATED,
-
-    /** Skip if no prior evaluation exists for this slot. */
-    REQUIRE_PRIOR,
 
     /** Skip if a forecast already exists for this location/date/target. */
     SKIP_EXISTING,

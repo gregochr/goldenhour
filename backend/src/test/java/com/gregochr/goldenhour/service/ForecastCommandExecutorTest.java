@@ -287,7 +287,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
         when(optimisationStrategyService.serialiseEnabledStrategies(RunType.SHORT_TERM))
-                .thenReturn("SKIP_LOW_RATED(3),REQUIRE_PRIOR");
+                .thenReturn("SKIP_LOW_RATED(3),FORCE_IMMINENT");
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
                 List.of(durham()), haikuStrategy, true);
@@ -296,7 +296,7 @@ class ForecastCommandExecutorTest {
 
         verify(jobRunService).startRun(
                 eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU),
-                eq("SKIP_LOW_RATED(3),REQUIRE_PRIOR"));
+                eq("SKIP_LOW_RATED(3),FORCE_IMMINENT"));
     }
 
     @Test

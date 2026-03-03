@@ -37,7 +37,7 @@ export async function setActiveModel(runType, model) {
  * Toggle an optimisation strategy for a specific run type (admin only).
  *
  * @param {string} runType - run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM)
- * @param {string} strategyType - strategy name (SKIP_LOW_RATED, REQUIRE_PRIOR, etc.)
+ * @param {string} strategyType - strategy name (SKIP_LOW_RATED, SKIP_EXISTING, etc.)
  * @param {boolean} enabled - whether to enable or disable
  * @param {number|null} paramValue - optional integer parameter (e.g. min rating threshold)
  * @returns {Promise<{runType: string, strategyType: string, enabled: boolean, paramValue: *}>}
