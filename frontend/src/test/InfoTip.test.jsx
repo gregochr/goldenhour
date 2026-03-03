@@ -47,4 +47,13 @@ describe('InfoTip', () => {
     const wrapper = screen.getByTestId('infotip-trigger').parentElement;
     expect(wrapper.className).toContain('text-red-500');
   });
+
+  it('popover uses wide max-width and left-aligned positioning', () => {
+    render(<InfoTip text="Some help text" />);
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    const popover = screen.getByTestId('infotip-popover');
+    expect(popover.className).toContain('w-max');
+    expect(popover.className).toContain('left-0');
+    expect(popover.className).not.toContain('max-w-[220px]');
+  });
 });

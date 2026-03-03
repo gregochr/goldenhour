@@ -42,7 +42,7 @@ export default function InfoTip({ text, className = '', position = 'above' }) {
       </button>
       {open && (
         <span
-          className={`absolute left-1/2 -translate-x-1/2 px-2.5 py-1.5 text-xs rounded shadow-lg whitespace-normal max-w-[220px] z-50 bg-plex-surface text-plex-text border border-plex-border ${position === 'below' ? 'top-full mt-1.5' : 'bottom-full mb-1.5'}`}
+          className={`absolute left-0 w-max max-w-[min(24rem,calc(100vw-2rem))] px-2.5 py-1.5 text-xs rounded shadow-lg whitespace-normal z-50 bg-plex-surface text-plex-text border border-plex-border ${position === 'below' ? 'top-full mt-1.5' : 'bottom-full mb-1.5'}`}
           data-testid="infotip-popover"
         >
           {text}
