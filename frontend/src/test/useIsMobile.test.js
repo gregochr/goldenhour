@@ -10,14 +10,14 @@ describe('useIsMobile', () => {
     listeners = [];
     currentMatches = false;
 
-    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    vi.stubGlobal('matchMedia', vi.fn((query) => ({
       matches: currentMatches,
       media: query,
       addEventListener: (_event, handler) => { listeners.push(handler); },
       removeEventListener: (_event, handler) => {
         listeners = listeners.filter((h) => h !== handler);
       },
-    }));
+    })));
   });
 
   afterEach(() => {
