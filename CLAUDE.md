@@ -79,6 +79,11 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - Privacy policy modal updated with marketing emails section
 - **Account deletion email** ✓ — polite notification sent when admin deletes a user with an email address
 - **Regions** ✓ — geographic grouping for locations (V31/V32), full CRUD, used by model test harness
+- **Client-side pagination** ✓ — shared `usePagination` hook and `Pagination` component for Locations and Users tables
+  - Page size chips (10/25/50), First/Prev/Next/Last navigation, "Showing X-Y of Z" summary
+  - `table-fixed` with explicit column widths prevents layout shift between pages
+  - Spacer rows on partial last page keep pagination controls anchored
+  - Resets to page 1 on filter change; hidden when all items fit on one page
 
 ---
 
@@ -104,7 +109,8 @@ goldenhour/
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
-│       ├── components/    LoginPage, ChangePasswordPage, ManageView, MapView, ForecastTimeline, ...
+│       ├── components/    LoginPage, ChangePasswordPage, ManageView, MapView, Pagination, ...
+│       ├── hooks/         usePagination, useForecasts, useHealthStatus, useIsMobile
 │       └── context/       AuthContext.jsx
 └── CLAUDE.md
 ```
@@ -494,7 +500,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 
 ```bash
 cd backend && ./mvnw clean verify     # 607 tests, JaCoCo ≥ 80%
-cd frontend && npm run test           # Vitest component tests
+cd frontend && npm run test           # 272 Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
 

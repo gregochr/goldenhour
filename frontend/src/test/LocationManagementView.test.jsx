@@ -21,6 +21,19 @@ const MOCK_LOCATIONS = [
   { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, goldenHourType: 'BOTH_TIMES', locationType: ['LANDSCAPE'], tideType: ['NOT_COASTAL'] },
 ];
 
+function makeMockLocations(count) {
+  return Array.from({ length: count }, (_, i) => ({
+    id: i + 1,
+    name: `Location ${i + 1}`,
+    lat: 54 + i * 0.1,
+    lon: -1 + i * 0.1,
+    enabled: true,
+    goldenHourType: 'BOTH_TIMES',
+    locationType: ['LANDSCAPE'],
+    tideType: ['NOT_COASTAL'],
+  }));
+}
+
 describe('LocationManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -143,6 +156,46 @@ describe('LocationManagementView', () => {
     fireEvent.change(screen.getByTestId('manual-lon-input'), { target: { value: '-1.5' } });
 
     expect(screen.getByTestId('review-confirm-btn')).not.toBeDisabled();
+  });
+
+  it('paginates locations when more than page size', async () => {
+    const manyLocations = makeMockLocations(15);
+    fetchLocations.mockResolvedValue(manyLocations);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    // Wait for data to load and pagination to apply
+    await waitFor(() => {
+      expect(screen.getByTestId('pagination')).toBeInTheDocument();
+    });
+
+    // Alphabetical sort: Location 1, 10, 11, 12, 13, 14, 15, 2, 3, 4 on page 1
+    // Page 2: Location 5, 6, 7, 8, 9
+    expect(screen.getByText('Location 1')).toBeInTheDocument();
+    expect(screen.getByText('Location 4')).toBeInTheDocument();
+    expect(screen.queryByText('Location 5')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 15');
+
+    // Navigate to page 2
+    fireEvent.click(screen.getByTestId('pagination-next'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Location 5')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Location 1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 11-15 of 15');
+  });
+
+  it('hides pagination when all locations fit on one page', async () => {
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Durham')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('pagination')).not.toBeInTheDocument();
   });
 
   it('hides place search hint in manual entry mode', async () => {
