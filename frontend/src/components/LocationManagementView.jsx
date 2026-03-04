@@ -697,7 +697,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <SortableHeader label="Region" sortKey="region" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
+                    <SortableHeader label="Region" sortKey="region" className="w-[13%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
                     <th className="pb-1 font-medium align-bottom w-[10%]">
                       <button
                         type="button"
@@ -733,7 +733,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <th className="pb-1 font-medium align-bottom w-[8%]">
+                    <th className="pb-1 font-medium align-bottom w-[10%]">
                       <button
                         type="button"
                         onClick={() => sf.handleSort('tide')}
@@ -770,7 +770,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <SortableHeader label="Created" sortKey="created" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <SortableHeader label="Created" sortKey="created" className="w-[8%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
                     <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
                     <th className="pb-1 font-medium align-top w-[12%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
