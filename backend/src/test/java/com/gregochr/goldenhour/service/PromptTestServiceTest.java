@@ -131,8 +131,10 @@ class PromptTestServiceTest {
         LocationEntity wild = location(1L, "Bird Reserve", Set.of(LocationType.WILDLIFE));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(wild));
         lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         stubGitInfo();
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             PromptTestRunEntity e = inv.getArgument(0);
@@ -149,7 +151,7 @@ class PromptTestServiceTest {
     }
 
     @Test
-    @DisplayName("runTest evaluates one colour location with chosen model")
+    @DisplayName("runTest evaluates one colour location with chosen model for both SUNRISE+SUNSET")
     void runTest_oneLocation() {
         LocationEntity loc = location(1L, "Durham", Set.of(LocationType.LANDSCAPE));
         AtmosphericData data = sampleAtmosphericData();
@@ -162,8 +164,10 @@ class PromptTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
         when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
@@ -176,17 +180,17 @@ class PromptTestServiceTest {
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         stubGitInfo();
 
-        // SHORT_TERM = 3 dates (T, T+1, T+2) × 1 location = 3 evaluations
+        // SHORT_TERM = 3 dates × 2 target types (SUNRISE+SUNSET) × 1 location = 6 evaluations
         PromptTestRunEntity result = service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
 
-        assertThat(result.getLocationsCount()).isEqualTo(3);
-        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getLocationsCount()).isEqualTo(6);
+        assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
-        assertThat(result.getTotalCostPence()).isEqualTo(150);
-        assertThat(result.getTotalCostMicroDollars()).isEqualTo(16200L);
+        assertThat(result.getTotalCostPence()).isEqualTo(300);
+        assertThat(result.getTotalCostMicroDollars()).isEqualTo(32400L);
         assertThat(result.getGitCommitHash()).isEqualTo("abc1234");
         assertThat(result.getGitBranch()).isEqualTo("main");
-        verify(testResultRepository, times(3)).save(any(PromptTestResultEntity.class));
+        verify(testResultRepository, times(6)).save(any(PromptTestResultEntity.class));
     }
 
     @Test
@@ -202,8 +206,10 @@ class PromptTestServiceTest {
             e.setId(1L);
             return e;
         });
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
 
         PromptTestRunEntity result = service.runTest(EvaluationModel.SONNET, RunType.SHORT_TERM);
 
@@ -228,8 +234,10 @@ class PromptTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
         when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
 
@@ -245,12 +253,12 @@ class PromptTestServiceTest {
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         stubGitInfo();
 
-        // SHORT_TERM = 3 dates × 2 locations = 6 slots; first evaluation fails, rest succeed
+        // SHORT_TERM = 3 dates × 2 types × 2 locations = 12 slots; first evaluation fails
         PromptTestRunEntity result = service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
 
-        assertThat(result.getSucceeded()).isEqualTo(5);
+        assertThat(result.getSucceeded()).isEqualTo(11);
         assertThat(result.getFailed()).isEqualTo(1);
-        verify(testResultRepository, times(6)).save(any(PromptTestResultEntity.class));
+        verify(testResultRepository, times(12)).save(any(PromptTestResultEntity.class));
     }
 
     @Test
@@ -267,18 +275,20 @@ class PromptTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any()))
                 .thenThrow(new RuntimeException("Open-Meteo timeout"));
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         stubGitInfo();
 
-        // SHORT_TERM = 3 dates × 1 location = 3 weather fetch attempts, all fail
+        // SHORT_TERM = 3 dates × 2 types × 1 location = 6 weather fetch attempts, all fail
         PromptTestRunEntity result = service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
 
         assertThat(result.getSucceeded()).isEqualTo(0);
-        assertThat(result.getFailed()).isEqualTo(3);
+        assertThat(result.getFailed()).isEqualTo(6);
         verify(evaluationService, never()).evaluateWithDetails(any(), any(), any());
     }
 
@@ -296,8 +306,10 @@ class PromptTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
         when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any())).thenReturn(sampleDetail());
@@ -311,7 +323,7 @@ class PromptTestServiceTest {
 
         service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
 
-        // SHORT_TERM = 3 dates × 1 location = 3 result saves; verify last captured
+        // SHORT_TERM = 3 dates × 2 types × 1 location = 6 result saves; verify last captured
         PromptTestResultEntity saved = captor.getValue();
         assertThat(saved.getAtmosphericDataJson()).isNotNull();
         assertThat(saved.getAtmosphericDataJson()).contains("\"lowCloudPercent\":20");
@@ -572,8 +584,10 @@ class PromptTestServiceTest {
             }
             return e;
         });
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
 
         PromptTestRunEntity result = service.runTest(EvaluationModel.HAIKU,
                 RunType.VERY_SHORT_TERM);

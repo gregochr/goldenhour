@@ -134,6 +134,8 @@ class ModelTestServiceTest {
             e.setId(1L);
             return e;
         });
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
 
@@ -160,6 +162,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
@@ -176,14 +180,14 @@ class ModelTestServiceTest {
         ModelTestRunEntity result = service.runTest();
 
         assertThat(result.getRegionsCount()).isEqualTo(1);
-        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
-        assertThat(result.getTotalCostPence()).isEqualTo(150);
-        assertThat(result.getTotalCostMicroDollars()).isEqualTo(16200L);
+        assertThat(result.getTotalCostPence()).isEqualTo(300);
+        assertThat(result.getTotalCostMicroDollars()).isEqualTo(32400L);
         assertThat(result.getExchangeRateGbpPerUsd()).isEqualTo(0.79);
 
-        // 3 results saved (one per model)
-        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+        // 6 results saved (2 target types × 3 models)
+        verify(testResultRepository, times(6)).save(any(ModelTestResultEntity.class));
     }
 
     @Test
@@ -202,6 +206,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
 
@@ -227,12 +233,14 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
         when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
 
-        // Haiku succeeds, Sonnet fails, Opus succeeds
+        // Haiku succeeds, Sonnet fails, Opus succeeds — per target type
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(sampleDetail(EvaluationModel.HAIKU));
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.SONNET), any()))
@@ -248,10 +256,10 @@ class ModelTestServiceTest {
 
         ModelTestRunEntity result = service.runTest();
 
-        assertThat(result.getSucceeded()).isEqualTo(2);
-        assertThat(result.getFailed()).isEqualTo(1);
-        // 3 results saved: 2 success + 1 failure
-        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+        // 2 target types × (Haiku OK + Sonnet fail + Opus OK) = 4 succeeded, 2 failed
+        assertThat(result.getSucceeded()).isEqualTo(4);
+        assertThat(result.getFailed()).isEqualTo(2);
+        verify(testResultRepository, times(6)).save(any(ModelTestResultEntity.class));
     }
 
     @Test
@@ -270,6 +278,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any()))
@@ -278,8 +288,9 @@ class ModelTestServiceTest {
 
         ModelTestRunEntity result = service.runTest();
 
+        // 2 target types × 3 failures (one per model) = 6 failures
         assertThat(result.getSucceeded()).isEqualTo(0);
-        assertThat(result.getFailed()).isEqualTo(3); // 3 failures (one per model)
+        assertThat(result.getFailed()).isEqualTo(6);
         verify(evaluationService, never()).evaluateWithDetails(any(), any(), any());
     }
 
@@ -386,6 +397,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
@@ -402,11 +415,11 @@ class ModelTestServiceTest {
         ModelTestRunEntity result = service.runTestForLocation(1L);
 
         assertThat(result.getRegionsCount()).isEqualTo(1);
-        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
-        assertThat(result.getTotalCostPence()).isEqualTo(150);
-        assertThat(result.getTotalCostMicroDollars()).isEqualTo(16200L);
-        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+        assertThat(result.getTotalCostPence()).isEqualTo(300);
+        assertThat(result.getTotalCostMicroDollars()).isEqualTo(32400L);
+        verify(testResultRepository, times(6)).save(any(ModelTestResultEntity.class));
     }
 
     @Test
@@ -474,6 +487,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any()))
@@ -482,8 +497,9 @@ class ModelTestServiceTest {
 
         ModelTestRunEntity result = service.runTestForLocation(1L);
 
+        // 2 target types × 3 model failures = 6
         assertThat(result.getSucceeded()).isEqualTo(0);
-        assertThat(result.getFailed()).isEqualTo(3);
+        assertThat(result.getFailed()).isEqualTo(6);
         verify(evaluationService, never()).evaluateWithDetails(any(), any(), any());
     }
 
@@ -520,6 +536,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
@@ -536,11 +554,11 @@ class ModelTestServiceTest {
         ModelTestRunEntity result = service.rerunTest(10L);
 
         assertThat(result.getRegionsCount()).isEqualTo(1);
-        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getSucceeded()).isEqualTo(6);
         assertThat(result.getFailed()).isEqualTo(0);
         assertThat(result.getParentRunId()).isEqualTo(10L);
         assertThat(result.getRerunType()).isEqualTo(RerunType.FRESH_DATA);
-        verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+        verify(testResultRepository, times(6)).save(any(ModelTestResultEntity.class));
     }
 
     @Test
@@ -706,6 +724,8 @@ class ModelTestServiceTest {
             }
             return e;
         });
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
@@ -724,7 +744,7 @@ class ModelTestServiceTest {
         service.runTest();
 
         List<ModelTestResultEntity> saved = captor.getAllValues();
-        assertThat(saved).hasSize(3);
+        assertThat(saved).hasSize(6);
         for (ModelTestResultEntity result : saved) {
             assertThat(result.getAtmosphericDataJson()).isNotNull();
             assertThat(result.getAtmosphericDataJson()).contains("\"lowCloudPercent\":20");

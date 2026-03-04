@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.ModelTestResultEntity;
 import com.gregochr.goldenhour.entity.ModelTestRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RerunType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
@@ -25,10 +26,12 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 /**
  * Orchestrates model comparison tests across regions.
@@ -109,16 +112,18 @@ public class ModelTestService {
         List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
 
         // Determine target date and type
-        TargetType targetType = resolveTargetType(now, allLocations);
-        LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
+        TargetType primaryTargetType = resolveTargetType(now, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, primaryTargetType, allLocations);
+        List<TargetType> targetTypes = resolveTargetTypesForDate(targetDate, now, allLocations);
         Double exchangeRate = fetchExchangeRate();
 
-        LOG.info("Model test started — {} regions, target: {} {}", regions.size(), targetDate, targetType);
+        LOG.info("Model test started — {} regions, target: {} {}",
+                regions.size(), targetDate, targetTypes);
 
         ModelTestRunEntity testRun = testRunRepository.save(ModelTestRunEntity.builder()
                 .startedAt(now)
                 .targetDate(targetDate)
-                .targetType(targetType)
+                .targetType(primaryTargetType)
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
@@ -142,70 +147,78 @@ public class ModelTestService {
             regionsProcessed++;
             LOG.info("Testing region '{}' with location '{}'", region.getName(), location.getName());
 
-            // Fetch atmospheric data once for all three models
-            AtmosphericData atmosphericData;
-            try {
-                atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
-            } catch (Exception e) {
-                LOG.error("Failed to fetch weather data for {} — skipping region '{}'",
-                        location.getName(), region.getName(), e);
-                for (EvaluationModel model : TEST_MODELS) {
-                    failed++;
-                    testResultRepository.save(buildFailedResult(testRun, region, location,
-                            targetDate, targetType, model, 0,
-                            "Weather data fetch failed: " + e.getMessage()));
+            for (TargetType targetType : targetTypes) {
+                if (!locationSupportsTargetType(location, targetType)) {
+                    continue;
                 }
-                continue;
-            }
 
-            // Run each model against the same data
-            for (EvaluationModel model : TEST_MODELS) {
+                // Fetch atmospheric data once for all three models per target type
+                AtmosphericData atmosphericData;
                 try {
-                    EvaluationDetail detail = evaluationService.evaluateWithDetails(
-                            atmosphericData, model, null);
-                    TokenUsage tokenUsage = detail.tokenUsage() != null
-                            ? detail.tokenUsage() : TokenUsage.EMPTY;
-                    int costPence = costCalculator.calculateCost(
-                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
-                    long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
-                    totalCostPence += costPence;
-                    totalCostMicroDollars += costMicroDollars;
-                    succeeded++;
-
-                    ModelTestResultEntity result = ModelTestResultEntity.builder()
-                            .testRunId(testRun.getId())
-                            .regionId(region.getId())
-                            .regionName(region.getName())
-                            .locationId(location.getId())
-                            .locationName(location.getName())
-                            .targetDate(targetDate)
-                            .targetType(targetType)
-                            .evaluationModel(model)
-                            .rating(detail.evaluation().rating())
-                            .fierySkyPotential(detail.evaluation().fierySkyPotential())
-                            .goldenHourPotential(detail.evaluation().goldenHourPotential())
-                            .summary(detail.evaluation().summary())
-                            .promptSent(detail.promptSent())
-                            .responseJson(detail.rawResponse())
-                            .durationMs(detail.durationMs())
-                            .costPence(costPence)
-                            .inputTokens(tokenUsage.inputTokens())
-                            .outputTokens(tokenUsage.outputTokens())
-                            .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
-                            .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
-                            .costMicroDollars(costMicroDollars)
-                            .succeeded(true)
-                            .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                            .build();
-                    populateAtmosphericData(result, atmosphericData);
-                    testResultRepository.save(result);
+                    atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
                 } catch (Exception e) {
-                    LOG.error("Model {} failed for {} in region '{}': {}",
-                            model, location.getName(), region.getName(), e.getMessage());
-                    failed++;
+                    LOG.error("Failed to fetch weather data for {} {} — skipping region '{}'",
+                            location.getName(), targetType, region.getName(), e);
+                    for (EvaluationModel model : TEST_MODELS) {
+                        failed++;
+                        testResultRepository.save(buildFailedResult(testRun, region, location,
+                                targetDate, targetType, model, 0,
+                                "Weather data fetch failed: " + e.getMessage()));
+                    }
+                    continue;
+                }
 
-                    testResultRepository.save(buildFailedResult(testRun, region, location,
-                            targetDate, targetType, model, 0, e.getMessage()));
+                // Run each model against the same data
+                for (EvaluationModel model : TEST_MODELS) {
+                    try {
+                        EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                                atmosphericData, model, null);
+                        TokenUsage tokenUsage = detail.tokenUsage() != null
+                                ? detail.tokenUsage() : TokenUsage.EMPTY;
+                        int costPence = costCalculator.calculateCost(
+                                com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                        long costMicroDollars = costCalculator.calculateCostMicroDollars(
+                                model, tokenUsage);
+                        totalCostPence += costPence;
+                        totalCostMicroDollars += costMicroDollars;
+                        succeeded++;
+
+                        ModelTestResultEntity result = ModelTestResultEntity.builder()
+                                .testRunId(testRun.getId())
+                                .regionId(region.getId())
+                                .regionName(region.getName())
+                                .locationId(location.getId())
+                                .locationName(location.getName())
+                                .targetDate(targetDate)
+                                .targetType(targetType)
+                                .evaluationModel(model)
+                                .rating(detail.evaluation().rating())
+                                .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                                .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                                .summary(detail.evaluation().summary())
+                                .promptSent(detail.promptSent())
+                                .responseJson(detail.rawResponse())
+                                .durationMs(detail.durationMs())
+                                .costPence(costPence)
+                                .inputTokens(tokenUsage.inputTokens())
+                                .outputTokens(tokenUsage.outputTokens())
+                                .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                                .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                                .costMicroDollars(costMicroDollars)
+                                .succeeded(true)
+                                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                                .build();
+                        populateAtmosphericData(result, atmosphericData);
+                        testResultRepository.save(result);
+                    } catch (Exception e) {
+                        LOG.error("Model {} failed for {} {} in region '{}': {}",
+                                model, location.getName(), targetType, region.getName(),
+                                e.getMessage());
+                        failed++;
+
+                        testResultRepository.save(buildFailedResult(testRun, region, location,
+                                targetDate, targetType, model, 0, e.getMessage()));
+                    }
                 }
             }
         }
@@ -247,18 +260,19 @@ public class ModelTestService {
 
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
-        TargetType targetType = resolveTargetType(now, allLocations);
-        LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
+        TargetType primaryTargetType = resolveTargetType(now, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, primaryTargetType, allLocations);
+        List<TargetType> targetTypes = resolveTargetTypesForDate(targetDate, now, allLocations);
         RegionEntity region = location.getRegion();
 
         Double exchangeRate = fetchExchangeRate();
         LOG.info("Single-location model test started — location '{}', target: {} {}",
-                location.getName(), targetDate, targetType);
+                location.getName(), targetDate, targetTypes);
 
         ModelTestRunEntity testRun = testRunRepository.save(ModelTestRunEntity.builder()
                 .startedAt(now)
                 .targetDate(targetDate)
-                .targetType(targetType)
+                .targetType(primaryTargetType)
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
@@ -271,71 +285,77 @@ public class ModelTestService {
         int totalCostPence = 0;
         long totalCostMicroDollars = 0;
 
-        // Fetch atmospheric data once for all three models
-        AtmosphericData atmosphericData;
-        try {
-            atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
-        } catch (Exception e) {
-            LOG.error("Failed to fetch weather data for '{}': {}",
-                    location.getName(), e.getMessage(), e);
-            for (EvaluationModel model : TEST_MODELS) {
-                failed++;
-                testResultRepository.save(buildFailedResult(testRun, region, location,
-                        targetDate, targetType, model, 0,
-                        "Weather data fetch failed: " + e.getMessage()));
+        for (TargetType targetType : targetTypes) {
+            if (!locationSupportsTargetType(location, targetType)) {
+                continue;
             }
-            return completeRun(testRun, now, 1, succeeded, failed,
-                    totalCostPence, totalCostMicroDollars);
-        }
 
-        // Run each model against the same data
-        for (EvaluationModel model : TEST_MODELS) {
+            // Fetch atmospheric data once for all three models per target type
+            AtmosphericData atmosphericData;
             try {
-                EvaluationDetail detail = evaluationService.evaluateWithDetails(
-                        atmosphericData, model, null);
-                TokenUsage tokenUsage = detail.tokenUsage() != null
-                        ? detail.tokenUsage() : TokenUsage.EMPTY;
-                int costPence = costCalculator.calculateCost(
-                        com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
-                long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
-                totalCostPence += costPence;
-                totalCostMicroDollars += costMicroDollars;
-                succeeded++;
-
-                ModelTestResultEntity result = ModelTestResultEntity.builder()
-                        .testRunId(testRun.getId())
-                        .regionId(region.getId())
-                        .regionName(region.getName())
-                        .locationId(location.getId())
-                        .locationName(location.getName())
-                        .targetDate(targetDate)
-                        .targetType(targetType)
-                        .evaluationModel(model)
-                        .rating(detail.evaluation().rating())
-                        .fierySkyPotential(detail.evaluation().fierySkyPotential())
-                        .goldenHourPotential(detail.evaluation().goldenHourPotential())
-                        .summary(detail.evaluation().summary())
-                        .promptSent(detail.promptSent())
-                        .responseJson(detail.rawResponse())
-                        .durationMs(detail.durationMs())
-                        .costPence(costPence)
-                        .inputTokens(tokenUsage.inputTokens())
-                        .outputTokens(tokenUsage.outputTokens())
-                        .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
-                        .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
-                        .costMicroDollars(costMicroDollars)
-                        .succeeded(true)
-                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                        .build();
-                populateAtmosphericData(result, atmosphericData);
-                testResultRepository.save(result);
+                atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
             } catch (Exception e) {
-                LOG.error("Model {} failed for '{}': {}",
-                        model, location.getName(), e.getMessage());
-                failed++;
+                LOG.error("Failed to fetch weather data for '{}' {}: {}",
+                        location.getName(), targetType, e.getMessage(), e);
+                for (EvaluationModel model : TEST_MODELS) {
+                    failed++;
+                    testResultRepository.save(buildFailedResult(testRun, region, location,
+                            targetDate, targetType, model, 0,
+                            "Weather data fetch failed: " + e.getMessage()));
+                }
+                continue;
+            }
 
-                testResultRepository.save(buildFailedResult(testRun, region, location,
-                        targetDate, targetType, model, 0, e.getMessage()));
+            // Run each model against the same data
+            for (EvaluationModel model : TEST_MODELS) {
+                try {
+                    EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                            atmosphericData, model, null);
+                    TokenUsage tokenUsage = detail.tokenUsage() != null
+                            ? detail.tokenUsage() : TokenUsage.EMPTY;
+                    int costPence = costCalculator.calculateCost(
+                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                    long costMicroDollars = costCalculator.calculateCostMicroDollars(
+                            model, tokenUsage);
+                    totalCostPence += costPence;
+                    totalCostMicroDollars += costMicroDollars;
+                    succeeded++;
+
+                    ModelTestResultEntity result = ModelTestResultEntity.builder()
+                            .testRunId(testRun.getId())
+                            .regionId(region.getId())
+                            .regionName(region.getName())
+                            .locationId(location.getId())
+                            .locationName(location.getName())
+                            .targetDate(targetDate)
+                            .targetType(targetType)
+                            .evaluationModel(model)
+                            .rating(detail.evaluation().rating())
+                            .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                            .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                            .summary(detail.evaluation().summary())
+                            .promptSent(detail.promptSent())
+                            .responseJson(detail.rawResponse())
+                            .durationMs(detail.durationMs())
+                            .costPence(costPence)
+                            .inputTokens(tokenUsage.inputTokens())
+                            .outputTokens(tokenUsage.outputTokens())
+                            .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                            .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                            .costMicroDollars(costMicroDollars)
+                            .succeeded(true)
+                            .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                            .build();
+                    populateAtmosphericData(result, atmosphericData);
+                    testResultRepository.save(result);
+                } catch (Exception e) {
+                    LOG.error("Model {} failed for '{}' {}: {}",
+                            model, location.getName(), targetType, e.getMessage());
+                    failed++;
+
+                    testResultRepository.save(buildFailedResult(testRun, region, location,
+                            targetDate, targetType, model, 0, e.getMessage()));
+                }
             }
         }
 
@@ -371,17 +391,18 @@ public class ModelTestService {
 
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
-        TargetType targetType = resolveTargetType(now, allLocations);
-        LocalDate targetDate = resolveTargetDate(now, targetType, allLocations);
+        TargetType primaryTargetType = resolveTargetType(now, allLocations);
+        LocalDate targetDate = resolveTargetDate(now, primaryTargetType, allLocations);
+        List<TargetType> targetTypes = resolveTargetTypesForDate(targetDate, now, allLocations);
 
         Double exchangeRate = fetchExchangeRate();
         LOG.info("Re-running model test #{} (fresh data) — {} locations, target: {} {}",
-                previousRunId, locationMap.size(), targetDate, targetType);
+                previousRunId, locationMap.size(), targetDate, targetTypes);
 
         ModelTestRunEntity testRun = testRunRepository.save(ModelTestRunEntity.builder()
                 .startedAt(now)
                 .targetDate(targetDate)
-                .targetType(targetType)
+                .targetType(primaryTargetType)
                 .regionsCount(0)
                 .succeeded(0)
                 .failed(0)
@@ -413,68 +434,75 @@ public class ModelTestService {
 
             locationsProcessed++;
 
-            AtmosphericData atmosphericData;
-            try {
-                atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
-            } catch (Exception e) {
-                LOG.error("Failed to fetch weather data for '{}': {}",
-                        location.getName(), e.getMessage(), e);
-                for (EvaluationModel model : TEST_MODELS) {
-                    failed++;
-                    testResultRepository.save(buildFailedResult(testRun, region, location,
-                            targetDate, targetType, model, 0,
-                            "Weather data fetch failed: " + e.getMessage()));
+            for (TargetType targetType : targetTypes) {
+                if (!locationSupportsTargetType(location, targetType)) {
+                    continue;
                 }
-                continue;
-            }
 
-            for (EvaluationModel model : TEST_MODELS) {
+                AtmosphericData atmosphericData;
                 try {
-                    EvaluationDetail detail = evaluationService.evaluateWithDetails(
-                            atmosphericData, model, null);
-                    TokenUsage tokenUsage = detail.tokenUsage() != null
-                            ? detail.tokenUsage() : TokenUsage.EMPTY;
-                    int costPence = costCalculator.calculateCost(
-                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
-                    long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
-                    totalCostPence += costPence;
-                    totalCostMicroDollars += costMicroDollars;
-                    succeeded++;
-
-                    ModelTestResultEntity result = ModelTestResultEntity.builder()
-                            .testRunId(testRun.getId())
-                            .regionId(region.getId())
-                            .regionName(region.getName())
-                            .locationId(location.getId())
-                            .locationName(location.getName())
-                            .targetDate(targetDate)
-                            .targetType(targetType)
-                            .evaluationModel(model)
-                            .rating(detail.evaluation().rating())
-                            .fierySkyPotential(detail.evaluation().fierySkyPotential())
-                            .goldenHourPotential(detail.evaluation().goldenHourPotential())
-                            .summary(detail.evaluation().summary())
-                            .promptSent(detail.promptSent())
-                            .responseJson(detail.rawResponse())
-                            .durationMs(detail.durationMs())
-                            .costPence(costPence)
-                            .inputTokens(tokenUsage.inputTokens())
-                            .outputTokens(tokenUsage.outputTokens())
-                            .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
-                            .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
-                            .costMicroDollars(costMicroDollars)
-                            .succeeded(true)
-                            .createdAt(LocalDateTime.now(ZoneOffset.UTC))
-                            .build();
-                    populateAtmosphericData(result, atmosphericData);
-                    testResultRepository.save(result);
+                    atmosphericData = fetchAtmosphericData(location, targetDate, targetType);
                 } catch (Exception e) {
-                    LOG.error("Model {} failed for '{}': {}",
-                            model, location.getName(), e.getMessage());
-                    failed++;
+                    LOG.error("Failed to fetch weather data for '{}' {}: {}",
+                            location.getName(), targetType, e.getMessage(), e);
+                    for (EvaluationModel model : TEST_MODELS) {
+                        failed++;
+                        testResultRepository.save(buildFailedResult(testRun, region, location,
+                                targetDate, targetType, model, 0,
+                                "Weather data fetch failed: " + e.getMessage()));
+                    }
+                    continue;
+                }
 
-                    testResultRepository.save(buildFailedResult(testRun, region, location,
-                            targetDate, targetType, model, 0, e.getMessage()));
+                for (EvaluationModel model : TEST_MODELS) {
+                    try {
+                        EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                                atmosphericData, model, null);
+                        TokenUsage tokenUsage = detail.tokenUsage() != null
+                                ? detail.tokenUsage() : TokenUsage.EMPTY;
+                        int costPence = costCalculator.calculateCost(
+                                com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                        long costMicroDollars = costCalculator.calculateCostMicroDollars(
+                                model, tokenUsage);
+                        totalCostPence += costPence;
+                        totalCostMicroDollars += costMicroDollars;
+                        succeeded++;
+
+                        ModelTestResultEntity result = ModelTestResultEntity.builder()
+                                .testRunId(testRun.getId())
+                                .regionId(region.getId())
+                                .regionName(region.getName())
+                                .locationId(location.getId())
+                                .locationName(location.getName())
+                                .targetDate(targetDate)
+                                .targetType(targetType)
+                                .evaluationModel(model)
+                                .rating(detail.evaluation().rating())
+                                .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                                .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                                .summary(detail.evaluation().summary())
+                                .promptSent(detail.promptSent())
+                                .responseJson(detail.rawResponse())
+                                .durationMs(detail.durationMs())
+                                .costPence(costPence)
+                                .inputTokens(tokenUsage.inputTokens())
+                                .outputTokens(tokenUsage.outputTokens())
+                                .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                                .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                                .costMicroDollars(costMicroDollars)
+                                .succeeded(true)
+                                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                                .build();
+                        populateAtmosphericData(result, atmosphericData);
+                        testResultRepository.save(result);
+                    } catch (Exception e) {
+                        LOG.error("Model {} failed for '{}' {}: {}",
+                                model, location.getName(), targetType, e.getMessage());
+                        failed++;
+
+                        testResultRepository.save(buildFailedResult(testRun, region, location,
+                                targetDate, targetType, model, 0, e.getMessage()));
+                    }
                 }
             }
         }
@@ -686,6 +714,48 @@ public class ModelTestService {
             return now.toLocalDate();
         }
         return now.toLocalDate().plusDays(1);
+    }
+
+    /**
+     * Resolves which target types to evaluate for a given date.
+     *
+     * <p>For future dates, both SUNRISE and SUNSET are returned. For today, only events
+     * that have not yet passed are included, using the first location as a time reference.
+     *
+     * @param date          the target date
+     * @param now           current UTC time
+     * @param allLocations  all enabled locations (first is used as solar time reference)
+     * @return list of applicable target types for the date
+     */
+    List<TargetType> resolveTargetTypesForDate(LocalDate date, LocalDateTime now,
+            List<LocationEntity> allLocations) {
+        if (!date.equals(now.toLocalDate()) || allLocations.isEmpty()) {
+            return List.of(TargetType.SUNRISE, TargetType.SUNSET);
+        }
+        LocationEntity ref = allLocations.get(0);
+        List<TargetType> types = new ArrayList<>();
+        LocalDateTime sunrise = solarService.sunriseUtc(ref.getLat(), ref.getLon(), date);
+        LocalDateTime sunset = solarService.sunsetUtc(ref.getLat(), ref.getLon(), date);
+        if (now.isBefore(sunrise)) {
+            types.add(TargetType.SUNRISE);
+        }
+        if (now.isBefore(sunset)) {
+            types.add(TargetType.SUNSET);
+        }
+        return types;
+    }
+
+    private boolean locationSupportsTargetType(LocationEntity location, TargetType targetType) {
+        Set<SolarEventType> solarTypes = location.getSolarEventType();
+        if (solarTypes == null || solarTypes.isEmpty()
+                || solarTypes.contains(SolarEventType.ALLDAY)) {
+            return true;
+        }
+        return switch (targetType) {
+            case SUNRISE -> solarTypes.contains(SolarEventType.SUNRISE);
+            case SUNSET -> solarTypes.contains(SolarEventType.SUNSET);
+            case HOURLY -> true;
+        };
     }
 
     private ModelTestRunEntity completeRun(ModelTestRunEntity testRun, LocalDateTime startedAt,
