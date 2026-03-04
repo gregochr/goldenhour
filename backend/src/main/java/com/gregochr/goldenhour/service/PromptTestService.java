@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.PromptTestResultEntity;
 import com.gregochr.goldenhour.entity.PromptTestRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
@@ -28,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 
 /**
  * Orchestrates prompt regression tests across all colour locations.
@@ -108,19 +110,18 @@ public class PromptTestService {
                 .filter(this::hasColourTypes)
                 .toList();
 
-        TargetType targetType = resolveTargetType(now, allLocations);
+        TargetType primaryTargetType = resolveTargetType(now, allLocations);
         List<LocalDate> targetDates = resolveDates(runType);
         Double exchangeRate = fetchExchangeRate();
 
-        LOG.info("Prompt test started — {} colour locations × {} dates, model={}, runType={}, "
-                        + "target: {} {}",
-                colourLocations.size(), targetDates.size(), model, runType,
-                targetDates, targetType);
+        LOG.info("Prompt test started — {} colour locations × {} dates (SUNRISE+SUNSET per date),"
+                        + " model={}, runType={}",
+                colourLocations.size(), targetDates.size(), model, runType);
 
         PromptTestRunEntity testRun = testRunRepository.save(PromptTestRunEntity.builder()
                 .startedAt(now)
                 .targetDate(targetDates.getFirst())
-                .targetType(targetType)
+                .targetType(primaryTargetType)
                 .evaluationModel(model)
                 .runType(runType)
                 .locationsCount(0)
@@ -141,44 +142,50 @@ public class PromptTestService {
         int totalSlots = 0;
 
         for (LocalDate date : targetDates) {
-            for (LocationEntity location : colourLocations) {
-                totalSlots++;
-                AtmosphericData atmosphericData;
-                try {
-                    atmosphericData = fetchAtmosphericData(location, date, targetType);
-                } catch (Exception e) {
-                    LOG.error("Failed to fetch weather data for '{}' on {}: {}",
-                            location.getName(), date, e.getMessage(), e);
-                    failed++;
-                    testResultRepository.save(buildFailedResult(testRun, location,
-                            date, targetType, model, e.getMessage()));
-                    continue;
-                }
+            List<TargetType> targetTypes = resolveTargetTypesForDate(date, now, allLocations);
+            for (TargetType targetType : targetTypes) {
+                for (LocationEntity location : colourLocations) {
+                    if (!locationSupportsTargetType(location, targetType)) {
+                        continue;
+                    }
+                    totalSlots++;
+                    AtmosphericData atmosphericData;
+                    try {
+                        atmosphericData = fetchAtmosphericData(location, date, targetType);
+                    } catch (Exception e) {
+                        LOG.error("Failed to fetch weather data for '{}' on {} {}: {}",
+                                location.getName(), date, targetType, e.getMessage(), e);
+                        failed++;
+                        testResultRepository.save(buildFailedResult(testRun, location,
+                                date, targetType, model, e.getMessage()));
+                        continue;
+                    }
 
-                try {
-                    EvaluationDetail detail = evaluationService.evaluateWithDetails(
-                            atmosphericData, model, null);
-                    TokenUsage tokenUsage = detail.tokenUsage() != null
-                            ? detail.tokenUsage() : TokenUsage.EMPTY;
-                    int costPence = costCalculator.calculateCost(
-                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
-                    long costMicroDollars = costCalculator.calculateCostMicroDollars(
-                            model, tokenUsage);
-                    totalCostPence += costPence;
-                    totalCostMicroDollars += costMicroDollars;
-                    succeeded++;
+                    try {
+                        EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                                atmosphericData, model, null);
+                        TokenUsage tokenUsage = detail.tokenUsage() != null
+                                ? detail.tokenUsage() : TokenUsage.EMPTY;
+                        int costPence = costCalculator.calculateCost(
+                                com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                        long costMicroDollars = costCalculator.calculateCostMicroDollars(
+                                model, tokenUsage);
+                        totalCostPence += costPence;
+                        totalCostMicroDollars += costMicroDollars;
+                        succeeded++;
 
-                    PromptTestResultEntity result = buildSuccessResult(testRun, location,
-                            date, targetType, model, detail, costPence, costMicroDollars,
-                            tokenUsage);
-                    populateAtmosphericData(result, atmosphericData);
-                    testResultRepository.save(result);
-                } catch (Exception e) {
-                    LOG.error("Evaluation failed for '{}' on {} with model {}: {}",
-                            location.getName(), date, model, e.getMessage());
-                    failed++;
-                    testResultRepository.save(buildFailedResult(testRun, location,
-                            date, targetType, model, e.getMessage()));
+                        PromptTestResultEntity result = buildSuccessResult(testRun, location,
+                                date, targetType, model, detail, costPence, costMicroDollars,
+                                tokenUsage);
+                        populateAtmosphericData(result, atmosphericData);
+                        testResultRepository.save(result);
+                    } catch (Exception e) {
+                        LOG.error("Evaluation failed for '{}' on {} {} with model {}: {}",
+                                location.getName(), date, targetType, model, e.getMessage());
+                        failed++;
+                        testResultRepository.save(buildFailedResult(testRun, location,
+                                date, targetType, model, e.getMessage()));
+                    }
                 }
             }
         }
@@ -380,6 +387,48 @@ public class PromptTestService {
             return now.toLocalDate();
         }
         return now.toLocalDate().plusDays(1);
+    }
+
+    /**
+     * Resolves which target types to evaluate for a given date.
+     *
+     * <p>For future dates, both SUNRISE and SUNSET are returned. For today, only events
+     * that have not yet passed are included, using the first location as a time reference.
+     *
+     * @param date          the target date
+     * @param now           current UTC time
+     * @param allLocations  all enabled locations (first is used as solar time reference)
+     * @return list of applicable target types for the date
+     */
+    List<TargetType> resolveTargetTypesForDate(LocalDate date, LocalDateTime now,
+            List<LocationEntity> allLocations) {
+        if (!date.equals(now.toLocalDate()) || allLocations.isEmpty()) {
+            return List.of(TargetType.SUNRISE, TargetType.SUNSET);
+        }
+        LocationEntity ref = allLocations.get(0);
+        List<TargetType> types = new ArrayList<>();
+        LocalDateTime sunrise = solarService.sunriseUtc(ref.getLat(), ref.getLon(), date);
+        LocalDateTime sunset = solarService.sunsetUtc(ref.getLat(), ref.getLon(), date);
+        if (now.isBefore(sunrise)) {
+            types.add(TargetType.SUNRISE);
+        }
+        if (now.isBefore(sunset)) {
+            types.add(TargetType.SUNSET);
+        }
+        return types;
+    }
+
+    private boolean locationSupportsTargetType(LocationEntity location, TargetType targetType) {
+        Set<SolarEventType> solarTypes = location.getSolarEventType();
+        if (solarTypes == null || solarTypes.isEmpty()
+                || solarTypes.contains(SolarEventType.ALLDAY)) {
+            return true;
+        }
+        return switch (targetType) {
+            case SUNRISE -> solarTypes.contains(SolarEventType.SUNRISE);
+            case SUNSET -> solarTypes.contains(SolarEventType.SUNSET);
+            case HOURLY -> true;
+        };
     }
 
     // --- Private helpers ---
