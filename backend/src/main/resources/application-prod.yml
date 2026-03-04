@@ -96,22 +96,22 @@ forecast:
     - name: Berwick-Upon-Tweed
       lat: 55.7702
       lon: -2.0054
-      tideType: HIGH_TIDE
+      tideType: HIGH
       locationType: SEASCAPE
     - name: Spittal Beach
       lat: 55.7592
       lon: -1.9912
       tideType:
-        - HIGH_TIDE
-        - LOW_TIDE
+        - HIGH
+        - LOW
       locationType: SEASCAPE
     - name: Cocklawburn Beach
       lat: 55.7296
       lon: -1.9525
       goldenHourType: SUNRISE
       tideType:
-        - HIGH_TIDE
-        - MID_TIDE
+        - HIGH
+        - MID
       locationType: SEASCAPE
     - name: Lindisfarne Castle
       lat: 55.6991

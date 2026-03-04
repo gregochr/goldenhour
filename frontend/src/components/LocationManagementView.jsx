@@ -15,17 +15,15 @@ const GOLDEN_HOUR_TYPES = [
 ];
 
 const LOCATION_TYPES = [
-  { value: 'LANDSCAPE', label: 'Landscape' },
-  { value: 'SEASCAPE', label: 'Seascape' },
-  { value: 'WILDLIFE', label: 'Wildlife' },
+  { value: 'LANDSCAPE', label: 'Landscape', emoji: '🏔️' },
+  { value: 'SEASCAPE', label: 'Seascape', emoji: '🌊' },
+  { value: 'WILDLIFE', label: 'Wildlife', emoji: '🐾' },
 ];
 
 const TIDE_TYPES = [
-  { value: 'ANY_TIDE', label: 'Any Tide' },
-  { value: 'HIGH_TIDE', label: 'High Tide' },
-  { value: 'LOW_TIDE', label: 'Low Tide' },
-  { value: 'MID_TIDE', label: 'Mid Tide' },
-  { value: 'NOT_COASTAL', label: 'Not Coastal' },
+  { value: 'HIGH', label: 'H', fullLabel: 'High' },
+  { value: 'MID',  label: 'M', fullLabel: 'Mid' },
+  { value: 'LOW',  label: 'L', fullLabel: 'Low' },
 ];
 
 /**
@@ -45,18 +43,120 @@ function formatLocationType(types) {
 /**
  * Formats a tide type set (array) into a readable label.
  *
- * @param {Array<string>} types - e.g. ['ANY_TIDE']
+ * @param {Array<string>} types - e.g. ['HIGH', 'LOW']
  * @returns {string} Readable label.
  */
 function formatTideType(types) {
   if (!types || types.length === 0) return '—';
-  const filtered = types.filter((t) => t !== 'NOT_COASTAL');
-  if (filtered.length === 0) return '—';
-  return filtered.map((t) => {
+  return types.map((t) => {
     const found = TIDE_TYPES.find((tt) => tt.value === t);
-    return found ? found.label : t;
+    return found ? found.fullLabel : t;
   }).join(', ');
 }
+
+/**
+ * Compact toggle chip group for multi-select tide types.
+ *
+ * @param {object} props
+ * @param {Array<string>} props.selected - Currently selected tide type values.
+ * @param {function} props.onChange - Called with new array of selected values.
+ * @param {boolean} [props.disabled=false] - When true, all chips are muted and non-interactive.
+ */
+function TideToggleChips({ selected, onChange, disabled = false, readOnly = false }) {
+  function toggle(value) {
+    if (disabled || readOnly) return;
+    const isSelected = selected.includes(value);
+    if (isSelected && selected.length <= 1) return; // prevent deselecting the last chip
+    const next = isSelected ? selected.filter((v) => v !== value) : [...selected, value];
+    onChange(next);
+  }
+
+  // Non-coastal: show dash instead of empty chips
+  if (readOnly && (!selected || selected.length === 0)) {
+    return <span className="text-plex-text-muted text-xs">—</span>;
+  }
+
+  return (
+    <div className="inline-flex gap-0.5 whitespace-nowrap" data-testid="tide-toggle-chips">
+      {TIDE_TYPES.map((t) => {
+        const isOn = selected.includes(t.value);
+        return (
+          <button
+            key={t.value}
+            type="button"
+            title={t.fullLabel}
+            onClick={() => toggle(t.value)}
+            disabled={disabled || readOnly}
+            className={`text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
+              readOnly
+                ? isOn
+                  ? 'bg-plex-gold/20 text-plex-gold border border-plex-gold/40 cursor-default'
+                  : 'bg-plex-surface-light text-plex-text-muted border border-plex-border/30 cursor-default opacity-30'
+                : disabled
+                  ? 'bg-plex-surface-light text-plex-text-muted cursor-default opacity-50'
+                  : isOn
+                    ? 'bg-plex-gold/20 text-plex-gold border border-plex-gold/40 cursor-pointer'
+                    : 'bg-plex-surface-light text-plex-text-muted border border-plex-border cursor-pointer hover:border-plex-gold/30'
+            }`}
+            data-testid={`tide-chip-${t.value}`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+TideToggleChips.propTypes = {
+  selected: PropTypes.arrayOf(PropTypes.string).isRequired,
+  onChange: PropTypes.func.isRequired,
+  disabled: PropTypes.bool,
+  readOnly: PropTypes.bool,
+};
+
+/**
+ * Emoji chip group for location type (single-select).
+ *
+ * @param {object} props
+ * @param {string} props.selected - Active type value, e.g. 'SEASCAPE'.
+ * @param {function} [props.onChange] - Called with new value on click (omit for read-only).
+ * @param {boolean} [props.readOnly=false] - Disable interaction.
+ */
+function LocationTypeChips({ selected, onChange, readOnly = false }) {
+  return (
+    <div className="inline-flex gap-0.5 whitespace-nowrap" data-testid="location-type-chips">
+      {LOCATION_TYPES.map((lt) => {
+        const isOn = lt.value === selected;
+        return (
+          <button
+            key={lt.value}
+            type="button"
+            title={lt.label}
+            disabled={readOnly}
+            onClick={() => { if (!readOnly && onChange) onChange(lt.value); }}
+            className={`text-sm leading-none px-0.5 py-0.5 rounded transition-colors ${
+              isOn
+                ? 'opacity-100 cursor-default'
+                : readOnly
+                  ? 'opacity-50 grayscale cursor-default'
+                  : 'opacity-50 grayscale cursor-pointer hover:opacity-70 hover:grayscale-0'
+            }`}
+            data-testid={`type-chip-${lt.value}`}
+          >
+            <span style={lt.value === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{lt.emoji}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+LocationTypeChips.propTypes = {
+  selected: PropTypes.string.isRequired,
+  onChange: PropTypes.func,
+  readOnly: PropTypes.bool,
+};
 
 /**
  * Formats a golden hour type enum into a readable label.
@@ -216,8 +316,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [locations, setLocations] = useState([]);
   const [regions, setRegions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState('list'); // list | add | edit
-  const [editingLocation, setEditingLocation] = useState(null);
+  const [mode, setMode] = useState('list'); // list | add
+  const [editingRowId, setEditingRowId] = useState(null);
+  const [editValues, setEditValues] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   // Add form state
   const [placeName, setPlaceName] = useState('');
@@ -230,15 +333,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [manualLon, setManualLon] = useState('');
   const [addGoldenHourType, setAddGoldenHourType] = useState('BOTH_TIMES');
   const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
-  const [addTideType, setAddTideType] = useState('NOT_COASTAL');
+  const [addTideTypes, setAddTideTypes] = useState([]);
   const [addRegionId, setAddRegionId] = useState('');
-
-  // Edit form state
-  const [editName, setEditName] = useState('');
-  const [editGoldenHourType, setEditGoldenHourType] = useState('BOTH_TIMES');
-  const [editLocationType, setEditLocationType] = useState('LANDSCAPE');
-  const [editTideType, setEditTideType] = useState('NOT_COASTAL');
-  const [editRegionId, setEditRegionId] = useState('');
 
   // Confirm modal state
   const [confirmData, setConfirmData] = useState(null);
@@ -283,7 +379,17 @@ export default function LocationManagementView({ onLocationsChanged }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Cancel inline edit when page changes (edited row may no longer be visible)
+  useEffect(() => {
+    if (editingRowId) {
+      setEditingRowId(null);
+      setEditValues(null);
+      setEditError('');
+    }
+  }, [pagination.page]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleStartAdd() {
+    handleEditCancel();
     setMode('add');
     setPlaceName('');
     setGeocodeResult(null);
@@ -294,25 +400,66 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setManualLon('');
     setAddGoldenHourType('BOTH_TIMES');
     setAddLocationType('LANDSCAPE');
-    setAddTideType('NOT_COASTAL');
+    setAddTideTypes([]);
     setAddRegionId('');
     setError('');
   }
 
   function handleStartEdit(loc) {
-    setMode('edit');
-    setEditingLocation(loc);
-    setEditName(loc.name);
-    setEditGoldenHourType(loc.goldenHourType || 'BOTH_TIMES');
-    setEditLocationType(firstOrDefault(loc.locationType, 'LANDSCAPE'));
-    setEditTideType(firstOrDefault(loc.tideType, 'NOT_COASTAL'));
-    setEditRegionId(loc.region?.id ? String(loc.region.id) : '');
-    setError('');
+    setEditingRowId(loc.id);
+    setEditValues({
+      name: loc.name,
+      goldenHourType: loc.goldenHourType || 'BOTH_TIMES',
+      locationType: firstOrDefault(loc.locationType, 'LANDSCAPE'),
+      tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
+      regionId: loc.region?.id ? String(loc.region.id) : '',
+    });
+    setEditError('');
+  }
+
+  function handleEditCancel() {
+    setEditingRowId(null);
+    setEditValues(null);
+    setEditError('');
+  }
+
+  function handleEditChange(field, value) {
+    setEditValues((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === 'locationType') {
+        next.tideTypes = value === 'SEASCAPE' ? ['HIGH', 'MID', 'LOW'] : [];
+      }
+      return next;
+    });
+  }
+
+  async function handleEditSave() {
+    if (!editValues.name.trim()) {
+      setEditError('Name cannot be blank.');
+      return;
+    }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await updateLocation(editingRowId, {
+        name: editValues.name.trim(),
+        goldenHourType: editValues.goldenHourType,
+        locationType: editValues.locationType,
+        tideTypes: editValues.locationType === 'SEASCAPE' ? editValues.tideTypes : [],
+        regionId: editValues.regionId ? Number(editValues.regionId) : null,
+      });
+      await refreshLocations();
+      handleEditCancel();
+      onLocationsChanged();
+    } catch (err) {
+      setEditError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   function handleCancel() {
     setMode('list');
-    setEditingLocation(null);
     setConfirmData(null);
     setError('');
   }
@@ -353,7 +500,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         displayName: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
         goldenHourType: addGoldenHourType,
         locationType: addLocationType,
-        tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+        tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
       });
     } else {
@@ -366,55 +513,25 @@ export default function LocationManagementView({ onLocationsChanged }) {
         displayName: geocodeResult.displayName,
         goldenHourType: addGoldenHourType,
         locationType: addLocationType,
-        tideType: addLocationType === 'SEASCAPE' ? addTideType : 'NOT_COASTAL',
+        tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
       });
     }
-  }
-
-  function handleEditReviewConfirm() {
-    if (!editingLocation) return;
-    const trimmedName = editName.trim();
-    if (!trimmedName) {
-      setError('Name cannot be blank.');
-      return;
-    }
-    setConfirmData({
-      mode: 'edit',
-      id: editingLocation.id,
-      name: trimmedName,
-      lat: editingLocation.lat,
-      lon: editingLocation.lon,
-      goldenHourType: editGoldenHourType,
-      locationType: editLocationType,
-      tideType: editLocationType === 'SEASCAPE' ? editTideType : 'NOT_COASTAL',
-      regionId: editRegionId ? Number(editRegionId) : null,
-    });
   }
 
   async function handleConfirmSave() {
     setSaving(true);
     setError('');
     try {
-      if (confirmData.mode === 'add') {
-        await addLocation({
-          name: confirmData.name,
-          lat: confirmData.lat,
-          lon: confirmData.lon,
-          goldenHourType: confirmData.goldenHourType,
-          locationType: confirmData.locationType,
-          tideType: confirmData.tideType,
-          regionId: confirmData.regionId,
-        });
-      } else {
-        await updateLocation(confirmData.id, {
-          name: confirmData.name,
-          goldenHourType: confirmData.goldenHourType,
-          locationType: confirmData.locationType,
-          tideType: confirmData.tideType,
-          regionId: confirmData.regionId,
-        });
-      }
+      await addLocation({
+        name: confirmData.name,
+        lat: confirmData.lat,
+        lon: confirmData.lon,
+        goldenHourType: confirmData.goldenHourType,
+        locationType: confirmData.locationType,
+        tideTypes: confirmData.tideTypes,
+        regionId: confirmData.regionId,
+      });
       await refreshLocations();
       handleCancel();
     } catch (err) {
@@ -440,20 +557,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
   function handleAddLocationTypeChange(value) {
     setAddLocationType(value);
     if (value === 'SEASCAPE') {
-      setAddTideType('ANY_TIDE');
+      setAddTideTypes(['HIGH', 'MID', 'LOW']);
     } else {
-      setAddTideType('NOT_COASTAL');
+      setAddTideTypes([]);
     }
   }
 
-  function handleEditLocationTypeChange(value) {
-    setEditLocationType(value);
-    if (value === 'SEASCAPE') {
-      setEditTideType('ANY_TIDE');
-    } else {
-      setEditTideType('NOT_COASTAL');
-    }
-  }
+  const inlineInputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
+  const inlineSelectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1 py-0.5 text-xs text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
 
   const selectClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold';
   const labelClass = 'block text-xs text-plex-text-secondary mb-1';
@@ -489,84 +600,248 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <table className="w-full text-sm text-left table-fixed" data-testid="locations-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Name" sortKey="name" className="w-[18%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
-                    <th className="pb-1 font-medium align-top w-[12%]">
+                    <SortableHeader label="Name" sortKey="name" className="w-[17%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
+                    <th className="pb-1 font-medium align-top w-[8%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Coords</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
-                    <SortableHeader label="Type" sortKey="type" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('type')} onFilter={(v) => sf.setFilter('type', v)} />
-                    <SortableHeader label="Region" sortKey="region" className="w-[12%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
-                    <SortableHeader label="Solar" sortKey="solar" className="w-[11%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
-                    <SortableHeader label="Tide" sortKey="tide" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('tide')} onFilter={(v) => sf.setFilter('tide', v)} />
-                    <SortableHeader label="Created" sortKey="created" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
+                    <th className="pb-1 font-medium align-bottom w-[7%]">
+                      <button
+                        type="button"
+                        onClick={() => sf.handleSort('type')}
+                        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
+                      >
+                        Type{sf.sortKey === 'type' ? (sf.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                      </button>
+                      <div className="mt-1 flex gap-0.5">
+                        {LOCATION_TYPES.map((lt) => {
+                          const isActive = sf.getFilterValue('type') === lt.label;
+                          return (
+                            <button
+                              key={lt.value}
+                              type="button"
+                              title={`Filter: ${lt.label}`}
+                              onClick={() => sf.setFilter('type', isActive ? '' : lt.label)}
+                              className={`text-xs leading-none px-0.5 py-0.5 rounded transition-colors ${
+                                isActive ? 'opacity-100 ring-1 ring-plex-gold' : 'opacity-40 grayscale hover:opacity-70 hover:grayscale-0'
+                              }`}
+                              data-testid={`filter-type-${lt.value}`}
+                            >
+                              <span style={lt.value === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{lt.emoji}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </th>
+                    <SortableHeader label="Region" sortKey="region" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
+                    <SortableHeader label="Solar" sortKey="solar" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
+                    <th className="pb-1 font-medium align-bottom w-[8%]">
+                      <button
+                        type="button"
+                        onClick={() => sf.handleSort('tide')}
+                        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
+                      >
+                        Tide{sf.sortKey === 'tide' ? (sf.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                      </button>
+                      <div className="mt-1 flex gap-0.5">
+                        {TIDE_TYPES.map((t) => {
+                          const isActive = sf.getFilterValue('tide') === t.fullLabel;
+                          return (
+                            <button
+                              key={t.value}
+                              type="button"
+                              title={`Filter: ${t.fullLabel}`}
+                              onClick={() => sf.setFilter('tide', isActive ? '' : t.fullLabel)}
+                              className={`text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                                isActive
+                                  ? 'bg-plex-gold/20 text-plex-gold border border-plex-gold/40'
+                                  : 'bg-plex-surface-light text-plex-text-muted border border-plex-border cursor-pointer hover:border-plex-gold/30'
+                              }`}
+                              data-testid={`filter-tide-${t.value}`}
+                            >
+                              {t.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </th>
+                    <SortableHeader label="Created" sortKey="created" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
                     <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium align-top w-[8%]">
+                    <th className="pb-1 font-medium align-top w-[13%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageLocations.map((loc) => (
-                    <tr
-                      key={loc.id}
-                      className={`border-b border-plex-surface last:border-0 ${!loc.enabled ? 'opacity-50' : ''}`}
-                    >
-                      <td className="py-2 text-plex-text truncate" title={loc.name}>
-                        {loc.name}
-                        {loc.consecutiveFailures > 0 && !loc.disabledReason && (
-                          <span className="inline-flex items-center gap-0.5 ml-1.5">
-                            <span
-                              className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400"
-                            >
-                              {loc.consecutiveFailures}
-                            </span>
-                            <InfoTip text={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' \u2014 last: ' + new Date(loc.lastFailureAt).toLocaleString() : ''}`} className="text-amber-400" />
-                          </span>
+                  {pageLocations.map((loc) => {
+                    const isEditing = loc.id === editingRowId;
+                    return (
+                      <React.Fragment key={loc.id}>
+                        <tr
+                          className={`border-b border-plex-surface last:border-0 ${!loc.enabled && !isEditing ? 'opacity-50' : ''}`}
+                          onKeyDown={isEditing ? (e) => { if (e.key === 'Escape') handleEditCancel(); } : undefined}
+                        >
+                          {isEditing ? (
+                            <>
+                              <td className="py-2">
+                                <input
+                                  type="text"
+                                  className={inlineInputClass}
+                                  value={editValues.name}
+                                  onChange={(e) => handleEditChange('name', e.target.value)}
+                                  data-testid="inline-edit-name"
+                                />
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
+                              </td>
+                              <td className="py-2" data-testid="inline-edit-type">
+                                <LocationTypeChips
+                                  selected={editValues.locationType}
+                                  onChange={(val) => handleEditChange('locationType', val)}
+                                />
+                              </td>
+                              <td className="py-2">
+                                <select
+                                  className={inlineSelectClass}
+                                  value={editValues.regionId}
+                                  onChange={(e) => handleEditChange('regionId', e.target.value)}
+                                  data-testid="inline-edit-region"
+                                >
+                                  <option value="">— None —</option>
+                                  {regions.filter((r) => r.enabled || String(r.id) === editValues.regionId).map((r) => (
+                                    <option key={r.id} value={r.id}>{r.name}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="py-2">
+                                <select
+                                  className={inlineSelectClass}
+                                  value={editValues.goldenHourType}
+                                  onChange={(e) => handleEditChange('goldenHourType', e.target.value)}
+                                  data-testid="inline-edit-solar"
+                                >
+                                  {GOLDEN_HOUR_TYPES.map((g) => (
+                                    <option key={g.value} value={g.value}>{g.label}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="py-2" data-testid="inline-edit-tide">
+                                <TideToggleChips
+                                  selected={editValues.tideTypes}
+                                  onChange={(next) => setEditValues((prev) => ({ ...prev, tideTypes: next }))}
+                                  disabled={editValues.locationType !== 'SEASCAPE'}
+                                />
+                              </td>
+                              <td className="py-2 text-plex-text-muted text-xs">
+                                {loc.createdAt ? loc.createdAt.slice(0, 10) : '—'}
+                              </td>
+                              <td className="py-2">
+                                <button
+                                  onClick={() => handleToggleEnabled(loc)}
+                                  className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
+                                    loc.enabled
+                                      ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
+                                      : 'bg-red-900/40 text-red-400 hover:bg-red-900/60'
+                                  }`}
+                                  data-testid={`toggle-enabled-${loc.id}`}
+                                >
+                                  {loc.enabled ? 'Enabled' : 'Disabled'}
+                                </button>
+                              </td>
+                              <td className="py-2">
+                                <div className="flex gap-1">
+                                  <button
+                                    className="text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-400 hover:bg-green-900/60 disabled:opacity-50"
+                                    onClick={handleEditSave}
+                                    disabled={editSaving}
+                                    data-testid="inline-edit-save"
+                                  >
+                                    {editSaving ? 'Saving…' : 'Save'}
+                                  </button>
+                                  <button
+                                    className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text"
+                                    onClick={handleEditCancel}
+                                    disabled={editSaving}
+                                    data-testid="inline-edit-cancel"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="py-2 text-plex-text truncate" title={loc.name}>
+                                {loc.name}
+                                {loc.consecutiveFailures > 0 && !loc.disabledReason && (
+                                  <span className="inline-flex items-center gap-0.5 ml-1.5">
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">
+                                      {loc.consecutiveFailures}
+                                    </span>
+                                    <InfoTip text={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' \u2014 last: ' + new Date(loc.lastFailureAt).toLocaleString() : ''}`} className="text-amber-400" />
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
+                              </td>
+                              <td className="py-2">
+                                <LocationTypeChips selected={(loc.locationType && loc.locationType[0]) || 'LANDSCAPE'} readOnly />
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.region?.name || '—'}
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {formatGoldenHourType(loc.goldenHourType)}
+                              </td>
+                              <td className="py-2">
+                                <TideToggleChips
+                                  selected={loc.tideType || []}
+                                  onChange={() => {}}
+                                  disabled
+                                  readOnly
+                                />
+                              </td>
+                              <td className="py-2 text-plex-text-muted text-xs">
+                                {loc.createdAt ? loc.createdAt.slice(0, 10) : '—'}
+                              </td>
+                              <td className="py-2">
+                                <button
+                                  onClick={() => handleToggleEnabled(loc)}
+                                  className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
+                                    loc.enabled
+                                      ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
+                                      : 'bg-red-900/40 text-red-400 hover:bg-red-900/60'
+                                  }`}
+                                  data-testid={`toggle-enabled-${loc.id}`}
+                                >
+                                  {loc.enabled ? 'Enabled' : 'Disabled'}
+                                </button>
+                              </td>
+                              <td className="py-2">
+                                <button
+                                  className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
+                                  onClick={() => handleStartEdit(loc)}
+                                  data-testid={`edit-location-${loc.id}`}
+                                >
+                                  Edit
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                        {isEditing && editError && (
+                          <tr>
+                            <td colSpan={9} className="py-1 text-xs text-red-400 pl-1" data-testid="inline-edit-error">
+                              {editError}
+                            </td>
+                          </tr>
                         )}
-                      </td>
-                      <td className="py-2 text-plex-text-secondary text-xs">
-                        {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
-                      </td>
-                      <td className="py-2 text-plex-text-secondary text-xs">
-                        {formatLocationType(loc.locationType)}
-                      </td>
-                      <td className="py-2 text-plex-text-secondary text-xs">
-                        {loc.region?.name || '—'}
-                      </td>
-                      <td className="py-2 text-plex-text-secondary text-xs">
-                        {formatGoldenHourType(loc.goldenHourType)}
-                      </td>
-                      <td className="py-2 text-plex-text-secondary text-xs">
-                        {formatTideType(loc.tideType)}
-                      </td>
-                      <td className="py-2 text-plex-text-muted text-xs">
-                        {loc.createdAt ? loc.createdAt.slice(0, 10) : '—'}
-                      </td>
-                      <td className="py-2">
-                        <button
-                          onClick={() => handleToggleEnabled(loc)}
-                          className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
-                            loc.enabled
-                              ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
-                              : 'bg-red-900/40 text-red-400 hover:bg-red-900/60'
-                          }`}
-                          data-testid={`toggle-enabled-${loc.id}`}
-                        >
-                          {loc.enabled ? 'Enabled' : 'Disabled'}
-                        </button>
-                      </td>
-                      <td className="py-2">
-                        <button
-                          className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
-                          onClick={() => handleStartEdit(loc)}
-                          data-testid={`edit-location-${loc.id}`}
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                      </React.Fragment>
+                    );
+                  })}
                   {filteredLocations.length === 0 && locations.length > 0 && (
                     <tr>
                       <td colSpan={9} className="py-4 text-center text-xs text-plex-text-muted">
@@ -742,19 +1017,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </select>
             </div>
             <div>
-              <label htmlFor="add-tide-type" className={labelClass}>Tide Preference</label>
-              <select
-                id="add-tide-type"
-                className={selectClass}
-                value={addTideType}
-                onChange={(e) => setAddTideType(e.target.value)}
-                disabled={addLocationType !== 'SEASCAPE'}
-                data-testid="add-tide-type"
-              >
-                {TIDE_TYPES.filter((t) => addLocationType === 'SEASCAPE' || t.value === 'NOT_COASTAL').map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
+              <label className={labelClass}>Tide Preference</label>
+              <div className="py-1.5" data-testid="add-tide-type">
+                <TideToggleChips
+                  selected={addTideTypes}
+                  onChange={setAddTideTypes}
+                  disabled={addLocationType !== 'SEASCAPE'}
+                />
+              </div>
             </div>
             <div>
               <label htmlFor="add-region" className={labelClass}>Region</label>
@@ -796,107 +1066,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         </div>
       )}
 
-      {/* Edit mode */}
-      {mode === 'edit' && editingLocation && (
-        <div className="flex flex-col gap-4">
-          <p className="text-sm font-semibold text-plex-text">
-            Edit Location: {editingLocation.name}
-          </p>
-
-          <div>
-            <label htmlFor="edit-name" className={labelClass}>Name</label>
-            <input
-              id="edit-name"
-              type="text"
-              className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-none focus:ring-1 focus:ring-plex-gold"
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              data-testid="edit-name"
-            />
-            <p className="mt-1 text-xs text-plex-text-muted">
-              {editingLocation.lat.toFixed(4)}, {editingLocation.lon.toFixed(4)}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="edit-golden-hour-type" className={labelClass}>Golden Hour Type</label>
-              <select
-                id="edit-golden-hour-type"
-                className={selectClass}
-                value={editGoldenHourType}
-                onChange={(e) => setEditGoldenHourType(e.target.value)}
-                data-testid="edit-golden-hour-type"
-              >
-                {GOLDEN_HOUR_TYPES.map((g) => (
-                  <option key={g.value} value={g.value}>{g.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="edit-location-type" className={labelClass}>Location Type</label>
-              <select
-                id="edit-location-type"
-                className={selectClass}
-                value={editLocationType}
-                onChange={(e) => handleEditLocationTypeChange(e.target.value)}
-                data-testid="edit-location-type"
-              >
-                {LOCATION_TYPES.map((lt) => (
-                  <option key={lt.value} value={lt.value}>{lt.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="edit-tide-type" className={labelClass}>Tide Preference</label>
-              <select
-                id="edit-tide-type"
-                className={selectClass}
-                value={editTideType}
-                onChange={(e) => setEditTideType(e.target.value)}
-                disabled={editLocationType !== 'SEASCAPE'}
-                data-testid="edit-tide-type"
-              >
-                {TIDE_TYPES.filter((t) => editLocationType === 'SEASCAPE' || t.value === 'NOT_COASTAL').map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="edit-region" className={labelClass}>Region</label>
-              <select
-                id="edit-region"
-                className={selectClass}
-                value={editRegionId}
-                onChange={(e) => setEditRegionId(e.target.value)}
-                data-testid="edit-region"
-              >
-                <option value="">— None —</option>
-                {regions.filter((r) => r.enabled || String(r.id) === editRegionId).map((r) => (
-                  <option key={r.id} value={r.id}>{r.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {error && <p className="text-xs text-red-400">{error}</p>}
-
-          <div className="flex justify-between">
-            <button className="btn-secondary text-sm" onClick={handleCancel}>
-              Cancel
-            </button>
-            <button
-              className="btn-primary text-sm"
-              onClick={handleEditReviewConfirm}
-              data-testid="review-confirm-btn"
-            >
-              Review & Confirm
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm modal */}
+      {/* Confirm modal (add only) */}
       {confirmData && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -907,7 +1077,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         >
           <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">
-              {confirmData.mode === 'add' ? 'Confirm New Location' : 'Confirm Changes'}
+              Confirm New Location
             </p>
 
             <div className="text-sm space-y-2">
@@ -934,7 +1104,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Tide</span>
                 <span className="text-plex-text">
-                  {confirmData.tideType === 'NOT_COASTAL' ? '—' : (TIDE_TYPES.find((t) => t.value === confirmData.tideType)?.label ?? confirmData.tideType)}
+                  {formatTideType(confirmData.tideTypes)}
                 </span>
               </div>
               <div className="flex justify-between">

@@ -18,13 +18,13 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - Tide data: WorldTides API, weekly refresh per coastal location, `tide_extreme` table (V14), `TideService` derives state/next tides from DB at evaluation time
 - Outcome recording (`actual_outcome` table, UI form)
 - Multi-location support with map view (Leaflet/OpenStreetMap)
-- Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH_TIDE/LOW_TIDE/ANY_TIDE/MID_TIDE/NOT_COASTAL), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
+- Location metadata: `goldenHourType` (SUNRISE/SUNSET/BOTH_TIMES/ANYTIME), `tideType` (HIGH/MID/LOW — multi-select set; empty = not coastal), `locationType` (LANDSCAPE/WILDLIFE/SEASCAPE)
 - Sunrise/sunset azimuth lines on map
 - **Two scores** ✓ — Fiery Sky Potential (0–100, dramatic colour) and Golden Hour Potential (0–100, light quality) alongside the 1–5 star rating; V17 columns, differentiated weighting in the shared evaluation prompt
 - **Configurable cost optimisation strategies** ✓ — five toggleable strategies per run type (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL), managed via Admin UI "Run Config" tab; mutual exclusion validation; `optimisation_strategy` table (V41); `OptimisationSkipEvaluator` replaces hard-coded Opus gate and long-term skip logic; active strategies snapshot on each `job_run` for audit; REQUIRE_PRIOR merged into SKIP_LOW_RATED (V42)
 - **Per-run-type model config** ✓ — three independent model configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Flat evaluation strategy hierarchy: Haiku, Sonnet, Opus all extend `AbstractEvaluationStrategy` directly with shared prompts; differentiation is purely which Anthropic model is used
-- Wildlife location UI: pure-WILDLIFE locations get hourly comfort rows (temp/wind/rain) between sunrise and sunset, green 🦅 marker; no Claude call
+- Wildlife location UI: pure-WILDLIFE locations get hourly comfort rows (temp/wind/rain) between sunrise and sunset, green 🐾 marker; no Claude call
 - Comfort fields (temperature, apparent temperature, precipitation probability) stored on every forecast row
 - JWT authentication: ADMIN / PRO_USER / LITE_USER roles
 - User management (ADMIN-only Manage tab)
@@ -84,6 +84,11 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - `table-fixed` with explicit column widths prevents layout shift between pages
   - Spacer rows on partial last page keep pagination controls anchored
   - Resets to page 1 on filter change; hidden when all items fit on one page
+- **Emoji chip UI for location metadata** ✓ — Type (🏔️/🌊/🐾) and Tide (H/M/L) displayed as compact toggle chips in both read-only and edit modes
+  - Type: single-select emoji chips (click to change in edit mode); read-only shows active type at full opacity, others faded + greyscale
+  - Tide: multi-select H/M/L chips; gold fill when selected; disabled for non-SEASCAPE; prevents deselecting the last chip
+  - Column header filters use matching clickable chips instead of text inputs
+  - `TideToggleChips` and `LocationTypeChips` components in `LocationManagementView.jsx`
 
 ---
 
@@ -105,7 +110,7 @@ goldenhour/
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V42 Flyway migrations
+│       └── db/migration/            V1–V43 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
@@ -221,6 +226,7 @@ jwt:
 | V39 | Determinism re-run support — atmospheric data JSON, run lineage, structured fields on `model_test_result` |
 | V41 | `optimisation_strategy` table (5 strategies × 3 run types seeded); `active_strategies` column on `job_run` |
 | V42 | Remove REQUIRE_PRIOR strategy (merged into SKIP_LOW_RATED) |
+| V43 | Refactor `TideType` enum: HIGH_TIDE→HIGH, MID_TIDE→MID, LOW_TIDE→LOW; expand ANY_TIDE to all three; remove ANY_TIDE and NOT_COASTAL sentinels |
 
 ---
 

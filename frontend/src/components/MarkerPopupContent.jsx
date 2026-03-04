@@ -73,10 +73,9 @@ const POPUP_GOLDEN_HOUR_META = {
 };
 
 const POPUP_TIDE_META = {
-  HIGH_TIDE: 'High tide',
-  LOW_TIDE:  'Low tide',
-  MID_TIDE:  'Mid tide',
-  ANY_TIDE:  'Any tide',
+  HIGH: 'High tide',
+  MID:  'Mid tide',
+  LOW:  'Low tide',
 };
 
 const SCORE_TOOLTIPS = {
@@ -163,7 +162,7 @@ export default function MarkerPopupContent({
   const bluePillStyle   = { ...POPUP_PILL, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
 
   const locTypes    = (location.locationType ?? []).filter((t) => POPUP_LOC_TYPE_META[t]);
-  const coastalTides = (location.tideType ?? []).filter((t) => t !== 'NOT_COASTAL' && POPUP_TIDE_META[t]);
+  const coastalTides = (location.tideType ?? []).filter((t) => POPUP_TIDE_META[t]);
 
   return (
     <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>

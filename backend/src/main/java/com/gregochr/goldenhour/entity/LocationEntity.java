@@ -69,8 +69,8 @@ public class LocationEntity {
      * The photographer's tide preferences for this location.
      *
      * <p>Multiple values are supported — e.g. a location may be good at both
-     * {@code LOW_TIDE} and {@code MID_TIDE}. An empty set means the location is
-     * inland and tide data is not fetched. Stored in the {@code location_tide_type}
+     * {@code LOW} and {@code MID}. An empty set means the location is inland
+     * and tide data is not fetched. Stored in the {@code location_tide_type}
      * join table.
      */
     @ElementCollection(fetch = FetchType.EAGER)

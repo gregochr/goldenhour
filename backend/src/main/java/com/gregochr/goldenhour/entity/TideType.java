@@ -1,23 +1,20 @@
 package com.gregochr.goldenhour.entity;
 
 /**
- * Indicates the photographer's tide preference for a coastal location,
- * or that the location is not coastal and tide data should not be fetched.
+ * Indicates the photographer's tide preference for a coastal location.
+ *
+ * <p>A location's tide preferences are stored as a {@code Set<TideType>}.
+ * An empty set means the location is inland and tide data is not fetched.
+ * Multiple values indicate the photographer shoots at more than one tide state.
  */
 public enum TideType {
 
     /** Photographer prefers to shoot at high tide. */
-    HIGH_TIDE,
-
-    /** Photographer prefers to shoot at low tide. */
-    LOW_TIDE,
+    HIGH,
 
     /** Photographer prefers to shoot at mid tide (between high and low). */
-    MID_TIDE,
+    MID,
 
-    /** Both tides are suitable — evaluate regardless of tide state. */
-    ANY_TIDE,
-
-    /** Inland location — no tide data is fetched (default). */
-    NOT_COASTAL
+    /** Photographer prefers to shoot at low tide. */
+    LOW
 }

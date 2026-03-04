@@ -252,9 +252,8 @@ public class ForecastService {
     /**
      * Returns a copy of {@code base} augmented with tide fields for coastal locations.
      *
-     * <p>If the location is not coastal (empty or NOT_COASTAL tide types), the tide
-     * fields in the returned record are {@code null} and the original data is otherwise
-     * unchanged.
+     * <p>If the location is not coastal (empty tide types), the tide fields in the
+     * returned record are {@code null} and the original data is otherwise unchanged.
      *
      * @param base        atmospheric data without tide fields
      * @param locationId  the location primary key used for DB tide lookup, or {@code null} if inland
@@ -266,8 +265,7 @@ public class ForecastService {
             LocalDateTime eventTime, java.util.Set<TideType> tideTypes) {
         TideData tideData = null;
         Boolean tideAligned = null;
-        boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty()
-                && !tideTypes.equals(java.util.Set.of(TideType.NOT_COASTAL));
+        boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
         if (isCoastal) {
             var tideMaybe = tideService.deriveTideData(locationId, eventTime);
             if (tideMaybe.isPresent()) {

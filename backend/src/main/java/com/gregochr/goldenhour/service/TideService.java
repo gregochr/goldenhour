@@ -258,7 +258,7 @@ public class TideService {
     /**
      * Computes whether the tide state aligns with the location's photographer preference.
      *
-     * <p>For {@link TideType#MID_TIDE}, alignment requires the solar event to be within
+     * <p>For {@link TideType#MID}, alignment requires the solar event to be within
      * {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of the midpoint between consecutive
      * HIGH and LOW extremes — not merely "not HIGH and not LOW".
      *
@@ -270,16 +270,11 @@ public class TideService {
         if (locationTideTypes.isEmpty()) {
             return false;
         }
-        if (locationTideTypes.contains(TideType.ANY_TIDE)) {
-            return true;
-        }
         TideState tideState = tideData.tideState();
         return locationTideTypes.stream().anyMatch(pref -> switch (pref) {
-            case HIGH_TIDE -> tideState == TideState.HIGH;
-            case LOW_TIDE -> tideState == TideState.LOW;
-            case MID_TIDE -> tideData.nearMidPoint();
-            case ANY_TIDE -> true;
-            case NOT_COASTAL -> false;
+            case HIGH -> tideState == TideState.HIGH;
+            case LOW -> tideState == TideState.LOW;
+            case MID -> tideData.nearMidPoint();
         });
     }
 

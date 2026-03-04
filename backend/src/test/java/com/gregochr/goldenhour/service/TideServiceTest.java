@@ -356,42 +356,43 @@ class TideServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("HIGH tide aligns with HIGH_TIDE preference")
+    @DisplayName("HIGH tide aligns with HIGH preference")
     void calculateTideAligned_highTide_highPreference_aligned() {
-        assertTrue(tideService.calculateTideAligned(tideData(TideState.HIGH), Set.of(TideType.HIGH_TIDE)));
+        assertTrue(tideService.calculateTideAligned(tideData(TideState.HIGH), Set.of(TideType.HIGH)));
     }
 
     @Test
-    @DisplayName("LOW tide does not align with HIGH_TIDE preference")
+    @DisplayName("LOW tide does not align with HIGH preference")
     void calculateTideAligned_lowTide_highPreference_notAligned() {
-        assertFalse(tideService.calculateTideAligned(tideData(TideState.LOW), Set.of(TideType.HIGH_TIDE)));
+        assertFalse(tideService.calculateTideAligned(tideData(TideState.LOW), Set.of(TideType.HIGH)));
     }
 
     @Test
-    @DisplayName("LOW tide aligns with LOW_TIDE preference")
+    @DisplayName("LOW tide aligns with LOW preference")
     void calculateTideAligned_lowTide_lowPreference_aligned() {
-        assertTrue(tideService.calculateTideAligned(tideData(TideState.LOW), Set.of(TideType.LOW_TIDE)));
+        assertTrue(tideService.calculateTideAligned(tideData(TideState.LOW), Set.of(TideType.LOW)));
     }
 
     @Test
-    @DisplayName("MID tide aligns with MID_TIDE preference")
+    @DisplayName("MID tide aligns with MID preference")
     void calculateTideAligned_midTide_midPreference_aligned() {
-        assertTrue(tideService.calculateTideAligned(tideData(TideState.MID), Set.of(TideType.MID_TIDE)));
+        assertTrue(tideService.calculateTideAligned(tideData(TideState.MID), Set.of(TideType.MID)));
     }
 
     @Test
-    @DisplayName("MID tide does not align with HIGH_TIDE or LOW_TIDE preference")
+    @DisplayName("MID tide does not align with HIGH or LOW preference")
     void calculateTideAligned_midTide_highOrLowPreference_notAligned() {
         assertFalse(tideService.calculateTideAligned(
-                tideData(TideState.MID), Set.of(TideType.HIGH_TIDE, TideType.LOW_TIDE)));
+                tideData(TideState.MID), Set.of(TideType.HIGH, TideType.LOW)));
     }
 
     @Test
-    @DisplayName("ANY_TIDE preference aligns with any tide state")
-    void calculateTideAligned_anyTidePreference_alwaysAligned() {
-        assertTrue(tideService.calculateTideAligned(tideData(TideState.LOW), Set.of(TideType.ANY_TIDE)));
-        assertTrue(tideService.calculateTideAligned(tideData(TideState.HIGH), Set.of(TideType.ANY_TIDE)));
-        assertTrue(tideService.calculateTideAligned(tideData(TideState.MID), Set.of(TideType.ANY_TIDE)));
+    @DisplayName("All three preferences always aligns with any tide state")
+    void calculateTideAligned_allThreePreferences_alwaysAligned() {
+        Set<TideType> allThree = Set.of(TideType.HIGH, TideType.MID, TideType.LOW);
+        assertTrue(tideService.calculateTideAligned(tideData(TideState.LOW), allThree));
+        assertTrue(tideService.calculateTideAligned(tideData(TideState.HIGH), allThree));
+        assertTrue(tideService.calculateTideAligned(tideData(TideState.MID), allThree));
     }
 
     // -------------------------------------------------------------------------
@@ -399,17 +400,17 @@ class TideServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("HIGH tide aligns when HIGH_TIDE is one of multiple preferences")
+    @DisplayName("HIGH tide aligns when HIGH is one of multiple preferences")
     void calculateTideAligned_multiplePreferences_highMatches() {
         assertTrue(tideService.calculateTideAligned(
-                tideData(TideState.HIGH), Set.of(TideType.HIGH_TIDE, TideType.LOW_TIDE)));
+                tideData(TideState.HIGH), Set.of(TideType.HIGH, TideType.LOW)));
     }
 
     @Test
-    @DisplayName("MID tide aligns when MID_TIDE is one of multiple preferences")
+    @DisplayName("MID tide aligns when MID is one of multiple preferences")
     void calculateTideAligned_multiplePreferences_midMatches() {
         assertTrue(tideService.calculateTideAligned(
-                tideData(TideState.MID), Set.of(TideType.HIGH_TIDE, TideType.MID_TIDE)));
+                tideData(TideState.MID), Set.of(TideType.HIGH, TideType.MID)));
     }
 
     // -------------------------------------------------------------------------
@@ -423,18 +424,12 @@ class TideServiceTest {
     }
 
     @Test
-    @DisplayName("NOT_COASTAL preference returns false")
-    void calculateTideAligned_notCoastal_notAligned() {
-        assertFalse(tideService.calculateTideAligned(tideData(TideState.HIGH), Set.of(TideType.NOT_COASTAL)));
-    }
-
-    @Test
-    @DisplayName("MID_TIDE preference returns false when tide is MID state but not near midpoint")
+    @DisplayName("MID preference returns false when tide is MID state but not near midpoint")
     void calculateTideAligned_midTide_notNearMidpoint_notAligned() {
         TideData data = new TideData(TideState.MID, false,
                 LocalDateTime.of(2026, 2, 24, 14, 30), BigDecimal.valueOf(1.50),
                 LocalDateTime.of(2026, 2, 24, 20, 45), BigDecimal.valueOf(0.30));
-        assertFalse(tideService.calculateTideAligned(data, Set.of(TideType.MID_TIDE)));
+        assertFalse(tideService.calculateTideAligned(data, Set.of(TideType.MID)));
     }
 
     // -------------------------------------------------------------------------

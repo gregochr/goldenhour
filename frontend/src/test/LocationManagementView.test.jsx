@@ -14,11 +14,16 @@ vi.mock('../api/regionApi', () => ({
   fetchRegions: vi.fn(),
 }));
 
-import { fetchLocations, addLocation, geocodePlace } from '../api/forecastApi';
+import { fetchLocations, addLocation, updateLocation, geocodePlace } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 
 const MOCK_LOCATIONS = [
-  { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, goldenHourType: 'BOTH_TIMES', locationType: ['LANDSCAPE'], tideType: ['NOT_COASTAL'] },
+  { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, goldenHourType: 'BOTH_TIMES', locationType: ['LANDSCAPE'], tideType: [] },
+];
+
+const MOCK_REGIONS = [
+  { id: 1, name: 'North East', enabled: true },
+  { id: 2, name: 'Lake District', enabled: true },
 ];
 
 function makeMockLocations(count) {
@@ -30,7 +35,7 @@ function makeMockLocations(count) {
     enabled: true,
     goldenHourType: 'BOTH_TIMES',
     locationType: ['LANDSCAPE'],
-    tideType: ['NOT_COASTAL'],
+    tideType: [],
   }));
 }
 
@@ -222,5 +227,198 @@ describe('LocationManagementView', () => {
 
     // Hint should not be visible in manual mode
     expect(screen.queryByText(/Search for a place above/)).not.toBeInTheDocument();
+  });
+
+  // --- Inline editing tests ---
+
+  it('clicking Edit shows inline inputs and selects in that row', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    expect(screen.getByTestId('inline-edit-name')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-edit-name')).toHaveValue('Durham');
+    expect(screen.getByTestId('inline-edit-type')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-edit-solar')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-edit-tide')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-edit-save')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-edit-cancel')).toBeInTheDocument();
+  });
+
+  it('clicking Cancel restores read-only row', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+    expect(screen.getByTestId('inline-edit-name')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('inline-edit-cancel'));
+
+    expect(screen.queryByTestId('inline-edit-name')).not.toBeInTheDocument();
+    expect(screen.getByText('Durham')).toBeInTheDocument();
+    expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+  });
+
+  it('changing Type to SEASCAPE enables tide toggle chips with all selected', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    // Initially LANDSCAPE — tide chips should be disabled
+    expect(screen.getByTestId('tide-chip-HIGH')).toBeDisabled();
+    expect(screen.getByTestId('tide-chip-MID')).toBeDisabled();
+    expect(screen.getByTestId('tide-chip-LOW')).toBeDisabled();
+
+    // Click SEASCAPE type chip
+    fireEvent.click(screen.getByTestId('type-chip-SEASCAPE'));
+
+    // All three chips should be enabled and selected (gold styling)
+    expect(screen.getByTestId('tide-chip-HIGH')).not.toBeDisabled();
+    expect(screen.getByTestId('tide-chip-MID')).not.toBeDisabled();
+    expect(screen.getByTestId('tide-chip-LOW')).not.toBeDisabled();
+  });
+
+  it('Save calls updateLocation with correct payload', async () => {
+    const onChanged = vi.fn();
+    updateLocation.mockResolvedValue({});
+    fetchLocations
+      .mockResolvedValueOnce(MOCK_LOCATIONS)
+      .mockResolvedValueOnce(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={onChanged} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    // Change name
+    fireEvent.change(screen.getByTestId('inline-edit-name'), { target: { value: 'Durham Cathedral' } });
+
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(updateLocation).toHaveBeenCalledWith(1, {
+        name: 'Durham Cathedral',
+        goldenHourType: 'BOTH_TIMES',
+        locationType: 'LANDSCAPE',
+        tideTypes: [],
+        regionId: null,
+      });
+    });
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalled();
+    });
+  });
+
+  it('Save error shows inline below the row', async () => {
+    updateLocation.mockRejectedValue(new Error('Server error'));
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-edit-error')).toHaveTextContent('Server error');
+    });
+  });
+
+  it('only one row editable at a time', async () => {
+    const twoLocations = [
+      { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, goldenHourType: 'BOTH_TIMES', locationType: ['LANDSCAPE'], tideType: [] },
+      { id: 2, name: 'Bamburgh', lat: 55.61, lon: -1.71, enabled: true, goldenHourType: 'SUNSET', locationType: ['SEASCAPE'], tideType: ['HIGH'] },
+    ];
+    fetchLocations.mockResolvedValue(twoLocations);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    // Start editing row 1
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+    expect(screen.getByTestId('inline-edit-name')).toHaveValue('Durham');
+
+    // Start editing row 2 — should cancel row 1
+    fireEvent.click(screen.getByTestId('edit-location-2'));
+    expect(screen.getByTestId('inline-edit-name')).toHaveValue('Bamburgh');
+
+    // Row 1 should be back to read-only (Edit button visible)
+    expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+  });
+
+  it('blank name shows validation error on save', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    // Clear name
+    fireEvent.change(screen.getByTestId('inline-edit-name'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('inline-edit-save'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('inline-edit-error')).toHaveTextContent('Name cannot be blank.');
+    });
+
+    // updateLocation should NOT have been called
+    expect(updateLocation).not.toHaveBeenCalled();
+  });
+
+  it('Escape key cancels edit', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+    expect(screen.getByTestId('inline-edit-name')).toBeInTheDocument();
+
+    // Press Escape on the editing row
+    const nameInput = screen.getByTestId('inline-edit-name');
+    fireEvent.keyDown(nameInput.closest('tr'), { key: 'Escape' });
+
+    expect(screen.queryByTestId('inline-edit-name')).not.toBeInTheDocument();
+    expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+  });
+
+  it('inline edit shows region select with regions', async () => {
+    fetchRegions.mockResolvedValue(MOCK_REGIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    const regionSelect = screen.getByTestId('inline-edit-region');
+    expect(regionSelect).toBeInTheDocument();
+    // Should have "— None —" + 2 regions = 3 options
+    expect(regionSelect.querySelectorAll('option')).toHaveLength(3);
   });
 });

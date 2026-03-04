@@ -54,7 +54,7 @@ public class ForecastProperties {
 
         /**
          * The photographer's tide preferences for this location.
-         * Multiple values supported (e.g. LOW_TIDE and MID_TIDE).
+         * Multiple values supported (e.g. LOW and MID).
          * Empty set means not coastal (default).
          */
         private Set<TideType> tideType = new HashSet<>();

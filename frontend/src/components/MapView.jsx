@@ -144,7 +144,7 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
  */
 const LOCATION_TYPE_LABELS = {
   LANDSCAPE: { label: 'Landscape', emoji: '🏔️' },
-  WILDLIFE:  { label: 'Wildlife',  emoji: '🦅' },
+  WILDLIFE:  { label: 'Wildlife',  emoji: '🐾' },
   SEASCAPE:  { label: 'Seascape',  emoji: '🌊' },
 };
 
@@ -290,7 +290,7 @@ export default function MapView({ locations, date }) {
                 : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
             }`}
           >
-            {emoji} {label}
+            <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
           </button>
         ))}
         <span className="text-plex-border mx-1">|</span>

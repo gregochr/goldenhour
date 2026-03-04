@@ -97,7 +97,7 @@ class LocationControllerTest {
                 .id(3L).name("Bamburgh").lat(55.6).lon(-1.7)
                 .goldenHourType(GoldenHourType.SUNSET)
                 .locationType(Set.of(LocationType.SEASCAPE))
-                .tideType(Set.of(TideType.ANY_TIDE))
+                .tideType(Set.of(TideType.HIGH, TideType.MID, TideType.LOW))
                 .createdAt(LocalDateTime.of(2026, 2, 28, 12, 0))
                 .build();
         when(locationService.add(any(AddLocationRequest.class))).thenReturn(saved);
@@ -107,7 +107,7 @@ class LocationControllerTest {
                         .content("{\"name\":\"Bamburgh\",\"lat\":55.6,\"lon\":-1.7,"
                                 + "\"goldenHourType\":\"SUNSET\","
                                 + "\"locationType\":\"SEASCAPE\","
-                                + "\"tideType\":\"ANY_TIDE\"}"))
+                                + "\"tideTypes\":[\"HIGH\",\"MID\",\"LOW\"]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Bamburgh"))
                 .andExpect(jsonPath("$.goldenHourType").value("SUNSET"));
