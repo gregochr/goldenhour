@@ -67,7 +67,18 @@ function AppInner() {
   const { isAdmin, logout, username, sessionDaysRemaining } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const { status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt } = useHealthStatus();
-  const [viewMode, setViewMode] = useState('map');
+  const [viewMode, setViewModeState] = useState(() => {
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'map') return 'map';
+    if (hash.startsWith('manage')) return 'manage';
+    return 'map';
+  });
+
+  /** Update viewMode and sync to URL hash. */
+  const setViewMode = (mode) => {
+    setViewModeState(mode);
+    window.location.hash = mode === 'map' ? 'map' : 'manage';
+  };
   const [selectedDate, setSelectedDate] = useState(null);
 
   const sortedLocations = [...locations].sort((a, b) => a.name.localeCompare(b.name));

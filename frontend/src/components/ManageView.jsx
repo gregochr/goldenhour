@@ -37,9 +37,28 @@ const GROUPS = [
  * @param {object}   props
  * @param {function} props.onComplete - Called after any change so other views refresh.
  */
+/** Resolve group and tab from a hash fragment like "manage/prompttest". */
+function parseHash() {
+  const hash = window.location.hash.replace('#', '');
+  const parts = hash.split('/');
+  if (parts[0] === 'manage' && parts[1]) {
+    const tab = parts[1];
+    const group = GROUPS.find((g) => g.tabs.some((t) => t.value === tab));
+    if (group) return { group: group.value, tab };
+  }
+  return { group: 'data', tab: 'users' };
+}
+
 export default function ManageView({ onComplete }) {
-  const [activeGroup, setActiveGroup] = useState('data');
-  const [activeTab, setActiveTab] = useState('users');
+  const initial = parseHash();
+  const [activeGroup, setActiveGroup] = useState(initial.group);
+  const [activeTab, setActiveTabState] = useState(initial.tab);
+
+  /** Update tab and sync to URL hash. */
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    window.location.hash = `manage/${tab}`;
+  };
 
   const currentGroup = GROUPS.find((g) => g.value === activeGroup);
 
