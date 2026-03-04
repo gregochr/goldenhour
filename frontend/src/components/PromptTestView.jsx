@@ -27,7 +27,7 @@ const PromptTestView = () => {
   const [error, setError] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [selectedModel, setSelectedModel] = useState('HAIKU');
-  const [selectedRunType, setSelectedRunType] = useState('SHORT_TERM');
+  const [selectedRunType, setSelectedRunType] = useState('VERY_SHORT_TERM');
   const [gitInfo, setGitInfo] = useState(null);
   const [colourLocationCount, setColourLocationCount] = useState(0);
   const [checkedRunIds, setCheckedRunIds] = useState([]);
