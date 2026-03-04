@@ -410,7 +410,7 @@ WorldTides API (v3) for coastal locations. `TideService.fetchAndStoreTideExtreme
 
 ### 5. Wildlife Location UI ✓ Built
 
-Pure-WILDLIFE locations get hourly comfort rows (one per UTC hour, sunrise–sunset) via a single Open-Meteo call — no Claude evaluation. Green 🦅 marker on map; popup shows time · temp · wind · rain timeline. Colour locations (LANDSCAPE/SEASCAPE/mixed) keep score bars and also show comfort data below them. `V19` migration adds temperature, apparent temperature, and precipitation probability columns to `forecast_evaluation`.
+Pure-WILDLIFE locations get hourly comfort rows (one per UTC hour, sunrise–sunset) via a single Open-Meteo call — no Claude evaluation. Green 🐾 marker on map; popup shows time · temp · wind · rain timeline. Colour locations (LANDSCAPE/SEASCAPE/mixed) keep score bars and also show comfort data below them. `V19` migration adds temperature, apparent temperature, and precipitation probability columns to `forecast_evaluation`.
 
 
 Backend generates a `practicalWeather.summary` via Claude (short comfort-focused prompt). Frontend renders as a simple card — no star rating, no cloud bars.
