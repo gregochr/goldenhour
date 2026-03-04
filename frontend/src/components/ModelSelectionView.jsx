@@ -9,32 +9,42 @@ const CONFIG_TABS = [
   { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)', tip: 'Extended forecasts — 3 to 5 days out. Weather data is less precise, so a cheaper model is fine.' },
 ];
 
+/** Approximate USD to GBP rate for display purposes. */
+const USD_TO_GBP = 0.79;
+
 const MODEL_INFO = {
   HAIKU: {
     name: 'Haiku',
     description: 'Fast, cost-efficient model. Returns 1-5 star rating.',
-    typicalCost: '~$0.002',
-    tokenRates: '$1/MTok in, $5/MTok out',
+    typicalCostUsd: 0.002,
+    tokenRates: '£0.80/MTok in, £4/MTok out',
     speed: 'Fast',
     recommended: true,
   },
   SONNET: {
     name: 'Sonnet',
     description: 'Advanced model. Returns detailed 0-100 scores for fiery sky and golden hour potential.',
-    typicalCost: '~$0.005',
-    tokenRates: '$3/MTok in, $15/MTok out',
+    typicalCostUsd: 0.005,
+    tokenRates: '£2.40/MTok in, £12/MTok out',
     speed: 'Moderate',
     recommended: false,
   },
   OPUS: {
     name: 'Opus',
     description: 'Highest accuracy model. Returns detailed 0-100 scores with the deepest reasoning.',
-    typicalCost: '~$0.008',
-    tokenRates: '$5/MTok in, $25/MTok out',
+    typicalCostUsd: 0.008,
+    tokenRates: '£4/MTok in, £20/MTok out',
     speed: 'Slower',
     recommended: false,
   },
 };
+
+/** Format a USD amount as approximate GBP. */
+function toGbp(usd) {
+  const gbp = usd * USD_TO_GBP;
+  if (gbp < 0.01) return `~£${gbp.toFixed(4)}`;
+  return `£${gbp.toFixed(2)}`;
+}
 
 /** Typical cost per call in USD, used for run cost estimates. */
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
@@ -292,7 +302,8 @@ export default function ModelSelectionView() {
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
                   <span className="font-medium">Typical cost:</span>{' '}
-                  <span className="text-plex-text">{info.typicalCost}/call</span>
+                  <span className="text-plex-text">{toGbp(info.typicalCostUsd)}/call</span>
+                  <span className="text-plex-text-muted font-normal"> (~${info.typicalCostUsd.toFixed(3)})</span>
                 </div>
                 <div>
                   <span className="font-medium">Speed:</span> {info.speed}
@@ -355,9 +366,13 @@ export default function ModelSelectionView() {
                         {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
                       </td>
                       <td className="py-1.5 pr-4 text-right font-mono text-xs">
-                        {MODEL_INFO[model].typicalCost}
+                        {toGbp(COST_PER_CALL[model])}
+                        <span className="text-plex-text-muted"> (~${COST_PER_CALL[model].toFixed(3)})</span>
                       </td>
-                      <td className="py-1.5 text-right font-mono text-xs">${total}</td>
+                      <td className="py-1.5 text-right font-mono text-xs">
+                        {toGbp(COST_PER_CALL[model] * calls)}
+                        <span className="text-plex-text-muted"> (${total})</span>
+                      </td>
                     </tr>
                   );
                 })}
