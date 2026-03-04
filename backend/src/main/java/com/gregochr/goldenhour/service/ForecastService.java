@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
@@ -26,6 +27,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Orchestrates a full forecast run for a single location and date.
@@ -75,72 +77,33 @@ public class ForecastService {
     }
 
     /**
-     * Runs sunrise and sunset forecasts for the given location and date using Sonnet.
-     *
-     * <p>Persists one {@link ForecastEvaluationEntity} per target type and sends
-     * notifications via all enabled channels.
-     *
-     * @param locationName human-readable location name
-     * @param lat          latitude in decimal degrees
-     * @param lon          longitude in decimal degrees
-     * @param date         the calendar date to forecast
-     * @return the saved entities (sunrise first, then sunset)
-     */
-    public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
-            LocalDate date) {
-        return runForecasts(locationName, lat, lon, null, date, null, java.util.Set.of(),
-                EvaluationModel.SONNET);
-    }
-
-    /**
      * Runs forecasts for the given location and date, optionally limited to a single target type.
      *
      * <p>Persists one {@link ForecastEvaluationEntity} per evaluated target type and sends
      * notifications via all enabled channels.
      *
-     * @param locationName human-readable location name
-     * @param lat          latitude in decimal degrees
-     * @param lon          longitude in decimal degrees
-     * @param locationId   the location primary key (for tide DB lookup), or {@code null} if not coastal
-     * @param date         the calendar date to forecast
-     * @param targetType   the target type to evaluate, or {@code null} to evaluate both
-     * @param tideTypes    tide preferences for this location (empty if inland)
-     * @param model        which Claude model to use for evaluation
-     * @return the saved entities in evaluation order
-     */
-    public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
-            Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes,
-            EvaluationModel model) {
-        return runForecasts(locationName, lat, lon, locationId, date, targetType, tideTypes, model, null);
-    }
-
-    /**
-     * Runs forecasts for the given location and date, optionally limited to a single target type.
-     *
-     * <p>Persists one {@link ForecastEvaluationEntity} per evaluated target type and sends
-     * notifications via all enabled channels.
-     *
-     * @param locationName human-readable location name
-     * @param lat          latitude in decimal degrees
-     * @param lon          longitude in decimal degrees
-     * @param locationId   the location primary key (for tide DB lookup), or {@code null} if not coastal
-     * @param date         the calendar date to forecast
-     * @param targetType   the target type to evaluate, or {@code null} to evaluate both
-     * @param tideTypes    tide preferences for this location (empty if inland)
-     * @param model        which Claude model to use for evaluation
-     * @param jobRun       the parent job run for metrics tracking, or {@code null} if called from controller
+     * @param location   the location entity
+     * @param date       the calendar date to forecast
+     * @param targetType the target type to evaluate, or {@code null} to evaluate both
+     * @param tideTypes  tide preferences for this location (empty if inland)
+     * @param model      which Claude model to use for evaluation
+     * @param jobRun     the parent job run for metrics tracking, or {@code null} if called from controller
      * @return the saved entities in evaluation order
      */
     @ConcurrencyLimit(8)
-    public List<ForecastEvaluationEntity> runForecasts(String locationName, double lat, double lon,
-            Long locationId, LocalDate date, TargetType targetType, java.util.Set<TideType> tideTypes,
+    public List<ForecastEvaluationEntity> runForecasts(LocationEntity location,
+            LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, JobRunEntity jobRun) {
+        String locationName = location.getName();
+        double lat = location.getLat();
+        double lon = location.getLon();
+        Long locationId = location.getId();
+
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
 
         if (model == EvaluationModel.WILDLIFE) {
-            // No Claude call — run hourly comfort rows from sunrise to sunset
-            return runWildlifeHourly(locationName, lat, lon, locationId, date, daysAhead, tideTypes, jobRun);
+            return runWildlifeHourly(location, date, daysAhead, tideTypes, jobRun);
         }
 
         List<ForecastEvaluationEntity> results = new ArrayList<>();
@@ -181,7 +144,7 @@ public class ForecastService {
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
 
             ForecastEvaluationEntity entity = buildEntity(
-                    locationName, lat, lon, date, type, daysAhead, eventTime, azimuth,
+                    location, lat, lon, date, type, daysAhead, eventTime, azimuth,
                     forecastData, evaluation, model);
 
             results.add(repository.save(entity));
@@ -212,19 +175,20 @@ public class ForecastService {
      * <p>Makes a single Open-Meteo API call for the day and extracts data for each slot.
      * No Claude evaluation is performed. Notifications are not sent for WILDLIFE rows.
      *
-     * @param locationName human-readable location name
-     * @param lat          latitude in decimal degrees
-     * @param lon          longitude in decimal degrees
-     * @param locationId   location primary key for tide lookup, or {@code null}
-     * @param date         the calendar date to forecast
-     * @param daysAhead    number of days from today to {@code date}
-     * @param tideTypes    tide preferences for the location (empty if inland)
-     * @param jobRun       the parent job run for metrics tracking, or {@code null}
+     * @param location   the location entity
+     * @param date       the calendar date to forecast
+     * @param daysAhead  number of days from today to {@code date}
+     * @param tideTypes  tide preferences for the location (empty if inland)
+     * @param jobRun     the parent job run for metrics tracking, or {@code null}
      * @return the saved entities, one per full UTC hour from sunrise to sunset
      */
-    private List<ForecastEvaluationEntity> runWildlifeHourly(String locationName, double lat, double lon,
-            Long locationId, LocalDate date, int daysAhead, java.util.Set<TideType> tideTypes,
-            JobRunEntity jobRun) {
+    private List<ForecastEvaluationEntity> runWildlifeHourly(LocationEntity location,
+            LocalDate date, int daysAhead, Set<TideType> tideTypes, JobRunEntity jobRun) {
+        String locationName = location.getName();
+        double lat = location.getLat();
+        double lon = location.getLon();
+        Long locationId = location.getId();
+
         LocalDateTime sunriseTime = solarService.sunriseUtc(lat, lon, date);
         LocalDateTime sunsetTime = solarService.sunsetUtc(lat, lon, date);
 
@@ -239,7 +203,7 @@ public class ForecastService {
             AtmosphericData forecastData = augmentWithTideData(
                     baseData, locationId, baseData.solarEventTime(), tideTypes);
             ForecastEvaluationEntity entity = buildEntity(
-                    locationName, lat, lon, date, TargetType.HOURLY, daysAhead,
+                    location, lat, lon, date, TargetType.HOURLY, daysAhead,
                     forecastData.solarEventTime(), null,
                     forecastData, noEval, EvaluationModel.WILDLIFE);
             results.add(repository.save(entity));
@@ -262,7 +226,7 @@ public class ForecastService {
      * @return a new {@link AtmosphericData} with tide fields populated where applicable
      */
     AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
-            LocalDateTime eventTime, java.util.Set<TideType> tideTypes) {
+            LocalDateTime eventTime, Set<TideType> tideTypes) {
         TideData tideData = null;
         Boolean tideAligned = null;
         boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
@@ -305,26 +269,26 @@ public class ForecastService {
     /**
      * Builds a {@link ForecastEvaluationEntity} from the evaluated forecast data.
      *
-     * @param locationName human-readable location name
-     * @param lat          latitude in decimal degrees
-     * @param lon          longitude in decimal degrees
-     * @param date         the calendar date of the forecast
-     * @param type         sunrise or sunset
-     * @param daysAhead    number of days from today to {@code date}
-     * @param eventTime    UTC time of the solar event
-     * @param azimuth      solar azimuth in degrees
-     * @param data         atmospheric data (with tide fields if coastal)
-     * @param evaluation   Claude's rating and summary
-     * @param model        which Claude model produced the evaluation
+     * @param location   the location entity
+     * @param lat        latitude in decimal degrees
+     * @param lon        longitude in decimal degrees
+     * @param date       the calendar date of the forecast
+     * @param type       sunrise or sunset
+     * @param daysAhead  number of days from today to {@code date}
+     * @param eventTime  UTC time of the solar event
+     * @param azimuth    solar azimuth in degrees
+     * @param data       atmospheric data (with tide fields if coastal)
+     * @param evaluation Claude's rating and summary
+     * @param model      which Claude model produced the evaluation
      * @return the unsaved entity
      */
-    private ForecastEvaluationEntity buildEntity(String locationName, double lat, double lon,
+    private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
         return ForecastEvaluationEntity.builder()
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
-                .locationName(locationName)
+                .location(location)
                 .targetDate(date)
                 .targetType(type)
                 .forecastRunAt(LocalDateTime.now(ZoneOffset.UTC))

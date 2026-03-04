@@ -15,7 +15,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.HashSet;
 import java.util.List;
@@ -44,15 +43,12 @@ class LocationServiceTest {
     @Mock
     private TideService tideService;
 
-    @Mock
-    private JdbcTemplate jdbcTemplate;
-
     private LocationService locationService;
 
     @BeforeEach
     void setUp() {
         locationService = new LocationService(locationRepository, regionRepository,
-                tideService, jdbcTemplate);
+                tideService);
     }
 
     // --- findByName ---

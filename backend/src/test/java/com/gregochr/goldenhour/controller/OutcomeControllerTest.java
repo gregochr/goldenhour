@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.OutcomeService;
 import org.junit.jupiter.api.DisplayName;
@@ -18,6 +19,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -103,10 +105,35 @@ class OutcomeControllerTest {
                 .andExpect(jsonPath("$.error").value("fierySkyActual must be between 0 and 100"));
     }
 
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/outcome returns 404 when location name is not found")
+    void recordOutcome_unknownLocation_returns404() throws Exception {
+        when(outcomeService.record(any()))
+                .thenThrow(new NoSuchElementException("No location named 'Nowhere'"));
+
+        mockMvc.perform(post("/api/outcome")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "locationLat": 0.0,
+                                  "locationLon": 0.0,
+                                  "locationName": "Nowhere",
+                                  "outcomeDate": "2026-02-20",
+                                  "targetType": "SUNSET",
+                                  "wentOut": true
+                                }
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("No location named 'Nowhere'"));
+    }
+
     private ActualOutcomeEntity buildOutcomeEntity() {
+        LocationEntity durham = LocationEntity.builder()
+                .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
         return ActualOutcomeEntity.builder()
                 .id(1L)
-                .locationName("Durham UK")
+                .location(durham)
                 .locationLat(BigDecimal.valueOf(54.7753))
                 .locationLon(BigDecimal.valueOf(-1.5849))
                 .outcomeDate(LocalDate.of(2026, 2, 20))

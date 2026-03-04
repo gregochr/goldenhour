@@ -11,7 +11,6 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,7 +40,6 @@ public class LocationService {
     private final LocationRepository locationRepository;
     private final RegionRepository regionRepository;
     private final TideService tideService;
-    private final JdbcTemplate jdbcTemplate;
 
     /**
      * Constructs a {@code LocationService}.
@@ -49,16 +47,13 @@ public class LocationService {
      * @param locationRepository repository for {@link LocationEntity}
      * @param regionRepository   repository for {@link RegionEntity}
      * @param tideService        used to fetch tide extremes for coastal locations
-     * @param jdbcTemplate       used for cascading name updates across FK tables
      */
     public LocationService(LocationRepository locationRepository,
                            RegionRepository regionRepository,
-                           TideService tideService,
-                           JdbcTemplate jdbcTemplate) {
+                           TideService tideService) {
         this.locationRepository = locationRepository;
         this.regionRepository = regionRepository;
         this.tideService = tideService;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
@@ -178,7 +173,8 @@ public class LocationService {
     public LocationEntity update(Long id, UpdateLocationRequest request) {
         LocationEntity location = findById(id);
 
-        // Handle name change — cascade to FK tables
+        // Handle name change — no cascade needed, forecast_evaluation and actual_outcome
+        // reference location by ID, so renaming is a single-row update.
         if (request.name() != null && !request.name().isBlank()
                 && !request.name().equals(location.getName())) {
             String newName = request.name().trim();
@@ -187,12 +183,6 @@ public class LocationService {
                         "A location named '" + newName + "' already exists.");
             }
             String oldName = location.getName();
-            jdbcTemplate.update(
-                    "UPDATE forecast_evaluation SET location_name = ? WHERE location_name = ?",
-                    newName, oldName);
-            jdbcTemplate.update(
-                    "UPDATE actual_outcome SET location_name = ? WHERE location_name = ?",
-                    newName, oldName);
             location.setName(newName);
             LOG.info("Renamed location '{}' → '{}'", oldName, newName);
         }

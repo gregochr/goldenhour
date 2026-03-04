@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ActualOutcome;
 import com.gregochr.goldenhour.repository.ActualOutcomeRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,10 +16,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,8 +35,14 @@ class OutcomeServiceTest {
     @Mock
     private ActualOutcomeRepository repository;
 
+    @Mock
+    private LocationRepository locationRepository;
+
     @InjectMocks
     private OutcomeService outcomeService;
+
+    private static final LocationEntity DURHAM = LocationEntity.builder()
+            .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
 
     @Test
     @DisplayName("record() maps DTO fields to entity and saves")
@@ -41,8 +52,9 @@ class OutcomeServiceTest {
                 54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
                 true, 68, 75, "Beautiful warm light.");
 
+        when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
         ActualOutcomeEntity savedEntity = ActualOutcomeEntity.builder()
-                .id(1L).locationName("Durham UK").build();
+                .id(1L).location(DURHAM).build();
         when(repository.save(any())).thenReturn(savedEntity);
 
         ActualOutcomeEntity result = outcomeService.record(outcome);
@@ -62,6 +74,19 @@ class OutcomeServiceTest {
         assertThat(captured.getNotes()).isEqualTo("Beautiful warm light.");
         assertThat(captured.getRecordedAt()).isNotNull();
         assertThat(result).isSameAs(savedEntity);
+    }
+
+    @Test
+    @DisplayName("record() throws NoSuchElementException when location name is not found")
+    void record_unknownLocation_throwsNoSuchElementException() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Unknown Place", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, 68, 75, null);
+
+        when(locationRepository.findByName(eq("Unknown Place"))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> outcomeService.record(outcome))
+                .isInstanceOf(NoSuchElementException.class);
     }
 
     @Test

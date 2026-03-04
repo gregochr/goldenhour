@@ -86,8 +86,8 @@ public class ForecastController {
         LocalDate from = today.minusDays(7);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
         return locationService.findAllEnabled().stream()
-                .flatMap(loc -> repository.findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        loc.getName(), from, horizon).stream())
+                .flatMap(loc -> repository.findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        loc.getId(), from, horizon).stream())
                 .toList();
     }
 
@@ -112,14 +112,15 @@ public class ForecastController {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
         if (location != null) {
+            LocationEntity loc = locationService.findByName(location);
             return repository
-                    .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            location, from, to);
+                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                            loc.getId(), from, to);
         }
         return locationService.findAllEnabled().stream()
                 .flatMap(loc -> repository
-                        .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                                loc.getName(), from, to)
+                        .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                                loc.getId(), from, to)
                         .stream())
                 .toList();
     }
@@ -269,8 +270,9 @@ public class ForecastController {
             @RequestParam String location,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam TargetType targetType) {
-        return repository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                location, date, targetType);
+        LocationEntity loc = locationService.findByName(location);
+        return repository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                loc.getId(), date, targetType);
     }
 
 }

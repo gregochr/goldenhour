@@ -38,7 +38,7 @@ class OptimisationSkipEvaluatorTest {
     @InjectMocks
     private OptimisationSkipEvaluator evaluator;
 
-    private static final String LOCATION = "Durham UK";
+    private static final Long LOCATION_ID = 1L;
     private static final LocalDate TODAY = LocalDate.now(ZoneOffset.UTC);
     private static final TargetType TARGET = TargetType.SUNRISE;
 
@@ -56,7 +56,6 @@ class OptimisationSkipEvaluatorTest {
     private static ForecastEvaluationEntity priorEval(Integer rating, LocalDateTime runAt) {
         return ForecastEvaluationEntity.builder()
                 .id(1L)
-                .locationName(LOCATION)
                 .targetDate(TODAY)
                 .targetType(TARGET)
                 .rating(rating)
@@ -71,11 +70,11 @@ class OptimisationSkipEvaluatorTest {
     @Test
     @DisplayName("shouldSkip returns false when no strategies are enabled")
     void noStrategies_neverSkips() {
-        boolean result = evaluator.shouldSkip(List.of(), LOCATION, TODAY, TARGET);
+        boolean result = evaluator.shouldSkip(List.of(), LOCATION_ID, TODAY, TARGET);
 
         assertThat(result).isFalse();
         verify(forecastRepository, never())
-                .findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(any(), any(), any());
+                .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(any(), any(), any());
     }
 
     // -------------------------------------------------------------------------
@@ -88,7 +87,7 @@ class OptimisationSkipEvaluatorTest {
         var strategies = List.of(
                 strategy(OptimisationStrategyType.EVALUATE_ALL, true, null));
 
-        boolean result = evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET);
+        boolean result = evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET);
 
         assertThat(result).isFalse();
     }
@@ -100,27 +99,27 @@ class OptimisationSkipEvaluatorTest {
     @Test
     @DisplayName("SKIP_EXISTING skips when forecast exists")
     void skipExisting_skipsWhenExists() {
-        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(List.of(priorEval(4, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_EXISTING, true, null));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isTrue();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isTrue();
     }
 
     @Test
     @DisplayName("SKIP_EXISTING does not skip when no forecast exists")
     void skipExisting_doesNotSkipWhenEmpty() {
-        when(forecastRepository.findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(List.of());
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_EXISTING, true, null));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isFalse();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isFalse();
     }
 
     // -------------------------------------------------------------------------
@@ -130,40 +129,40 @@ class OptimisationSkipEvaluatorTest {
     @Test
     @DisplayName("SKIP_LOW_RATED skips when prior rating is below threshold")
     void skipLowRated_skipsWhenBelowThreshold() {
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(2, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isTrue();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isTrue();
     }
 
     @Test
     @DisplayName("SKIP_LOW_RATED does not skip when prior rating meets threshold")
     void skipLowRated_doesNotSkipWhenMeetsThreshold() {
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(4, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isFalse();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isFalse();
     }
 
     @Test
     @DisplayName("SKIP_LOW_RATED defaults to threshold 3 when paramValue is null")
     void skipLowRated_defaultsToThree() {
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(2, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, null));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isTrue();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isTrue();
     }
 
     // -------------------------------------------------------------------------
@@ -173,27 +172,27 @@ class OptimisationSkipEvaluatorTest {
     @Test
     @DisplayName("SKIP_LOW_RATED skips when no prior evaluation exists")
     void skipLowRated_skipsWhenNoPrior() {
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.empty());
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isTrue();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isTrue();
     }
 
     @Test
     @DisplayName("SKIP_LOW_RATED does not skip when prior rating is null (unrated)")
     void skipLowRated_doesNotSkipWhenUnrated() {
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(null, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isFalse();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isFalse();
     }
 
     // -------------------------------------------------------------------------
@@ -208,22 +207,22 @@ class OptimisationSkipEvaluatorTest {
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
         // FORCE_IMMINENT should return false (don't skip) for today
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isFalse();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isFalse();
     }
 
     @Test
     @DisplayName("FORCE_IMMINENT does not apply to future dates")
     void forceImminent_doesNotApplyToFutureDates() {
         LocalDate future = TODAY.plusDays(3);
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(future), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(future), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(1, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_IMMINENT, true, null),
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, future, TARGET)).isTrue();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, future, TARGET)).isTrue();
     }
 
     // -------------------------------------------------------------------------
@@ -234,30 +233,30 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("FORCE_STALE overrides SKIP_LOW_RATED when latest eval is from yesterday")
     void forceStale_overridesWhenStale() {
         LocalDateTime yesterday = LocalDateTime.now(ZoneOffset.UTC).minusDays(1);
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(1, yesterday)));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_STALE, true, null),
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isFalse();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isFalse();
     }
 
     @Test
     @DisplayName("FORCE_STALE does not override when latest eval is from today")
     void forceStale_doesNotOverrideWhenFresh() {
         LocalDateTime todayMorning = LocalDate.now(ZoneOffset.UTC).atTime(6, 0);
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.of(priorEval(1, todayMorning)));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_STALE, true, null),
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isTrue();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isTrue();
     }
 
     // -------------------------------------------------------------------------
@@ -267,14 +266,14 @@ class OptimisationSkipEvaluatorTest {
     @Test
     @DisplayName("FORCE_IMMINENT overrides SKIP_LOW_RATED no-prior skip for today")
     void forceImminent_overridesNoPriorForToday() {
-        when(forecastRepository.findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION), eq(TODAY), eq(TARGET)))
+        when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                eq(LOCATION_ID), eq(TODAY), eq(TARGET)))
                 .thenReturn(Optional.empty());
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_IMMINENT, true, null),
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
 
-        assertThat(evaluator.shouldSkip(strategies, LOCATION, TODAY, TARGET)).isFalse();
+        assertThat(evaluator.shouldSkip(strategies, LOCATION_ID, TODAY, TARGET)).isFalse();
     }
 }
