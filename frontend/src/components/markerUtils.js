@@ -53,7 +53,7 @@ export function scoreColour(avg) {
  */
 export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife) {
   if (isPureWildlife) {
-    return { label: '\uD83E\uDD85', colour: '#16a34a' };
+    return { label: '\uD83D\uDC3E', colour: '#16a34a' };
   }
   if (fierySky != null && goldenHour != null) {
     if (rating != null) {

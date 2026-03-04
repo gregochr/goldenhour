@@ -146,7 +146,7 @@ describe('buildMarkerSvg', () => {
 
   describe('Wildlife markers', () => {
     it('has no arc elements', () => {
-      const svg = parseSvg(buildMarkerSvg('\uD83E\uDD85', '#4ade80', null, null, null, true));
+      const svg = parseSvg(buildMarkerSvg('\uD83D\uDC3E', '#4ade80', null, null, null, true));
       expect(svg.querySelectorAll('path')).toHaveLength(0);
       const arcCircles = Array.from(svg.querySelectorAll('circle'))
         .filter((c) => c.getAttribute('stroke-dasharray'));
@@ -154,19 +154,19 @@ describe('buildMarkerSvg', () => {
     });
 
     it('contains the wildlife emoji', () => {
-      const svg = parseSvg(buildMarkerSvg('\uD83E\uDD85', '#4ade80', null, null, null, true));
-      expect(svg.querySelector('text').textContent).toBe('\uD83E\uDD85');
+      const svg = parseSvg(buildMarkerSvg('\uD83D\uDC3E', '#4ade80', null, null, null, true));
+      expect(svg.querySelector('text').textContent).toBe('\uD83D\uDC3E');
     });
 
     it('has no background track ring', () => {
-      const svg = parseSvg(buildMarkerSvg('\uD83E\uDD85', '#4ade80', null, null, null, true));
+      const svg = parseSvg(buildMarkerSvg('\uD83D\uDC3E', '#4ade80', null, null, null, true));
       const track = Array.from(svg.querySelectorAll('circle'))
         .find((c) => c.getAttribute('stroke') === 'rgba(255,255,255,0.1)');
       expect(track).toBeUndefined();
     });
 
     it('uses larger font size for emoji', () => {
-      const svg = parseSvg(buildMarkerSvg('\uD83E\uDD85', '#4ade80', null, null, null, true));
+      const svg = parseSvg(buildMarkerSvg('\uD83D\uDC3E', '#4ade80', null, null, null, true));
       expect(svg.querySelector('text').getAttribute('font-size')).toBe('20');
     });
   });
@@ -381,15 +381,15 @@ describe('createClusterIcon', () => {
 });
 
 describe('markerLabelAndColour', () => {
-  it('returns eagle emoji and green for wildlife', () => {
+  it('returns paw prints emoji and green for wildlife', () => {
     const result = markerLabelAndColour(3, 80, 50, true);
-    expect(result.label).toBe('\uD83E\uDD85');
+    expect(result.label).toBe('\uD83D\uDC3E');
     expect(result.colour).toBe('#16a34a');
   });
 
   it('wildlife ignores rating and scores', () => {
     const result = markerLabelAndColour(5, 100, 100, true);
-    expect(result.label).toBe('\uD83E\uDD85');
+    expect(result.label).toBe('\uD83D\uDC3E');
   });
 
   it('returns rating label and rating colour when both scores and rating present', () => {
