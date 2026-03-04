@@ -19,7 +19,7 @@ vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
 }));
 
-import { runPromptTest, getPromptTestRun, getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
+import { getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { getAvailableModels } from '../api/modelsApi';
 

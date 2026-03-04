@@ -98,6 +98,9 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - Build info section: git commit, branch, relative date above controls
   - Model versions: `EvaluationModel.version` field exposed via `/api/models` as `[{name, version}, ...]`
   - Admin UI: "Prompt Test" tab in ManageView with model/run-type selection, progress indicator, results table with Date/Target columns
+  - Popup preview: eye icon on each succeeded result row opens a modal rendering `MarkerPopupContent` with mapped atmospheric data for visual badge verification (e.g. Sahara Dust)
+- **URL hash navigation** ✓ — active view and Manage tab persisted in URL hash (e.g. `#manage/prompttest`); survives page refresh and supports browser back/forward
+- **Sahara Dust badge** ✓ — `isDustEnhanced()` in `MarkerPopupContent` shows a gold badge when AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35; threshold raised from 15 to accommodate genuine Saharan dust events where mineral particles moderately elevate PM2.5
 
 ---
 
@@ -166,7 +169,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 - **Per-run-type model config** — `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE); each run button/endpoint uses its own configured model. `ModelSelectionService.getAllConfigs()` returns the full map.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **CORS** — configured in `SecurityConfig` via `CorsConfigurationSource` bean; `allowedOriginPatterns` covers `localhost:*` and LAN subnets.
-- **Location metadata** — YAML is source of truth; `LocationService.@PostConstruct` seeds and syncs to DB on every startup.
+- **Location metadata** — production locations are DB-managed via the Admin UI (no YAML seeding). `application-local.yml` still has location config for local dev convenience.
 - **Layer inference** — cloud altitude layers are used as a proxy for directional cloud positioning. Low < 30% = solar horizon clear ✓; mid 30–60% = canvas above horizon ✓; high 20–60% = depth and texture ✓. True 5-point directional sampling deferred to v1.1. See `docs/product/directional_analysis_breakdown.md`.
 - **Aerosol proxy** — AOD + PM2.5 together proxy aerosol type: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (grey haze ✗). Implemented in evaluation prompt; no competitor does this.
 - **Virtual threads** — `spring.threads.virtual.enabled: true` in both profiles; Tomcat, `@Async`, and scheduling all use virtual threads. `forecastExecutor` bean uses `Executors.newVirtualThreadPerTaskExecutor()`.
