@@ -6,6 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Mar 4, 2026)
+- **Popup preview on prompt test results** — eye icon button on each succeeded result row opens a modal rendering the real `MarkerPopupContent` with mapped atmospheric data, scores, and location metadata; useful for visually checking badges like Sahara Dust
 - **Prompt test harness** — end-to-end prompt evaluation test that runs all colour locations through the Claude pipeline with a chosen model, stores results, and supports run comparison
   - `prompt_test_run` + `prompt_test_result` tables (V44, V45)
   - `PromptTestService` orchestrates: pick colour locations, fetch weather, evaluate with selected model, persist results with rating/fiery sky/golden hour scores
@@ -20,6 +21,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - 646 backend tests, 321 frontend tests — all passing
 
 ### Fixed (Mar 4, 2026)
+- **Dust badge PM2.5 threshold** — raised from < 15 to < 35 µg/m³; Saharan dust events commonly push PM2.5 into the 20–30 range which was incorrectly suppressing the badge
+- **Wildlife marker emoji** — fixed leftover eagle emoji (🦅) in `markerUtils.js` map marker medallions; now shows paw prints (🐾) matching the rest of the UI
 - **MetricsSummary cost aggregation** — combined token-based micro-dollar costs with legacy flat-rate pence costs instead of ignoring pence when any micro-dollars exist; was showing £0.14 instead of £24.99 for 19 runs
 - **ModelSelectionView pricing** — converted from USD to GBP primary display with greyed-out USD in parentheses, matching the JobRunsGrid pattern
 
