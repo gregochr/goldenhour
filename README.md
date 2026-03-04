@@ -20,6 +20,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Opus optimisation gate — very-short-term runs skip slots with prior rating < 3 stars, avoiding wasted spend
 - Model comparison test harness — A/B/C runs Haiku, Sonnet, and Opus against identical data for side-by-side evaluation; single-location test and re-run support for variance testing
+- Prompt test harness — async end-to-end evaluation of all colour locations with a chosen model; live progress polling, run comparison with score deltas, replay for A/B prompt version testing
 - Stores every evaluation so you can track how the forecast converges as the date approaches
 - Outcome recording — log whether you went out and your actual rating; builds an accuracy feedback loop
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA
@@ -45,7 +46,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 | Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v1.2.0 (GitHub Packages) |
 | Weather data | Open-Meteo Forecast + Air Quality / CAMS APIs (free, no key) |
 | Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
-| Database | H2 file database + Flyway migrations (V1-V37) |
+| Database | H2 file database + Flyway migrations (V1-V47) |
 | Security | Spring Security 7, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
 | Frontend | React 19, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
@@ -217,16 +218,22 @@ Users can self-register at the login page — email verification is required, an
 | `POST` | `/api/model-test/rerun` | ADMIN | Re-run a previous test with fresh data |
 | `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs |
 | `GET` | `/api/model-test/results` | ADMIN | Results for a specific test run |
+| `POST` | `/api/prompt-test/run` | ADMIN | Start async prompt test run (202 Accepted) |
+| `POST` | `/api/prompt-test/replay` | ADMIN | Replay a previous test with current prompt |
+| `GET` | `/api/prompt-test/runs` | ADMIN | Recent prompt test runs |
+| `GET` | `/api/prompt-test/runs/{id}` | ADMIN | Single run (for progress polling) |
+| `GET` | `/api/prompt-test/results` | ADMIN | Results for a prompt test run |
+| `GET` | `/api/prompt-test/git-info` | ADMIN | Current git commit info |
 
 ---
 
 ## Running tests
 
 ```bash
-# Backend (JUnit 5, 534 tests, >=80% coverage enforced by JaCoCo)
+# Backend (JUnit 5, 646 tests, >=80% coverage enforced by JaCoCo)
 cd backend && ./mvnw clean verify
 
-# Frontend component tests (Vitest, 127 tests)
+# Frontend component tests (Vitest, 321 tests)
 cd frontend && npm test
 
 # Frontend end-to-end (Playwright — requires app running)

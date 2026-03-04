@@ -89,6 +89,15 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - Tide: multi-select H/M/L chips; gold fill when selected; disabled for non-SEASCAPE; prevents deselecting the last chip
   - Column header filters use matching clickable chips instead of text inputs
   - `TideToggleChips` and `LocationTypeChips` components in `LocationManagementView.jsx`
+- **Prompt test harness** ✓ — end-to-end prompt evaluation test running all colour locations through the Claude pipeline
+  - `prompt_test_run` + `prompt_test_result` tables (V44, V45)
+  - `PromptTestService` orchestrates: colour location selection, weather fetch, model evaluation, result persistence
+  - Async execution: POST /run and /replay return 202 immediately; frontend polls `GET /runs/{id}` every 3s for live progress
+  - Run comparison: select two runs via checkboxes for side-by-side score deltas
+  - Replay: re-run with same locations/dates but current prompt version for A/B comparison
+  - Build info section: git commit, branch, relative date above controls
+  - Model versions: `EvaluationModel.version` field exposed via `/api/models` as `[{name, version}, ...]`
+  - Admin UI: "Prompt Test" tab in ManageView with model/run-type selection, progress indicator, results table with Date/Target columns
 
 ---
 
@@ -100,20 +109,20 @@ goldenhour/
 │   ├── src/main/java/com/gregochr/goldenhour/
 │   │   ├── client/        OpenMeteoForecastApi, OpenMeteoAirQualityApi (@HttpExchange interfaces)
 │   │   ├── config/        SecurityConfig, JwtAuthenticationFilter, JwtProperties, AppConfig, CostProperties, TransientHttpErrorPredicate, ClaudeRetryPredicate
-│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController, RegionController
-│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, EmailVerificationTokenEntity, RegionEntity, ExchangeRateEntity, OptimisationStrategyEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType, OptimisationStrategyType
-│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, EmailVerificationTokenRepository, ExchangeRateRepository, OptimisationStrategyRepository
-│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ExchangeRateService, ModelSelectionService, ModelTestService, OptimisationStrategyService, OptimisationSkipEvaluator, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
+│   │   ├── controller/    ForecastController, OutcomeController, LocationController, AuthController, UserController, JobMetricsController, ModelsController, ModelTestController, PromptTestController, RegionController
+│   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, PromptTestRunEntity, PromptTestResultEntity, EmailVerificationTokenEntity, RegionEntity, ExchangeRateEntity, OptimisationStrategyEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType, OptimisationStrategyType
+│   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, PromptTestRunRepository, PromptTestResultRepository, EmailVerificationTokenRepository, ExchangeRateRepository, OptimisationStrategyRepository
+│   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ExchangeRateService, ModelSelectionService, ModelTestService, PromptTestService, OptimisationStrategyService, OptimisationSkipEvaluator, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
 │   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, TokenUsage, OptimisationStrategyUpdateRequest, etc.
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V43 Flyway migrations
+│       └── db/migration/            V1–V47 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
-│       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js (global axios interceptors)
+│       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js, promptTestApi.js (global axios interceptors)
 │       ├── components/    LoginPage, ChangePasswordPage, ManageView, MapView, Pagination, ...
 │       ├── hooks/         usePagination, useForecasts, useHealthStatus, useIsMobile
 │       └── context/       AuthContext.jsx
@@ -227,6 +236,10 @@ jwt:
 | V41 | `optimisation_strategy` table (5 strategies × 3 run types seeded); `active_strategies` column on `job_run` |
 | V42 | Remove REQUIRE_PRIOR strategy (merged into SKIP_LOW_RATED) |
 | V43 | Refactor `TideType` enum: HIGH_TIDE→HIGH, MID_TIDE→MID, LOW_TIDE→LOW; expand ANY_TIDE to all three; remove ANY_TIDE and NOT_COASTAL sentinels |
+| V44 | `prompt_test_run` + `prompt_test_result` tables — prompt evaluation test harness |
+| V45 | `run_type` column on `prompt_test_run` |
+| V46 | Refactor `GoldenHourType` → `SolarEventType` on `locations` |
+| V47 | `location_id` FK on `forecast_evaluation` and `actual_outcome` |
 
 ---
 
@@ -279,6 +292,12 @@ jwt:
 | `POST` | `/api/model-test/rerun` | ADMIN | Re-run a previous test with same locations, fresh data (`testRunId` param) |
 | `GET` | `/api/model-test/runs` | ADMIN | Recent model test runs (last 20) |
 | `GET` | `/api/model-test/results` | ADMIN | Results for a test run (`testRunId` param) |
+| `POST` | `/api/prompt-test/run` | ADMIN | Start async prompt test run (returns 202, poll for completion) |
+| `POST` | `/api/prompt-test/replay` | ADMIN | Replay a previous prompt test with current prompt version (returns 202) |
+| `GET` | `/api/prompt-test/runs` | ADMIN | Recent prompt test runs (last 20) |
+| `GET` | `/api/prompt-test/runs/{id}` | ADMIN | Single prompt test run (for polling progress) |
+| `GET` | `/api/prompt-test/results` | ADMIN | Results for a prompt test run (`testRunId` param) |
+| `GET` | `/api/prompt-test/git-info` | ADMIN | Current git commit info for build identification |
 | `GET` | `/api/push/vapid-public-key` | None | Returns VAPID public key for frontend subscription |
 | `POST` | `/api/push/subscribe` | Bearer | Save a push subscription |
 | `DELETE` | `/api/push/subscribe` | Bearer | Remove a push subscription |
@@ -505,8 +524,8 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 607 tests, JaCoCo ≥ 80%
-cd frontend && npm run test           # 272 Vitest component tests
+cd backend && ./mvnw clean verify     # 646 tests, JaCoCo ≥ 80%
+cd frontend && npm run test           # 321 Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
 
