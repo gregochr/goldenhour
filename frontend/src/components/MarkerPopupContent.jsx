@@ -87,7 +87,7 @@ const POPUP_TIDE_META = {
 function isDustEnhanced(f) {
   const aodHigh  = f.aerosolOpticalDepth != null && f.aerosolOpticalDepth > 0.3;
   const dustHigh = f.dust != null && f.dust > 50;
-  const pm25Low  = f.pm25 == null || f.pm25 < 15;
+  const pm25Low  = f.pm25 == null || f.pm25 < 35;
   return (aodHigh || dustHigh) && pm25Low;
 }
 
