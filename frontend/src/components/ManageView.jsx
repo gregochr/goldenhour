@@ -6,6 +6,7 @@ import RegionManagementView from './RegionManagementView.jsx';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import ModelTestView from './ModelTestView.jsx';
+import PromptTestView from './PromptTestView.jsx';
 
 const GROUPS = [
   {
@@ -24,6 +25,7 @@ const GROUPS = [
       { value: 'metrics', label: 'Job Runs' },
       { value: 'models', label: 'Run Config' },
       { value: 'modeltest', label: 'Model Test' },
+      { value: 'prompttest', label: 'Prompt Test' },
     ],
   },
 ];
@@ -121,6 +123,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Model Comparison Test</p>
             <ModelTestView />
+          </div>
+        )}
+
+        {activeTab === 'prompttest' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Prompt Regression Test</p>
+            <PromptTestView />
           </div>
         )}
       </div>

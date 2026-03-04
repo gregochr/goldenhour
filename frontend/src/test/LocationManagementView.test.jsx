@@ -14,7 +14,7 @@ vi.mock('../api/regionApi', () => ({
   fetchRegions: vi.fn(),
 }));
 
-import { fetchLocations, addLocation, updateLocation, geocodePlace } from '../api/forecastApi';
+import { fetchLocations, updateLocation, geocodePlace } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 
 const MOCK_LOCATIONS = [
