@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (Mar 4, 2026)
+- **TideType enum refactored** — simplified from 5 sentinel values (HIGH_TIDE, LOW_TIDE, MID_TIDE, ANY_TIDE, NOT_COASTAL) to 3 real values (HIGH, MID, LOW)
+  - Empty set replaces NOT_COASTAL; all three selected replaces ANY_TIDE
+  - `AddLocationRequest` and `UpdateLocationRequest` now use `Set<TideType> tideTypes` (was single `TideType tideType`)
+  - V43 Flyway migration renames and expands existing data in place — no data loss
+  - `TideService.calculateTideAligned()` simplified to 3-case switch
+  - `LocationService.isCoastal()` simplified to `!tideType.isEmpty()`
+- **Emoji chip UI for location metadata** — Type and Tide columns in Locations table now use compact toggle chips
+  - Location type: 🏔️ (Landscape), 🌊 (Seascape), 🐾 (Wildlife) — single-select, clickable in edit mode, read-only display with faded unselected icons
+  - Tide type: H/M/L gold toggle chips — multi-select for SEASCAPE, disabled for non-coastal, prevents deselecting last chip
+  - Column header filters replaced with matching clickable chips (no more text inputs for Type and Tide)
+- **Wildlife emoji** — changed from 🦅 to 🐾 (paw prints) across MapView filter bar and Locations table for better dark theme contrast (brightness filter applied)
+
 ### Added (Mar 4, 2026)
 - **Client-side pagination for Locations and Users tables** — shared `usePagination` hook and `Pagination` component
   - Default page size of 10 with 10/25/50 size chips
