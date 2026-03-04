@@ -22,7 +22,7 @@ const popupStyles = `
   }
 `;
 import InfoTip from './InfoTip.jsx';
-import { scoreColour, buildMarkerSvg, markerLabelAndColour, createClusterIcon, RATING_COLOURS } from './markerUtils.js';
+import { buildMarkerSvg, markerLabelAndColour, createClusterIcon } from './markerUtils.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';

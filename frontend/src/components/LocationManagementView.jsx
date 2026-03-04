@@ -1092,8 +1092,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Solar Event Type</label>
-              <div className="py-1.5" data-testid="add-solar-event-type">
+              <label htmlFor="add-solar-event-type-chips" className={labelClass}>Solar Event Type</label>
+              <div id="add-solar-event-type-chips" className="py-1.5" data-testid="add-solar-event-type">
                 <SolarToggleChips
                   selected={addSolarEventTypes}
                   onChange={setAddSolarEventTypes}
@@ -1115,8 +1115,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </select>
             </div>
             <div>
-              <label className={labelClass}>Tide Preference</label>
-              <div className="py-1.5" data-testid="add-tide-type">
+              <label htmlFor="add-tide-type-chips" className={labelClass}>Tide Preference</label>
+              <div id="add-tide-type-chips" className="py-1.5" data-testid="add-tide-type">
                 <TideToggleChips
                   selected={addTideTypes}
                   onChange={setAddTideTypes}

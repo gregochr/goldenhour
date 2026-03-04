@@ -1,0 +1,527 @@
+package com.gregochr.goldenhour.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.PromptTestResultEntity;
+import com.gregochr.goldenhour.entity.PromptTestRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.EvaluationDetail;
+import com.gregochr.goldenhour.model.ForecastRequest;
+import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PromptTestResultRepository;
+import com.gregochr.goldenhour.repository.PromptTestRunRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+
+/**
+ * Orchestrates prompt regression tests across all colour locations.
+ *
+ * <p>Evaluates all enabled colour locations with a single chosen model, stores atmospheric
+ * data for replay. Re-running with stored data allows measuring the impact of prompt changes
+ * by comparing scores between runs at different git commits.
+ */
+@Service
+public class PromptTestService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PromptTestService.class);
+
+    private final LocationRepository locationRepository;
+    private final PromptTestRunRepository testRunRepository;
+    private final PromptTestResultRepository testResultRepository;
+    private final OpenMeteoService openMeteoService;
+    private final ForecastService forecastService;
+    private final EvaluationService evaluationService;
+    private final SolarService solarService;
+    private final CostCalculator costCalculator;
+    private final ExchangeRateService exchangeRateService;
+    private final GitInfoService gitInfoService;
+    private final ObjectMapper objectMapper;
+
+    /**
+     * Constructs a {@code PromptTestService}.
+     *
+     * @param locationRepository    location repository
+     * @param testRunRepository     prompt test run repository
+     * @param testResultRepository  prompt test result repository
+     * @param openMeteoService      Open-Meteo weather data service
+     * @param forecastService       forecast service (for tide augmentation)
+     * @param evaluationService     evaluation service (delegates to strategies)
+     * @param solarService          solar calculation service
+     * @param costCalculator        API cost calculator
+     * @param exchangeRateService   exchange rate service for GBP conversion
+     * @param gitInfoService        git commit info service
+     */
+    public PromptTestService(LocationRepository locationRepository,
+            PromptTestRunRepository testRunRepository,
+            PromptTestResultRepository testResultRepository,
+            OpenMeteoService openMeteoService,
+            ForecastService forecastService,
+            EvaluationService evaluationService,
+            SolarService solarService,
+            CostCalculator costCalculator,
+            ExchangeRateService exchangeRateService,
+            GitInfoService gitInfoService) {
+        this.locationRepository = locationRepository;
+        this.testRunRepository = testRunRepository;
+        this.testResultRepository = testResultRepository;
+        this.openMeteoService = openMeteoService;
+        this.forecastService = forecastService;
+        this.evaluationService = evaluationService;
+        this.solarService = solarService;
+        this.costCalculator = costCalculator;
+        this.exchangeRateService = exchangeRateService;
+        this.gitInfoService = gitInfoService;
+        this.objectMapper = new ObjectMapper()
+                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+    }
+
+    private static final int FORECAST_HORIZON_DAYS = 5;
+
+    /**
+     * Runs a prompt test across all enabled colour locations with fresh weather data.
+     *
+     * @param model   the evaluation model to use (e.g. HAIKU, SONNET, OPUS)
+     * @param runType the run type controlling the date range (VERY_SHORT_TERM, SHORT_TERM,
+     *                LONG_TERM)
+     * @return the completed test run with summary metrics
+     */
+    public PromptTestRunEntity runTest(EvaluationModel model, RunType runType) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        List<LocationEntity> allLocations = locationRepository.findAllByEnabledTrueOrderByNameAsc();
+        List<LocationEntity> colourLocations = allLocations.stream()
+                .filter(this::hasColourTypes)
+                .toList();
+
+        TargetType targetType = resolveTargetType(now, allLocations);
+        List<LocalDate> targetDates = resolveDates(runType);
+        Double exchangeRate = fetchExchangeRate();
+
+        LOG.info("Prompt test started — {} colour locations × {} dates, model={}, runType={}, "
+                        + "target: {} {}",
+                colourLocations.size(), targetDates.size(), model, runType,
+                targetDates, targetType);
+
+        PromptTestRunEntity testRun = testRunRepository.save(PromptTestRunEntity.builder()
+                .startedAt(now)
+                .targetDate(targetDates.getFirst())
+                .targetType(targetType)
+                .evaluationModel(model)
+                .runType(runType)
+                .locationsCount(0)
+                .succeeded(0)
+                .failed(0)
+                .totalCostPence(0)
+                .exchangeRateGbpPerUsd(exchangeRate)
+                .gitCommitHash(gitInfoService.getCommitHash())
+                .gitCommitDate(gitInfoService.getCommitDate())
+                .gitDirty(gitInfoService.isDirty())
+                .gitBranch(gitInfoService.getBranch())
+                .build());
+
+        int succeeded = 0;
+        int failed = 0;
+        int totalCostPence = 0;
+        long totalCostMicroDollars = 0;
+        int totalSlots = 0;
+
+        for (LocalDate date : targetDates) {
+            for (LocationEntity location : colourLocations) {
+                totalSlots++;
+                AtmosphericData atmosphericData;
+                try {
+                    atmosphericData = fetchAtmosphericData(location, date, targetType);
+                } catch (Exception e) {
+                    LOG.error("Failed to fetch weather data for '{}' on {}: {}",
+                            location.getName(), date, e.getMessage(), e);
+                    failed++;
+                    testResultRepository.save(buildFailedResult(testRun, location,
+                            date, targetType, model, e.getMessage()));
+                    continue;
+                }
+
+                try {
+                    EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                            atmosphericData, model, null);
+                    TokenUsage tokenUsage = detail.tokenUsage() != null
+                            ? detail.tokenUsage() : TokenUsage.EMPTY;
+                    int costPence = costCalculator.calculateCost(
+                            com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                    long costMicroDollars = costCalculator.calculateCostMicroDollars(
+                            model, tokenUsage);
+                    totalCostPence += costPence;
+                    totalCostMicroDollars += costMicroDollars;
+                    succeeded++;
+
+                    PromptTestResultEntity result = buildSuccessResult(testRun, location,
+                            date, targetType, model, detail, costPence, costMicroDollars,
+                            tokenUsage);
+                    populateAtmosphericData(result, atmosphericData);
+                    testResultRepository.save(result);
+                } catch (Exception e) {
+                    LOG.error("Evaluation failed for '{}' on {} with model {}: {}",
+                            location.getName(), date, model, e.getMessage());
+                    failed++;
+                    testResultRepository.save(buildFailedResult(testRun, location,
+                            date, targetType, model, e.getMessage()));
+                }
+            }
+        }
+
+        return completeRun(testRun, now, totalSlots, succeeded, failed,
+                totalCostPence, totalCostMicroDollars);
+    }
+
+    /**
+     * Replays a previous test using stored atmospheric data and the parent's model.
+     *
+     * <p>No Open-Meteo calls are made. The same atmospheric data is re-evaluated with
+     * the current code (prompt), allowing comparison of prompt changes at different
+     * git commits.
+     *
+     * @param parentRunId the ID of the previous test run to replay
+     * @return the completed new test run
+     * @throws NoSuchElementException  if the parent run does not exist or has no results
+     * @throws IllegalStateException   if the parent run's results lack stored atmospheric data
+     */
+    public PromptTestRunEntity replayTest(Long parentRunId) {
+        PromptTestRunEntity parentRun = testRunRepository.findById(parentRunId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "Prompt test run not found: " + parentRunId));
+
+        List<PromptTestResultEntity> parentResults = testResultRepository
+                .findByTestRunIdOrderByLocationNameAsc(parentRunId);
+        if (parentResults.isEmpty()) {
+            throw new NoSuchElementException(
+                    "No results found for prompt test run: " + parentRunId);
+        }
+
+        // Extract distinct locations with stored atmospheric data
+        Map<Long, PromptTestResultEntity> locationMap = new LinkedHashMap<>();
+        for (PromptTestResultEntity r : parentResults) {
+            if (r.getSucceeded() && r.getAtmosphericDataJson() != null
+                    && !locationMap.containsKey(r.getLocationId())) {
+                locationMap.put(r.getLocationId(), r);
+            }
+        }
+        if (locationMap.isEmpty()) {
+            throw new IllegalStateException(
+                    "No atmospheric data stored on results of prompt test run " + parentRunId
+                            + " — cannot replay.");
+        }
+
+        EvaluationModel model = parentRun.getEvaluationModel();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        Double exchangeRate = fetchExchangeRate();
+
+        LOG.info("Replaying prompt test #{} (same data) — {} locations, model={}",
+                parentRunId, locationMap.size(), model);
+
+        PromptTestRunEntity testRun = testRunRepository.save(PromptTestRunEntity.builder()
+                .startedAt(now)
+                .targetDate(parentRun.getTargetDate())
+                .targetType(parentRun.getTargetType())
+                .evaluationModel(model)
+                .locationsCount(0)
+                .succeeded(0)
+                .failed(0)
+                .totalCostPence(0)
+                .exchangeRateGbpPerUsd(exchangeRate)
+                .parentRunId(parentRunId)
+                .gitCommitHash(gitInfoService.getCommitHash())
+                .gitCommitDate(gitInfoService.getCommitDate())
+                .gitDirty(gitInfoService.isDirty())
+                .gitBranch(gitInfoService.getBranch())
+                .build());
+
+        int succeeded = 0;
+        int failed = 0;
+        int totalCostPence = 0;
+        long totalCostMicroDollars = 0;
+        int locationsProcessed = 0;
+
+        for (PromptTestResultEntity ref : locationMap.values()) {
+            AtmosphericData atmosphericData;
+            try {
+                atmosphericData = objectMapper.readValue(
+                        ref.getAtmosphericDataJson(), AtmosphericData.class);
+            } catch (JsonProcessingException e) {
+                LOG.error("Failed to deserialise atmospheric data for '{}': {}",
+                        ref.getLocationName(), e.getMessage());
+                failed++;
+                testResultRepository.save(buildFailedResultFromRef(testRun, ref, model,
+                        "Atmospheric data deserialisation failed: " + e.getMessage()));
+                continue;
+            }
+
+            locationsProcessed++;
+
+            try {
+                EvaluationDetail detail = evaluationService.evaluateWithDetails(
+                        atmosphericData, model, null);
+                TokenUsage tokenUsage = detail.tokenUsage() != null
+                        ? detail.tokenUsage() : TokenUsage.EMPTY;
+                int costPence = costCalculator.calculateCost(
+                        com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC, model);
+                long costMicroDollars = costCalculator.calculateCostMicroDollars(model, tokenUsage);
+                totalCostPence += costPence;
+                totalCostMicroDollars += costMicroDollars;
+                succeeded++;
+
+                PromptTestResultEntity result = PromptTestResultEntity.builder()
+                        .testRunId(testRun.getId())
+                        .locationId(ref.getLocationId())
+                        .locationName(ref.getLocationName())
+                        .targetDate(ref.getTargetDate())
+                        .targetType(ref.getTargetType())
+                        .evaluationModel(model)
+                        .rating(detail.evaluation().rating())
+                        .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                        .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                        .summary(detail.evaluation().summary())
+                        .promptSent(detail.promptSent())
+                        .responseJson(detail.rawResponse())
+                        .durationMs(detail.durationMs())
+                        .costPence(costPence)
+                        .inputTokens(tokenUsage.inputTokens())
+                        .outputTokens(tokenUsage.outputTokens())
+                        .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                        .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                        .costMicroDollars(costMicroDollars)
+                        .succeeded(true)
+                        .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                        .build();
+                populateAtmosphericData(result, atmosphericData);
+                testResultRepository.save(result);
+            } catch (Exception e) {
+                LOG.error("Evaluation failed for '{}' (replay, model {}): {}",
+                        ref.getLocationName(), model, e.getMessage());
+                failed++;
+                testResultRepository.save(buildFailedResultFromRef(testRun, ref, model,
+                        e.getMessage()));
+            }
+        }
+
+        return completeRun(testRun, now, locationsProcessed, succeeded, failed,
+                totalCostPence, totalCostMicroDollars);
+    }
+
+    /**
+     * Returns recent prompt test runs (last 20).
+     *
+     * @return list of recent test runs ordered by start time descending
+     */
+    public List<PromptTestRunEntity> getRecentRuns() {
+        return testRunRepository.findTop20ByOrderByStartedAtDesc();
+    }
+
+    /**
+     * Returns results for a specific test run.
+     *
+     * @param testRunId the test run ID
+     * @return results ordered by location name
+     */
+    public List<PromptTestResultEntity> getResults(Long testRunId) {
+        return testResultRepository.findByTestRunIdOrderByLocationNameAsc(testRunId);
+    }
+
+    // --- Target resolution ---
+
+    /**
+     * Resolves the date range for a given run type.
+     *
+     * @param runType the run type controlling the date range
+     * @return ordered list of target dates
+     */
+    List<LocalDate> resolveDates(RunType runType) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        return switch (runType) {
+            case VERY_SHORT_TERM -> List.of(today, today.plusDays(1));
+            case SHORT_TERM -> List.of(today, today.plusDays(1), today.plusDays(2));
+            case LONG_TERM -> {
+                List<LocalDate> dates = new ArrayList<>();
+                for (int i = 3; i <= FORECAST_HORIZON_DAYS + 2; i++) {
+                    dates.add(today.plusDays(i));
+                }
+                yield List.copyOf(dates);
+            }
+            case WEATHER, TIDE -> throw new IllegalArgumentException(
+                    "RunType " + runType + " is not supported for prompt tests");
+        };
+    }
+
+    TargetType resolveTargetType(LocalDateTime now, List<LocationEntity> allLocations) {
+        if (allLocations.isEmpty()) {
+            return TargetType.SUNSET;
+        }
+        LocationEntity first = allLocations.get(0);
+        LocalDateTime todaySunset = solarService.sunsetUtc(first.getLat(), first.getLon(),
+                now.toLocalDate());
+        return now.isBefore(todaySunset) ? TargetType.SUNSET : TargetType.SUNRISE;
+    }
+
+    LocalDate resolveTargetDate(LocalDateTime now, TargetType targetType) {
+        if (targetType == TargetType.SUNSET) {
+            return now.toLocalDate();
+        }
+        return now.toLocalDate().plusDays(1);
+    }
+
+    // --- Private helpers ---
+
+    private PromptTestRunEntity completeRun(PromptTestRunEntity testRun, LocalDateTime startedAt,
+            int locationsProcessed, int succeeded, int failed, int totalCostPence,
+            long totalCostMicroDollars) {
+        LocalDateTime completedAt = LocalDateTime.now(ZoneOffset.UTC);
+        testRun.setCompletedAt(completedAt);
+        testRun.setDurationMs(java.time.Duration.between(startedAt, completedAt).toMillis());
+        testRun.setLocationsCount(locationsProcessed);
+        testRun.setSucceeded(succeeded);
+        testRun.setFailed(failed);
+        testRun.setTotalCostPence(totalCostPence);
+        testRun.setTotalCostMicroDollars(totalCostMicroDollars);
+        testRun = testRunRepository.save(testRun);
+
+        LOG.info("Prompt test complete — {} locations, {} succeeded, {} failed, {}µ$ cost",
+                locationsProcessed, succeeded, failed, totalCostMicroDollars);
+
+        return testRun;
+    }
+
+    private Double fetchExchangeRate() {
+        try {
+            return exchangeRateService.getCurrentRate();
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch exchange rate for prompt test: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean hasColourTypes(LocationEntity loc) {
+        return loc.getLocationType().contains(LocationType.LANDSCAPE)
+                || loc.getLocationType().contains(LocationType.SEASCAPE)
+                || loc.getLocationType().isEmpty();
+    }
+
+    private AtmosphericData fetchAtmosphericData(LocationEntity location, LocalDate targetDate,
+            TargetType targetType) {
+        double lat = location.getLat();
+        double lon = location.getLon();
+        LocalDateTime eventTime = targetType == TargetType.SUNRISE
+                ? solarService.sunriseUtc(lat, lon, targetDate)
+                : solarService.sunsetUtc(lat, lon, targetDate);
+
+        ForecastRequest request = new ForecastRequest(lat, lon, location.getName(),
+                targetDate, targetType);
+        AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
+        return forecastService.augmentWithTideData(baseData, location.getId(),
+                eventTime, location.getTideType());
+    }
+
+    private PromptTestResultEntity buildSuccessResult(PromptTestRunEntity testRun,
+            LocationEntity location, LocalDate targetDate, TargetType targetType,
+            EvaluationModel model, EvaluationDetail detail, int costPence,
+            long costMicroDollars, TokenUsage tokenUsage) {
+        return PromptTestResultEntity.builder()
+                .testRunId(testRun.getId())
+                .locationId(location.getId())
+                .locationName(location.getName())
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .evaluationModel(model)
+                .rating(detail.evaluation().rating())
+                .fierySkyPotential(detail.evaluation().fierySkyPotential())
+                .goldenHourPotential(detail.evaluation().goldenHourPotential())
+                .summary(detail.evaluation().summary())
+                .promptSent(detail.promptSent())
+                .responseJson(detail.rawResponse())
+                .durationMs(detail.durationMs())
+                .costPence(costPence)
+                .inputTokens(tokenUsage.inputTokens())
+                .outputTokens(tokenUsage.outputTokens())
+                .cacheCreationInputTokens(tokenUsage.cacheCreationInputTokens())
+                .cacheReadInputTokens(tokenUsage.cacheReadInputTokens())
+                .costMicroDollars(costMicroDollars)
+                .succeeded(true)
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .build();
+    }
+
+    private PromptTestResultEntity buildFailedResult(PromptTestRunEntity testRun,
+            LocationEntity location, LocalDate targetDate, TargetType targetType,
+            EvaluationModel model, String errorMessage) {
+        return PromptTestResultEntity.builder()
+                .testRunId(testRun.getId())
+                .locationId(location.getId())
+                .locationName(location.getName())
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .evaluationModel(model)
+                .durationMs(0L)
+                .costPence(0)
+                .succeeded(false)
+                .errorMessage(errorMessage != null && errorMessage.length() > 500
+                        ? errorMessage.substring(0, 500) : errorMessage)
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .build();
+    }
+
+    private PromptTestResultEntity buildFailedResultFromRef(PromptTestRunEntity testRun,
+            PromptTestResultEntity ref, EvaluationModel model, String errorMessage) {
+        return PromptTestResultEntity.builder()
+                .testRunId(testRun.getId())
+                .locationId(ref.getLocationId())
+                .locationName(ref.getLocationName())
+                .targetDate(ref.getTargetDate())
+                .targetType(ref.getTargetType())
+                .evaluationModel(model)
+                .durationMs(0L)
+                .costPence(0)
+                .succeeded(false)
+                .errorMessage(errorMessage != null && errorMessage.length() > 500
+                        ? errorMessage.substring(0, 500) : errorMessage)
+                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .build();
+    }
+
+    private void populateAtmosphericData(PromptTestResultEntity result, AtmosphericData data) {
+        try {
+            result.setAtmosphericDataJson(objectMapper.writeValueAsString(data));
+        } catch (JsonProcessingException e) {
+            LOG.warn("Failed to serialise atmospheric data for {}: {}",
+                    result.getLocationName(), e.getMessage());
+        }
+        result.setLowCloudPercent(data.lowCloudPercent());
+        result.setMidCloudPercent(data.midCloudPercent());
+        result.setHighCloudPercent(data.highCloudPercent());
+        result.setVisibilityMetres(data.visibilityMetres());
+        result.setWindSpeedMs(data.windSpeedMs());
+        result.setWindDirectionDegrees(data.windDirectionDegrees());
+        result.setPrecipitationMm(data.precipitationMm());
+        result.setHumidityPercent(data.humidityPercent());
+        result.setWeatherCode(data.weatherCode());
+        result.setPm25(data.pm25());
+        result.setDustUgm3(data.dustUgm3());
+        result.setAerosolOpticalDepth(data.aerosolOpticalDepth());
+        result.setTemperatureCelsius(data.temperatureCelsius());
+        result.setApparentTemperatureCelsius(data.apparentTemperatureCelsius());
+        result.setPrecipitationProbability(data.precipitationProbability());
+        result.setTideState(data.tideState() != null ? data.tideState().name() : null);
+        result.setTideAligned(data.tideAligned());
+    }
+}
