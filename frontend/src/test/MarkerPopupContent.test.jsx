@@ -9,7 +9,7 @@ vi.mock('../components/TideIndicator.jsx', () => ({
 
 const BASE_LOCATION = {
   name: 'Bamburgh',
-  goldenHourType: 'SUNSET',
+  solarEventType: ['SUNSET'],
   locationType: ['SEASCAPE'],
   tideType: ['HIGH'],
 };

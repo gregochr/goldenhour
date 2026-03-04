@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
@@ -18,6 +18,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -95,7 +96,7 @@ class LocationControllerTest {
     void addLocation_withMetadata_returnsSavedEntity() throws Exception {
         LocationEntity saved = LocationEntity.builder()
                 .id(3L).name("Bamburgh").lat(55.6).lon(-1.7)
-                .goldenHourType(GoldenHourType.SUNSET)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNSET)))
                 .locationType(Set.of(LocationType.SEASCAPE))
                 .tideType(Set.of(TideType.HIGH, TideType.MID, TideType.LOW))
                 .createdAt(LocalDateTime.of(2026, 2, 28, 12, 0))
@@ -105,12 +106,13 @@ class LocationControllerTest {
         mockMvc.perform(post("/api/locations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Bamburgh\",\"lat\":55.6,\"lon\":-1.7,"
-                                + "\"goldenHourType\":\"SUNSET\","
+                                + "\"solarEventTypes\":[\"SUNSET\"],"
                                 + "\"locationType\":\"SEASCAPE\","
                                 + "\"tideTypes\":[\"HIGH\",\"MID\",\"LOW\"]}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("Bamburgh"))
-                .andExpect(jsonPath("$.goldenHourType").value("SUNSET"));
+                .andExpect(jsonPath("$.solarEventType").isArray())
+                .andExpect(jsonPath("$.solarEventType[0]").value("SUNSET"));
     }
 
     @Test
@@ -146,14 +148,15 @@ class LocationControllerTest {
     @DisplayName("PUT /api/locations/{id} updates location metadata")
     void updateLocation_validRequest_returnsUpdatedEntity() throws Exception {
         LocationEntity updated = buildEntity(1L, "Durham UK", 54.7753, -1.5849);
-        updated.setGoldenHourType(GoldenHourType.SUNSET);
+        updated.setSolarEventType(new HashSet<>(Set.of(SolarEventType.SUNSET)));
         when(locationService.update(eq(1L), any(UpdateLocationRequest.class))).thenReturn(updated);
 
         mockMvc.perform(put("/api/locations/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"goldenHourType\":\"SUNSET\"}"))
+                        .content("{\"solarEventTypes\":[\"SUNSET\"]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.goldenHourType").value("SUNSET"));
+                .andExpect(jsonPath("$.solarEventType").isArray())
+                .andExpect(jsonPath("$.solarEventType[0]").value("SUNSET"));
     }
 
     @Test
@@ -177,7 +180,7 @@ class LocationControllerTest {
     void updateLocation_nonAdmin_returns403() throws Exception {
         mockMvc.perform(put("/api/locations/1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"goldenHourType\":\"SUNSET\"}"))
+                        .content("{\"solarEventTypes\":[\"SUNSET\"]}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -232,7 +235,7 @@ class LocationControllerTest {
 
         mockMvc.perform(put("/api/locations/999")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"goldenHourType\":\"SUNSET\"}"))
+                        .content("{\"solarEventTypes\":[\"SUNSET\"]}"))
                 .andExpect(status().isNotFound());
     }
 

@@ -1,9 +1,9 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
@@ -125,8 +125,10 @@ public class LocationService {
             throw new IllegalArgumentException("A location named '" + request.name() + "' already exists");
         }
 
-        GoldenHourType goldenHourType = request.goldenHourType() != null
-                ? request.goldenHourType() : GoldenHourType.BOTH_TIMES;
+        Set<SolarEventType> solarEventTypes = request.solarEventTypes() != null
+                && !request.solarEventTypes().isEmpty()
+                ? new HashSet<>(request.solarEventTypes())
+                : new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET));
         LocationType locationType = request.locationType() != null
                 ? request.locationType() : LocationType.LANDSCAPE;
         Set<TideType> tideTypes = request.tideTypes() != null
@@ -143,7 +145,7 @@ public class LocationService {
                 .name(request.name())
                 .lat(request.lat())
                 .lon(request.lon())
-                .goldenHourType(goldenHourType)
+                .solarEventType(solarEventTypes)
                 .locationType(new HashSet<>(Set.of(locationType)))
                 .tideType(tideTypes)
                 .region(region)
@@ -157,7 +159,7 @@ public class LocationService {
 
         LOG.info("Added location '{}' ({}, {}) — type={}, solar={}, tide={}",
                 saved.getName(), saved.getLat(), saved.getLon(),
-                locationType, goldenHourType, tideTypes);
+                locationType, solarEventTypes, tideTypes);
         return saved;
     }
 
@@ -195,8 +197,8 @@ public class LocationService {
             LOG.info("Renamed location '{}' → '{}'", oldName, newName);
         }
 
-        if (request.goldenHourType() != null) {
-            location.setGoldenHourType(request.goldenHourType());
+        if (request.solarEventTypes() != null) {
+            location.setSolarEventType(new HashSet<>(request.solarEventTypes()));
         }
 
         if (request.locationType() != null) {
@@ -223,7 +225,7 @@ public class LocationService {
         }
 
         LOG.info("Updated location '{}' — type={}, solar={}, tide={}",
-                saved.getName(), saved.getLocationType(), saved.getGoldenHourType(),
+                saved.getName(), saved.getLocationType(), saved.getSolarEventType(),
                 saved.getTideType());
         return saved;
     }
@@ -254,7 +256,7 @@ public class LocationService {
     /**
      * Returns {@code true} if a sunrise evaluation should be run for this location.
      *
-     * <p>Always returns {@code true} — {@code goldenHourType} is photographer preference
+     * <p>Always returns {@code true} — {@code solarEventType} is photographer preference
      * metadata, not an evaluation filter. Both sunrise and sunset are always evaluated so
      * photographers can visit any location at either time.
      *
@@ -268,7 +270,7 @@ public class LocationService {
     /**
      * Returns {@code true} if a sunset evaluation should be run for this location.
      *
-     * <p>Always returns {@code true} — {@code goldenHourType} is photographer preference
+     * <p>Always returns {@code true} — {@code solarEventType} is photographer preference
      * metadata, not an evaluation filter. Both sunrise and sunset are always evaluated so
      * photographers can visit any location at either time.
      *

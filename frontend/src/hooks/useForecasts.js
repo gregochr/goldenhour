@@ -42,7 +42,7 @@ export function useForecasts() {
           forecastsByDate: forecastByName[l.name]?.forecastsByDate ?? new Map(),
           locationType: l.locationType ?? [],
           tideType: l.tideType ?? [],
-          goldenHourType: l.goldenHourType ?? 'BOTH_TIMES',
+          solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
         }));
 
       const outcomeResults = await Promise.all(

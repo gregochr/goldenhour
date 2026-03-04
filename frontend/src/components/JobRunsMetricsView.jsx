@@ -19,10 +19,10 @@ function isPureWildlife(loc) {
   return types.includes('WILDLIFE') && !types.includes('LANDSCAPE') && !types.includes('SEASCAPE');
 }
 
-/** Returns true if the location is coastal (has a tide type other than NOT_COASTAL). */
+/** Returns true if the location is coastal (has at least one tide type). */
 function isCoastal(loc) {
   const tides = loc.tideType || [];
-  return tides.length > 0 && !tides.every((t) => t === 'NOT_COASTAL');
+  return tides.length > 0;
 }
 
 /**

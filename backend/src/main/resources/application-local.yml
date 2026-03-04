@@ -74,7 +74,8 @@ forecast:
     - name: Cocklawburn Beach
       lat: 55.7296
       lon: -1.9525
-      goldenHourType: SUNRISE
+      solarEventType:
+        - SUNRISE
       tideType:
         - HIGH
         - MID
@@ -83,7 +84,7 @@ forecast:
       lat: 54.9141
       lon: -1.5895
       locationType: LANDSCAPE
-      goldenHourType:
+      solarEventType:
         - SUNRISE
         - SUNSET
     - name: Lowes Barns, Witton Le Wear
@@ -94,14 +95,14 @@ forecast:
       lat: 54.6
       lon: -3.13
       locationType: LANDSCAPE
-      goldenHourType:
+      solarEventType:
         - SUNRISE
         - SUNSET
     - name: Wharton Park, Durham
       lat: 54.7806
       lon: -1.5833
       locationType: LANDSCAPE
-      goldenHourType:
+      solarEventType:
         - SUNRISE
 
   schedule:

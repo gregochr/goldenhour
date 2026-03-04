@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -146,7 +147,8 @@ class LocationServiceTest {
         assertThat(captor.getValue().getName()).isEqualTo("Bamburgh Castle");
         assertThat(captor.getValue().getLat()).isEqualTo(55.6090);
         assertThat(captor.getValue().getLon()).isEqualTo(-1.7099);
-        assertThat(captor.getValue().getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
+        assertThat(captor.getValue().getSolarEventType())
+                .containsExactlyInAnyOrder(SolarEventType.SUNRISE, SolarEventType.SUNSET);
         assertThat(captor.getValue().getLocationType()).containsExactly(LocationType.LANDSCAPE);
         assertThat(captor.getValue().getTideType()).isEmpty();
         assertThat(captor.getValue().getCreatedAt()).isNotNull();
@@ -165,7 +167,7 @@ class LocationServiceTest {
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
 
         AddLocationRequest request = new AddLocationRequest(
-                "Bamburgh", 55.6, -1.7, GoldenHourType.SUNSET,
+                "Bamburgh", 55.6, -1.7, Set.of(SolarEventType.SUNSET),
                 LocationType.SEASCAPE, Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null);
 
         locationService.add(request);
@@ -180,7 +182,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AddLocationRequest request = new AddLocationRequest(
-                "Durham", 54.7753, -1.5849, GoldenHourType.BOTH_TIMES,
+                "Durham", 54.7753, -1.5849, Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET),
                 LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
 
         locationService.add(request);
@@ -270,18 +272,18 @@ class LocationServiceTest {
     // --- update ---
 
     @Test
-    @DisplayName("update() changes goldenHourType")
-    void update_changesGoldenHourType() {
+    @DisplayName("update() changes solarEventType")
+    void update_changesSolarEventType() {
         LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
-        existing.setGoldenHourType(GoldenHourType.BOTH_TIMES);
+        existing.setSolarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)));
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, GoldenHourType.SUNSET, null, null, null);
+                null, Set.of(SolarEventType.SUNSET), null, null, null);
         LocationEntity result = locationService.update(1L, request);
 
-        assertThat(result.getGoldenHourType()).isEqualTo(GoldenHourType.SUNSET);
+        assertThat(result.getSolarEventType()).containsExactly(SolarEventType.SUNSET);
     }
 
     @Test
@@ -367,24 +369,24 @@ class LocationServiceTest {
     }
 
     // --- shouldEvaluateSunrise / shouldEvaluateSunset ---
-    // goldenHourType is photographer preference metadata, not an evaluation filter.
+    // solarEventType is photographer preference metadata, not an evaluation filter.
     // Both methods always return true so every location gets sunrise AND sunset evaluations.
 
     @Test
-    @DisplayName("shouldEvaluateSunrise() returns true for all golden hour types")
+    @DisplayName("shouldEvaluateSunrise() returns true for all solar event types")
     void shouldEvaluateSunrise_alwaysTrue() {
-        for (GoldenHourType type : GoldenHourType.values()) {
-            assertThat(locationService.shouldEvaluateSunrise(entityWithType(type)))
+        for (SolarEventType type : SolarEventType.values()) {
+            assertThat(locationService.shouldEvaluateSunrise(entityWithSolarType(type)))
                     .as("shouldEvaluateSunrise for %s", type)
                     .isTrue();
         }
     }
 
     @Test
-    @DisplayName("shouldEvaluateSunset() returns true for all golden hour types")
+    @DisplayName("shouldEvaluateSunset() returns true for all solar event types")
     void shouldEvaluateSunset_alwaysTrue() {
-        for (GoldenHourType type : GoldenHourType.values()) {
-            assertThat(locationService.shouldEvaluateSunset(entityWithType(type)))
+        for (SolarEventType type : SolarEventType.values()) {
+            assertThat(locationService.shouldEvaluateSunset(entityWithSolarType(type)))
                     .as("shouldEvaluateSunset for %s", type)
                     .isTrue();
         }
@@ -473,14 +475,14 @@ class LocationServiceTest {
     // --- defaults ---
 
     @Test
-    @DisplayName("new location entity defaults to BOTH_TIMES, empty tide types, and empty locationType")
-    void locationEntity_defaults_areBothTimesAndNotCoastal() {
+    @DisplayName("new location entity defaults to empty solarEventType, empty tide types, and empty locationType")
+    void locationEntity_defaults_areEmptySetAndNotCoastal() {
         LocationEntity entity = LocationEntity.builder()
                 .name("Test")
                 .lat(54.0)
                 .lon(-1.0)
                 .build();
-        assertThat(entity.getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
+        assertThat(entity.getSolarEventType()).isEmpty();
         assertThat(entity.getTideType()).isEmpty();
         assertThat(entity.getLocationType()).isEmpty();
         assertThat(entity.isEnabled()).isTrue();
@@ -495,8 +497,9 @@ class LocationServiceTest {
                 .build();
     }
 
-    private LocationEntity entityWithType(GoldenHourType type) {
-        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0).goldenHourType(type).build();
+    private LocationEntity entityWithSolarType(SolarEventType type) {
+        return LocationEntity.builder().name("Test").lat(54.0).lon(-1.0)
+                .solarEventType(new HashSet<>(Set.of(type))).build();
     }
 
     private LocationEntity entityWithTideTypes(TideType... types) {

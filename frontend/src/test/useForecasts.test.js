@@ -15,8 +15,8 @@ const LANDSCAPE_LOCATION = {
   lat: 55.609,
   lon: -1.709,
   locationType: ['SEASCAPE'],
-  tideType: ['HIGH_TIDE'],
-  goldenHourType: 'SUNSET',
+  tideType: ['HIGH'],
+  solarEventType: ['SUNSET'],
   enabled: true,
 };
 
@@ -25,8 +25,8 @@ const WILDLIFE_LOCATION = {
   lat: 54.678,
   lon: -1.752,
   locationType: ['WILDLIFE'],
-  tideType: ['NOT_COASTAL'],
-  goldenHourType: 'ANYTIME',
+  tideType: [],
+  solarEventType: ['ALLDAY'],
   enabled: true,
 };
 
@@ -35,8 +35,8 @@ const DISABLED_LOCATION = {
   lat: 55.0,
   lon: -1.5,
   locationType: ['LANDSCAPE'],
-  tideType: ['NOT_COASTAL'],
-  goldenHourType: 'SUNSET',
+  tideType: [],
+  solarEventType: ['SUNSET'],
   enabled: false,
 };
 

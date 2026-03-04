@@ -18,7 +18,7 @@ import { fetchLocations, addLocation, updateLocation, geocodePlace } from '../ap
 import { fetchRegions } from '../api/regionApi';
 
 const MOCK_LOCATIONS = [
-  { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, goldenHourType: 'BOTH_TIMES', locationType: ['LANDSCAPE'], tideType: [] },
+  { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, solarEventType: ['SUNRISE', 'SUNSET'], locationType: ['LANDSCAPE'], tideType: [] },
 ];
 
 const MOCK_REGIONS = [
@@ -33,7 +33,7 @@ function makeMockLocations(count) {
     lat: 54 + i * 0.1,
     lon: -1 + i * 0.1,
     enabled: true,
-    goldenHourType: 'BOTH_TIMES',
+    solarEventType: ['SUNRISE', 'SUNSET'],
     locationType: ['LANDSCAPE'],
     tideType: [],
   }));
@@ -312,7 +312,7 @@ describe('LocationManagementView', () => {
     await waitFor(() => {
       expect(updateLocation).toHaveBeenCalledWith(1, {
         name: 'Durham Cathedral',
-        goldenHourType: 'BOTH_TIMES',
+        solarEventTypes: ['SUNRISE', 'SUNSET'],
         locationType: 'LANDSCAPE',
         tideTypes: [],
         regionId: null,
@@ -343,8 +343,8 @@ describe('LocationManagementView', () => {
 
   it('only one row editable at a time', async () => {
     const twoLocations = [
-      { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, goldenHourType: 'BOTH_TIMES', locationType: ['LANDSCAPE'], tideType: [] },
-      { id: 2, name: 'Bamburgh', lat: 55.61, lon: -1.71, enabled: true, goldenHourType: 'SUNSET', locationType: ['SEASCAPE'], tideType: ['HIGH'] },
+      { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, solarEventType: ['SUNRISE', 'SUNSET'], locationType: ['LANDSCAPE'], tideType: [] },
+      { id: 2, name: 'Bamburgh', lat: 55.61, lon: -1.71, enabled: true, solarEventType: ['SUNSET'], locationType: ['SEASCAPE'], tideType: ['HIGH'] },
     ];
     fetchLocations.mockResolvedValue(twoLocations);
 

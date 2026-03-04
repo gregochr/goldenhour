@@ -64,7 +64,7 @@ public class LocationController {
      * Updates metadata for an existing location.
      *
      * @param id      the location primary key
-     * @param request the updated metadata (goldenHourType, locationType, tideType)
+     * @param request the updated metadata (solarEventTypes, locationType, tideType)
      * @return the updated location entity
      * @throws java.util.NoSuchElementException if no location with that ID exists (HTTP 404)
      */
