@@ -222,7 +222,7 @@ describe('MarkerPopupContent', () => {
     });
 
     it('hides dust badge when PM2.5 is high (smoke/haze)', () => {
-      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 60, pm25: 30 } });
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 60, pm25: 45 } });
       expect(screen.queryByTestId('dust-badge')).not.toBeInTheDocument();
     });
 
