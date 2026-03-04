@@ -16,6 +16,14 @@ class ClaudeRetryPredicateTest {
     private final ClaudeRetryPredicate predicate = new ClaudeRetryPredicate();
 
     @Test
+    @DisplayName("Returns true for 500 internal server error")
+    void shouldRetry_500_returnsTrue() {
+        AnthropicServiceException ex = buildException(500, "Internal server error");
+
+        assertThat(predicate.shouldRetry(null, ex)).isTrue();
+    }
+
+    @Test
     @DisplayName("Returns true for 529 overloaded error")
     void shouldRetry_529_returnsTrue() {
         AnthropicServiceException ex = buildException(529, "overloaded");
