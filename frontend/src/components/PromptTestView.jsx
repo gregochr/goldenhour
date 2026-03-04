@@ -3,6 +3,7 @@ import { runPromptTest, replayPromptTest, getPromptTestRun, getPromptTestRuns, g
 import { getAvailableModels } from '../api/modelsApi';
 import { fetchLocations } from '../api/forecastApi';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
+import MarkerPopupContent from './MarkerPopupContent';
 
 const USD_TO_GBP = 0.79;
 const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
@@ -37,6 +38,8 @@ const PromptTestView = () => {
   const [comparisonResults, setComparisonResults] = useState({});
   const [expandedSummary, setExpandedSummary] = useState(null);
   const [modelVersions, setModelVersions] = useState({});
+  const [locations, setLocations] = useState([]);
+  const [previewResult, setPreviewResult] = useState(null);
   const pollingRef = useRef(null);
 
   // Load git info, colour location count, and model versions on mount
@@ -46,6 +49,7 @@ const PromptTestView = () => {
       .catch(() => {});
     fetchLocations()
       .then((locs) => {
+        setLocations(locs);
         const colour = locs.filter((loc) => {
           if (loc.enabled === false) return false;
           const types = loc.locationType || [];
@@ -316,6 +320,43 @@ const PromptTestView = () => {
         <span className="text-plex-text-muted ml-0.5">{version}</span>
       </>
     );
+  };
+
+  /** Map a prompt test result to the forecast shape that MarkerPopupContent expects. */
+  const mapResultToForecast = (result) => {
+    let solarEventTime = null;
+    if (result.atmosphericDataJson) {
+      try {
+        const atmo = JSON.parse(result.atmosphericDataJson);
+        solarEventTime = atmo.solarEventTime || null;
+      } catch { /* ignore parse errors */ }
+    }
+    return {
+      rating: result.rating,
+      fierySkyPotential: result.fierySkyPotential,
+      goldenHourPotential: result.goldenHourPotential,
+      summary: result.summary,
+      evaluationModel: result.evaluationModel,
+      solarEventTime,
+      windSpeed: result.windSpeedMs,
+      windDirection: result.windDirectionDegrees,
+      dust: result.dustUgm3,
+      pm25: result.pm25,
+      aerosolOpticalDepth: result.aerosolOpticalDepth,
+      precipitationProbabilityPercent: result.precipitationProbability,
+      precipitation: result.precipitationMm,
+      visibility: result.visibilityMetres,
+      humidity: result.humidityPercent,
+      temperatureCelsius: result.temperatureCelsius,
+      apparentTemperatureCelsius: result.apparentTemperatureCelsius,
+      forecastRunAt: result.createdAt,
+      tideState: result.tideState,
+      tideAligned: result.tideAligned,
+      lowCloudPercent: result.lowCloudPercent,
+      midCloudPercent: result.midCloudPercent,
+      highCloudPercent: result.highCloudPercent,
+      weatherCode: result.weatherCode,
+    };
   };
 
   // --- Comparison panel ---
@@ -742,6 +783,7 @@ const PromptTestView = () => {
                     <th className="py-2 pr-4">Cost</th>
                     <th className="py-2 pr-4">Duration</th>
                     <th className="py-2 pr-4 max-w-xs">Summary</th>
+                    <th className="py-2 pr-2 w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -792,6 +834,18 @@ const PromptTestView = () => {
                           <span className="text-red-400">{result.errorMessage || 'Error'}</span>
                         )}
                       </td>
+                      <td className="py-2 pr-2">
+                        {result.succeeded && (
+                          <button
+                            className="w-6 h-6 flex items-center justify-center rounded text-plex-text-muted hover:text-plex-text hover:bg-plex-surface-light transition-colors"
+                            title="Preview popup card"
+                            onClick={(e) => { e.stopPropagation(); setPreviewResult(result); }}
+                            data-testid={`preview-btn-${result.id}`}
+                          >
+                            &#x1F441;
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -831,6 +885,50 @@ const PromptTestView = () => {
           </div>
         </div>
       )}
+
+      {/* Preview popup modal */}
+      {previewResult && (() => {
+        const loc = locations.find((l) => l.id === previewResult.locationId) || { name: previewResult.locationName, locationType: [], solarEventType: [], tideType: [] };
+        const isPureWildlife = (loc.locationType || []).length > 0 && (loc.locationType || []).every((t) => t === 'WILDLIFE');
+        const forecast = mapResultToForecast(previewResult);
+        const eventType = previewResult.targetType === 'SUNRISE' ? 'SUNRISE' : 'SUNSET';
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Preview popup"
+            data-testid="preview-dialog"
+          >
+            {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- backdrop dismiss */}
+            <div className="absolute inset-0" onClick={() => setPreviewResult(null)} />
+            <div className="relative bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-plex-text-muted">Popup Preview</p>
+                <button
+                  onClick={() => setPreviewResult(null)}
+                  className="w-7 h-7 flex items-center justify-center rounded-full text-plex-text-muted hover:text-plex-text transition-colors"
+                  aria-label="Close"
+                >
+                  &#x2715;
+                </button>
+              </div>
+              <MarkerPopupContent
+                location={loc}
+                forecast={forecast}
+                hourlyData={[]}
+                eventType={eventType}
+                isPureWildlife={isPureWildlife}
+                isExpanded={true}
+                onToggleExpanded={() => {}}
+                role="ADMIN"
+                date={previewResult.targetDate || ''}
+                darkMode={true}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Confirmation dialog */}
       {confirmDialog && (

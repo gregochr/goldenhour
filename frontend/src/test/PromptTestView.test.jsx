@@ -277,6 +277,37 @@ describe('PromptTestView', () => {
     });
   });
 
+  it('shows preview button on succeeded result rows', async () => {
+    getPromptTestRuns.mockResolvedValue({
+      data: [
+        { id: 1, startedAt: '2026-03-01T10:00:00', completedAt: '2026-03-01T10:05:00', targetDate: '2026-03-01', targetType: 'SUNSET', evaluationModel: 'HAIKU', locationsCount: 2, succeeded: 2, failed: 0, durationMs: 5000 },
+      ],
+    });
+    getPromptTestResults.mockResolvedValue({
+      data: [
+        { id: 10, locationId: 1, locationName: 'Durham', targetDate: '2026-03-01', targetType: 'SUNSET', succeeded: true, rating: 4, fierySkyPotential: 65, goldenHourPotential: 70, summary: 'Nice sunset', evaluationModel: 'HAIKU' },
+        { id: 11, locationId: 3, locationName: 'Bamburgh', targetDate: '2026-03-01', targetType: 'SUNSET', succeeded: false, errorMessage: 'API error' },
+      ],
+    });
+
+    render(<PromptTestView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-test-runs-table')).toBeInTheDocument();
+    });
+
+    // Click on the run row to load results
+    fireEvent.click(screen.getByTestId('prompt-test-run-1'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('prompt-test-results-table')).toBeInTheDocument();
+    });
+
+    // Preview button appears for succeeded result but not for failed
+    expect(screen.getByTestId('preview-btn-10')).toBeInTheDocument();
+    expect(screen.queryByTestId('preview-btn-11')).not.toBeInTheDocument();
+  });
+
   it('shows model versions next to model radio buttons', async () => {
     render(<PromptTestView />);
     await waitFor(() => {
