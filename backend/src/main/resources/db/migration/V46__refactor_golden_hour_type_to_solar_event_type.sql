@@ -1,4 +1,4 @@
--- V44: Refactor goldenHourType from single enum column to @ElementCollection Set<SolarEventType>
+-- V46: Refactor goldenHourType from single enum column to @ElementCollection Set<SolarEventType>
 -- Rename GoldenHourType → SolarEventType; values: SUNRISE, SUNSET, ALLDAY
 -- Migration mapping: SUNRISE→[SUNRISE], SUNSET→[SUNSET], BOTH_TIMES→[SUNRISE,SUNSET], ANYTIME→[ALLDAY]
 

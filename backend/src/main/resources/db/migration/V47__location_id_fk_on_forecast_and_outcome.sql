@@ -1,4 +1,4 @@
--- V45: Replace location_name VARCHAR FK with location_id BIGINT FK
+-- V47: Replace location_name VARCHAR FK with location_id BIGINT FK
 -- on forecast_evaluation and actual_outcome tables.
 
 -- 1. Add location_id column (nullable initially)
