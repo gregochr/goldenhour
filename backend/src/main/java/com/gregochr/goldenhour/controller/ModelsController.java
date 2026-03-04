@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,8 +41,11 @@ public class ModelsController {
         EvaluationModel[] selectableModels = {
             EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS
         };
+        List<Map<String, String>> availableWithVersions = Arrays.stream(selectableModels)
+                .map(m -> Map.of("name", m.name(), "version", m.getVersion()))
+                .toList();
         return ResponseEntity.ok(Map.of(
-                "available", selectableModels,
+                "available", availableWithVersions,
                 "configs", modelSelectionService.getAllConfigs(),
                 "optimisationStrategies", optimisationStrategyService.getAllConfigs()
         ));

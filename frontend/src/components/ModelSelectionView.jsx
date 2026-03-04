@@ -111,7 +111,9 @@ export default function ModelSelectionView() {
       setLoading(true);
       setError(null);
       const [data, locations] = await Promise.all([getAvailableModels(), fetchLocations()]);
-      setAvailableModels(data.available || []);
+      // available is now [{name, version}, ...] — extract names for backward compat
+      const available = (data.available || []).map((m) => (typeof m === 'string' ? m : m.name));
+      setAvailableModels(available);
       setConfigs(data.configs || {});
       setStrategies(data.optimisationStrategies || {});
       // Count enabled non-wildlife locations (wildlife doesn't use Claude)

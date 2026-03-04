@@ -123,6 +123,38 @@ class PromptTestServiceTest {
         lenient().when(gitInfoService.getBranch()).thenReturn("main");
     }
 
+    /**
+     * Stubs testRunRepository.save() to assign an ID, and findById() to return the same
+     * entity. This is needed because runTest()/replayTest() call startRun() then
+     * executeRun(), and executeRun() re-fetches the run via findById().
+     *
+     * @param seedRuns optional pre-existing runs to seed into the mock (e.g. parent runs)
+     */
+    private void stubRunRepository(PromptTestRunEntity... seedRuns) {
+        java.util.Map<Long, PromptTestRunEntity> runs = new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.concurrent.atomic.AtomicLong idSeq = new java.util.concurrent.atomic.AtomicLong(1);
+        for (PromptTestRunEntity seed : seedRuns) {
+            if (seed.getId() != null) {
+                runs.put(seed.getId(), seed);
+                if (seed.getId() >= idSeq.get()) {
+                    idSeq.set(seed.getId() + 1);
+                }
+            }
+        }
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            PromptTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(idSeq.getAndIncrement());
+            }
+            runs.put(e.getId(), e);
+            return e;
+        });
+        lenient().when(testRunRepository.findById(any())).thenAnswer(inv -> {
+            Long id = inv.getArgument(0);
+            return Optional.ofNullable(runs.get(id));
+        });
+    }
+
     // --- runTest tests ---
 
     @Test
@@ -136,11 +168,7 @@ class PromptTestServiceTest {
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         stubGitInfo();
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            e.setId(1L);
-            return e;
-        });
+        stubRunRepository();
 
         PromptTestRunEntity result = service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
 
@@ -157,13 +185,7 @@ class PromptTestServiceTest {
         AtmosphericData data = sampleAtmosphericData();
 
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(1L);
-            }
-            return e;
-        });
+        stubRunRepository();
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
@@ -201,11 +223,7 @@ class PromptTestServiceTest {
         stubGitInfo();
         when(gitInfoService.isDirty()).thenReturn(true);
         when(gitInfoService.getBranch()).thenReturn("feature/test");
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            e.setId(1L);
-            return e;
-        });
+        stubRunRepository();
         lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
@@ -227,13 +245,7 @@ class PromptTestServiceTest {
         AtmosphericData data = sampleAtmosphericData();
 
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc2, loc1));
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(1L);
-            }
-            return e;
-        });
+        stubRunRepository();
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
@@ -268,13 +280,7 @@ class PromptTestServiceTest {
 
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
         lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(1L);
-            }
-            return e;
-        });
+        stubRunRepository();
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
@@ -299,13 +305,7 @@ class PromptTestServiceTest {
         AtmosphericData data = sampleAtmosphericData();
 
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(1L);
-            }
-            return e;
-        });
+        stubRunRepository();
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
@@ -349,16 +349,9 @@ class PromptTestServiceTest {
                 .evaluationModel(EvaluationModel.SONNET).succeeded(true)
                 .atmosphericDataJson(dataJson).build();
 
-        when(testRunRepository.findById(10L)).thenReturn(Optional.of(parentRun));
+        stubRunRepository(parentRun);
         when(testResultRepository.findByTestRunIdOrderByLocationNameAsc(10L))
                 .thenReturn(List.of(parentResult));
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(20L);
-            }
-            return e;
-        });
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.SONNET), any()))
                 .thenReturn(sampleDetail());
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any())).thenReturn(50);
@@ -399,16 +392,9 @@ class PromptTestServiceTest {
                 .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
                 .atmosphericDataJson(dataJson).build();
 
-        when(testRunRepository.findById(10L)).thenReturn(Optional.of(parentRun));
+        stubRunRepository(parentRun);
         when(testResultRepository.findByTestRunIdOrderByLocationNameAsc(10L))
                 .thenReturn(List.of(parentResult));
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(20L);
-            }
-            return e;
-        });
         when(evaluationService.evaluateWithDetails(any(), any(), any())).thenReturn(sampleDetail());
         lenient().when(costCalculator.calculateCost(any(), any())).thenReturn(50);
         lenient().when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
@@ -485,10 +471,10 @@ class PromptTestServiceTest {
     }
 
     @Test
-    @DisplayName("getResults delegates to repository")
+    @DisplayName("getResults delegates to repository with full sort order")
     void getResults_delegatesToRepo() {
         PromptTestResultEntity r = PromptTestResultEntity.builder().id(1L).testRunId(1L).build();
-        when(testResultRepository.findByTestRunIdOrderByLocationNameAsc(1L))
+        when(testResultRepository.findByTestRunIdOrderByLocationNameAscTargetDateAscTargetTypeAsc(1L))
                 .thenReturn(List.of(r));
 
         List<PromptTestResultEntity> result = service.getResults(1L);
@@ -577,13 +563,7 @@ class PromptTestServiceTest {
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         stubGitInfo();
-        when(testRunRepository.save(any())).thenAnswer(inv -> {
-            PromptTestRunEntity e = inv.getArgument(0);
-            if (e.getId() == null) {
-                e.setId(1L);
-            }
-            return e;
-        });
+        stubRunRepository();
         lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))

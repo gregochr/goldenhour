@@ -17,8 +17,8 @@ services:
 
   goldenhour-backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: goldenhour-backend
     ports:
       - "8082:8082"

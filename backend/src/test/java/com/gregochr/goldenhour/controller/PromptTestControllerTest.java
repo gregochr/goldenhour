@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -46,30 +47,31 @@ class PromptTestControllerTest {
     // --- POST /api/prompt-test/run ---
 
     @Test
-    @DisplayName("POST /api/prompt-test/run returns test run for ADMIN")
+    @DisplayName("POST /api/prompt-test/run returns 202 Accepted for ADMIN")
     @WithMockUser(roles = "ADMIN")
-    void runTest_returnsRunForAdmin() throws Exception {
+    void runTest_returns202ForAdmin() throws Exception {
         PromptTestRunEntity run = PromptTestRunEntity.builder()
                 .id(1L)
                 .startedAt(LocalDateTime.now())
                 .targetDate(LocalDate.of(2026, 3, 1))
                 .targetType(TargetType.SUNSET)
                 .evaluationModel(EvaluationModel.HAIKU)
-                .locationsCount(12)
-                .succeeded(12)
+                .locationsCount(0)
+                .succeeded(0)
                 .failed(0)
-                .totalCostPence(600)
+                .totalCostPence(0)
                 .gitCommitHash("abc1234")
                 .gitBranch("main")
                 .build();
-        when(promptTestService.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM)).thenReturn(run);
+        when(promptTestService.startRun(EvaluationModel.HAIKU, RunType.SHORT_TERM))
+                .thenReturn(run);
 
         mockMvc.perform(post("/api/prompt-test/run?model=HAIKU&runType=SHORT_TERM")
                 .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.locationsCount").value(12))
-                .andExpect(jsonPath("$.succeeded").value(12))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.evaluationModel").value("HAIKU"))
+                .andExpect(jsonPath("$.completedAt").isEmpty())
                 .andExpect(jsonPath("$.gitCommitHash").value("abc1234"));
     }
 
@@ -102,29 +104,30 @@ class PromptTestControllerTest {
     // --- POST /api/prompt-test/replay ---
 
     @Test
-    @DisplayName("POST /api/prompt-test/replay returns test run for ADMIN")
+    @DisplayName("POST /api/prompt-test/replay returns 202 Accepted for ADMIN")
     @WithMockUser(roles = "ADMIN")
-    void replayTest_returnsRunForAdmin() throws Exception {
+    void replayTest_returns202ForAdmin() throws Exception {
         PromptTestRunEntity run = PromptTestRunEntity.builder()
                 .id(2L)
                 .startedAt(LocalDateTime.now())
                 .targetDate(LocalDate.of(2026, 3, 1))
                 .targetType(TargetType.SUNSET)
                 .evaluationModel(EvaluationModel.SONNET)
-                .locationsCount(12)
-                .succeeded(12)
+                .locationsCount(0)
+                .succeeded(0)
                 .failed(0)
                 .parentRunId(1L)
                 .gitCommitHash("def5678")
                 .build();
-        when(promptTestService.replayTest(1L)).thenReturn(run);
+        when(promptTestService.startReplay(1L)).thenReturn(run);
 
         mockMvc.perform(post("/api/prompt-test/replay?parentRunId=1")
                 .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
+                .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.id").value(2))
                 .andExpect(jsonPath("$.parentRunId").value(1))
-                .andExpect(jsonPath("$.evaluationModel").value("SONNET"));
+                .andExpect(jsonPath("$.evaluationModel").value("SONNET"))
+                .andExpect(jsonPath("$.completedAt").isEmpty());
     }
 
     @Test
@@ -143,6 +146,52 @@ class PromptTestControllerTest {
         mockMvc.perform(post("/api/prompt-test/replay")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest());
+    }
+
+    // --- GET /api/prompt-test/runs/{id} ---
+
+    @Test
+    @DisplayName("GET /api/prompt-test/runs/{id} returns run for ADMIN")
+    @WithMockUser(roles = "ADMIN")
+    void getRun_returnsRunForAdmin() throws Exception {
+        PromptTestRunEntity run = PromptTestRunEntity.builder()
+                .id(1L)
+                .startedAt(LocalDateTime.now())
+                .targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.HAIKU)
+                .locationsCount(5)
+                .succeeded(3)
+                .failed(0)
+                .build();
+        when(promptTestService.getRun(1L)).thenReturn(Optional.of(run));
+
+        mockMvc.perform(get("/api/prompt-test/runs/1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.locationsCount").value(5))
+                .andExpect(jsonPath("$.succeeded").value(3));
+    }
+
+    @Test
+    @DisplayName("GET /api/prompt-test/runs/{id} returns 404 for unknown run")
+    @WithMockUser(roles = "ADMIN")
+    void getRun_notFound() throws Exception {
+        when(promptTestService.getRun(99L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/prompt-test/runs/99")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /api/prompt-test/runs/{id} requires ADMIN role")
+    @WithMockUser(roles = "PRO_USER")
+    void getRun_requiresAdminRole() throws Exception {
+        mockMvc.perform(get("/api/prompt-test/runs/1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
     }
 
     // --- GET /api/prompt-test/runs ---
