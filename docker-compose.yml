@@ -3,6 +3,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_TURNSTILE_SITE_KEY: "0x4AAAAAACkZr4aO-Px_Wy6t"
     image: gregochr/goldenhour-frontend:latest
     container_name: goldenhour-frontend
     ports:
