@@ -1,5 +1,6 @@
 # Stage 1: Build React app
 FROM node:22-slim AS builder
+ARG VITE_TURNSTILE_SITE_KEY
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
