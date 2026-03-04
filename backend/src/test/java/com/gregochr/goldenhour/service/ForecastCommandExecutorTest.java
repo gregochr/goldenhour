@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.GoldenHourType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
@@ -20,7 +20,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -69,14 +71,14 @@ class ForecastCommandExecutorTest {
 
     private ForecastCommandExecutor executor;
 
-    private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET for BOTH_TIMES
+    private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET
 
     private static LocationEntity durham() {
         return LocationEntity.builder()
                 .name("Durham UK")
                 .lat(54.7753)
                 .lon(-1.5849)
-                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .build();
     }
 
@@ -85,7 +87,7 @@ class ForecastCommandExecutorTest {
                 .name("Wildlife Reserve")
                 .lat(53.5)
                 .lon(-1.2)
-                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .locationType(java.util.Set.of(LocationType.WILDLIFE))
                 .build();
     }
@@ -137,7 +139,7 @@ class ForecastCommandExecutorTest {
                 .name("London UK")
                 .lat(51.5074)
                 .lon(-0.1278)
-                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .build();
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
@@ -228,7 +230,7 @@ class ForecastCommandExecutorTest {
                 .name("Coastal Park")
                 .lat(54.0)
                 .lon(-1.5)
-                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .locationType(java.util.Set.of(LocationType.LANDSCAPE, LocationType.WILDLIFE))
                 .build();
         assertThat(executor.isPureWildlife(mixed)).isFalse();

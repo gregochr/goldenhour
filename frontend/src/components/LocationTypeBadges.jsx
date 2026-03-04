@@ -1,11 +1,10 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 
-const GOLDEN_HOUR_TYPE_META = {
-  SUNRISE:    { emoji: '🌅', label: 'Sunrise' },
-  SUNSET:     { emoji: '🌇', label: 'Sunset' },
-  BOTH_TIMES: { emoji: '🌅🌇', label: 'Sunrise & Sunset' },
-  ANYTIME:    { emoji: '☀️', label: 'Anytime' },
+const SOLAR_EVENT_TYPE_META = {
+  SUNRISE: { emoji: '🌅', label: 'Sunrise' },
+  SUNSET:  { emoji: '🌇', label: 'Sunset' },
+  ALLDAY:  { emoji: '☀️', label: 'All Day' },
 };
 
 const LOCATION_TYPE_META = {
@@ -15,37 +14,40 @@ const LOCATION_TYPE_META = {
 };
 
 const TIDE_TYPE_META = {
-  HIGH_TIDE: { short: 'High tide' },
-  LOW_TIDE:  { short: 'Low tide' },
-  MID_TIDE:  { short: 'Mid tide' },
-  ANY_TIDE:  { short: 'Any tide' },
+  HIGH: { short: 'High tide' },
+  MID:  { short: 'Mid tide' },
+  LOW:  { short: 'Low tide' },
 };
 
 /**
- * Compact inline badges showing a location's golden hour preference, photography type
+ * Compact inline badges showing a location's solar event preference, photography type
  * tags, and tide preferences.
  *
  * @param {object}   props
- * @param {string}   props.goldenHourType - GoldenHourType value (SUNRISE, SUNSET, BOTH_TIMES, ANYTIME).
+ * @param {string[]} props.solarEventType - Array of SolarEventType values (SUNRISE, SUNSET, ALLDAY).
  * @param {string[]} props.locationType   - Array of LocationType values (LANDSCAPE, WILDLIFE, SEASCAPE).
- * @param {string[]} props.tideType       - Array of TideType values (HIGH_TIDE, LOW_TIDE, etc.).
+ * @param {string[]} props.tideType       - Array of TideType values (HIGH, MID, LOW).
  */
-export default function LocationTypeBadges({ goldenHourType, locationType = [], tideType = [] }) {
-  const goldenMeta = goldenHourType ? GOLDEN_HOUR_TYPE_META[goldenHourType] : null;
-  const coastalTides = tideType.filter((t) => t !== 'NOT_COASTAL');
+export default function LocationTypeBadges({ solarEventType = [], locationType = [], tideType = [] }) {
+  const solarTypes = solarEventType.filter((t) => SOLAR_EVENT_TYPE_META[t]);
+  const coastalTides = tideType.filter((t) => TIDE_TYPE_META[t]);
 
-  if (!goldenMeta && locationType.length === 0 && coastalTides.length === 0) return null;
+  if (solarTypes.length === 0 && locationType.length === 0 && coastalTides.length === 0) return null;
 
   return (
     <div className="flex flex-wrap gap-1">
-      {goldenMeta && (
-        <span
-          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
-            bg-plex-gold/10 text-plex-gold border border-plex-gold/30"
-        >
-          {goldenMeta.emoji} <span className="font-medium">{goldenMeta.label}</span>
-        </span>
-      )}
+      {solarTypes.map((type) => {
+        const meta = SOLAR_EVENT_TYPE_META[type];
+        return (
+          <span
+            key={type}
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full
+              bg-plex-gold/10 text-plex-gold border border-plex-gold/30"
+          >
+            {meta.emoji} <span className="font-medium">{meta.label}</span>
+          </span>
+        );
+      })}
       {locationType.map((type) => {
         const meta = LOCATION_TYPE_META[type];
         if (!meta) return null;
@@ -77,7 +79,7 @@ export default function LocationTypeBadges({ goldenHourType, locationType = [], 
 }
 
 LocationTypeBadges.propTypes = {
-  goldenHourType: PropTypes.string,
+  solarEventType: PropTypes.arrayOf(PropTypes.string),
   locationType: PropTypes.arrayOf(PropTypes.string),
   tideType: PropTypes.arrayOf(PropTypes.string),
 };

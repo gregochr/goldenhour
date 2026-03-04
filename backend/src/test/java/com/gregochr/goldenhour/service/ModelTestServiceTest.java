@@ -3,7 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.GoldenHourType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.ModelTestResultEntity;
@@ -96,7 +96,7 @@ class ModelTestServiceTest {
             Set<LocationType> types) {
         return LocationEntity.builder()
                 .id(id).name(name).lat(54.77).lon(-1.57)
-                .goldenHourType(GoldenHourType.BOTH_TIMES)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .locationType(types)
                 .tideType(new HashSet<>())
                 .region(region).enabled(true)

@@ -159,7 +159,7 @@ export async function fetchLocations() {
  * @param {string} data.name - Human-readable location identifier.
  * @param {number} data.lat  - Latitude in decimal degrees.
  * @param {number} data.lon  - Longitude in decimal degrees.
- * @param {string} [data.goldenHourType] - Solar event type.
+ * @param {string[]} [data.solarEventTypes] - Solar event types.
  * @param {string} [data.locationType] - Photography type.
  * @param {string} [data.tideType] - Tide preference.
  * @returns {Promise<object>} The saved location entity.
@@ -173,7 +173,7 @@ export async function addLocation(data) {
  * Updates metadata for an existing location.
  *
  * @param {number} id - Location primary key.
- * @param {object} data - Updated metadata (goldenHourType, locationType, tideType).
+ * @param {object} data - Updated metadata (solarEventTypes, locationType, tideType).
  * @returns {Promise<object>} The updated location entity.
  */
 export async function updateLocation(id, data) {

@@ -7,11 +7,10 @@ import InfoTip from './InfoTip.jsx';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
 
-const GOLDEN_HOUR_TYPES = [
-  { value: 'BOTH_TIMES', label: 'Both Times' },
-  { value: 'SUNRISE', label: 'Sunrise' },
-  { value: 'SUNSET', label: 'Sunset' },
-  { value: 'ANYTIME', label: 'Anytime' },
+const SOLAR_EVENT_TYPES = [
+  { value: 'SUNRISE', label: 'Sunrise', emoji: '🌅' },
+  { value: 'SUNSET', label: 'Sunset', emoji: '🌇' },
+  { value: 'ALLDAY', label: 'All Day', emoji: '☀️' },
 ];
 
 const LOCATION_TYPES = [
@@ -159,14 +158,70 @@ LocationTypeChips.propTypes = {
 };
 
 /**
- * Formats a golden hour type enum into a readable label.
+ * Emoji chip group for multi-select solar event types (🌅/🌇/☀️).
  *
- * @param {string} type - e.g. 'BOTH_TIMES'
+ * @param {object} props
+ * @param {Array<string>} props.selected - Currently selected solar event type values.
+ * @param {function} props.onChange - Called with new array of selected values.
+ * @param {boolean} [props.readOnly=false] - Disable interaction.
+ */
+function SolarToggleChips({ selected, onChange, readOnly = false }) {
+  function toggle(value) {
+    if (readOnly) return;
+    const isSelected = selected.includes(value);
+    if (isSelected && selected.length <= 1) return; // prevent deselecting the last chip
+    const next = isSelected ? selected.filter((v) => v !== value) : [...selected, value];
+    onChange(next);
+  }
+
+  return (
+    <div className="inline-flex gap-0.5 whitespace-nowrap" data-testid="solar-toggle-chips">
+      {SOLAR_EVENT_TYPES.map((s) => {
+        const isOn = selected.includes(s.value);
+        return (
+          <button
+            key={s.value}
+            type="button"
+            title={s.label}
+            onClick={() => toggle(s.value)}
+            disabled={readOnly}
+            className={`text-sm leading-none px-0.5 py-0.5 rounded transition-colors ${
+              readOnly
+                ? isOn
+                  ? 'opacity-100 cursor-default'
+                  : 'opacity-30 grayscale cursor-default'
+                : isOn
+                  ? 'opacity-100 cursor-pointer'
+                  : 'opacity-50 grayscale cursor-pointer hover:opacity-70 hover:grayscale-0'
+            }`}
+            data-testid={`solar-chip-${s.value}`}
+          >
+            {s.emoji}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+SolarToggleChips.propTypes = {
+  selected: PropTypes.arrayOf(PropTypes.string).isRequired,
+  onChange: PropTypes.func.isRequired,
+  readOnly: PropTypes.bool,
+};
+
+/**
+ * Formats a solar event type set (array) into a readable label.
+ *
+ * @param {Array<string>} types - e.g. ['SUNRISE', 'SUNSET']
  * @returns {string} Readable label.
  */
-function formatGoldenHourType(type) {
-  const found = GOLDEN_HOUR_TYPES.find((g) => g.value === type);
-  return found ? found.label : type || 'Both Times';
+function formatSolarEventType(types) {
+  if (!types || types.length === 0) return 'Sunrise, Sunset';
+  return types.map((t) => {
+    const found = SOLAR_EVENT_TYPES.find((s) => s.value === t);
+    return found ? found.label : t;
+  }).join(', ');
 }
 
 /**
@@ -340,7 +395,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [manualName, setManualName] = useState('');
   const [manualLat, setManualLat] = useState('');
   const [manualLon, setManualLon] = useState('');
-  const [addGoldenHourType, setAddGoldenHourType] = useState('BOTH_TIMES');
+  const [addSolarEventTypes, setAddSolarEventTypes] = useState(['SUNRISE', 'SUNSET']);
   const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
   const [addTideTypes, setAddTideTypes] = useState([]);
   const [addRegionId, setAddRegionId] = useState('');
@@ -356,7 +411,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     name: (loc) => loc.name,
     region: (loc) => loc.region?.name || '',
     type: (loc) => formatLocationType(loc.locationType),
-    solar: (loc) => formatGoldenHourType(loc.goldenHourType),
+    solar: (loc) => formatSolarEventType(loc.solarEventType),
     tide: (loc) => formatTideType(loc.tideType),
     created: (loc) => loc.createdAt || '',
     status: (loc) => loc.enabled ? 'Enabled' : 'Disabled',
@@ -407,7 +462,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setManualName('');
     setManualLat('');
     setManualLon('');
-    setAddGoldenHourType('BOTH_TIMES');
+    setAddSolarEventTypes(['SUNRISE', 'SUNSET']);
     setAddLocationType('LANDSCAPE');
     setAddTideTypes([]);
     setAddRegionId('');
@@ -418,7 +473,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditingRowId(loc.id);
     setEditValues({
       name: loc.name,
-      goldenHourType: loc.goldenHourType || 'BOTH_TIMES',
+      solarEventTypes: Array.isArray(loc.solarEventType) ? [...loc.solarEventType] : ['SUNRISE', 'SUNSET'],
       locationType: firstOrDefault(loc.locationType, 'LANDSCAPE'),
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
       regionId: loc.region?.id ? String(loc.region.id) : '',
@@ -452,7 +507,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
     try {
       await updateLocation(editingRowId, {
         name: editValues.name.trim(),
-        goldenHourType: editValues.goldenHourType,
+        solarEventTypes: editValues.solarEventTypes,
         locationType: editValues.locationType,
         tideTypes: editValues.locationType === 'SEASCAPE' ? editValues.tideTypes : [],
         regionId: editValues.regionId ? Number(editValues.regionId) : null,
@@ -507,7 +562,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         lat,
         lon,
         displayName: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-        goldenHourType: addGoldenHourType,
+        solarEventTypes: addSolarEventTypes,
         locationType: addLocationType,
         tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
@@ -520,7 +575,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         lat: geocodeResult.lat,
         lon: geocodeResult.lon,
         displayName: geocodeResult.displayName,
-        goldenHourType: addGoldenHourType,
+        solarEventTypes: addSolarEventTypes,
         locationType: addLocationType,
         tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
@@ -536,7 +591,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         name: confirmData.name,
         lat: confirmData.lat,
         lon: confirmData.lon,
-        goldenHourType: confirmData.goldenHourType,
+        solarEventTypes: confirmData.solarEventTypes,
         locationType: confirmData.locationType,
         tideTypes: confirmData.tideTypes,
         regionId: confirmData.regionId,
@@ -643,7 +698,41 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       </div>
                     </th>
                     <SortableHeader label="Region" sortKey="region" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
-                    <SortableHeader label="Solar" sortKey="solar" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('solar')} onFilter={(v) => sf.setFilter('solar', v)} />
+                    <th className="pb-1 font-medium align-bottom w-[10%]">
+                      <button
+                        type="button"
+                        onClick={() => sf.handleSort('solar')}
+                        className="text-xs text-plex-text-muted hover:text-plex-text cursor-pointer whitespace-nowrap"
+                      >
+                        Solar{sf.sortKey === 'solar' ? (sf.sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                      </button>
+                      <div className="mt-1 flex gap-0.5">
+                        {SOLAR_EVENT_TYPES.map((s) => {
+                          const activeArr = sf.getFilterValue('solar') || [];
+                          const isActive = Array.isArray(activeArr) && activeArr.includes(s.label);
+                          return (
+                            <button
+                              key={s.value}
+                              type="button"
+                              title={`Filter: ${s.label}`}
+                              onClick={() => {
+                                const current = Array.isArray(activeArr) ? activeArr : [];
+                                const next = isActive
+                                  ? current.filter((v) => v !== s.label)
+                                  : [...current, s.label];
+                                sf.setFilter('solar', next.length > 0 ? next : '');
+                              }}
+                              className={`text-sm leading-none px-0.5 py-0.5 rounded transition-colors ${
+                                isActive ? 'opacity-100 ring-1 ring-plex-gold' : 'opacity-40 grayscale hover:opacity-70 hover:grayscale-0'
+                              }`}
+                              data-testid={`filter-solar-${s.value}`}
+                            >
+                              {s.emoji}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </th>
                     <th className="pb-1 font-medium align-bottom w-[8%]">
                       <button
                         type="button"
@@ -731,17 +820,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   ))}
                                 </select>
                               </td>
-                              <td className="py-2">
-                                <select
-                                  className={inlineSelectClass}
-                                  value={editValues.goldenHourType}
-                                  onChange={(e) => handleEditChange('goldenHourType', e.target.value)}
-                                  data-testid="inline-edit-solar"
-                                >
-                                  {GOLDEN_HOUR_TYPES.map((g) => (
-                                    <option key={g.value} value={g.value}>{g.label}</option>
-                                  ))}
-                                </select>
+                              <td className="py-2" data-testid="inline-edit-solar">
+                                <SolarToggleChips
+                                  selected={editValues.solarEventTypes}
+                                  onChange={(next) => setEditValues((prev) => ({ ...prev, solarEventTypes: next }))}
+                                />
                               </td>
                               <td className="py-2" data-testid="inline-edit-tide">
                                 <TideToggleChips
@@ -809,8 +892,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               <td className="py-2 text-plex-text-secondary text-xs">
                                 {loc.region?.name || '—'}
                               </td>
-                              <td className="py-2 text-plex-text-secondary text-xs">
-                                {formatGoldenHourType(loc.goldenHourType)}
+                              <td className="py-2">
+                                <SolarToggleChips
+                                  selected={loc.solarEventType || ['SUNRISE', 'SUNSET']}
+                                  onChange={() => {}}
+                                  readOnly
+                                />
                               </td>
                               <td className="py-2">
                                 <TideToggleChips
@@ -1005,18 +1092,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-golden-hour-type" className={labelClass}>Golden Hour Type</label>
-              <select
-                id="add-golden-hour-type"
-                className={selectClass}
-                value={addGoldenHourType}
-                onChange={(e) => setAddGoldenHourType(e.target.value)}
-                data-testid="add-golden-hour-type"
-              >
-                {GOLDEN_HOUR_TYPES.map((g) => (
-                  <option key={g.value} value={g.value}>{g.label}</option>
-                ))}
-              </select>
+              <label className={labelClass}>Solar Event Type</label>
+              <div className="py-1.5" data-testid="add-solar-event-type">
+                <SolarToggleChips
+                  selected={addSolarEventTypes}
+                  onChange={setAddSolarEventTypes}
+                />
+              </div>
             </div>
             <div>
               <label htmlFor="add-location-type" className={labelClass}>Location Type</label>
@@ -1109,7 +1191,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Solar</span>
-                <span className="text-plex-text">{formatGoldenHourType(confirmData.goldenHourType)}</span>
+                <span className="text-plex-text">{formatSolarEventType(confirmData.solarEventTypes)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Type</span>

@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.config;
 
-import com.gregochr.goldenhour.entity.GoldenHourType;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import lombok.Getter;
 import lombok.Setter;
@@ -48,9 +48,10 @@ public class ForecastProperties {
 
         /**
          * Which solar events are worth photographing here.
-         * Defaults to {@code BOTH_TIMES} if not specified.
+         * Defaults to {@code [SUNRISE, SUNSET]} if not specified.
          */
-        private GoldenHourType goldenHourType = GoldenHourType.BOTH_TIMES;
+        private Set<SolarEventType> solarEventType = new HashSet<>(Set.of(
+                SolarEventType.SUNRISE, SolarEventType.SUNSET));
 
         /**
          * The photographer's tide preferences for this location.

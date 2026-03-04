@@ -57,13 +57,18 @@ public class LocationEntity {
 
     /**
      * Which solar events are worth photographing here.
-     * Defaults to {@link GoldenHourType#BOTH_TIMES} so all locations are evaluated for
-     * both sunrise and sunset unless explicitly configured otherwise.
+     *
+     * <p>Multiple values are supported — e.g. a location may be good for both
+     * {@code SUNRISE} and {@code SUNSET}. An empty set defaults to
+     * {@code [SUNRISE, SUNSET]} at creation time. Stored in the
+     * {@code location_solar_event_type} join table.
      */
+    @ElementCollection(fetch = FetchType.EAGER)
     @Enumerated(EnumType.STRING)
-    @Column(name = "golden_hour_type", nullable = false)
+    @CollectionTable(name = "location_solar_event_type", joinColumns = @JoinColumn(name = "location_id"))
+    @Column(name = "solar_event_type")
     @Builder.Default
-    private GoldenHourType goldenHourType = GoldenHourType.BOTH_TIMES;
+    private Set<SolarEventType> solarEventType = new HashSet<>();
 
     /**
      * The photographer's tide preferences for this location.

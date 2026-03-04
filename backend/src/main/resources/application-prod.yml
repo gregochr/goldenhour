@@ -108,7 +108,8 @@ forecast:
     - name: Cocklawburn Beach
       lat: 55.7296
       lon: -1.9525
-      goldenHourType: SUNRISE
+      solarEventType:
+        - SUNRISE
       tideType:
         - HIGH
         - MID

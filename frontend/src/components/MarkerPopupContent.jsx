@@ -65,11 +65,10 @@ const POPUP_LOC_TYPE_META = {
   SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
 };
 
-const POPUP_GOLDEN_HOUR_META = {
-  SUNRISE:    { emoji: '🌅', label: 'Sunrise' },
-  SUNSET:     { emoji: '🌇', label: 'Sunset' },
-  BOTH_TIMES: { emoji: '🌅🌇', label: 'Sunrise & Sunset' },
-  ANYTIME:    { emoji: '☀️',  label: 'Anytime' },
+const POPUP_SOLAR_EVENT_META = {
+  SUNRISE: { emoji: '🌅', label: 'Sunrise' },
+  SUNSET:  { emoji: '🌇', label: 'Sunset' },
+  ALLDAY:  { emoji: '☀️',  label: 'All Day' },
 };
 
 const POPUP_TIDE_META = {
@@ -124,7 +123,7 @@ PopupScoreRow.propTypes = {
  * BottomSheet (mobile). Pure presentational — no positioning logic.
  *
  * @param {object} props
- * @param {object} props.location - Location object with name, goldenHourType, locationType, tideType.
+ * @param {object} props.location - Location object with name, solarEventType, locationType, tideType.
  * @param {object|null} props.forecast - The sunrise or sunset forecast evaluation.
  * @param {Array} props.hourlyData - Hourly comfort data rows.
  * @param {string} props.eventType - 'SUNRISE' or 'SUNSET'.
@@ -162,6 +161,7 @@ export default function MarkerPopupContent({
   const bluePillStyle   = { ...POPUP_PILL, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
 
   const locTypes    = (location.locationType ?? []).filter((t) => POPUP_LOC_TYPE_META[t]);
+  const solarTypes  = (location.solarEventType ?? []).filter((t) => POPUP_SOLAR_EVENT_META[t]);
   const coastalTides = (location.tideType ?? []).filter((t) => POPUP_TIDE_META[t]);
 
   return (
@@ -262,17 +262,19 @@ export default function MarkerPopupContent({
                 </div>
               )}
 
-              {/* Golden hour type */}
-              {location.goldenHourType && POPUP_GOLDEN_HOUR_META[location.goldenHourType] && (() => {
-                const m = POPUP_GOLDEN_HOUR_META[location.goldenHourType];
-                return (
-                  <div style={{ marginBottom: '6px' }}>
-                    <span style={{ ...POPUP_PILL, background: '#431407', color: '#fcd34d', border: '1px solid rgba(146,64,14,0.5)' }}>
-                      {m.emoji} {m.label}
-                    </span>
-                  </div>
-                );
-              })()}
+              {/* Solar event type pills */}
+              {solarTypes.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                  {solarTypes.map((t) => {
+                    const m = POPUP_SOLAR_EVENT_META[t];
+                    return (
+                      <span key={t} style={{ ...POPUP_PILL, background: '#431407', color: '#fcd34d', border: '1px solid rgba(146,64,14,0.5)' }}>
+                        {m.emoji} {m.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Tide pills */}
               {coastalTides.length > 0 && (
@@ -372,7 +374,7 @@ export default function MarkerPopupContent({
 MarkerPopupContent.propTypes = {
   location: PropTypes.shape({
     name: PropTypes.string.isRequired,
-    goldenHourType: PropTypes.string,
+    solarEventType: PropTypes.arrayOf(PropTypes.string),
     locationType: PropTypes.arrayOf(PropTypes.string),
     tideType: PropTypes.arrayOf(PropTypes.string),
   }).isRequired,
