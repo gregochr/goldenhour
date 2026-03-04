@@ -127,6 +127,57 @@ class AbstractEvaluationStrategyTest {
         assertThat(message).contains("Low 10%");
         assertThat(message).contains("Mid 50%");
         assertThat(message).contains("High 30%");
+        assertThat(message).contains("Precip probability:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage() includes dust context when AOD exceeds threshold")
+    void buildUserMessage_highAod_includesDustContext() {
+        AtmosphericData data = buildAtmosphericDataWithDust(
+                new BigDecimal("0.50"), new BigDecimal("12.00"));
+        String message = strategy.buildUserMessage(data);
+
+        assertThat(message).contains("SAHARAN DUST CONTEXT:");
+        assertThat(message).contains("AOD: 0.50 (elevated)");
+        assertThat(message).contains("Surface dust: 12.00");
+        assertThat(message).contains("SW");
+        assertThat(message).contains("maximises warm scattering potential");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage() includes dust context when surface dust exceeds threshold")
+    void buildUserMessage_highDust_includesDustContext() {
+        AtmosphericData data = buildAtmosphericDataWithDust(
+                new BigDecimal("0.10"), new BigDecimal("65.00"));
+        String message = strategy.buildUserMessage(data);
+
+        assertThat(message).contains("SAHARAN DUST CONTEXT:");
+        assertThat(message).contains("Surface dust: 65.00");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage() omits dust context when both AOD and dust are below threshold")
+    void buildUserMessage_lowAerosols_noDustContext() {
+        AtmosphericData data = buildAtmosphericData();
+        String message = strategy.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("SAHARAN DUST CONTEXT:");
+    }
+
+    @Test
+    @DisplayName("toCardinal() converts degrees to 16-point compass directions")
+    void toCardinal_convertsCorrectly() {
+        assertThat(AbstractEvaluationStrategy.toCardinal(0)).isEqualTo("N");
+        assertThat(AbstractEvaluationStrategy.toCardinal(45)).isEqualTo("NE");
+        assertThat(AbstractEvaluationStrategy.toCardinal(90)).isEqualTo("E");
+        assertThat(AbstractEvaluationStrategy.toCardinal(135)).isEqualTo("SE");
+        assertThat(AbstractEvaluationStrategy.toCardinal(180)).isEqualTo("S");
+        assertThat(AbstractEvaluationStrategy.toCardinal(225)).isEqualTo("SW");
+        assertThat(AbstractEvaluationStrategy.toCardinal(270)).isEqualTo("W");
+        assertThat(AbstractEvaluationStrategy.toCardinal(315)).isEqualTo("NW");
+        assertThat(AbstractEvaluationStrategy.toCardinal(360)).isEqualTo("N");
+        assertThat(AbstractEvaluationStrategy.toCardinal(22)).isEqualTo("NNE");
+        assertThat(AbstractEvaluationStrategy.toCardinal(202)).isEqualTo("SSW");
     }
 
     @Test
@@ -343,6 +394,17 @@ class AbstractEvaluationStrategyTest {
                 new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
                 62, 3, 1200, new BigDecimal("180.00"),
                 new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
+                null, null, null,
+                null, null, null, null, null, null);
+    }
+
+    private AtmosphericData buildAtmosphericDataWithDust(BigDecimal aod, BigDecimal dust) {
+        return new AtmosphericData(
+                "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
+                10, 50, 30, 25000,
+                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
+                62, 3, 1200, new BigDecimal("180.00"),
+                new BigDecimal("8.50"), dust, aod,
                 null, null, null,
                 null, null, null, null, null, null);
     }

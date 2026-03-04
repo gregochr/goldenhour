@@ -204,6 +204,44 @@ describe('MarkerPopupContent', () => {
     expect(screen.getByText('No forecast available')).toBeInTheDocument();
   });
 
+  describe('dust badge', () => {
+    it('shows dust badge when AOD high and PM2.5 low', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 12, pm25: 8 } });
+      expect(screen.getByTestId('dust-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Elevated dust/)).toBeInTheDocument();
+    });
+
+    it('shows dust badge when dust concentration high and PM2.5 low', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.1, dust: 65, pm25: 5 } });
+      expect(screen.getByTestId('dust-badge')).toBeInTheDocument();
+    });
+
+    it('shows dust badge when PM2.5 is absent (null treated as low)', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5 } });
+      expect(screen.getByTestId('dust-badge')).toBeInTheDocument();
+    });
+
+    it('hides dust badge when PM2.5 is high (smoke/haze)', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 60, pm25: 30 } });
+      expect(screen.queryByTestId('dust-badge')).not.toBeInTheDocument();
+    });
+
+    it('hides dust badge when AOD and dust both below threshold', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.2, dust: 30, pm25: 5 } });
+      expect(screen.queryByTestId('dust-badge')).not.toBeInTheDocument();
+    });
+
+    it('hides dust badge when aerosol fields are absent', () => {
+      renderPopup({ role: 'PRO_USER' });
+      expect(screen.queryByTestId('dust-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows dust badge for LITE_USER (visible to all roles)', () => {
+      renderPopup({ role: 'LITE_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 60, pm25: 3 } });
+      expect(screen.getByTestId('dust-badge')).toBeInTheDocument();
+    });
+  });
+
   describe('comfort rows', () => {
     it('shows temperature and wind when expanded', () => {
       renderPopup({ role: 'PRO_USER' });
