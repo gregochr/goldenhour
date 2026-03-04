@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (Mar 4, 2026)
+- **MetricsSummary cost aggregation** — combined token-based micro-dollar costs with legacy flat-rate pence costs instead of ignoring pence when any micro-dollars exist; was showing £0.14 instead of £24.99 for 19 runs
+- **ModelSelectionView pricing** — converted from USD to GBP primary display with greyed-out USD in parentheses, matching the JobRunsGrid pattern
+
 ### Changed (Mar 4, 2026)
 - **TideType enum refactored** — simplified from 5 sentinel values (HIGH_TIDE, LOW_TIDE, MID_TIDE, ANY_TIDE, NOT_COASTAL) to 3 real values (HIGH, MID, LOW)
   - Empty set replaces NOT_COASTAL; all three selected replaces ANY_TIDE
@@ -16,7 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Location type: 🏔️ (Landscape), 🌊 (Seascape), 🐾 (Wildlife) — single-select, clickable in edit mode, read-only display with faded unselected icons
   - Tide type: H/M/L gold toggle chips — multi-select for SEASCAPE, disabled for non-coastal, prevents deselecting last chip
   - Column header filters replaced with matching clickable chips (no more text inputs for Type and Tide)
+  - Tide column header filter supports multi-select with AND logic
 - **Wildlife emoji** — changed from 🦅 to 🐾 (paw prints) across MapView filter bar and Locations table for better dark theme contrast (brightness filter applied)
+- **MetricsSummary time filtering** — added Today / Last 7 Days toggle to filter summary statistics by date range; shows "mixed pricing" label when both cost types are present
 
 ### Added (Mar 4, 2026)
 - **Client-side pagination for Locations and Users tables** — shared `usePagination` hook and `Pagination` component

@@ -268,14 +268,23 @@ function useSortAndFilter(defaultSortKey, defaultSortDir, accessors) {
 
     // Filter
     for (const [key, value] of Object.entries(filters)) {
-      if (!value) continue;
+      if (!value || (Array.isArray(value) && value.length === 0)) continue;
       const accessor = accessors[key];
       if (!accessor) continue;
-      const lower = value.toLowerCase();
-      result = result.filter((item) => {
-        const val = accessor(item);
-        return val != null && String(val).toLowerCase().includes(lower);
-      });
+      if (Array.isArray(value)) {
+        result = result.filter((item) => {
+          const val = accessor(item);
+          if (val == null) return false;
+          const lower = String(val).toLowerCase();
+          return value.every((v) => lower.includes(v.toLowerCase()));
+        });
+      } else {
+        const lower = value.toLowerCase();
+        result = result.filter((item) => {
+          const val = accessor(item);
+          return val != null && String(val).toLowerCase().includes(lower);
+        });
+      }
     }
 
     // Sort
@@ -645,13 +654,20 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       </button>
                       <div className="mt-1 flex gap-0.5">
                         {TIDE_TYPES.map((t) => {
-                          const isActive = sf.getFilterValue('tide') === t.fullLabel;
+                          const activeArr = sf.getFilterValue('tide') || [];
+                          const isActive = Array.isArray(activeArr) && activeArr.includes(t.fullLabel);
                           return (
                             <button
                               key={t.value}
                               type="button"
                               title={`Filter: ${t.fullLabel}`}
-                              onClick={() => sf.setFilter('tide', isActive ? '' : t.fullLabel)}
+                              onClick={() => {
+                                const current = Array.isArray(activeArr) ? activeArr : [];
+                                const next = isActive
+                                  ? current.filter((v) => v !== t.fullLabel)
+                                  : [...current, t.fullLabel];
+                                sf.setFilter('tide', next.length > 0 ? next : '');
+                              }}
                               className={`text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
                                 isActive
                                   ? 'bg-plex-gold/20 text-plex-gold border border-plex-gold/40'
