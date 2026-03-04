@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { login as apiLogin, logout as apiLogout, changePassword as apiChangePassword, refreshAccessToken as apiRefresh } from '../api/authApi.js';
 
@@ -123,6 +123,21 @@ export function AuthProvider({ children }) {
     }
     setToken(data.accessToken);
     if (data.refreshToken) setRefreshToken(data.refreshToken);
+  }, []);
+
+  // Listen for session-expired events from the axios interceptor
+  useEffect(() => {
+    const handleExpired = () => {
+      setToken(null);
+      setRefreshToken(null);
+      setRole(null);
+      setUsername(null);
+      setMustChangePassword(false);
+      setRefreshExpiresAt(null);
+      setMarketingEmailOptIn(true);
+    };
+    window.addEventListener('goldenhour:session-expired', handleExpired);
+    return () => window.removeEventListener('goldenhour:session-expired', handleExpired);
   }, []);
 
   const sessionDaysRemaining = useMemo(() => {
