@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -23,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,6 +44,8 @@ class ForecastServiceTest {
     private static final double DURHAM_LAT = 54.7753;
     private static final double DURHAM_LON = -1.5849;
     private static final String DURHAM = "Durham UK";
+    private static final LocationEntity DURHAM_LOCATION = LocationEntity.builder()
+            .id(1L).name(DURHAM).lat(DURHAM_LAT).lon(DURHAM_LON).build();
 
     @Mock
     private SolarService solarService;
@@ -83,8 +87,7 @@ class ForecastServiceTest {
         when(repository.save(any())).thenReturn(savedEntity);
 
         List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
-                EvaluationModel.SONNET);
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
 
         assertThat(results).hasSize(2);
         verify(repository, times(2)).save(any());
@@ -109,7 +112,8 @@ class ForecastServiceTest {
                 .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
 
-        forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, date);
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
+                EvaluationModel.SONNET, null);
 
         verify(emailService, times(2)).notify(eq(evaluation), eq(DURHAM), any(), eq(date));
         verify(pushoverService, times(2)).notify(eq(evaluation), eq(DURHAM), any(), eq(date));
@@ -134,7 +138,8 @@ class ForecastServiceTest {
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, date);
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
+                EvaluationModel.SONNET, null);
 
         ArgumentCaptor<ForecastEvaluationEntity> captor =
                 ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
@@ -172,8 +177,8 @@ class ForecastServiceTest {
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null,
-                java.util.Set.of(), EvaluationModel.HAIKU);
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
+                EvaluationModel.HAIKU, null);
 
         ArgumentCaptor<ForecastEvaluationEntity> captor =
                 ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
@@ -204,8 +209,7 @@ class ForecastServiceTest {
         when(repository.save(any())).thenReturn(savedEntity);
 
         List<ForecastEvaluationEntity> results = forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
-                EvaluationModel.WILDLIFE);
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.WILDLIFE, null);
 
         assertThat(results).hasSize(2);
         verify(repository, times(2)).save(any());
@@ -231,8 +235,8 @@ class ForecastServiceTest {
                 .thenReturn(java.util.List.of(slot));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        forecastService.runForecasts(DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null,
-                java.util.Set.of(), EvaluationModel.WILDLIFE);
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
+                EvaluationModel.WILDLIFE, null);
 
         ArgumentCaptor<ForecastEvaluationEntity> captor =
                 ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
@@ -258,8 +262,7 @@ class ForecastServiceTest {
                 .thenThrow(new RuntimeException("Network error: API timeout"));
 
         assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
-                EvaluationModel.SONNET))
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed for " + DURHAM + " SUNRISE");
     }
@@ -275,8 +278,7 @@ class ForecastServiceTest {
                 .thenThrow(new RuntimeException("Connection refused"));
 
         assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
-                EvaluationModel.SONNET))
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
                 .isInstanceOf(WeatherDataFetchException.class);
 
         verify(evaluationService, never()).evaluate(any(), any(EvaluationModel.class), any());
@@ -293,8 +295,7 @@ class ForecastServiceTest {
                 .thenReturn(null);
 
         assertThatThrownBy(() -> forecastService.runForecasts(
-                DURHAM, DURHAM_LAT, DURHAM_LON, null, date, null, java.util.Set.of(),
-                EvaluationModel.SONNET))
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
 

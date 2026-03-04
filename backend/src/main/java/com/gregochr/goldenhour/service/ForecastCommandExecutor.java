@@ -132,7 +132,7 @@ public class ForecastCommandExecutor {
                     for (TargetType targetType : applicableTypes) {
                         if (!shouldSkipEvent(targetDate, targetType, location, today, now)
                                 && !optimisationSkipEvaluator.shouldSkip(
-                                        enabledStrategies, location.getName(),
+                                        enabledStrategies, location.getId(),
                                         targetDate, targetType)) {
                             futures.add(CompletableFuture.supplyAsync(
                                     () -> runForecast(location, targetDate, targetType,
@@ -228,8 +228,7 @@ public class ForecastCommandExecutor {
             TargetType targetType, EvaluationModel model, JobRunEntity jobRun) {
         try {
             return forecastService.runForecasts(
-                    location.getName(), location.getLat(), location.getLon(),
-                    location.getId(), targetDate, targetType, location.getTideType(), model, jobRun);
+                    location, targetDate, targetType, location.getTideType(), model, jobRun);
         } catch (Exception e) {
             LOG.error("Forecast failed for {} {} on {} [{}]: {}",
                     location.getName(), targetType, targetDate, model, e.getMessage(), e);

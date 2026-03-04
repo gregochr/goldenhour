@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,6 +29,21 @@ class ActualOutcomeRepositoryTest {
 
     @Autowired
     private ActualOutcomeRepository repository;
+
+    @Autowired
+    private LocationRepository locationRepository;
+
+    private LocationEntity durham;
+
+    @BeforeEach
+    void setUp() {
+        durham = locationRepository.save(LocationEntity.builder()
+                .name("Durham UK")
+                .lat(54.7753)
+                .lon(-1.5849)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+    }
 
     @Test
     @DisplayName("Saved outcome can be retrieved by its generated ID")
@@ -97,7 +114,7 @@ class ActualOutcomeRepositoryTest {
         return ActualOutcomeEntity.builder()
                 .locationLat(DURHAM_LAT)
                 .locationLon(DURHAM_LON)
-                .locationName("Durham UK")
+                .location(durham)
                 .outcomeDate(outcomeDate)
                 .targetType(targetType)
                 .wentOut(true)

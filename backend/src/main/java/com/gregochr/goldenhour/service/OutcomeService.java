@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.ActualOutcome;
 import com.gregochr.goldenhour.repository.ActualOutcomeRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -10,6 +12,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * Handles recording of actual observed sunrise/sunset outcomes.
@@ -20,14 +23,18 @@ import java.util.List;
 public class OutcomeService {
 
     private final ActualOutcomeRepository repository;
+    private final LocationRepository locationRepository;
 
     /**
      * Constructs an {@code OutcomeService}.
      *
-     * @param repository the actual outcome repository
+     * @param repository         the actual outcome repository
+     * @param locationRepository the location repository for resolving location names
      */
-    public OutcomeService(ActualOutcomeRepository repository) {
+    public OutcomeService(ActualOutcomeRepository repository,
+                          LocationRepository locationRepository) {
         this.repository = repository;
+        this.locationRepository = locationRepository;
     }
 
     /**
@@ -69,10 +76,13 @@ public class OutcomeService {
     public ActualOutcomeEntity record(ActualOutcome outcome) {
         validateScore(outcome.fierySkyActual(), "fierySkyActual");
         validateScore(outcome.goldenHourActual(), "goldenHourActual");
+        LocationEntity location = locationRepository.findByName(outcome.locationName())
+                .orElseThrow(() -> new NoSuchElementException(
+                        "No location named '" + outcome.locationName() + "'"));
         ActualOutcomeEntity entity = ActualOutcomeEntity.builder()
                 .locationLat(BigDecimal.valueOf(outcome.locationLat()))
                 .locationLon(BigDecimal.valueOf(outcome.locationLon()))
-                .locationName(outcome.locationName())
+                .location(location)
                 .outcomeDate(outcome.outcomeDate())
                 .targetType(outcome.targetType())
                 .wentOut(outcome.wentOut())

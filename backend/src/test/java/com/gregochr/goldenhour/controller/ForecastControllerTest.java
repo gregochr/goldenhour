@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -65,11 +66,13 @@ class ForecastControllerTest {
     @MockitoBean
     private ScheduledForecastService scheduledForecastService;
 
+    private static final LocationEntity DURHAM = LocationEntity.builder()
+            .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
+
     @BeforeEach
     void setUp() {
-        LocationEntity durham = LocationEntity.builder()
-                .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
-        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM));
+        when(locationService.findByName(eq("Durham UK"))).thenReturn(DURHAM);
         when(commandFactory.create(any(), any(boolean.class)))
                 .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
                         com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
@@ -84,10 +87,10 @@ class ForecastControllerTest {
     @WithMockUser
     @DisplayName("GET /api/forecast returns 200 with evaluations for all configured locations")
     void getForecasts_returnsEvaluationsForConfiguredLocations() throws Exception {
-        ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 20));
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
         when(forecastEvaluationRepository
-                .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq("Durham UK"), any(LocalDate.class), any(LocalDate.class)))
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
 
         mockMvc.perform(get("/api/forecast"))
@@ -99,10 +102,10 @@ class ForecastControllerTest {
     @WithMockUser
     @DisplayName("GET /api/forecast/history returns 200 for a valid date range with location filter")
     void getHistory_validRange_returnsEvaluations() throws Exception {
-        ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 1, 15));
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 1, 15));
         when(forecastEvaluationRepository
-                .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq("Durham UK"), any(LocalDate.class), any(LocalDate.class)))
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
 
         mockMvc.perform(get("/api/forecast/history")
@@ -168,10 +171,10 @@ class ForecastControllerTest {
     @WithMockUser
     @DisplayName("GET /api/forecast/compare returns 200 with evaluations for valid params")
     void getCompare_validParams_returnsEvaluations() throws Exception {
-        ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 2, 28));
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 28));
         when(forecastEvaluationRepository
-                .findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                        eq("Durham UK"), eq(LocalDate.of(2026, 2, 28)), eq(TargetType.SUNSET)))
+                .findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                        eq(1L), eq(LocalDate.of(2026, 2, 28)), eq(TargetType.SUNSET)))
                 .thenReturn(List.of(entity));
 
         mockMvc.perform(get("/api/forecast/compare")
@@ -182,6 +185,36 @@ class ForecastControllerTest {
                 .andExpect(jsonPath("$[0].locationName").value("Durham UK"))
                 .andExpect(jsonPath("$[0].fierySkyPotential").value(72))
                 .andExpect(jsonPath("$[0].goldenHourPotential").value(80));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/history with unknown location returns 404")
+    void getHistory_unknownLocation_returns404() throws Exception {
+        when(locationService.findByName(eq("Nowhere")))
+                .thenThrow(new NoSuchElementException("No location named 'Nowhere'"));
+
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-01-31")
+                        .param("location", "Nowhere"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("No location named 'Nowhere'"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/compare with unknown location returns 404")
+    void getCompare_unknownLocation_returns404() throws Exception {
+        when(locationService.findByName(eq("Nowhere")))
+                .thenThrow(new NoSuchElementException("No location named 'Nowhere'"));
+
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Nowhere")
+                        .param("date", "2026-02-28")
+                        .param("targetType", "SUNSET"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("No location named 'Nowhere'"));
     }
 
     @Test
@@ -251,10 +284,10 @@ class ForecastControllerTest {
     @WithMockUser
     @DisplayName("GET /api/forecast/history returns 200 for all locations when no location filter is given")
     void getHistory_validRange_noLocation_returnsEvaluationsForAllLocations() throws Exception {
-        ForecastEvaluationEntity entity = buildEntity("Durham UK", LocalDate.of(2026, 1, 15));
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 1, 15));
         when(forecastEvaluationRepository
-                .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq("Durham UK"), any(LocalDate.class), any(LocalDate.class)))
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
 
         mockMvc.perform(get("/api/forecast/history")
@@ -304,10 +337,10 @@ class ForecastControllerTest {
                 .andExpect(status().isForbidden());
     }
 
-    private ForecastEvaluationEntity buildEntity(String locationName, LocalDate targetDate) {
+    private ForecastEvaluationEntity buildEntity(LocationEntity location, LocalDate targetDate) {
         return ForecastEvaluationEntity.builder()
                 .id(1L)
-                .locationName(locationName)
+                .location(location)
                 .locationLat(BigDecimal.valueOf(54.7753))
                 .locationLon(BigDecimal.valueOf(-1.5849))
                 .targetDate(targetDate)

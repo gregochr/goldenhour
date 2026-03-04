@@ -27,7 +27,6 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -75,6 +74,7 @@ class ForecastCommandExecutorTest {
 
     private static LocationEntity durham() {
         return LocationEntity.builder()
+                .id(1L)
                 .name("Durham UK")
                 .lat(54.7753)
                 .lon(-1.5849)
@@ -84,6 +84,7 @@ class ForecastCommandExecutorTest {
 
     private static LocationEntity wildlifeReserve() {
         return LocationEntity.builder()
+                .id(2L)
                 .name("Wildlife Reserve")
                 .lat(53.5)
                 .lon(-1.2)
@@ -103,7 +104,7 @@ class ForecastCommandExecutorTest {
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                 .thenReturn(LocalDateTime.MAX);
         lenient().when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
-        lenient().when(optimisationSkipEvaluator.shouldSkip(any(), anyString(), any(), any()))
+        lenient().when(optimisationSkipEvaluator.shouldSkip(any(), any(Long.class), any(), any()))
                 .thenReturn(false);
         lenient().when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
         lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
@@ -127,15 +128,15 @@ class ForecastCommandExecutorTest {
 
         int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.HAIKU), any());
+                .runForecasts(any(LocationEntity.class), any(LocalDate.class),
+                        any(TargetType.class), any(), eq(EvaluationModel.HAIKU), any());
     }
 
     @Test
     @DisplayName("execute() continues after a single location failure")
     void execute_continuesAfterFailure() {
         LocationEntity london = LocationEntity.builder()
+                .id(3L)
                 .name("London UK")
                 .lat(51.5074)
                 .lon(-0.1278)
@@ -145,20 +146,20 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
+        LocationEntity durhamEntity = durham();
         doThrow(new RuntimeException("API error"))
-                .when(forecastService).runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(), any(TargetType.class), any(), any(EvaluationModel.class), any());
+                .when(forecastService).runForecasts(eq(durhamEntity),
+                        any(), any(TargetType.class), any(), any(EvaluationModel.class), any());
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
-                List.of(durham(), london), haikuStrategy, true);
+                List.of(durhamEntity, london), haikuStrategy, true);
 
         executor.execute(cmd);
 
         // London calls should still happen despite Durham failures
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .runForecasts(eq("London UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(TargetType.class), any(),
-                        any(EvaluationModel.class), any());
+                .runForecasts(eq(london), any(LocalDate.class), any(TargetType.class),
+                        any(), any(EvaluationModel.class), any());
     }
 
     @Test
@@ -174,8 +175,8 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, times(1))
-                .runForecasts(eq("Wildlife Reserve"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), org.mockito.ArgumentMatchers.isNull(),
+                .runForecasts(any(LocationEntity.class), any(LocalDate.class),
+                        org.mockito.ArgumentMatchers.isNull(),
                         any(), eq(EvaluationModel.WILDLIFE), any());
     }
 
@@ -194,8 +195,7 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, never())
-                .runForecasts(eq("Durham UK"), anyDouble(), anyDouble(),
-                        any(), any(LocalDate.class), any(),
+                .runForecasts(eq(durham()), any(LocalDate.class), any(),
                         any(), eq(EvaluationModel.WILDLIFE), any());
     }
 
@@ -260,7 +260,7 @@ class ForecastCommandExecutorTest {
 
         // Verify evaluator was called for each target type
         verify(optimisationSkipEvaluator, times(EXPECTED_CALLS_PER_DAY))
-                .shouldSkip(eq(strategies), eq("Durham UK"), eq(today), any(TargetType.class));
+                .shouldSkip(eq(strategies), eq(1L), eq(today), any(TargetType.class));
     }
 
     @Test
@@ -269,7 +269,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
-        when(optimisationSkipEvaluator.shouldSkip(any(), anyString(), any(), any()))
+        when(optimisationSkipEvaluator.shouldSkip(any(), any(Long.class), any(), any()))
                 .thenReturn(true);
 
         ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
@@ -279,8 +279,7 @@ class ForecastCommandExecutorTest {
 
         // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
-                .runForecasts(any(), anyDouble(), anyDouble(), any(),
-                        any(), any(), any(), any(), any());
+                .runForecasts(any(LocationEntity.class), any(), any(), any(), any(), any());
     }
 
     @Test

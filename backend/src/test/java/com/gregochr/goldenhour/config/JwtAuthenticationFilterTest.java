@@ -44,7 +44,7 @@ class JwtAuthenticationFilterTest {
     void request_validJwt_isAuthenticated() throws Exception {
         String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER);
         when(forecastEvaluationRepository
-                .findByLocationNameAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         any(), any(), any()))
                 .thenReturn(List.of());
 

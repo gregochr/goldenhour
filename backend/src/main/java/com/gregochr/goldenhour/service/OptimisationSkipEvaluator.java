@@ -52,13 +52,13 @@ public class OptimisationSkipEvaluator {
      * Determines whether a forecast slot should be skipped based on active optimisation strategies.
      *
      * @param enabledStrategies the active strategies for the current run type
-     * @param locationName      the location name
+     * @param locationId        the location primary key
      * @param targetDate        the target date
      * @param targetType        SUNRISE or SUNSET
      * @return {@code true} if the slot should be skipped
      */
     public boolean shouldSkip(List<OptimisationStrategyEntity> enabledStrategies,
-            String locationName, LocalDate targetDate, TargetType targetType) {
+            Long locationId, LocalDate targetDate, TargetType targetType) {
 
         if (enabledStrategies.isEmpty()) {
             return false;
@@ -73,8 +73,8 @@ public class OptimisationSkipEvaluator {
 
         // 1. EVALUATE_ALL — override everything
         if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
-            LOG.debug("EVALUATE_ALL active — evaluating {} {} on {}",
-                    locationName, targetType, targetDate);
+            LOG.debug("EVALUATE_ALL active — evaluating location {} {} on {}",
+                    locationId, targetType, targetDate);
             return false;
         }
 
@@ -85,15 +85,15 @@ public class OptimisationSkipEvaluator {
         Optional<ForecastEvaluationEntity> latest = Optional.empty();
         if (needsLatest) {
             latest = forecastRepository
-                    .findTopByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            locationName, targetDate, targetType);
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            locationId, targetDate, targetType);
         }
 
         // 2. FORCE_IMMINENT — if target date is today, never skip
         if (activeTypes.contains(OptimisationStrategyType.FORCE_IMMINENT)
                 && targetDate.equals(LocalDate.now(ZoneOffset.UTC))) {
-            LOG.debug("FORCE_IMMINENT active — evaluating {} {} on {} (today)",
-                    locationName, targetType, targetDate);
+            LOG.debug("FORCE_IMMINENT active — evaluating location {} {} on {} (today)",
+                    locationId, targetType, targetDate);
             return false;
         }
 
@@ -101,8 +101,8 @@ public class OptimisationSkipEvaluator {
         if (activeTypes.contains(OptimisationStrategyType.FORCE_STALE) && latest.isPresent()) {
             LocalDate evalDate = latest.get().getForecastRunAt().toLocalDate();
             if (evalDate.isBefore(LocalDate.now(ZoneOffset.UTC))) {
-                LOG.debug("FORCE_STALE active — re-evaluating {} {} on {} (last eval from {})",
-                        locationName, targetType, targetDate, evalDate);
+                LOG.debug("FORCE_STALE active — re-evaluating location {} {} on {} (last eval from {})",
+                        locationId, targetType, targetDate, evalDate);
                 return false;
             }
         }
@@ -110,11 +110,11 @@ public class OptimisationSkipEvaluator {
         // 4. SKIP_EXISTING — skip if any forecast exists
         if (activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)) {
             List<ForecastEvaluationEntity> existing = forecastRepository
-                    .findByLocationNameAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-                            locationName, targetDate, targetType);
+                    .findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                            locationId, targetDate, targetType);
             if (!existing.isEmpty()) {
-                LOG.info("SKIP_EXISTING — skipping {} {} on {} (exists from {})",
-                        locationName, targetType, targetDate,
+                LOG.info("SKIP_EXISTING — skipping location {} {} on {} (exists from {})",
+                        locationId, targetType, targetDate,
                         existing.getFirst().getForecastRunAt());
                 return true;
             }
@@ -123,8 +123,8 @@ public class OptimisationSkipEvaluator {
         // 5. SKIP_LOW_RATED — skip if no prior exists OR prior rating below threshold
         if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)) {
             if (latest.isEmpty()) {
-                LOG.info("SKIP_LOW_RATED — skipping {} {} on {} (no prior evaluation)",
-                        locationName, targetType, targetDate);
+                LOG.info("SKIP_LOW_RATED — skipping location {} {} on {} (no prior evaluation)",
+                        locationId, targetType, targetDate);
                 return true;
             }
             int minRating = strategyMap.get(OptimisationStrategyType.SKIP_LOW_RATED)
@@ -133,8 +133,8 @@ public class OptimisationSkipEvaluator {
                     : 3;
             Integer rating = latest.get().getRating();
             if (rating != null && rating < minRating) {
-                LOG.info("SKIP_LOW_RATED — skipping {} {} on {} (prior rating {} < {})",
-                        locationName, targetType, targetDate, rating, minRating);
+                LOG.info("SKIP_LOW_RATED — skipping location {} {} on {} (prior rating {} < {})",
+                        locationId, targetType, targetDate, rating, minRating);
                 return true;
             }
         }

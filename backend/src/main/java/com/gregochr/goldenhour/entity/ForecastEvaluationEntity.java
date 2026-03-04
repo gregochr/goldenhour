@@ -1,12 +1,17 @@
 package com.gregochr.goldenhour.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -46,9 +51,11 @@ public class ForecastEvaluationEntity {
     @Column(name = "location_lon", nullable = false, precision = 9, scale = 6)
     private BigDecimal locationLon;
 
-    /** Human-readable name for the location (e.g. "Durham UK"). */
-    @Column(name = "location_name", nullable = false)
-    private String locationName;
+    /** The location this forecast was evaluated for. */
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "location_id", nullable = false)
+    @JsonIgnore
+    private LocationEntity location;
 
     /** The calendar date this evaluation is forecasting. */
     @Column(name = "target_date", nullable = false)
@@ -188,4 +195,14 @@ public class ForecastEvaluationEntity {
     /** True if tide state matches location preference, null for inland locations. */
     @Column(name = "tide_aligned")
     private Boolean tideAligned;
+
+    /**
+     * Returns the location name for JSON serialisation, preserving the API contract.
+     *
+     * @return the location name, or {@code null} if the location is not set
+     */
+    @JsonProperty("locationName")
+    public String getLocationName() {
+        return location != null ? location.getName() : null;
+    }
 }
