@@ -664,12 +664,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <table className="w-full text-sm text-left table-fixed" data-testid="locations-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Name" sortKey="name" className="w-[22%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
-                    <th className="pb-1 font-medium align-top w-[8%]">
+                    <SortableHeader label="Name" sortKey="name" className="w-[19%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
+                    <th className="pb-1 font-medium align-top w-[9%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Coords</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
-                    <th className="pb-1 font-medium align-bottom w-[7%]">
+                    <th className="pb-1 font-medium align-bottom w-[10%]">
                       <button
                         type="button"
                         onClick={() => sf.handleSort('type')}
@@ -772,7 +772,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     </th>
                     <SortableHeader label="Created" sortKey="created" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
                     <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium align-top w-[13%]">
+                    <th className="pb-1 font-medium align-top w-[12%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
