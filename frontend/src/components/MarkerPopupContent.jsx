@@ -61,7 +61,7 @@ const POPUP_PILL = {
 
 const POPUP_LOC_TYPE_META = {
   LANDSCAPE: { emoji: '🏔️', label: 'Landscape' },
-  WILDLIFE:  { emoji: '🦅', label: 'Wildlife' },
+  WILDLIFE:  { emoji: '🐾', label: 'Wildlife' },
   SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
 };
 
@@ -203,7 +203,7 @@ export default function MarkerPopupContent({
         hourlyData.length > 0 ? (
           <div>
             <div style={{ fontSize: '11px', fontWeight: '700', color: '#16a34a', marginBottom: '6px' }}>
-              🦅 Hourly comfort during daylight hours
+              🐾 Hourly comfort during daylight hours
             </div>
             <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
               {hourlyData.map((h) => (

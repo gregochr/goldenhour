@@ -9,7 +9,7 @@ const SOLAR_EVENT_TYPE_META = {
 
 const LOCATION_TYPE_META = {
   LANDSCAPE: { emoji: '🏔️', label: 'Landscape' },
-  WILDLIFE:  { emoji: '🦅', label: 'Wildlife' },
+  WILDLIFE:  { emoji: '🐾', label: 'Wildlife' },
   SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
 };
 
