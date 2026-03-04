@@ -172,7 +172,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
             <p className="text-xs text-plex-text-muted mt-1">Highest average response time</p>
             {slowestService ? (
               <>
-                <div className="mt-3 text-lg font-semibold text-plex-text">{slowestService.service}</div>
+                <div className="mt-3 text-lg font-semibold text-plex-text truncate" title={slowestService.service}>{slowestService.service.replace(/_/g, ' ')}</div>
                 <div className="mt-1 text-sm text-plex-gold">{(slowestService.avgDuration / 1000).toFixed(1)}s avg</div>
               </>
             ) : (

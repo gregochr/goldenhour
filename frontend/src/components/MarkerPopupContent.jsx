@@ -77,6 +77,20 @@ const POPUP_TIDE_META = {
   LOW:  'Low tide',
 };
 
+/**
+ * Returns true when aerosol data suggests elevated mineral dust likely to
+ * enhance warm tones (high AOD/dust with low PM2.5 rules out smoke/haze).
+ *
+ * @param {object} f - Forecast evaluation row.
+ * @returns {boolean} True if dust is elevated and PM2.5 is low.
+ */
+function isDustEnhanced(f) {
+  const aodHigh  = f.aerosolOpticalDepth != null && f.aerosolOpticalDepth > 0.3;
+  const dustHigh = f.dust != null && f.dust > 50;
+  const pm25Low  = f.pm25 == null || f.pm25 < 15;
+  return (aodHigh || dustHigh) && pm25Low;
+}
+
 const SCORE_TOOLTIPS = {
   'Fiery Sky': 'Dramatic colour from clouds catching light',
   'Golden Hour': 'Overall light quality — can score high even with clear sky',
@@ -227,6 +241,18 @@ export default function MarkerPopupContent({
               </div>
             )}
           </div>
+          {isDustEnhanced(forecast) && (
+            <div style={{ marginBottom: '6px' }} data-testid="dust-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: 'rgba(180, 83, 9, 0.2)',
+                color: '#fbbf24',
+                border: '1px solid rgba(217, 119, 6, 0.4)',
+              }}>
+                🏜️ Elevated dust (e.g. Saharan dust) — expect unusually vivid warm tones
+              </span>
+            </div>
+          )}
           {forecast.summary && (
             <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
               {forecast.summary}

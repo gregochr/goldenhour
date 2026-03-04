@@ -74,9 +74,18 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             + "Key criteria: clear horizon critical (high low cloud >70% = poor for fiery sky); "
             + "mid/high cloud above clear horizon = ideal canvas for fiery sky; "
             + "post-rain clearing often vivid; "
-            + "moderate aerosol/dust (AOD 0.1-0.25) enhances red scattering; "
-            + "high humidity (>80%) mutes colours; "
-            + "low boundary layer traps aerosols near surface.\n\n"
+            + "high humidity (>80%) mutes colours.\n\n"
+            + "AEROSOL & DUST GUIDANCE:\n"
+            + "AOD thresholds: 0.05-0.15 clean (baseline), 0.15-0.30 slight enhancement, "
+            + "0.30-0.60 notable warm-tone boost, 0.60-1.0 vivid reds/oranges possible, "
+            + ">1.2 diminishing returns (too thick, light blocked).\n"
+            + "AOD + PM2.5 differentiation: high AOD with low PM2.5 (<15 µg/m³) = mineral dust "
+            + "(Saharan/desert origin, enhances warm reds and oranges); high AOD with high PM2.5 "
+            + "(>25 µg/m³) = smoke or urban pollution (grey/brown haze, negative for colour).\n"
+            + "Boundary layer height (BLH): <500m concentrates aerosols near surface (stronger "
+            + "near-horizon effect); >1500m disperses them (weaker effect for same AOD).\n"
+            + "At sunrise/sunset the solar elevation is near 0°, maximising atmospheric path "
+            + "length — dust scattering impact is at its peak compared to midday.\n\n"
             + "Solar/antisolar horizon model: at sunset the sun is west \u2014 the solar horizon "
             + "(west) must be clear for light penetration, while mid/high cloud on the antisolar "
             + "side (east) at 20-60% catches and reflects colour. Sunrise is the reverse. "
@@ -382,16 +391,34 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                 "Location: %s. %s: %s UTC.%n"
                 + "Cloud: Low %d%%, Mid %d%%, High %d%%%n"
                 + "Visibility: %,dm, Wind: %.2f m/s (%d\u00b0), Precip: %.2fmm%n"
-                + "Humidity: %d%%, Weather code: %d%n"
+                + "Humidity: %d%%, Precip probability: %s%%%n"
+                + "Weather code: %d%n"
                 + "Boundary layer: %dm, Shortwave: %.0f W/m\u00b2%n"
                 + "PM2.5: %s\u00b5g/m\u00b3, Dust: %s\u00b5g/m\u00b3, AOD: %s",
                 data.locationName(), data.targetType(), data.solarEventTime(),
                 data.lowCloudPercent(), data.midCloudPercent(), data.highCloudPercent(),
                 data.visibilityMetres(), data.windSpeedMs(), data.windDirectionDegrees(),
                 data.precipitationMm(),
-                data.humidityPercent(), data.weatherCode(),
+                data.humidityPercent(),
+                data.precipitationProbability() != null ? data.precipitationProbability() : "N/A",
+                data.weatherCode(),
                 data.boundaryLayerHeightMetres(), data.shortwaveRadiationWm2(),
                 data.pm25(), data.dustUgm3(), data.aerosolOpticalDepth()));
+
+        // Conditional dust enrichment block — only when aerosol levels are elevated
+        if (isDustElevated(data)) {
+            sb.append(String.format(
+                    "%nSAHARAN DUST CONTEXT:%n"
+                    + "AOD: %s (elevated), Surface dust: %s \u00b5g/m\u00b3%n"
+                    + "Wind: %s (%d\u00b0) at %s m/s%n"
+                    + "Boundary layer: %dm%n"
+                    + "Elevated AOD with low solar elevation at %s maximises warm scattering potential.",
+                    data.aerosolOpticalDepth(), data.dustUgm3(),
+                    toCardinal(data.windDirectionDegrees()), data.windDirectionDegrees(),
+                    data.windSpeedMs(),
+                    data.boundaryLayerHeightMetres(),
+                    data.targetType()));
+        }
 
         // Include tide data if available (coastal location)
         if (data.tideState() != null) {
@@ -407,6 +434,43 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
 
         sb.append("\n").append(getPromptSuffix());
         return sb.toString();
+    }
+
+    /** 16-point compass directions, indexed by (degrees / 22.5) rounded. */
+    private static final String[] CARDINAL_DIRECTIONS = {
+            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"
+    };
+
+    /** AOD threshold above which the dust context block is included. */
+    private static final double DUST_AOD_THRESHOLD = 0.3;
+
+    /** Surface dust threshold (µg/m³) above which the dust context block is included. */
+    private static final double DUST_UGM3_THRESHOLD = 50.0;
+
+    /**
+     * Converts a wind direction in degrees (0–360) to a 16-point compass cardinal.
+     *
+     * @param degrees wind direction in degrees (meteorological convention)
+     * @return compass cardinal (e.g. "N", "SW", "ENE")
+     */
+    static String toCardinal(int degrees) {
+        int normalised = ((degrees % 360) + 360) % 360;
+        int index = (int) Math.round(normalised / 22.5) % 16;
+        return CARDINAL_DIRECTIONS[index];
+    }
+
+    /**
+     * Returns {@code true} if aerosol levels are elevated enough to warrant the dust context block.
+     *
+     * @param data the atmospheric data
+     * @return true when AOD exceeds 0.3 or surface dust exceeds 50 µg/m³
+     */
+    private static boolean isDustElevated(AtmosphericData data) {
+        return (data.aerosolOpticalDepth() != null
+                        && data.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
+                || (data.dustUgm3() != null
+                        && data.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
     }
 
     /**
