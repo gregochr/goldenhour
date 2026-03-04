@@ -118,7 +118,7 @@ turnstile:
   secret-key: ${TURNSTILE_SECRET_KEY:}
 
 server:
-  port: 8082
+  port: 8083
 
 management:
   endpoints:
