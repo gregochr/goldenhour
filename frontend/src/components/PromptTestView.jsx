@@ -163,15 +163,26 @@ const PromptTestView = () => {
           setRunning(false);
           setReplaying(false);
           // Auto-load results for the completed run
-          if (selectedRunId === runId) {
-            loadResults(runId);
-          }
+          loadResults(runId);
         }
       } catch {
         // Polling errors are non-fatal; keep trying
       }
     }, POLL_INTERVAL_MS);
-  }, [selectedRunId, loadResults]);
+  }, [loadResults]);
+
+  // Resume polling for any in-progress run after initial load
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (resumedRef.current || loading || runs.length === 0) return;
+    const inProgress = runs.find((r) => !r.completedAt);
+    if (inProgress) {
+      resumedRef.current = true;
+      setRunning(true);
+      setSelectedRunId(inProgress.id);
+      startPolling(inProgress.id);
+    }
+  }, [loading, runs, startPolling]);
 
   const handleRunTest = () => {
     const runTypeInfo = RUN_TYPES.find((rt) => rt.value === selectedRunType) || RUN_TYPES[1];
