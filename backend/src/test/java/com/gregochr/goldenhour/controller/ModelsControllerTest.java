@@ -83,6 +83,22 @@ class ModelsControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/models returns model versions in available array")
+    void getAvailableModels_includesVersions() throws Exception {
+        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+        when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
+
+        mockMvc.perform(get("/api/models")
+                .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available[0].name").value("HAIKU"))
+                .andExpect(jsonPath("$.available[0].version").value("4.5"))
+                .andExpect(jsonPath("$.available[2].name").value("OPUS"))
+                .andExpect(jsonPath("$.available[2].version").value("4.6"));
+    }
+
+    @Test
     @DisplayName("GET /api/models does not include WILDLIFE in available models")
     void getAvailableModels_excludesWildlife() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);

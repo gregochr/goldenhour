@@ -10,14 +10,29 @@ package com.gregochr.goldenhour.entity;
 public enum EvaluationModel {
 
     /** Claude Haiku — lower cost, 1–5 rating output. */
-    HAIKU,
+    HAIKU("4.5"),
 
     /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
-    SONNET,
+    SONNET("4.5"),
 
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
-    OPUS,
+    OPUS("4.6"),
 
     /** No Claude call — raw comfort weather data only (temperature, wind, rain). */
-    WILDLIFE
+    WILDLIFE(null);
+
+    private final String version;
+
+    EvaluationModel(String version) {
+        this.version = version;
+    }
+
+    /**
+     * Returns the model family version (e.g. "4.5", "4.6"), or null for non-Claude models.
+     *
+     * @return version string, or null
+     */
+    public String getVersion() {
+        return version;
+    }
 }

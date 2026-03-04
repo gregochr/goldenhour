@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { runPromptTest, replayPromptTest, getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { runPromptTest, replayPromptTest, getPromptTestRun, getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
+import { getAvailableModels } from '../api/modelsApi';
 import { fetchLocations } from '../api/forecastApi';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
 
@@ -11,6 +12,8 @@ const RUN_TYPES = [
   { value: 'SHORT_TERM', label: 'Short Term', desc: 'T to T+2', days: 3 },
   { value: 'LONG_TERM', label: 'Long Term', desc: 'T+3 to T+7', days: 5 },
 ];
+
+const POLL_INTERVAL_MS = 3000;
 
 /**
  * Prompt regression test view — run Claude evaluations across all colour locations,
@@ -33,8 +36,10 @@ const PromptTestView = () => {
   const [checkedRunIds, setCheckedRunIds] = useState([]);
   const [comparisonResults, setComparisonResults] = useState({});
   const [expandedSummary, setExpandedSummary] = useState(null);
+  const [modelVersions, setModelVersions] = useState({});
+  const pollingRef = useRef(null);
 
-  // Load git info and colour location count on mount
+  // Load git info, colour location count, and model versions on mount
   useEffect(() => {
     getGitInfo()
       .then((res) => setGitInfo(res.data))
@@ -50,6 +55,22 @@ const PromptTestView = () => {
         setColourLocationCount(colour.length);
       })
       .catch(() => {});
+    getAvailableModels()
+      .then((data) => {
+        const versions = {};
+        (data.available || []).forEach((m) => {
+          if (m.name && m.version) versions[m.name] = m.version;
+        });
+        setModelVersions(versions);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
   }, []);
 
   const loadRuns = useCallback(async () => {
@@ -91,8 +112,9 @@ const PromptTestView = () => {
   };
 
   const formatGitBadge = (info) => {
-    if (!info || !info.available) return 'unknown';
-    const hash = info.commitAbbrev || info.commitHash?.slice(0, 7) || '?';
+    if (!info || !info.available) return '';
+    const hash = info.commitAbbrev || info.commitHash?.slice(0, 7);
+    if (!hash) return '';
     const dirtyMark = info.dirty ? '*' : '';
     const branchPrefix = info.branch && info.branch !== 'main' ? `${info.branch}@` : '';
     return `${branchPrefix}${hash}${dirtyMark}`;
@@ -105,6 +127,51 @@ const PromptTestView = () => {
     const branchPrefix = run.gitBranch && run.gitBranch !== 'main' ? `${run.gitBranch}@` : '';
     return `${branchPrefix}${hash}${dirtyMark}`;
   };
+
+  const formatRelativeDate = (dateStr) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
+
+  const formatShortDate = (dateStr) => {
+    if (!dateStr) return '\u2014';
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+  };
+
+  // --- Polling logic ---
+
+  const startPolling = useCallback((runId) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const response = await getPromptTestRun(runId);
+        const updatedRun = response.data;
+        setRuns((prev) => prev.map((r) => (r.id === runId ? updatedRun : r)));
+        if (updatedRun.completedAt) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setRunning(false);
+          setReplaying(false);
+          // Auto-load results for the completed run
+          if (selectedRunId === runId) {
+            loadResults(runId);
+          }
+        }
+      } catch {
+        // Polling errors are non-fatal; keep trying
+      }
+    }, POLL_INTERVAL_MS);
+  }, [selectedRunId, loadResults]);
 
   const handleRunTest = () => {
     const runTypeInfo = RUN_TYPES.find((rt) => rt.value === selectedRunType) || RUN_TYPES[1];
@@ -125,11 +192,11 @@ const PromptTestView = () => {
           const newRun = response.data;
           setRuns((prev) => [newRun, ...prev]);
           setSelectedRunId(newRun.id);
-          loadResults(newRun.id);
+          setResults([]);
+          startPolling(newRun.id);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Prompt test failed.');
-        } finally {
           setRunning(false);
+          setError(err?.response?.data?.message || err.message || 'Prompt test failed.');
         }
       },
     });
@@ -146,7 +213,7 @@ const PromptTestView = () => {
 
     const parentGit = formatRunGitBadge(run);
     const currentGit = formatGitBadge(gitInfo);
-    const sameCode = parentGit === currentGit;
+    const sameCode = parentGit && currentGit && parentGit === currentGit;
 
     setConfirmDialog({
       title: 'Replay Prompt Test',
@@ -168,11 +235,11 @@ const PromptTestView = () => {
           const newRun = response.data;
           setRuns((prev) => [newRun, ...prev]);
           setSelectedRunId(newRun.id);
-          loadResults(newRun.id);
+          setResults([]);
+          startPolling(newRun.id);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Replay failed.');
-        } finally {
           setReplaying(false);
+          setError(err?.response?.data?.message || err.message || 'Replay failed.');
         }
       },
     });
@@ -227,6 +294,17 @@ const PromptTestView = () => {
     const gbp = formatCostGbp(result.costMicroDollars, exchangeRate, result.costPence);
     const usd = formatCostUsd(result.costMicroDollars);
     return usd !== '\u2014' ? `${gbp} (${usd})` : gbp;
+  };
+
+  const formatModelWithVersion = (modelName) => {
+    const version = modelVersions[modelName];
+    if (!version) return modelName;
+    return (
+      <>
+        {modelName}
+        <span className="text-plex-text-muted ml-0.5">{version}</span>
+      </>
+    );
   };
 
   // --- Comparison panel ---
@@ -380,9 +458,35 @@ const PromptTestView = () => {
   };
 
   const selectedRun = runs.find((r) => r.id === selectedRunId);
+  const isRunInProgress = (run) => run && !run.completedAt;
 
   return (
     <div className="space-y-6">
+      {/* Current build info */}
+      {gitInfo?.available && (
+        <div className="flex items-center gap-4 text-xs bg-plex-surface-light rounded-lg px-4 py-2.5 border border-plex-border" data-testid="build-info">
+          <span className="text-plex-text-muted font-semibold uppercase tracking-wide">Build</span>
+          {gitInfo.branch && (
+            <span className="text-plex-text-secondary">
+              <span className="text-plex-text-muted">Branch:</span>{' '}
+              <span className="font-mono">{gitInfo.branch}</span>
+            </span>
+          )}
+          <span className="text-plex-text-secondary">
+            <span className="text-plex-text-muted">Commit:</span>{' '}
+            <span className="font-mono">
+              {gitInfo.commitAbbrev || gitInfo.commitHash?.slice(0, 7) || '\u2014'}
+              {gitInfo.dirty && <span className="text-amber-400">*</span>}
+            </span>
+          </span>
+          {gitInfo.commitDate && (
+            <span className="text-plex-text-muted">
+              {formatRelativeDate(gitInfo.commitDate)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Controls bar */}
       <div className="space-y-3">
         <div className="flex items-center gap-4 flex-wrap">
@@ -405,6 +509,9 @@ const PromptTestView = () => {
                   'text-amber-300'
                 }`}>
                   {model}
+                  {modelVersions[model] && (
+                    <span className="text-plex-text-muted ml-0.5 text-xs">{modelVersions[model]}</span>
+                  )}
                 </span>
               </label>
             ))}
@@ -440,28 +547,10 @@ const PromptTestView = () => {
             {running ? '\u27F3 Running\u2026' : '\u27F3 Run Test'}
           </button>
 
-          {/* Git info badge */}
-          {gitInfo?.available && (
-            <span
-              className="inline-block px-2 py-0.5 rounded text-xs font-mono bg-plex-surface-light text-plex-text-secondary border border-plex-border"
-              title={`Branch: ${gitInfo.branch}\nCommit: ${gitInfo.commitHash}\nDate: ${gitInfo.commitDate}\nDirty: ${gitInfo.dirty}`}
-              data-testid="git-info-badge"
-            >
-              {formatGitBadge(gitInfo)}
-            </span>
-          )}
-
           {/* Location count */}
           <span className="text-xs text-plex-text-muted">
             {colourLocationCount} colour location{colourLocationCount !== 1 ? 's' : ''}
           </span>
-
-          {isAnyRunning && (
-            <span className="text-xs text-plex-text-muted">
-              {running ? 'Evaluating all colour locations\u2026 this may take a minute.'
-                : 'Replaying with stored data\u2026'}
-            </span>
-          )}
         </div>
       </div>
 
@@ -485,7 +574,7 @@ const PromptTestView = () => {
           )}
         </p>
         {loading ? (
-          <p className="text-sm text-plex-text-muted">Loading\u2026</p>
+          <p className="text-sm text-plex-text-muted">Loading{'\u2026'}</p>
         ) : runs.length === 0 ? (
           <p className="text-sm text-plex-text-muted">No test runs yet.</p>
         ) : (
@@ -510,6 +599,7 @@ const PromptTestView = () => {
               <tbody>
                 {runs.map((run) => {
                   const isReplay = run.parentRunId != null;
+                  const inProgress = isRunInProgress(run);
                   const borderLeft = isReplay ? 'border-l-2 border-l-amber-500' : '';
                   return (
                     <tr
@@ -548,6 +638,9 @@ const PromptTestView = () => {
                           'bg-amber-900/30 text-amber-300'
                         }`}>
                           {run.evaluationModel}
+                          {modelVersions[run.evaluationModel] && (
+                            <span className="opacity-60 ml-0.5">{modelVersions[run.evaluationModel]}</span>
+                          )}
                         </span>
                       </td>
                       <td className="py-2 pr-4 text-xs text-plex-text-secondary">
@@ -568,17 +661,29 @@ const PromptTestView = () => {
                       <td className="py-2 pr-4 text-plex-text">{run.targetType}</td>
                       <td className="py-2 pr-4 text-plex-text">{run.locationsCount}</td>
                       <td className="py-2 pr-4">
-                        <span className="text-green-400">{run.succeeded}</span>
-                        {' / '}
-                        <span className={run.failed > 0 ? 'text-red-400' : 'text-plex-text-muted'}>{run.failed}</span>
+                        {inProgress ? (
+                          <span className="text-amber-400 text-xs" data-testid={`run-progress-${run.id}`}>
+                            {'\u27F3'} {run.succeeded + run.failed}/{run.locationsCount || '?'}
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-green-400">{run.succeeded}</span>
+                            {' / '}
+                            <span className={run.failed > 0 ? 'text-red-400' : 'text-plex-text-muted'}>{run.failed}</span>
+                          </>
+                        )}
                       </td>
-                      <td className="py-2 pr-4 text-plex-text-secondary">{formatDuration(run.durationMs)}</td>
+                      <td className="py-2 pr-4 text-plex-text-secondary">
+                        {inProgress ? (
+                          <span className="text-amber-400 text-xs">Running{'\u2026'}</span>
+                        ) : formatDuration(run.durationMs)}
+                      </td>
                       <td className="py-2 pr-4 text-plex-text-secondary">{formatRunCost(run)}</td>
                       <td className="py-2 pr-4">
                         <button
                           className="btn-secondary text-xs py-0.5 px-2"
                           onClick={(e) => { e.stopPropagation(); handleReplayTest(run.id); }}
-                          disabled={isAnyRunning}
+                          disabled={isAnyRunning || inProgress}
                           data-testid={`replay-btn-${run.id}`}
                         >
                           {replaying ? '\u27F3\u2026' : '\u21BB Replay'}
@@ -600,11 +705,15 @@ const PromptTestView = () => {
             Results for Run #{selectedRunId}
             {selectedRun && (
               <span className="ml-2 normal-case font-normal text-plex-text-secondary">
-                {selectedRun.evaluationModel} {'\u00B7'} {formatRunGitBadge(selectedRun) || 'no git info'}
+                {formatModelWithVersion(selectedRun.evaluationModel)} {'\u00B7'} {formatRunGitBadge(selectedRun) || 'no git info'}
               </span>
             )}
           </p>
-          {loadingResults ? (
+          {isRunInProgress(selectedRun) ? (
+            <p className="text-sm text-amber-400" data-testid="results-in-progress">
+              {'\u27F3'} Run in progress{'\u2026'} {selectedRun.succeeded + selectedRun.failed}/{selectedRun.locationsCount || '?'} evaluated
+            </p>
+          ) : loadingResults ? (
             <p className="text-sm text-plex-text-muted">Loading results{'\u2026'}</p>
           ) : results.length === 0 ? (
             <p className="text-sm text-plex-text-muted">No results for this run.</p>
@@ -614,6 +723,8 @@ const PromptTestView = () => {
                 <thead>
                   <tr className="text-left text-plex-text-muted border-b border-plex-border">
                     <th className="py-2 pr-4">Location</th>
+                    <th className="py-2 pr-4">Date</th>
+                    <th className="py-2 pr-4">Target</th>
                     <th className="py-2 pr-4">Rating</th>
                     <th className="py-2 pr-4">Fiery Sky</th>
                     <th className="py-2 pr-4">Golden Hour</th>
@@ -626,6 +737,16 @@ const PromptTestView = () => {
                   {results.map((result) => (
                     <tr key={result.id} className="border-b border-plex-border/30">
                       <td className="py-2 pr-4 text-plex-text font-medium">{result.locationName}</td>
+                      <td className="py-2 pr-4 text-plex-text-secondary text-xs">
+                        {formatShortDate(result.targetDate)}
+                      </td>
+                      <td className="py-2 pr-4 text-plex-text-secondary text-xs">
+                        {result.targetType === 'SUNRISE' ? (
+                          <span className="text-orange-300">{'\u2600\uFE0F'} Rise</span>
+                        ) : result.targetType === 'SUNSET' ? (
+                          <span className="text-purple-300">{'\uD83C\uDF05'} Set</span>
+                        ) : result.targetType || '\u2014'}
+                      </td>
                       <td className="py-2 pr-4 text-plex-text">
                         {result.succeeded ? (
                           result.rating != null ? `${result.rating}/5` : '\u2014'

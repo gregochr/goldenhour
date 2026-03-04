@@ -6,6 +6,9 @@ export const runPromptTest = (model, runType) =>
 export const replayPromptTest = (parentRunId) =>
   axios.post(`/api/prompt-test/replay?parentRunId=${parentRunId}`);
 
+export const getPromptTestRun = (runId) =>
+  axios.get(`/api/prompt-test/runs/${runId}`);
+
 export const getPromptTestRuns = () =>
   axios.get('/api/prompt-test/runs');
 
