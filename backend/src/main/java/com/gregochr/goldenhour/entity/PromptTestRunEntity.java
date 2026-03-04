@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -93,5 +94,6 @@ public class PromptTestRunEntity {
     private String gitBranch;
 
     @OneToMany(mappedBy = "testRunId")
+    @JsonIgnore
     private List<PromptTestResultEntity> results;
 }

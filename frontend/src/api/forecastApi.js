@@ -48,7 +48,7 @@ axios.interceptors.response.use(
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(REFRESH_KEY);
         localStorage.removeItem('goldenhour_role');
-        window.location.href = '/';
+        window.dispatchEvent(new Event('goldenhour:session-expired'));
       })
       .finally(() => {
         refreshPromise = null;
