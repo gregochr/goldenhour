@@ -148,17 +148,17 @@ class LocationServiceTest {
         assertThat(captor.getValue().getLon()).isEqualTo(-1.7099);
         assertThat(captor.getValue().getGoldenHourType()).isEqualTo(GoldenHourType.BOTH_TIMES);
         assertThat(captor.getValue().getLocationType()).containsExactly(LocationType.LANDSCAPE);
-        assertThat(captor.getValue().getTideType()).containsExactly(TideType.NOT_COASTAL);
+        assertThat(captor.getValue().getTideType()).isEmpty();
         assertThat(captor.getValue().getCreatedAt()).isNotNull();
     }
 
     @Test
-    @DisplayName("add() saves SEASCAPE location with tide type and triggers tide fetch")
+    @DisplayName("add() saves SEASCAPE location with tide types and triggers tide fetch")
     void add_seascapeLocation_savesTideTypeAndFetchesTides() {
         when(locationRepository.existsByName("Bamburgh")).thenReturn(false);
         LocationEntity saved = LocationEntity.builder()
                 .id(1L).name("Bamburgh").lat(55.6).lon(-1.7)
-                .tideType(Set.of(TideType.ANY_TIDE))
+                .tideType(Set.of(TideType.HIGH, TideType.MID, TideType.LOW))
                 .locationType(Set.of(LocationType.SEASCAPE))
                 .build();
         when(locationRepository.save(any())).thenReturn(saved);
@@ -166,7 +166,7 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Bamburgh", 55.6, -1.7, GoldenHourType.SUNSET,
-                LocationType.SEASCAPE, TideType.ANY_TIDE, null);
+                LocationType.SEASCAPE, Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null);
 
         locationService.add(request);
 
@@ -174,20 +174,20 @@ class LocationServiceTest {
     }
 
     @Test
-    @DisplayName("add() forces NOT_COASTAL when locationType is not SEASCAPE")
-    void add_nonSeascape_forcesNotCoastal() {
+    @DisplayName("add() forces empty tide types when locationType is not SEASCAPE")
+    void add_nonSeascape_forcesEmptyTideTypes() {
         when(locationRepository.existsByName("Durham")).thenReturn(false);
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AddLocationRequest request = new AddLocationRequest(
                 "Durham", 54.7753, -1.5849, GoldenHourType.BOTH_TIMES,
-                LocationType.LANDSCAPE, TideType.HIGH_TIDE, null);
+                LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
 
         locationService.add(request);
 
         ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
         verify(locationRepository).save(captor.capture());
-        assertThat(captor.getValue().getTideType()).containsExactly(TideType.NOT_COASTAL);
+        assertThat(captor.getValue().getTideType()).isEmpty();
     }
 
     @Test
@@ -289,33 +289,35 @@ class LocationServiceTest {
     void update_changesToSeascape_triggersTideFetch() {
         LocationEntity existing = buildEntity("Bamburgh", 55.6, -1.7);
         existing.setLocationType(Set.of(LocationType.LANDSCAPE));
-        existing.setTideType(Set.of(TideType.NOT_COASTAL));
+        existing.setTideType(new java.util.HashSet<>());
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, LocationType.SEASCAPE, TideType.ANY_TIDE, null);
+                null, null, LocationType.SEASCAPE,
+                Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null);
         locationService.update(1L, request);
 
         assertThat(existing.getLocationType()).containsExactly(LocationType.SEASCAPE);
-        assertThat(existing.getTideType()).containsExactly(TideType.ANY_TIDE);
+        assertThat(existing.getTideType()).containsExactlyInAnyOrder(
+                TideType.HIGH, TideType.MID, TideType.LOW);
         verify(tideService).fetchAndStoreTideExtremes(any());
     }
 
     @Test
-    @DisplayName("update() forces NOT_COASTAL when locationType is LANDSCAPE")
-    void update_landscape_forcesNotCoastal() {
+    @DisplayName("update() forces empty tide types when locationType is LANDSCAPE")
+    void update_landscape_forcesEmptyTideTypes() {
         LocationEntity existing = buildEntity("Durham", 54.7, -1.5);
         existing.setLocationType(Set.of(LocationType.LANDSCAPE));
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, LocationType.LANDSCAPE, TideType.HIGH_TIDE, null);
+                null, null, LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
         locationService.update(1L, request);
 
-        assertThat(existing.getTideType()).containsExactly(TideType.NOT_COASTAL);
+        assertThat(existing.getTideType()).isEmpty();
     }
 
     @Test
@@ -397,39 +399,34 @@ class LocationServiceTest {
     }
 
     @Test
-    @DisplayName("isCoastal() returns false when set contains only NOT_COASTAL")
-    void isCoastal_onlyNotCoastal_returnsFalse() {
-        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.NOT_COASTAL))).isFalse();
+    @DisplayName("isCoastal() returns true for HIGH")
+    void isCoastal_high_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.HIGH))).isTrue();
     }
 
     @Test
-    @DisplayName("isCoastal() returns true for HIGH_TIDE")
-    void isCoastal_highTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.HIGH_TIDE))).isTrue();
+    @DisplayName("isCoastal() returns true for LOW")
+    void isCoastal_low_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW))).isTrue();
     }
 
     @Test
-    @DisplayName("isCoastal() returns true for LOW_TIDE")
-    void isCoastal_lowTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW_TIDE))).isTrue();
+    @DisplayName("isCoastal() returns true for MID")
+    void isCoastal_mid_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.MID))).isTrue();
     }
 
     @Test
-    @DisplayName("isCoastal() returns true for MID_TIDE")
-    void isCoastal_midTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.MID_TIDE))).isTrue();
-    }
-
-    @Test
-    @DisplayName("isCoastal() returns true for ANY_TIDE")
-    void isCoastal_anyTide_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.ANY_TIDE))).isTrue();
+    @DisplayName("isCoastal() returns true for all three tide types")
+    void isCoastal_allThree_returnsTrue() {
+        assertThat(locationService.isCoastal(entityWithTideTypes(
+                TideType.HIGH, TideType.MID, TideType.LOW))).isTrue();
     }
 
     @Test
     @DisplayName("isCoastal() returns true for multiple tide types")
     void isCoastal_multipleTideTypes_returnsTrue() {
-        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW_TIDE, TideType.MID_TIDE))).isTrue();
+        assertThat(locationService.isCoastal(entityWithTideTypes(TideType.LOW, TideType.MID))).isTrue();
     }
 
     // --- isSeascape ---
@@ -476,7 +473,7 @@ class LocationServiceTest {
     // --- defaults ---
 
     @Test
-    @DisplayName("new location entity defaults to BOTH_TIMES, NOT_COASTAL, and empty locationType")
+    @DisplayName("new location entity defaults to BOTH_TIMES, empty tide types, and empty locationType")
     void locationEntity_defaults_areBothTimesAndNotCoastal() {
         LocationEntity entity = LocationEntity.builder()
                 .name("Test")

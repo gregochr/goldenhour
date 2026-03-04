@@ -129,12 +129,12 @@ public class LocationService {
                 ? request.goldenHourType() : GoldenHourType.BOTH_TIMES;
         LocationType locationType = request.locationType() != null
                 ? request.locationType() : LocationType.LANDSCAPE;
-        TideType tideType = request.tideType() != null
-                ? request.tideType() : TideType.NOT_COASTAL;
+        Set<TideType> tideTypes = request.tideTypes() != null
+                ? new HashSet<>(request.tideTypes()) : new HashSet<>();
 
-        // Force NOT_COASTAL when not SEASCAPE
+        // Force empty set when not SEASCAPE
         if (locationType != LocationType.SEASCAPE) {
-            tideType = TideType.NOT_COASTAL;
+            tideTypes = new HashSet<>();
         }
 
         RegionEntity region = resolveRegion(request.regionId());
@@ -145,7 +145,7 @@ public class LocationService {
                 .lon(request.lon())
                 .goldenHourType(goldenHourType)
                 .locationType(new HashSet<>(Set.of(locationType)))
-                .tideType(new HashSet<>(Set.of(tideType)))
+                .tideType(tideTypes)
                 .region(region)
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
@@ -157,7 +157,7 @@ public class LocationService {
 
         LOG.info("Added location '{}' ({}, {}) — type={}, solar={}, tide={}",
                 saved.getName(), saved.getLat(), saved.getLon(),
-                locationType, goldenHourType, tideType);
+                locationType, goldenHourType, tideTypes);
         return saved;
     }
 
@@ -203,12 +203,12 @@ public class LocationService {
             location.setLocationType(new HashSet<>(Set.of(request.locationType())));
         }
 
-        if (request.tideType() != null) {
-            // Force NOT_COASTAL when not SEASCAPE
+        if (request.tideTypes() != null) {
+            // Force empty set when not SEASCAPE
             if (!location.getLocationType().contains(LocationType.SEASCAPE)) {
-                location.setTideType(new HashSet<>(Set.of(TideType.NOT_COASTAL)));
+                location.setTideType(new HashSet<>());
             } else {
-                location.setTideType(new HashSet<>(Set.of(request.tideType())));
+                location.setTideType(new HashSet<>(request.tideTypes()));
             }
         }
 
@@ -282,14 +282,13 @@ public class LocationService {
     /**
      * Returns {@code true} if this location is coastal and tide data should be fetched.
      *
-     * <p>A location is coastal when its tide type set contains at least one value other
-     * than {@link TideType#NOT_COASTAL}. An empty set means the location is inland.
+     * <p>A location is coastal when its tide type set is non-empty.
      *
      * @param location the location to check
-     * @return {@code true} if the tide type set contains any coastal preference
+     * @return {@code true} if the tide type set contains at least one preference
      */
     public boolean isCoastal(LocationEntity location) {
-        return location.getTideType().stream().anyMatch(t -> t != TideType.NOT_COASTAL);
+        return !location.getTideType().isEmpty();
     }
 
     /**

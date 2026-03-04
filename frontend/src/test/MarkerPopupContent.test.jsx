@@ -11,7 +11,7 @@ const BASE_LOCATION = {
   name: 'Bamburgh',
   goldenHourType: 'SUNSET',
   locationType: ['SEASCAPE'],
-  tideType: ['HIGH_TIDE'],
+  tideType: ['HIGH'],
 };
 
 const BASE_FORECAST = {
@@ -137,28 +137,20 @@ describe('MarkerPopupContent', () => {
   });
 
   describe('tide display for coastal vs non-coastal', () => {
-    it('shows tide pills for coastal location with HIGH_TIDE', () => {
-      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH_TIDE'] } });
+    it('shows tide pills for coastal location with HIGH', () => {
+      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH'] } });
       expect(screen.getByText(/High tide/)).toBeInTheDocument();
     });
 
-    it('shows tide pills for coastal location with LOW_TIDE', () => {
-      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['LOW_TIDE'] } });
+    it('shows tide pills for coastal location with LOW', () => {
+      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['LOW'] } });
       expect(screen.getByText(/Low tide/)).toBeInTheDocument();
     });
 
     it('shows multiple tide pills when location has several tide types', () => {
-      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH_TIDE', 'MID_TIDE'] } });
+      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH', 'MID'] } });
       expect(screen.getByText(/High tide/)).toBeInTheDocument();
       expect(screen.getByText(/Mid tide/)).toBeInTheDocument();
-    });
-
-    it('does not show tide pills for NOT_COASTAL location', () => {
-      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['NOT_COASTAL'] } });
-      expect(screen.queryByText(/High tide/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Low tide/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Mid tide/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Any tide/)).not.toBeInTheDocument();
     });
 
     it('does not show tide pills when tideType is empty', () => {
@@ -183,7 +175,7 @@ describe('MarkerPopupContent', () => {
     });
 
     it('hides tide pills when collapsed', () => {
-      renderPopup({ role: 'PRO_USER', isExpanded: false, location: { ...BASE_LOCATION, tideType: ['HIGH_TIDE'] } });
+      renderPopup({ role: 'PRO_USER', isExpanded: false, location: { ...BASE_LOCATION, tideType: ['HIGH'] } });
       expect(screen.queryByText(/High tide/)).not.toBeInTheDocument();
     });
   });
