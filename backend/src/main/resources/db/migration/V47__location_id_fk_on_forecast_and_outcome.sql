@@ -23,6 +23,9 @@ ALTER TABLE actual_outcome ADD CONSTRAINT fk_actual_outcome_location_id
 ALTER TABLE forecast_evaluation DROP CONSTRAINT fk_forecast_eval_location;
 ALTER TABLE actual_outcome DROP CONSTRAINT fk_actual_outcome_location;
 
--- 6. Drop location_name column
+-- 6. Drop index referencing location_name (H2 requires this before column drop)
+DROP INDEX IF EXISTS idx_forecast_eval_location_date;
+
+-- 7. Drop location_name column
 ALTER TABLE forecast_evaluation DROP COLUMN location_name;
 ALTER TABLE actual_outcome DROP COLUMN location_name;
