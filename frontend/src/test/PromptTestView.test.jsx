@@ -44,14 +44,14 @@ describe('PromptTestView', () => {
     expect(screen.getByTestId('run-type-radio-LONG_TERM')).toBeInTheDocument();
   });
 
-  it('defaults to HAIKU model and SHORT_TERM run type', async () => {
+  it('defaults to HAIKU model and VERY_SHORT_TERM run type', async () => {
     render(<PromptTestView />);
     await waitFor(() => {
       expect(screen.getByTestId('model-radio-HAIKU')).toBeChecked();
     });
     expect(screen.getByTestId('model-radio-SONNET')).not.toBeChecked();
-    expect(screen.getByTestId('run-type-radio-SHORT_TERM')).toBeChecked();
-    expect(screen.getByTestId('run-type-radio-VERY_SHORT_TERM')).not.toBeChecked();
+    expect(screen.getByTestId('run-type-radio-VERY_SHORT_TERM')).toBeChecked();
+    expect(screen.getByTestId('run-type-radio-SHORT_TERM')).not.toBeChecked();
     expect(screen.getByTestId('run-type-radio-LONG_TERM')).not.toBeChecked();
   });
 
@@ -153,12 +153,12 @@ describe('PromptTestView', () => {
   it('allows selecting a different run type', async () => {
     render(<PromptTestView />);
     await waitFor(() => {
-      expect(screen.getByTestId('run-type-radio-SHORT_TERM')).toBeChecked();
+      expect(screen.getByTestId('run-type-radio-VERY_SHORT_TERM')).toBeChecked();
     });
 
     fireEvent.click(screen.getByTestId('run-type-radio-LONG_TERM'));
     expect(screen.getByTestId('run-type-radio-LONG_TERM')).toBeChecked();
-    expect(screen.getByTestId('run-type-radio-SHORT_TERM')).not.toBeChecked();
+    expect(screen.getByTestId('run-type-radio-VERY_SHORT_TERM')).not.toBeChecked();
   });
 
   it('shows comparison checkboxes in run rows', async () => {
