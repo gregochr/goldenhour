@@ -664,8 +664,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <table className="w-full text-sm text-left table-fixed" data-testid="locations-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Name" sortKey="name" className="w-[19%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
-                    <th className="pb-1 font-medium align-top w-[9%]">
+                    <SortableHeader label="Name" sortKey="name" className="w-[22%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
+                    <th className="pb-1 font-medium align-top w-[10%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Coords</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
@@ -697,7 +697,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <SortableHeader label="Region" sortKey="region" className="w-[13%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
+                    <SortableHeader label="Region" sortKey="region" className="w-[15%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('region')} onFilter={(v) => sf.setFilter('region', v)} />
                     <th className="pb-1 font-medium align-bottom w-[10%]">
                       <button
                         type="button"
@@ -770,9 +770,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <SortableHeader label="Created" sortKey="created" className="w-[8%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
-                    <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
-                    <th className="pb-1 font-medium align-top w-[12%]">
+                    <SortableHeader label="Status" sortKey="status" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium align-top w-[13%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
@@ -832,9 +831,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   onChange={(next) => setEditValues((prev) => ({ ...prev, tideTypes: next }))}
                                   disabled={editValues.locationType !== 'SEASCAPE'}
                                 />
-                              </td>
-                              <td className="py-2 text-plex-text-muted text-xs">
-                                {loc.createdAt ? loc.createdAt.slice(0, 10) : '—'}
                               </td>
                               <td className="py-2">
                                 <button
@@ -907,9 +903,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   readOnly
                                 />
                               </td>
-                              <td className="py-2 text-plex-text-muted text-xs">
-                                {loc.createdAt ? loc.createdAt.slice(0, 10) : '—'}
-                              </td>
                               <td className="py-2">
                                 <button
                                   onClick={() => handleToggleEnabled(loc)}
@@ -955,7 +948,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   {pageLocations.length > 0 && pageLocations.length < pagination.pageSize && (
                     Array.from({ length: pagination.pageSize - pageLocations.length }, (_, i) => (
                       <tr key={`spacer-${i}`} aria-hidden="true">
-                        <td colSpan={9} className="py-2 text-sm">&nbsp;</td>
+                        <td colSpan={8} className="py-2 text-sm">&nbsp;</td>
                       </tr>
                     ))
                   )}
