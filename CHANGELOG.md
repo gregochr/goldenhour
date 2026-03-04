@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 4, 2026)
+- **Prompt test harness** — end-to-end prompt evaluation test that runs all colour locations through the Claude pipeline with a chosen model, stores results, and supports run comparison
+  - `prompt_test_run` + `prompt_test_result` tables (V44, V45)
+  - `PromptTestService` orchestrates: pick colour locations, fetch weather, evaluate with selected model, persist results with rating/fiery sky/golden hour scores
+  - `PromptTestController` with ADMIN-only endpoints: `POST /api/prompt-test/run`, `POST /api/prompt-test/replay`, `GET /api/prompt-test/runs`, `GET /api/prompt-test/runs/{id}`, `GET /api/prompt-test/results`, `GET /api/prompt-test/git-info`
+  - **Async execution** — POST /run and /replay return 202 Accepted immediately; work runs in background via `CompletableFuture.runAsync()` on virtual thread executor; frontend polls `GET /runs/{id}` every 3s for live progress updates
+  - **Run comparison** — select two runs via checkboxes to see side-by-side results with score deltas
+  - **Replay** — re-run a previous test with the same locations and dates but current prompt version, for A/B comparison of prompt changes
+  - **Build info section** — shows current git commit, branch, and relative commit date above controls; hidden when git info unavailable
+  - **Model versions** — `EvaluationModel` enum gains `version` field (HAIKU 4.5, SONNET 4.5, OPUS 4.6); `/api/models` returns `[{name, version}, ...]`; versions shown next to model radio buttons
+  - **Date and Target columns** — results table shows target date and target type (SUNRISE/SUNSET) for each result
+  - **Docker git fix** — build context changed from `./backend` to repo root so `git-commit-id-maven-plugin` can access `.git/`; git badge no longer shows "?" in Docker builds
+  - 646 backend tests, 321 frontend tests — all passing
+
 ### Fixed (Mar 4, 2026)
 - **MetricsSummary cost aggregation** — combined token-based micro-dollar costs with legacy flat-rate pence costs instead of ignoring pence when any micro-dollars exist; was showing £0.14 instead of £24.99 for 19 runs
 - **ModelSelectionView pricing** — converted from USD to GBP primary display with greyed-out USD in parentheses, matching the JobRunsGrid pattern
