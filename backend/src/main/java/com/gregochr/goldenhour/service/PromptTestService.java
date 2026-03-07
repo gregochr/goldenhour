@@ -653,22 +653,24 @@ public class PromptTestService {
             LOG.warn("Failed to serialise atmospheric data for {}: {}",
                     result.getLocationName(), e.getMessage());
         }
-        result.setLowCloudPercent(data.lowCloudPercent());
-        result.setMidCloudPercent(data.midCloudPercent());
-        result.setHighCloudPercent(data.highCloudPercent());
-        result.setVisibilityMetres(data.visibilityMetres());
-        result.setWindSpeedMs(data.windSpeedMs());
-        result.setWindDirectionDegrees(data.windDirectionDegrees());
-        result.setPrecipitationMm(data.precipitationMm());
-        result.setHumidityPercent(data.humidityPercent());
-        result.setWeatherCode(data.weatherCode());
-        result.setPm25(data.pm25());
-        result.setDustUgm3(data.dustUgm3());
-        result.setAerosolOpticalDepth(data.aerosolOpticalDepth());
-        result.setTemperatureCelsius(data.temperatureCelsius());
-        result.setApparentTemperatureCelsius(data.apparentTemperatureCelsius());
-        result.setPrecipitationProbability(data.precipitationProbability());
-        result.setTideState(data.tideState() != null ? data.tideState().name() : null);
-        result.setTideAligned(data.tideAligned());
+        result.setLowCloudPercent(data.cloud().lowCloudPercent());
+        result.setMidCloudPercent(data.cloud().midCloudPercent());
+        result.setHighCloudPercent(data.cloud().highCloudPercent());
+        result.setVisibilityMetres(data.weather().visibilityMetres());
+        result.setWindSpeedMs(data.weather().windSpeedMs());
+        result.setWindDirectionDegrees(data.weather().windDirectionDegrees());
+        result.setPrecipitationMm(data.weather().precipitationMm());
+        result.setHumidityPercent(data.weather().humidityPercent());
+        result.setWeatherCode(data.weather().weatherCode());
+        result.setPm25(data.aerosol().pm25());
+        result.setDustUgm3(data.aerosol().dustUgm3());
+        result.setAerosolOpticalDepth(data.aerosol().aerosolOpticalDepth());
+        result.setTemperatureCelsius(data.comfort().temperatureCelsius());
+        result.setApparentTemperatureCelsius(data.comfort().apparentTemperatureCelsius());
+        result.setPrecipitationProbability(data.comfort().precipitationProbability());
+        var tide = data.tide();
+        result.setTideState(tide != null && tide.tideState() != null
+                ? tide.tideState().name() : null);
+        result.setTideAligned(tide != null ? tide.tideAligned() : null);
     }
 }

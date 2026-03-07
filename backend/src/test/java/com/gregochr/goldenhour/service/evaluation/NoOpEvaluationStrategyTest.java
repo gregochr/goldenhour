@@ -1,15 +1,12 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -65,14 +62,8 @@ class NoOpEvaluationStrategyTest {
     }
 
     private AtmosphericData buildAtmosphericData() {
-        return new AtmosphericData(
-                "Test Location", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
-                10, 50, 30, 25000,
-                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
-                null, null, null,
-                null,
-                null, null, null, null, null, null);
+        return TestAtmosphericData.builder()
+                .locationName("Test Location")
+                .build();
     }
 }

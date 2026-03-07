@@ -80,19 +80,19 @@ class OpenMeteoServiceTest {
         assertThat(result.locationName()).isEqualTo("Durham UK");
         assertThat(result.targetType()).isEqualTo(TargetType.SUNSET);
         assertThat(result.solarEventTime()).isEqualTo(solarEvent);
-        assertThat(result.lowCloudPercent()).isEqualTo(20);
-        assertThat(result.midCloudPercent()).isEqualTo(60);
-        assertThat(result.highCloudPercent()).isEqualTo(40);
-        assertThat(result.visibilityMetres()).isEqualTo(22000);
-        assertThat(result.windSpeedMs()).isEqualByComparingTo("3.50");
-        assertThat(result.windDirectionDegrees()).isEqualTo(245);
-        assertThat(result.precipitationMm()).isEqualByComparingTo("0.10");
-        assertThat(result.humidityPercent()).isEqualTo(62);
-        assertThat(result.weatherCode()).isEqualTo(3);
-        assertThat(result.boundaryLayerHeightMetres()).isEqualTo(1200);
-        assertThat(result.pm25()).isEqualByComparingTo("8.50");
-        assertThat(result.dustUgm3()).isEqualByComparingTo("2.10");
-        assertThat(result.aerosolOpticalDepth()).isEqualByComparingTo("0.120");
+        assertThat(result.cloud().lowCloudPercent()).isEqualTo(20);
+        assertThat(result.cloud().midCloudPercent()).isEqualTo(60);
+        assertThat(result.cloud().highCloudPercent()).isEqualTo(40);
+        assertThat(result.weather().visibilityMetres()).isEqualTo(22000);
+        assertThat(result.weather().windSpeedMs()).isEqualByComparingTo("3.50");
+        assertThat(result.weather().windDirectionDegrees()).isEqualTo(245);
+        assertThat(result.weather().precipitationMm()).isEqualByComparingTo("0.10");
+        assertThat(result.weather().humidityPercent()).isEqualTo(62);
+        assertThat(result.weather().weatherCode()).isEqualTo(3);
+        assertThat(result.aerosol().boundaryLayerHeightMetres()).isEqualTo(1200);
+        assertThat(result.aerosol().pm25()).isEqualByComparingTo("8.50");
+        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("2.10");
+        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.120");
     }
 
     @Test
@@ -119,8 +119,8 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNRISE);
 
-        assertThat(result.lowCloudPercent()).isEqualTo(25);
-        assertThat(result.humidityPercent()).isEqualTo(65);
+        assertThat(result.cloud().lowCloudPercent()).isEqualTo(25);
+        assertThat(result.weather().humidityPercent()).isEqualTo(65);
     }
 
     @Test
@@ -142,9 +142,9 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.pm25()).isEqualByComparingTo("0.00");
-        assertThat(result.dustUgm3()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosolOpticalDepth()).isEqualByComparingTo("0.000");
+        assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
+        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("0.00");
+        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.000");
     }
 
     @Test
@@ -166,8 +166,8 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNRISE);
 
-        assertThat(result.windSpeedMs()).isEqualByComparingTo("7.30");
-        assertThat(result.windDirectionDegrees()).isEqualTo(315);
+        assertThat(result.weather().windSpeedMs()).isEqualByComparingTo("7.30");
+        assertThat(result.weather().windDirectionDegrees()).isEqualTo(315);
     }
 
     @Test
@@ -197,8 +197,8 @@ class OpenMeteoServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.locationName()).isEqualTo("Durham UK");
         assertThat(result.targetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(result.lowCloudPercent()).isEqualTo(10);
-        assertThat(result.pm25()).isEqualByComparingTo("8.50");
+        assertThat(result.cloud().lowCloudPercent()).isEqualTo(10);
+        assertThat(result.aerosol().pm25()).isEqualByComparingTo("8.50");
     }
 
     @Test
@@ -263,7 +263,7 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.lowCloudPercent()).isEqualTo(99);
+        assertThat(result.cloud().lowCloudPercent()).isEqualTo(99);
     }
 
     @Test
@@ -285,7 +285,7 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.lowCloudPercent()).isEqualTo(42);
+        assertThat(result.cloud().lowCloudPercent()).isEqualTo(42);
     }
 
     @Test
@@ -308,9 +308,9 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.pm25()).isEqualByComparingTo("0.00");
-        assertThat(result.dustUgm3()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosolOpticalDepth()).isEqualByComparingTo("0.000");
+        assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
+        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("0.00");
+        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.000");
     }
 
     @Test
@@ -332,7 +332,7 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.windSpeedMs()).isEqualByComparingTo("3.56");
+        assertThat(result.weather().windSpeedMs()).isEqualByComparingTo("3.56");
     }
 
     @Test
@@ -354,12 +354,7 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.tideState()).isNull();
-        assertThat(result.nextHighTideTime()).isNull();
-        assertThat(result.nextHighTideHeightMetres()).isNull();
-        assertThat(result.nextLowTideTime()).isNull();
-        assertThat(result.nextLowTideHeightMetres()).isNull();
-        assertThat(result.tideAligned()).isNull();
+        assertThat(result.tide()).isNull();
     }
 
     private OpenMeteoForecastResponse buildForecastResponse(
@@ -422,9 +417,9 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.temperatureCelsius()).isEqualTo(14.5);
-        assertThat(result.apparentTemperatureCelsius()).isEqualTo(11.2);
-        assertThat(result.precipitationProbability()).isEqualTo(35);
+        assertThat(result.comfort().temperatureCelsius()).isEqualTo(14.5);
+        assertThat(result.comfort().apparentTemperatureCelsius()).isEqualTo(11.2);
+        assertThat(result.comfort().precipitationProbability()).isEqualTo(35);
     }
 
     @Test
@@ -447,9 +442,9 @@ class OpenMeteoServiceTest {
         AtmosphericData result = openMeteoService.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.temperatureCelsius()).isNull();
-        assertThat(result.apparentTemperatureCelsius()).isNull();
-        assertThat(result.precipitationProbability()).isNull();
+        assertThat(result.comfort().temperatureCelsius()).isNull();
+        assertThat(result.comfort().apparentTemperatureCelsius()).isNull();
+        assertThat(result.comfort().precipitationProbability()).isNull();
     }
 
     @Test
@@ -481,8 +476,8 @@ class OpenMeteoServiceTest {
         assertThat(result).hasSize(2);
         assertThat(result.get(0).solarEventTime()).isEqualTo(LocalDateTime.of(2026, 6, 21, 3, 0, 0));
         assertThat(result.get(1).solarEventTime()).isEqualTo(LocalDateTime.of(2026, 6, 21, 4, 0, 0));
-        assertThat(result.get(0).temperatureCelsius()).isEqualTo(12.0);
-        assertThat(result.get(0).precipitationProbability()).isEqualTo(20);
+        assertThat(result.get(0).comfort().temperatureCelsius()).isEqualTo(12.0);
+        assertThat(result.get(0).comfort().precipitationProbability()).isEqualTo(20);
     }
 
     // --- Directional cloud data tests ---

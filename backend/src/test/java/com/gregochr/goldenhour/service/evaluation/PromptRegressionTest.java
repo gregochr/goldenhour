@@ -2,8 +2,8 @@ package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.config.AnthropicProperties;
-import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -76,31 +76,29 @@ class PromptRegressionTest {
      */
     @Test
     void coptHill_5Mar2026_sunset_blockedSolarHorizon() {
-        AtmosphericData data = new AtmosphericData(
-                "Copt Hill",
-                LocalDateTime.of(2026, 3, 5, 17, 45),
-                TargetType.SUNSET,
-                1,      // lowCloudPercent (observer)
-                0,      // midCloudPercent (observer)
-                0,      // highCloudPercent (observer)
-                5560,   // visibilityMetres
-                new BigDecimal("3.60"),  // windSpeedMs
-                182,    // windDirectionDegrees
-                BigDecimal.ZERO,         // precipitationMm
-                74,     // humidityPercent
-                0,      // weatherCode (clear)
-                630,    // boundaryLayerHeightMetres
-                new BigDecimal("231"),   // shortwaveRadiationWm2
-                new BigDecimal("21.0"),  // pm25
-                new BigDecimal("7.0"),   // dustUgm3
-                new BigDecimal("0.35"),  // aerosolOpticalDepth
-                12.1,   // temperatureCelsius
-                9.5,    // apparentTemperatureCelsius
-                0,      // precipitationProbability
-                new DirectionalCloudData(
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("Copt Hill")
+                .solarEventTime(LocalDateTime.of(2026, 3, 5, 17, 45))
+                .lowCloud(1)
+                .midCloud(0)
+                .highCloud(0)
+                .visibility(5560)
+                .windSpeed(new BigDecimal("3.60"))
+                .windDirection(182)
+                .humidity(74)
+                .weatherCode(0)
+                .boundaryLayerHeight(630)
+                .shortwaveRadiation(new BigDecimal("231"))
+                .pm25(new BigDecimal("21.0"))
+                .dust(new BigDecimal("7.0"))
+                .aod(new BigDecimal("0.35"))
+                .temperature(12.1)
+                .apparentTemperature(9.5)
+                .precipProbability(0)
+                .directionalCloud(new DirectionalCloudData(
                         67, 0, 100,   // solar horizon: Low 67%, Mid 0%, High 100%
-                        0, 0, 0),     // antisolar horizon: all clear
-                null, null, null, null, null, null);  // no tide data
+                        0, 0, 0))     // antisolar horizon: all clear
+                .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
 
@@ -133,31 +131,29 @@ class PromptRegressionTest {
      */
     @Test
     void angelOfTheNorth_2Mar2026_sunset_spectacular() {
-        AtmosphericData data = new AtmosphericData(
-                "Angel of the North",
-                LocalDateTime.of(2026, 3, 2, 17, 35),
-                TargetType.SUNSET,
-                1,      // lowCloudPercent (observer, 17:00 slot)
-                0,      // midCloudPercent (observer)
-                0,      // highCloudPercent (observer)
-                40160,  // visibilityMetres
-                new BigDecimal("3.30"),  // windSpeedMs
-                236,    // windDirectionDegrees
-                BigDecimal.ZERO,         // precipitationMm
-                68,     // humidityPercent
-                0,      // weatherCode (clear)
-                785,    // boundaryLayerHeightMetres
-                new BigDecimal("80"),    // shortwaveRadiationWm2
-                new BigDecimal("3.3"),   // pm25
-                new BigDecimal("0.0"),   // dustUgm3
-                new BigDecimal("0.06"),  // aerosolOpticalDepth
-                10.0,   // temperatureCelsius
-                6.9,    // apparentTemperatureCelsius
-                0,      // precipitationProbability
-                new DirectionalCloudData(
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("Angel of the North")
+                .solarEventTime(LocalDateTime.of(2026, 3, 2, 17, 35))
+                .lowCloud(1)
+                .midCloud(0)
+                .highCloud(0)
+                .visibility(40160)
+                .windSpeed(new BigDecimal("3.30"))
+                .windDirection(236)
+                .humidity(68)
+                .weatherCode(0)
+                .boundaryLayerHeight(785)
+                .shortwaveRadiation(new BigDecimal("80"))
+                .pm25(new BigDecimal("3.3"))
+                .dust(new BigDecimal("0.0"))
+                .aod(new BigDecimal("0.06"))
+                .temperature(10.0)
+                .apparentTemperature(6.9)
+                .precipProbability(0)
+                .directionalCloud(new DirectionalCloudData(
                         7, 0, 100,      // solar horizon: Low 7%, Mid 0%, High 100%
-                        64, 71, 100),   // antisolar: Low 64%, Mid 71%, High 100%
-                null, null, null, null, null, null);  // no tide data
+                        64, 71, 100))   // antisolar: Low 64%, Mid 71%, High 100%
+                .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
 

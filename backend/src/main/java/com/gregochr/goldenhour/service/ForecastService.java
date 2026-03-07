@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
@@ -232,21 +233,7 @@ public class ForecastService {
             int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun) {
         var directional = openMeteoService.fetchDirectionalCloudData(
                 lat, lon, solarAzimuth, eventTime, base.targetType(), jobRun);
-        if (directional == null) {
-            return base;
-        }
-        return new AtmosphericData(
-                base.locationName(), base.solarEventTime(), base.targetType(),
-                base.lowCloudPercent(), base.midCloudPercent(), base.highCloudPercent(),
-                base.visibilityMetres(), base.windSpeedMs(), base.windDirectionDegrees(),
-                base.precipitationMm(), base.humidityPercent(), base.weatherCode(),
-                base.boundaryLayerHeightMetres(), base.shortwaveRadiationWm2(),
-                base.pm25(), base.dustUgm3(), base.aerosolOpticalDepth(),
-                base.temperatureCelsius(), base.apparentTemperatureCelsius(),
-                base.precipitationProbability(),
-                directional,
-                base.tideState(), base.nextHighTideTime(), base.nextHighTideHeightMetres(),
-                base.nextLowTideTime(), base.nextLowTideHeightMetres(), base.tideAligned());
+        return directional != null ? base.withDirectionalCloud(directional) : base;
     }
 
     /**
@@ -263,44 +250,23 @@ public class ForecastService {
      */
     AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
             LocalDateTime eventTime, Set<TideType> tideTypes) {
-        TideData tideData = null;
-        Boolean tideAligned = null;
         boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
-        if (isCoastal) {
-            var tideMaybe = tideService.deriveTideData(locationId, eventTime);
-            if (tideMaybe.isPresent()) {
-                tideData = tideMaybe.get();
-                tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
-            }
+        if (!isCoastal) {
+            return base;
         }
-        return new AtmosphericData(
-                base.locationName(),
-                base.solarEventTime(),
-                base.targetType(),
-                base.lowCloudPercent(),
-                base.midCloudPercent(),
-                base.highCloudPercent(),
-                base.visibilityMetres(),
-                base.windSpeedMs(),
-                base.windDirectionDegrees(),
-                base.precipitationMm(),
-                base.humidityPercent(),
-                base.weatherCode(),
-                base.boundaryLayerHeightMetres(),
-                base.shortwaveRadiationWm2(),
-                base.pm25(),
-                base.dustUgm3(),
-                base.aerosolOpticalDepth(),
-                base.temperatureCelsius(),
-                base.apparentTemperatureCelsius(),
-                base.precipitationProbability(),
-                base.directionalCloud(),
-                tideData != null ? tideData.tideState() : null,
-                tideData != null ? tideData.nextHighTideTime() : null,
-                tideData != null ? tideData.nextHighTideHeightMetres() : null,
-                tideData != null ? tideData.nextLowTideTime() : null,
-                tideData != null ? tideData.nextLowTideHeightMetres() : null,
-                tideAligned);
+        var tideMaybe = tideService.deriveTideData(locationId, eventTime);
+        if (tideMaybe.isEmpty()) {
+            return base;
+        }
+        TideData tideData = tideMaybe.get();
+        Boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
+        return base.withTide(new TideSnapshot(
+                tideData.tideState(),
+                tideData.nextHighTideTime(),
+                tideData.nextHighTideHeightMetres(),
+                tideData.nextLowTideTime(),
+                tideData.nextLowTideHeightMetres(),
+                tideAligned));
     }
 
     /**
@@ -322,6 +288,8 @@ public class ForecastService {
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
+        var dc = data.directionalCloud();
+        var tide = data.tide();
         return ForecastEvaluationEntity.builder()
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
@@ -330,41 +298,35 @@ public class ForecastService {
                 .targetType(type)
                 .forecastRunAt(LocalDateTime.now(ZoneOffset.UTC))
                 .daysAhead(daysAhead)
-                .lowCloud(data.lowCloudPercent())
-                .midCloud(data.midCloudPercent())
-                .highCloud(data.highCloudPercent())
-                .visibility(data.visibilityMetres())
-                .windSpeed(data.windSpeedMs())
-                .windDirection(data.windDirectionDegrees())
-                .precipitation(data.precipitationMm())
-                .humidity(data.humidityPercent())
-                .weatherCode(data.weatherCode())
-                .boundaryLayerHeight(data.boundaryLayerHeightMetres())
-                .shortwaveRadiation(data.shortwaveRadiationWm2())
-                .pm25(data.pm25())
-                .dust(data.dustUgm3())
-                .aerosolOpticalDepth(data.aerosolOpticalDepth())
-                .temperatureCelsius(data.temperatureCelsius())
-                .apparentTemperatureCelsius(data.apparentTemperatureCelsius())
-                .precipitationProbabilityPercent(data.precipitationProbability())
-                .tideState(data.tideState())
-                .nextHighTideTime(data.nextHighTideTime())
-                .nextHighTideHeightMetres(data.nextHighTideHeightMetres())
-                .nextLowTideTime(data.nextLowTideTime())
-                .nextLowTideHeightMetres(data.nextLowTideHeightMetres())
-                .tideAligned(data.tideAligned())
-                .solarLowCloud(data.directionalCloud() != null
-                        ? data.directionalCloud().solarLowCloudPercent() : null)
-                .solarMidCloud(data.directionalCloud() != null
-                        ? data.directionalCloud().solarMidCloudPercent() : null)
-                .solarHighCloud(data.directionalCloud() != null
-                        ? data.directionalCloud().solarHighCloudPercent() : null)
-                .antisolarLowCloud(data.directionalCloud() != null
-                        ? data.directionalCloud().antisolarLowCloudPercent() : null)
-                .antisolarMidCloud(data.directionalCloud() != null
-                        ? data.directionalCloud().antisolarMidCloudPercent() : null)
-                .antisolarHighCloud(data.directionalCloud() != null
-                        ? data.directionalCloud().antisolarHighCloudPercent() : null)
+                .lowCloud(data.cloud().lowCloudPercent())
+                .midCloud(data.cloud().midCloudPercent())
+                .highCloud(data.cloud().highCloudPercent())
+                .visibility(data.weather().visibilityMetres())
+                .windSpeed(data.weather().windSpeedMs())
+                .windDirection(data.weather().windDirectionDegrees())
+                .precipitation(data.weather().precipitationMm())
+                .humidity(data.weather().humidityPercent())
+                .weatherCode(data.weather().weatherCode())
+                .boundaryLayerHeight(data.aerosol().boundaryLayerHeightMetres())
+                .shortwaveRadiation(data.weather().shortwaveRadiationWm2())
+                .pm25(data.aerosol().pm25())
+                .dust(data.aerosol().dustUgm3())
+                .aerosolOpticalDepth(data.aerosol().aerosolOpticalDepth())
+                .temperatureCelsius(data.comfort().temperatureCelsius())
+                .apparentTemperatureCelsius(data.comfort().apparentTemperatureCelsius())
+                .precipitationProbabilityPercent(data.comfort().precipitationProbability())
+                .tideState(tide != null ? tide.tideState() : null)
+                .nextHighTideTime(tide != null ? tide.nextHighTideTime() : null)
+                .nextHighTideHeightMetres(tide != null ? tide.nextHighTideHeightMetres() : null)
+                .nextLowTideTime(tide != null ? tide.nextLowTideTime() : null)
+                .nextLowTideHeightMetres(tide != null ? tide.nextLowTideHeightMetres() : null)
+                .tideAligned(tide != null ? tide.tideAligned() : null)
+                .solarLowCloud(dc != null ? dc.solarLowCloudPercent() : null)
+                .solarMidCloud(dc != null ? dc.solarMidCloudPercent() : null)
+                .solarHighCloud(dc != null ? dc.solarHighCloudPercent() : null)
+                .antisolarLowCloud(dc != null ? dc.antisolarLowCloudPercent() : null)
+                .antisolarMidCloud(dc != null ? dc.antisolarMidCloudPercent() : null)
+                .antisolarHighCloud(dc != null ? dc.antisolarHighCloudPercent() : null)
                 .evaluationModel(model)
                 .rating(evaluation.rating())
                 .fierySkyPotential(evaluation.fierySkyPotential())
