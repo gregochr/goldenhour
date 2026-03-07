@@ -14,7 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
@@ -30,7 +30,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -452,39 +451,20 @@ class AbstractEvaluationStrategyTest {
     }
 
     private AtmosphericData buildAtmosphericData() {
-        return new AtmosphericData(
-                "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
-                10, 50, 30, 25000,
-                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
-                null, null, null,
-                null,
-                null, null, null, null, null, null);
+        return TestAtmosphericData.defaults();
     }
 
     private AtmosphericData buildAtmosphericDataWithDirectionalCloud() {
-        return new AtmosphericData(
-                "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
-                10, 50, 30, 25000,
-                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
-                null, null, null,
-                new DirectionalCloudData(65, 20, 10, 5, 45, 30),
-                null, null, null, null, null, null);
+        return TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(65, 20, 10, 5, 45, 30))
+                .build();
     }
 
     private AtmosphericData buildAtmosphericDataWithDust(BigDecimal aod, BigDecimal dust) {
-        return new AtmosphericData(
-                "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
-                10, 50, 30, 25000,
-                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), dust, aod,
-                null, null, null,
-                null,
-                null, null, null, null, null, null);
+        return TestAtmosphericData.builder()
+                .aod(aod)
+                .dust(dust)
+                .build();
     }
 
     /**

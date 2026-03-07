@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.model;
 
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -22,36 +24,39 @@ class ModelTest {
     @DisplayName("AtmosphericData components are accessible after construction")
     void atmosphericData_componentsAccessible() {
         LocalDateTime eventTime = LocalDateTime.of(2026, 2, 20, 17, 22);
-        AtmosphericData data = new AtmosphericData(
-                "Durham UK", eventTime, TargetType.SUNSET,
-                20, 60, 40, 20000,
-                new BigDecimal("5.50"), 225, new BigDecimal("0.10"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
-                12.5, 9.8, 30,
-                null,
-                null, null, null, null, null, null);
+        AtmosphericData data = TestAtmosphericData.builder()
+                .solarEventTime(eventTime)
+                .lowCloud(20)
+                .midCloud(60)
+                .highCloud(40)
+                .visibility(20000)
+                .windSpeed(new BigDecimal("5.50"))
+                .precipitation(new BigDecimal("0.10"))
+                .temperature(12.5)
+                .apparentTemperature(9.8)
+                .precipProbability(30)
+                .build();
 
         assertThat(data.locationName()).isEqualTo("Durham UK");
         assertThat(data.solarEventTime()).isEqualTo(eventTime);
         assertThat(data.targetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(data.lowCloudPercent()).isEqualTo(20);
-        assertThat(data.midCloudPercent()).isEqualTo(60);
-        assertThat(data.highCloudPercent()).isEqualTo(40);
-        assertThat(data.visibilityMetres()).isEqualTo(20000);
-        assertThat(data.windSpeedMs()).isEqualByComparingTo("5.50");
-        assertThat(data.windDirectionDegrees()).isEqualTo(225);
-        assertThat(data.precipitationMm()).isEqualByComparingTo("0.10");
-        assertThat(data.humidityPercent()).isEqualTo(62);
-        assertThat(data.weatherCode()).isEqualTo(3);
-        assertThat(data.boundaryLayerHeightMetres()).isEqualTo(1200);
-        assertThat(data.shortwaveRadiationWm2()).isEqualByComparingTo("180.00");
-        assertThat(data.pm25()).isEqualByComparingTo("8.50");
-        assertThat(data.dustUgm3()).isEqualByComparingTo("2.10");
-        assertThat(data.aerosolOpticalDepth()).isEqualByComparingTo("0.120");
-        assertThat(data.temperatureCelsius()).isEqualTo(12.5);
-        assertThat(data.apparentTemperatureCelsius()).isEqualTo(9.8);
-        assertThat(data.precipitationProbability()).isEqualTo(30);
+        assertThat(data.cloud().lowCloudPercent()).isEqualTo(20);
+        assertThat(data.cloud().midCloudPercent()).isEqualTo(60);
+        assertThat(data.cloud().highCloudPercent()).isEqualTo(40);
+        assertThat(data.weather().visibilityMetres()).isEqualTo(20000);
+        assertThat(data.weather().windSpeedMs()).isEqualByComparingTo("5.50");
+        assertThat(data.weather().windDirectionDegrees()).isEqualTo(225);
+        assertThat(data.weather().precipitationMm()).isEqualByComparingTo("0.10");
+        assertThat(data.weather().humidityPercent()).isEqualTo(62);
+        assertThat(data.weather().weatherCode()).isEqualTo(3);
+        assertThat(data.aerosol().boundaryLayerHeightMetres()).isEqualTo(1200);
+        assertThat(data.weather().shortwaveRadiationWm2()).isEqualByComparingTo("180.00");
+        assertThat(data.aerosol().pm25()).isEqualByComparingTo("8.50");
+        assertThat(data.aerosol().dustUgm3()).isEqualByComparingTo("2.10");
+        assertThat(data.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.120");
+        assertThat(data.comfort().temperatureCelsius()).isEqualTo(12.5);
+        assertThat(data.comfort().apparentTemperatureCelsius()).isEqualTo(9.8);
+        assertThat(data.comfort().precipitationProbability()).isEqualTo(30);
     }
 
     @Test
@@ -108,6 +113,42 @@ class ModelTest {
         assertThat(outcome.fierySkyActual()).isEqualTo(65);
         assertThat(outcome.goldenHourActual()).isEqualTo(78);
         assertThat(outcome.notes()).isEqualTo("Beautiful warm light.");
+    }
+
+    @Test
+    @DisplayName("withDirectionalCloud returns copy with directional data attached")
+    void atmosphericData_withDirectionalCloud() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        DirectionalCloudData dc = new DirectionalCloudData(65, 20, 10, 5, 45, 30);
+
+        AtmosphericData result = base.withDirectionalCloud(dc);
+
+        assertThat(result.directionalCloud()).isEqualTo(dc);
+        assertThat(result.locationName()).isEqualTo(base.locationName());
+        assertThat(result.cloud()).isEqualTo(base.cloud());
+        assertThat(result.tide()).isNull();
+    }
+
+    @Test
+    @DisplayName("withTide returns copy with tide snapshot attached")
+    void atmosphericData_withTide() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH,
+                LocalDateTime.of(2026, 6, 21, 18, 30),
+                new BigDecimal("4.50"),
+                LocalDateTime.of(2026, 6, 22, 0, 45),
+                new BigDecimal("1.20"),
+                true);
+
+        AtmosphericData result = base.withTide(tide);
+
+        assertThat(result.tide()).isEqualTo(tide);
+        assertThat(result.tide().tideState()).isEqualTo(TideState.HIGH);
+        assertThat(result.tide().nextHighTideHeightMetres()).isEqualByComparingTo("4.50");
+        assertThat(result.tide().tideAligned()).isTrue();
+        assertThat(result.locationName()).isEqualTo(base.locationName());
+        assertThat(result.directionalCloud()).isNull();
     }
 
     @Test

@@ -15,10 +15,12 @@ import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
+import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.JobRunService;
 
@@ -424,6 +426,11 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
      * @return formatted user message string
      */
     String buildUserMessage(AtmosphericData data) {
+        var cloud = data.cloud();
+        var w = data.weather();
+        var a = data.aerosol();
+        var comfort = data.comfort();
+
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(
                 "Location: %s. %s: %s UTC.%n"
@@ -434,14 +441,14 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                 + "Boundary layer: %dm, Shortwave: %.0f W/m\u00b2%n"
                 + "PM2.5: %s\u00b5g/m\u00b3, Dust: %s\u00b5g/m\u00b3, AOD: %s",
                 data.locationName(), data.targetType(), data.solarEventTime(),
-                data.lowCloudPercent(), data.midCloudPercent(), data.highCloudPercent(),
-                data.visibilityMetres(), data.windSpeedMs(), data.windDirectionDegrees(),
-                data.precipitationMm(),
-                data.humidityPercent(),
-                data.precipitationProbability() != null ? data.precipitationProbability() : "N/A",
-                data.weatherCode(),
-                data.boundaryLayerHeightMetres(), data.shortwaveRadiationWm2(),
-                data.pm25(), data.dustUgm3(), data.aerosolOpticalDepth()));
+                cloud.lowCloudPercent(), cloud.midCloudPercent(), cloud.highCloudPercent(),
+                w.visibilityMetres(), w.windSpeedMs(), w.windDirectionDegrees(),
+                w.precipitationMm(),
+                w.humidityPercent(),
+                comfort.precipitationProbability() != null ? comfort.precipitationProbability() : "N/A",
+                w.weatherCode(),
+                a.boundaryLayerHeightMetres(), w.shortwaveRadiationWm2(),
+                a.pm25(), a.dustUgm3(), a.aerosolOpticalDepth()));
 
         // Directional cloud data — sampled 50 km toward and away from the sun
         DirectionalCloudData dc = data.directionalCloud();
@@ -457,30 +464,31 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
         }
 
         // Conditional dust enrichment block — only when aerosol levels are elevated
-        if (isDustElevated(data)) {
+        if (isDustElevated(a)) {
             sb.append(String.format(
                     "%nSAHARAN DUST CONTEXT:%n"
                     + "AOD: %s (elevated), Surface dust: %s \u00b5g/m\u00b3%n"
                     + "Wind: %s (%d\u00b0) at %s m/s%n"
                     + "Boundary layer: %dm%n"
                     + "Elevated AOD with low solar elevation at %s maximises warm scattering potential.",
-                    data.aerosolOpticalDepth(), data.dustUgm3(),
-                    toCardinal(data.windDirectionDegrees()), data.windDirectionDegrees(),
-                    data.windSpeedMs(),
-                    data.boundaryLayerHeightMetres(),
+                    a.aerosolOpticalDepth(), a.dustUgm3(),
+                    toCardinal(w.windDirectionDegrees()), w.windDirectionDegrees(),
+                    w.windSpeedMs(),
+                    a.boundaryLayerHeightMetres(),
                     data.targetType()));
         }
 
         // Include tide data if available (coastal location)
-        if (data.tideState() != null) {
+        TideSnapshot tide = data.tide();
+        if (tide != null && tide.tideState() != null) {
             sb.append(String.format(
                     "%nTide: %s (next high: %.2fm at %s, next low: %.2fm at %s), Aligned: %s",
-                    data.tideState(),
-                    data.nextHighTideHeightMetres(),
-                    data.nextHighTideTime(),
-                    data.nextLowTideHeightMetres(),
-                    data.nextLowTideTime(),
-                    data.tideAligned()));
+                    tide.tideState(),
+                    tide.nextHighTideHeightMetres(),
+                    tide.nextHighTideTime(),
+                    tide.nextLowTideHeightMetres(),
+                    tide.nextLowTideTime(),
+                    tide.tideAligned()));
         }
 
         sb.append("\n").append(getPromptSuffix());
@@ -514,14 +522,14 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     /**
      * Returns {@code true} if aerosol levels are elevated enough to warrant the dust context block.
      *
-     * @param data the atmospheric data
+     * @param aerosol the aerosol data
      * @return true when AOD exceeds 0.3 or surface dust exceeds 50 µg/m³
      */
-    private static boolean isDustElevated(AtmosphericData data) {
-        return (data.aerosolOpticalDepth() != null
-                        && data.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
-                || (data.dustUgm3() != null
-                        && data.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
+    private static boolean isDustElevated(AerosolData aerosol) {
+        return (aerosol.aerosolOpticalDepth() != null
+                        && aerosol.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
+                || (aerosol.dustUgm3() != null
+                        && aerosol.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
     }
 
     /**

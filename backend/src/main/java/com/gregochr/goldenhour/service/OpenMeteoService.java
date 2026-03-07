@@ -3,11 +3,15 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudData;
+import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.WeatherData;
 import com.gregochr.goldenhour.util.GeoUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
@@ -250,13 +254,12 @@ public class OpenMeteoService {
         Double dustRaw = getAirQualityValue(aq.getDust(), idx);
         Double aodRaw = getAirQualityValue(aq.getAerosolOpticalDepth(), idx);
 
-        return new AtmosphericData(
-                locationName,
-                solarEventTime,
-                targetType,
+        CloudData cloud = new CloudData(
                 h.getCloudCoverLow().get(idx),
                 h.getCloudCoverMid().get(idx),
-                h.getCloudCoverHigh().get(idx),
+                h.getCloudCoverHigh().get(idx));
+
+        WeatherData weather = new WeatherData(
                 h.getVisibility().get(idx).intValue(),
                 BigDecimal.valueOf(h.getWindSpeed10m().get(idx))
                         .setScale(WIND_SPEED_SCALE, RoundingMode.HALF_UP),
@@ -265,22 +268,25 @@ public class OpenMeteoService {
                         .setScale(PRECIP_SCALE, RoundingMode.HALF_UP),
                 h.getRelativeHumidity2m().get(idx),
                 h.getWeatherCode().get(idx),
-                h.getBoundaryLayerHeight().get(idx).intValue(),
                 BigDecimal.valueOf(h.getShortwaveRadiation().get(idx))
-                        .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
+                        .setScale(RADIATION_SCALE, RoundingMode.HALF_UP));
+
+        AerosolData aerosol = new AerosolData(
                 toDecimal(pm25Raw, PRECIP_SCALE),
                 toDecimal(dustRaw, PRECIP_SCALE),
                 toDecimal(aodRaw, AOD_SCALE),
+                h.getBoundaryLayerHeight().get(idx).intValue());
+
+        ComfortData comfort = new ComfortData(
                 getDoubleValue(h.getTemperature2m(), idx),
                 getDoubleValue(h.getApparentTemperature(), idx),
-                getIntegerValue(h.getPrecipitationProbability(), idx),
-                null, // directionalCloud - populated by fetchDirectionalCloudData if colour location
-                null, // tideState - populated by TideService if location is coastal
-                null, // nextHighTideTime
-                null, // nextHighTideHeightMetres
-                null, // nextLowTideTime
-                null, // nextLowTideHeightMetres
-                null); // tideAligned
+                getIntegerValue(h.getPrecipitationProbability(), idx));
+
+        return new AtmosphericData(
+                locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort,
+                null,  // directionalCloud — populated later for colour locations
+                null); // tide — populated later for coastal locations
     }
 
     /**

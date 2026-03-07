@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -16,9 +16,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,7 +47,7 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluate() with SONNET delegates to the Sonnet strategy")
     void evaluate_sonnet_delegatesToSonnetStrategy() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
         SunsetEvaluation expected = new SunsetEvaluation(4, 70, 75, "Promising conditions.");
         when(sonnetStrategy.evaluate(data, null)).thenReturn(expected);
 
@@ -65,7 +62,7 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluate() with HAIKU delegates to the Haiku strategy")
     void evaluate_haiku_delegatesToHaikuStrategy() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
         SunsetEvaluation expected = new SunsetEvaluation(4, 65, 70, "Good conditions.");
         when(haikuStrategy.evaluate(data, null)).thenReturn(expected);
 
@@ -80,7 +77,7 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluate() with OPUS delegates to the Opus strategy")
     void evaluate_opus_delegatesToOpusStrategy() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
         SunsetEvaluation expected = new SunsetEvaluation(5, 85, 80, "Outstanding conditions.");
         when(opusStrategy.evaluate(data, null)).thenReturn(expected);
 
@@ -95,7 +92,7 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluateWithDetails() with HAIKU delegates to Haiku strategy")
     void evaluateWithDetails_haiku_delegatesToHaikuStrategy() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
         EvaluationDetail expected = new EvaluationDetail(
                 new SunsetEvaluation(4, 65, 70, "Good."), "prompt", "raw", 500L, TokenUsage.EMPTY);
         when(haikuStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
@@ -109,7 +106,7 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluateWithDetails() with SONNET delegates to Sonnet strategy")
     void evaluateWithDetails_sonnet_delegatesToSonnetStrategy() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
         EvaluationDetail expected = new EvaluationDetail(
                 new SunsetEvaluation(4, 70, 75, "Good."), "prompt", "raw", 800L, TokenUsage.EMPTY);
         when(sonnetStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
@@ -123,7 +120,7 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluateWithDetails() with OPUS delegates to Opus strategy")
     void evaluateWithDetails_opus_delegatesToOpusStrategy() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
         EvaluationDetail expected = new EvaluationDetail(
                 new SunsetEvaluation(5, 85, 80, "Outstanding."), "prompt", "raw", 1200L, TokenUsage.EMPTY);
         when(opusStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
@@ -137,22 +134,11 @@ class EvaluationServiceTest {
     @Test
     @DisplayName("evaluateWithDetails() with WILDLIFE throws IllegalArgumentException")
     void evaluateWithDetails_wildlife_throws() {
-        AtmosphericData data = buildAtmosphericData();
+        AtmosphericData data = TestAtmosphericData.defaults();
 
         assertThatThrownBy(() -> evaluationService.evaluateWithDetails(data, EvaluationModel.WILDLIFE, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("WILDLIFE");
     }
 
-    private AtmosphericData buildAtmosphericData() {
-        return new AtmosphericData(
-                "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
-                10, 50, 30, 25000,
-                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
-                null, null, null,
-                null,
-                null, null, null, null, null, null);
-    }
 }

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -303,12 +304,16 @@ class ForecastServiceTest {
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {
-        return new AtmosphericData("Durham UK", eventTime, targetType,
-                15, 55, 30, 22000, new BigDecimal("4.20"), 225, new BigDecimal("0.00"),
-                62, 3, 1200, new BigDecimal("180.00"),
-                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
-                12.5, 9.8, 20,
-                null,
-                null, null, null, null, null, null);
+        return TestAtmosphericData.builder()
+                .solarEventTime(eventTime)
+                .targetType(targetType)
+                .lowCloud(15)
+                .midCloud(55)
+                .visibility(22000)
+                .windSpeed(new BigDecimal("4.20"))
+                .temperature(12.5)
+                .apparentTemperature(9.8)
+                .precipProbability(20)
+                .build();
     }
 }

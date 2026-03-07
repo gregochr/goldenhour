@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -105,16 +106,24 @@ class ModelTestServiceTest {
     }
 
     private AtmosphericData sampleAtmosphericData() {
-        return new AtmosphericData("Test Location",
-                LocalDateTime.of(2026, 3, 1, 17, 30), TargetType.SUNSET,
-                20, 40, 30, 15000,
-                new BigDecimal("3.5"), 270, new BigDecimal("0.0"),
-                65, 2, 1200,
-                new BigDecimal("350.0"), new BigDecimal("5.0"),
-                new BigDecimal("2.0"), new BigDecimal("0.15"),
-                8.0, 6.0, 10,
-                null,
-                null, null, null, null, null, null);
+        return TestAtmosphericData.builder()
+                .locationName("Test Location")
+                .solarEventTime(LocalDateTime.of(2026, 3, 1, 17, 30))
+                .lowCloud(20)
+                .midCloud(40)
+                .visibility(15000)
+                .windSpeed(new BigDecimal("3.5"))
+                .windDirection(270)
+                .humidity(65)
+                .weatherCode(2)
+                .shortwaveRadiation(new BigDecimal("350.0"))
+                .pm25(new BigDecimal("5.0"))
+                .dust(new BigDecimal("2.0"))
+                .aod(new BigDecimal("0.15"))
+                .temperature(8.0)
+                .apparentTemperature(6.0)
+                .precipProbability(10)
+                .build();
     }
 
     private EvaluationDetail sampleDetail(EvaluationModel model) {
