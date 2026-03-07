@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -482,6 +483,83 @@ class OpenMeteoServiceTest {
         assertThat(result.get(1).solarEventTime()).isEqualTo(LocalDateTime.of(2026, 6, 21, 4, 0, 0));
         assertThat(result.get(0).temperatureCelsius()).isEqualTo(12.0);
         assertThat(result.get(0).precipitationProbability()).isEqualTo(20);
+    }
+
+    // --- Directional cloud data tests ---
+
+    @Test
+    @DisplayName("fetchDirectionalCloudData() returns cloud layers at solar and antisolar points")
+    void fetchDirectionalCloudData_returnsCloudAtBothPoints() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse solarForecast = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00", "2026-06-21T21:00"),
+                List.of(65, 70), List.of(20, 25), List.of(10, 15));
+        OpenMeteoForecastResponse antisolarForecast = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00", "2026-06-21T21:00"),
+                List.of(5, 8), List.of(45, 50), List.of(30, 35));
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenReturn(solarForecast)
+                .thenReturn(antisolarForecast);
+
+        DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.solarLowCloudPercent()).isEqualTo(70);
+        assertThat(result.solarMidCloudPercent()).isEqualTo(25);
+        assertThat(result.solarHighCloudPercent()).isEqualTo(15);
+        assertThat(result.antisolarLowCloudPercent()).isEqualTo(8);
+        assertThat(result.antisolarMidCloudPercent()).isEqualTo(50);
+        assertThat(result.antisolarHighCloudPercent()).isEqualTo(35);
+    }
+
+    @Test
+    @DisplayName("fetchDirectionalCloudData() returns null when API call fails")
+    void fetchDirectionalCloudData_apiFailure_returnsNull() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("network error"));
+
+        DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, null);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("fetchDirectionalCloudData() selects nearest timestamp slot")
+    void fetchDirectionalCloudData_selectsNearestSlot() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 30, 0);
+
+        OpenMeteoForecastResponse response = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00", "2026-06-21T21:00"),
+                List.of(10, 80), List.of(20, 90), List.of(30, 95));
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenReturn(response);
+
+        DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, null);
+
+        assertThat(result).isNotNull();
+        // 20:30 is closer to 20:00 than 21:00
+        assertThat(result.solarLowCloudPercent()).isEqualTo(10);
+    }
+
+    private OpenMeteoForecastResponse buildCloudOnlyResponse(
+            List<String> time,
+            List<Integer> cloudLow, List<Integer> cloudMid, List<Integer> cloudHigh) {
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(time);
+        hourly.setCloudCoverLow(cloudLow);
+        hourly.setCloudCoverMid(cloudMid);
+        hourly.setCloudCoverHigh(cloudHigh);
+        response.setHourly(hourly);
+        return response;
     }
 
     private OpenMeteoAirQualityResponse buildAirQualityResponse(

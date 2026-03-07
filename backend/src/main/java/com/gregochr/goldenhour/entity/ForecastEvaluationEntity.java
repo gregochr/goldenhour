@@ -196,6 +196,42 @@ public class ForecastEvaluationEntity {
     @Column(name = "tide_aligned")
     private Boolean tideAligned;
 
+    /** Low cloud cover at the solar horizon point (50 km toward sun), or null if unavailable. */
+    @Column(name = "solar_low_cloud")
+    private Integer solarLowCloud;
+
+    /** Mid cloud cover at the solar horizon point (50 km toward sun), or null if unavailable. */
+    @Column(name = "solar_mid_cloud")
+    private Integer solarMidCloud;
+
+    /** High cloud cover at the solar horizon point (50 km toward sun), or null if unavailable. */
+    @Column(name = "solar_high_cloud")
+    private Integer solarHighCloud;
+
+    /** Low cloud cover at the antisolar horizon point (50 km away from sun), or null if unavailable. */
+    @Column(name = "antisolar_low_cloud")
+    private Integer antisolarLowCloud;
+
+    /** Mid cloud cover at the antisolar horizon point (50 km away from sun), or null if unavailable. */
+    @Column(name = "antisolar_mid_cloud")
+    private Integer antisolarMidCloud;
+
+    /** High cloud cover at the antisolar horizon point (50 km away from sun), or null if unavailable. */
+    @Column(name = "antisolar_high_cloud")
+    private Integer antisolarHighCloud;
+
+    /** Fiery sky potential without directional data (LITE tier), or null if no directional data. */
+    @Column(name = "basic_fiery_sky_potential")
+    private Integer basicFierySkyPotential;
+
+    /** Golden hour potential without directional data (LITE tier), or null if no directional data. */
+    @Column(name = "basic_golden_hour_potential")
+    private Integer basicGoldenHourPotential;
+
+    /** Summary without directional data (LITE tier), or null if no directional data. */
+    @Column(name = "basic_summary", columnDefinition = "TEXT")
+    private String basicSummary;
+
     /**
      * Returns the location name for JSON serialisation, preserving the API contract.
      *

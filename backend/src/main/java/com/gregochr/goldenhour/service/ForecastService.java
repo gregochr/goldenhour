@@ -135,11 +135,14 @@ public class ForecastService {
                 throw new WeatherDataFetchException(msg, locationName, type.name(), null);
             }
 
-            AtmosphericData forecastData = augmentWithTideData(baseData, locationId, eventTime, tideTypes);
-
             int azimuth = type == TargetType.SUNRISE
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
+
+            AtmosphericData withDirectional = augmentWithDirectionalCloud(
+                    baseData, lat, lon, azimuth, eventTime, jobRun);
+            AtmosphericData forecastData = augmentWithTideData(
+                    withDirectional, locationId, eventTime, tideTypes);
 
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
 
@@ -214,6 +217,39 @@ public class ForecastService {
     }
 
     /**
+     * Returns a copy of {@code base} with directional cloud data from the solar/antisolar
+     * horizon points (50 km offset). Falls back gracefully to null if the fetch fails.
+     *
+     * @param base           atmospheric data without directional cloud fields
+     * @param lat            observer latitude
+     * @param lon            observer longitude
+     * @param solarAzimuth   compass bearing of the sun
+     * @param eventTime      UTC time of the solar event
+     * @param jobRun         the parent job run for metrics tracking, or {@code null}
+     * @return a new {@link AtmosphericData} with directional cloud populated where available
+     */
+    AtmosphericData augmentWithDirectionalCloud(AtmosphericData base, double lat, double lon,
+            int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun) {
+        var directional = openMeteoService.fetchDirectionalCloudData(
+                lat, lon, solarAzimuth, eventTime, jobRun);
+        if (directional == null) {
+            return base;
+        }
+        return new AtmosphericData(
+                base.locationName(), base.solarEventTime(), base.targetType(),
+                base.lowCloudPercent(), base.midCloudPercent(), base.highCloudPercent(),
+                base.visibilityMetres(), base.windSpeedMs(), base.windDirectionDegrees(),
+                base.precipitationMm(), base.humidityPercent(), base.weatherCode(),
+                base.boundaryLayerHeightMetres(), base.shortwaveRadiationWm2(),
+                base.pm25(), base.dustUgm3(), base.aerosolOpticalDepth(),
+                base.temperatureCelsius(), base.apparentTemperatureCelsius(),
+                base.precipitationProbability(),
+                directional,
+                base.tideState(), base.nextHighTideTime(), base.nextHighTideHeightMetres(),
+                base.nextLowTideTime(), base.nextLowTideHeightMetres(), base.tideAligned());
+    }
+
+    /**
      * Returns a copy of {@code base} augmented with tide fields for coastal locations.
      *
      * <p>If the location is not coastal (empty tide types), the tide fields in the
@@ -258,6 +294,7 @@ public class ForecastService {
                 base.temperatureCelsius(),
                 base.apparentTemperatureCelsius(),
                 base.precipitationProbability(),
+                base.directionalCloud(),
                 tideData != null ? tideData.tideState() : null,
                 tideData != null ? tideData.nextHighTideTime() : null,
                 tideData != null ? tideData.nextHighTideHeightMetres() : null,
@@ -316,11 +353,26 @@ public class ForecastService {
                 .nextLowTideTime(data.nextLowTideTime())
                 .nextLowTideHeightMetres(data.nextLowTideHeightMetres())
                 .tideAligned(data.tideAligned())
+                .solarLowCloud(data.directionalCloud() != null
+                        ? data.directionalCloud().solarLowCloudPercent() : null)
+                .solarMidCloud(data.directionalCloud() != null
+                        ? data.directionalCloud().solarMidCloudPercent() : null)
+                .solarHighCloud(data.directionalCloud() != null
+                        ? data.directionalCloud().solarHighCloudPercent() : null)
+                .antisolarLowCloud(data.directionalCloud() != null
+                        ? data.directionalCloud().antisolarLowCloudPercent() : null)
+                .antisolarMidCloud(data.directionalCloud() != null
+                        ? data.directionalCloud().antisolarMidCloudPercent() : null)
+                .antisolarHighCloud(data.directionalCloud() != null
+                        ? data.directionalCloud().antisolarHighCloudPercent() : null)
                 .evaluationModel(model)
                 .rating(evaluation.rating())
                 .fierySkyPotential(evaluation.fierySkyPotential())
                 .goldenHourPotential(evaluation.goldenHourPotential())
                 .summary(evaluation.summary())
+                .basicFierySkyPotential(evaluation.basicFierySkyPotential())
+                .basicGoldenHourPotential(evaluation.basicGoldenHourPotential())
+                .basicSummary(evaluation.basicSummary())
                 .solarEventTime(eventTime)
                 .azimuthDeg(azimuth)
                 .build();

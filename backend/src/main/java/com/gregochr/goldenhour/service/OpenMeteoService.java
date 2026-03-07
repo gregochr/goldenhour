@@ -4,9 +4,11 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.util.GeoUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -31,6 +33,9 @@ import java.util.List;
 public class OpenMeteoService {
 
     private static final Logger LOG = LoggerFactory.getLogger(OpenMeteoService.class);
+
+    /** Distance in metres to sample directional horizon cloud data (50 km). */
+    static final double DIRECTIONAL_OFFSET_METRES = 50_000.0;
 
     private static final int WIND_SPEED_SCALE = 2;
     private static final int PRECIP_SCALE = 2;
@@ -269,12 +274,92 @@ public class OpenMeteoService {
                 getDoubleValue(h.getTemperature2m(), idx),
                 getDoubleValue(h.getApparentTemperature(), idx),
                 getIntegerValue(h.getPrecipitationProbability(), idx),
+                null, // directionalCloud - populated by fetchDirectionalCloudData if colour location
                 null, // tideState - populated by TideService if location is coastal
                 null, // nextHighTideTime
                 null, // nextHighTideHeightMetres
                 null, // nextLowTideTime
                 null, // nextLowTideHeightMetres
                 null); // tideAligned
+    }
+
+    /**
+     * Fetches cloud cover at the solar and antisolar horizon points (50 km offset from observer).
+     *
+     * <p>Makes two additional Open-Meteo calls (cloud layers only) — one toward the sun's
+     * azimuth, one in the opposite direction. Returns {@code null} if either call fails,
+     * so the evaluation can gracefully fall back to the single-point layer inference.
+     *
+     * @param lat              observer latitude in decimal degrees
+     * @param lon              observer longitude in decimal degrees
+     * @param solarAzimuthDeg  compass bearing of the sun (sunrise or sunset azimuth)
+     * @param solarEventTime   UTC time of the solar event (for finding the nearest hourly slot)
+     * @param jobRun           the parent job run for metrics tracking, or {@code null}
+     * @return directional cloud data, or {@code null} if the fetch fails
+     */
+    public DirectionalCloudData fetchDirectionalCloudData(double lat, double lon,
+            int solarAzimuthDeg, LocalDateTime solarEventTime, JobRunEntity jobRun) {
+        double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
+                DIRECTIONAL_OFFSET_METRES);
+        double antisolarBearing = GeoUtils.antisolarBearing(solarAzimuthDeg);
+        double[] antisolarPoint = GeoUtils.offsetPoint(lat, lon, antisolarBearing,
+                DIRECTIONAL_OFFSET_METRES);
+
+        LOG.info("Directional cloud fetch: solar=[{},{}] ({}deg), antisolar=[{},{}] ({}deg)",
+                String.format("%.3f", solarPoint[0]), String.format("%.3f", solarPoint[1]),
+                solarAzimuthDeg,
+                String.format("%.3f", antisolarPoint[0]), String.format("%.3f", antisolarPoint[1]),
+                (int) antisolarBearing);
+
+        long startMs = System.currentTimeMillis();
+        try {
+            OpenMeteoForecastResponse solarForecast = openMeteoClient.fetchCloudOnly(
+                    solarPoint[0], solarPoint[1]);
+            OpenMeteoForecastResponse antisolarForecast = openMeteoClient.fetchCloudOnly(
+                    antisolarPoint[0], antisolarPoint[1]);
+
+            int solarIdx = findNearestIndex(solarForecast.getHourly().getTime(), solarEventTime);
+            int antisolarIdx = findNearestIndex(
+                    antisolarForecast.getHourly().getTime(), solarEventTime);
+
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "directional-cloud-solar", null, durationMs, 200, null, true, null);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "directional-cloud-antisolar", null, durationMs, 200, null,
+                        true, null);
+            }
+
+            OpenMeteoForecastResponse.Hourly sh = solarForecast.getHourly();
+            OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
+
+            DirectionalCloudData result = new DirectionalCloudData(
+                    sh.getCloudCoverLow().get(solarIdx),
+                    sh.getCloudCoverMid().get(solarIdx),
+                    sh.getCloudCoverHigh().get(solarIdx),
+                    ah.getCloudCoverLow().get(antisolarIdx),
+                    ah.getCloudCoverMid().get(antisolarIdx),
+                    ah.getCloudCoverHigh().get(antisolarIdx));
+
+            LOG.info("Directional cloud -> solar: L{}% M{}% H{}%, antisolar: L{}% M{}% H{}% ({}ms)",
+                    result.solarLowCloudPercent(), result.solarMidCloudPercent(),
+                    result.solarHighCloudPercent(),
+                    result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
+                    result.antisolarHighCloudPercent(), durationMs);
+
+            return result;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.warn("Directional cloud fetch failed ({}ms), falling back to layer inference: {}",
+                    durationMs, e.getMessage());
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "directional-cloud-solar", null, durationMs,
+                        getStatusCode(e), null, false, e.getMessage());
+            }
+            return null;
+        }
     }
 
     private Double getAirQualityValue(List<Double> values, int idx) {
