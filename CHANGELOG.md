@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 7, 2026)
+- **Directional cloud sampling** — fetches cloud cover at 50 km offset points toward the solar horizon and antisolar horizon using Haversine forward formula (`GeoUtils.offsetPoint()`)
+  - `DirectionalCloudData` record with 6 fields: solar/antisolar low/mid/high cloud percentages
+  - `OpenMeteoClient.fetchCloudOnly()` — lightweight cloud-only Open-Meteo request with `@Retryable`
+  - `OpenMeteoService.fetchDirectionalCloudData()` — computes offset coordinates, fetches cloud at both points, extracts nearest time slot
+  - Graceful degradation: returns null on failure, evaluation falls back to single-point inference
+  - 6 new columns on `forecast_evaluation`: `solar_low_cloud`, `solar_mid_cloud`, `solar_high_cloud`, `antisolar_low_cloud`, `antisolar_mid_cloud`, `antisolar_high_cloud`
+- **Dual-tier scoring (freemium)** — single Claude API call returns both enhanced scores (using directional data) and basic scores (observer-point inference only)
+  - 3 new columns on `forecast_evaluation`: `basic_fiery_sky_potential`, `basic_golden_hour_potential`, `basic_summary`
+  - `SunsetEvaluation` extended with basic fields; 4-arg convenience constructor for backward compatibility
+  - Evaluation prompt updated with directional cloud rules and dual-tier output schema
+  - LITE users will see `basic_*` scores; PRO/ADMIN get enhanced directional scores (frontend gating TBD)
+  - V48 migration adds all 9 columns
+- 658 backend tests — all passing, JaCoCo >= 80%
+
 ### Added (Mar 4, 2026)
 - **Popup preview on prompt test results** — eye icon button on each succeeded result row opens a modal rendering the real `MarkerPopupContent` with mapped atmospheric data, scores, and location metadata; useful for visually checking badges like Sahara Dust
 - **URL hash navigation** — active view and Manage tab persisted in URL hash (e.g. `#manage/prompttest`); page refresh returns to the same screen

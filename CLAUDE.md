@@ -100,6 +100,8 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
   - Admin UI: "Prompt Test" tab in ManageView with model/run-type selection, progress indicator, results table with Date/Target columns
   - Popup preview: eye icon on each succeeded result row opens a modal rendering `MarkerPopupContent` with mapped atmospheric data for visual badge verification (e.g. Sahara Dust)
 - **URL hash navigation** ✓ — active view and Manage tab persisted in URL hash (e.g. `#manage/prompttest`); survives page refresh and supports browser back/forward
+- **Directional cloud sampling** ✓ — fetches cloud cover at 50 km offset points toward the solar and antisolar horizons using Haversine geodesic offset (`GeoUtils`); `DirectionalCloudData` record (6 fields); `OpenMeteoClient.fetchCloudOnly()` with `@Retryable`; graceful degradation to null on failure; V48 columns on `forecast_evaluation`
+- **Dual-tier scoring (freemium)** ✓ — single Claude call returns both enhanced scores (directional data) and basic scores (observer-point inference); `basic_fiery_sky_potential`, `basic_golden_hour_potential`, `basic_summary` columns (V48); LITE users get basic scores, PRO/ADMIN get enhanced directional scores
 - **Sahara Dust badge** ✓ — `isDustEnhanced()` in `MarkerPopupContent` shows a gold badge when AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35; threshold raised from 15 to accommodate genuine Saharan dust events where mineral particles moderately elevate PM2.5
 
 ---
@@ -116,13 +118,14 @@ goldenhour/
 │   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, PromptTestRunEntity, PromptTestResultEntity, EmailVerificationTokenEntity, RegionEntity, ExchangeRateEntity, OptimisationStrategyEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType, OptimisationStrategyType
 │   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, PromptTestRunRepository, PromptTestResultRepository, EmailVerificationTokenRepository, ExchangeRateRepository, OptimisationStrategyRepository
 │   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ExchangeRateService, ModelSelectionService, ModelTestService, PromptTestService, OptimisationStrategyService, OptimisationSkipEvaluator, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
-│   │   └── model/         AtmosphericData, SunsetEvaluation, EvaluationDetail, TokenUsage, OptimisationStrategyUpdateRequest, etc.
+│   │   ├── model/         AtmosphericData, DirectionalCloudData, SunsetEvaluation, EvaluationDetail, TokenUsage, OptimisationStrategyUpdateRequest, etc.
+│   │   └── util/          GeoUtils (Haversine geodesic offset)
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
 │       ├── application-example.yml  (committed — placeholders)
 │       ├── application-local.yml    (H2 local dev profile)
 │       ├── application-prod.yml     (production config with H2 persistence)
-│       └── db/migration/            V1–V47 Flyway migrations
+│       └── db/migration/            V1–V48 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           authApi.js, forecastApi.js, modelsApi.js, modelTestApi.js, promptTestApi.js (global axios interceptors)
@@ -170,7 +173,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **CORS** — configured in `SecurityConfig` via `CorsConfigurationSource` bean; `allowedOriginPatterns` covers `localhost:*` and LAN subnets.
 - **Location metadata** — production locations are DB-managed via the Admin UI (no YAML seeding). `application-local.yml` still has location config for local dev convenience.
-- **Layer inference** — cloud altitude layers are used as a proxy for directional cloud positioning. Low < 30% = solar horizon clear ✓; mid 30–60% = canvas above horizon ✓; high 20–60% = depth and texture ✓. True 5-point directional sampling deferred to v1.1. See `docs/product/directional_analysis_breakdown.md`.
+- **Directional cloud sampling** — 2-point directional sampling (solar + antisolar horizon at 50 km offset) provides cloud data from the direction that matters most for colour evaluation. `GeoUtils.offsetPoint()` computes geodesic coordinates using Haversine forward formula. `OpenMeteoService.fetchDirectionalCloudData()` fetches cloud-only data at both offset points. Falls back gracefully to single-point inference when directional data unavailable. Dual-tier scoring: enhanced scores use directional data (PRO/ADMIN), basic scores use observer-point inference only (LITE).
 - **Aerosol proxy** — AOD + PM2.5 together proxy aerosol type: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (grey haze ✗). Implemented in evaluation prompt; no competitor does this.
 - **Virtual threads** — `spring.threads.virtual.enabled: true` in both profiles; Tomcat, `@Async`, and scheduling all use virtual threads. `forecastExecutor` bean uses `Executors.newVirtualThreadPerTaskExecutor()`.
 - **RestClient** — all HTTP clients use Spring's synchronous `RestClient` (no Reactor/WebFlux on classpath). `TideService`, `PushoverNotificationService`, `TurnstileService` inject `RestClient` directly. Open-Meteo calls go through `@HttpExchange` interfaces (`OpenMeteoForecastApi`, `OpenMeteoAirQualityApi`) proxied via `HttpServiceProxyFactory`.
@@ -243,6 +246,7 @@ jwt:
 | V45 | `run_type` column on `prompt_test_run` |
 | V46 | Refactor `GoldenHourType` → `SolarEventType` on `locations` |
 | V47 | `location_id` FK on `forecast_evaluation` and `actual_outcome` |
+| V48 | Directional cloud columns (`solar_low_cloud`, `solar_mid_cloud`, `solar_high_cloud`, `antisolar_low_cloud`, `antisolar_mid_cloud`, `antisolar_high_cloud`) + basic-tier scores (`basic_fiery_sky_potential`, `basic_golden_hour_potential`, `basic_summary`) on `forecast_evaluation` |
 
 ---
 
@@ -359,6 +363,7 @@ This is a competitive advantage. Most competitors don't touch aerosols at all.
 | Cloud layer breakdown | Blurred/teased | ✓ | ✓ |
 | Aerosol metrics | Blurred/teased | ✓ | ✓ |
 | Full technical metrics | Blurred/teased | ✓ | ✓ |
+| Directional cloud scores | Basic (observer-point) | Enhanced (directional) | Enhanced (directional) |
 | Directional map hint | — | ✓ | ✓ |
 
 Use breadcrumbs (blur/lock/soft limits) not hard paywalls. Show features exist,
@@ -527,7 +532,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 646 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 658 tests, JaCoCo ≥ 80%
 cd frontend && npm run test           # 321 Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
