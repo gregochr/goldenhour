@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -337,6 +338,69 @@ class AbstractEvaluationStrategyTest {
         assertThat(result.goldenHourPotential()).isEqualTo(60);
     }
 
+    // --- Directional cloud and dual-tier tests ---
+
+    @Test
+    @DisplayName("buildUserMessage() includes directional cloud data when available")
+    void buildUserMessage_withDirectionalCloud_includesDirectionalBlock() {
+        AtmosphericData data = buildAtmosphericDataWithDirectionalCloud();
+        String message = strategy.buildUserMessage(data);
+
+        assertThat(message).contains("DIRECTIONAL CLOUD (50km sample):");
+        assertThat(message).contains("Solar horizon (toward sun): Low 65%, Mid 20%, High 10%");
+        assertThat(message).contains("Antisolar horizon (away from sun): Low 5%, Mid 45%, High 30%");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage() omits directional cloud block when not available")
+    void buildUserMessage_withoutDirectionalCloud_omitsDirectionalBlock() {
+        AtmosphericData data = buildAtmosphericData();
+        String message = strategy.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("DIRECTIONAL CLOUD");
+    }
+
+    @Test
+    @DisplayName("evaluate() parses dual-tier response with basic fields")
+    void evaluate_dualTierResponse_parsesBasicFields() {
+        AtmosphericData data = buildAtmosphericData();
+        String json = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":78,"
+                + "\"summary\":\"Enhanced evaluation with directional data.\","
+                + "\"basic_fiery_sky\":55,\"basic_golden_hour\":60,"
+                + "\"basic_summary\":\"Moderate potential with some low cloud.\"}";
+        Message response = buildMessage(json);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isEqualTo(72);
+        assertThat(result.goldenHourPotential()).isEqualTo(78);
+        assertThat(result.summary()).isEqualTo("Enhanced evaluation with directional data.");
+        assertThat(result.basicFierySkyPotential()).isEqualTo(55);
+        assertThat(result.basicGoldenHourPotential()).isEqualTo(60);
+        assertThat(result.basicSummary()).isEqualTo("Moderate potential with some low cloud.");
+    }
+
+    @Test
+    @DisplayName("evaluate() returns null basic fields when not in response")
+    void evaluate_noBasicFields_returnsNullBasicFields() {
+        AtmosphericData data = buildAtmosphericData();
+        String json = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":75,"
+                + "\"summary\":\"Standard evaluation.\"}";
+        Message response = buildMessage(json);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertThat(result.fierySkyPotential()).isEqualTo(70);
+        assertThat(result.basicFierySkyPotential()).isNull();
+        assertThat(result.basicGoldenHourPotential()).isNull();
+        assertThat(result.basicSummary()).isNull();
+    }
+
     // --- Helper methods ---
 
     private Message buildMessage(String text) {
@@ -395,6 +459,19 @@ class AbstractEvaluationStrategyTest {
                 62, 3, 1200, new BigDecimal("180.00"),
                 new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
                 null, null, null,
+                null,
+                null, null, null, null, null, null);
+    }
+
+    private AtmosphericData buildAtmosphericDataWithDirectionalCloud() {
+        return new AtmosphericData(
+                "Durham UK", LocalDateTime.of(2026, 6, 21, 20, 47), TargetType.SUNSET,
+                10, 50, 30, 25000,
+                new BigDecimal("3.50"), 225, new BigDecimal("0.00"),
+                62, 3, 1200, new BigDecimal("180.00"),
+                new BigDecimal("8.50"), new BigDecimal("2.10"), new BigDecimal("0.120"),
+                null, null, null,
+                new DirectionalCloudData(65, 20, 10, 5, 45, 30),
                 null, null, null, null, null, null);
     }
 
@@ -406,6 +483,7 @@ class AbstractEvaluationStrategyTest {
                 62, 3, 1200, new BigDecimal("180.00"),
                 new BigDecimal("8.50"), dust, aod,
                 null, null, null,
+                null,
                 null, null, null, null, null, null);
     }
 

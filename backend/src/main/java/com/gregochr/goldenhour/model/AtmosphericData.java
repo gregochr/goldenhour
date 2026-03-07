@@ -32,6 +32,7 @@ import java.time.LocalDateTime;
  * @param temperatureCelsius         air temperature at 2 m in °C
  * @param apparentTemperatureCelsius feels-like temperature at 2 m in °C
  * @param precipitationProbability   probability of precipitation in percent (0–100)
+ * @param directionalCloud          cloud cover at solar/antisolar horizon points, or null if unavailable
  * @param tideState                 current tide state at the solar event time, or null for inland
  * @param nextHighTideTime          UTC time of next high tide or null
  * @param nextHighTideHeightMetres  height of next high tide in metres or null
@@ -60,6 +61,7 @@ public record AtmosphericData(
         Double temperatureCelsius,
         Double apparentTemperatureCelsius,
         Integer precipitationProbability,
+        DirectionalCloudData directionalCloud,
         TideState tideState,
         LocalDateTime nextHighTideTime,
         BigDecimal nextHighTideHeightMetres,

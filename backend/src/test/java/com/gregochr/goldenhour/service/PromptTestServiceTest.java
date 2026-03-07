@@ -105,6 +105,7 @@ class PromptTestServiceTest {
                 new BigDecimal("350.0"), new BigDecimal("5.0"),
                 new BigDecimal("2.0"), new BigDecimal("0.15"),
                 8.0, 6.0, 10,
+                null,
                 null, null, null, null, null, null);
     }
 

@@ -26,6 +26,9 @@ public class OpenMeteoClient {
             + "relative_humidity_2m,surface_pressure,shortwave_radiation,boundary_layer_height,"
             + "temperature_2m,apparent_temperature,precipitation_probability";
 
+    /** Comma-separated cloud-only parameters for directional horizon sampling. */
+    static final String CLOUD_ONLY_PARAMS = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";
+
     /** Comma-separated hourly air quality parameters requested from Open-Meteo. */
     static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
@@ -69,5 +72,19 @@ public class OpenMeteoClient {
                maxRetries = 2, delay = 5000, multiplier = 2)
     public OpenMeteoAirQualityResponse fetchAirQuality(double lat, double lon) {
         return airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC");
+    }
+
+    /**
+     * Fetches cloud-only forecast data for a directional horizon sampling point.
+     *
+     * @param lat latitude in decimal degrees
+     * @param lon longitude in decimal degrees
+     * @return the deserialized forecast response (only cloud layers populated)
+     */
+    @Retryable(includes = RestClientResponseException.class,
+               predicate = TransientHttpErrorPredicate.class,
+               maxRetries = 2, delay = 5000, multiplier = 2)
+    public OpenMeteoForecastResponse fetchCloudOnly(double lat, double lon) {
+        return forecastApi.getForecast(lat, lon, CLOUD_ONLY_PARAMS, "ms", "UTC");
     }
 }

@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -64,6 +65,18 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
     /** Extracts the Golden Hour Potential (0-100) from Claude's response. */
     static final Pattern GOLDEN_HOUR_PATTERN = Pattern.compile("\"golden_hour\"\\s*:\\s*(\\d+)");
 
+    /** Extracts the basic Fiery Sky Potential (0-100) from Claude's response. */
+    static final Pattern BASIC_FIERY_SKY_PATTERN =
+            Pattern.compile("\"basic_fiery_sky\"\\s*:\\s*(\\d+)");
+
+    /** Extracts the basic Golden Hour Potential (0-100) from Claude's response. */
+    static final Pattern BASIC_GOLDEN_HOUR_PATTERN =
+            Pattern.compile("\"basic_golden_hour\"\\s*:\\s*(\\d+)");
+
+    /** Extracts the basic summary from Claude's response. */
+    static final Pattern BASIC_SUMMARY_PATTERN =
+            Pattern.compile("(?s)\"basic_summary\"\\s*:\\s*\"(.*)\"\\s*[,}]");
+
     /** System prompt shared by all strategies: rating (1-5), dual scores (0-100), and summary. */
     protected static final String SYSTEM_PROMPT =
             "You are an expert sunrise/sunset colour potential advisor for landscape photographers.\n"
@@ -88,10 +101,18 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             + "length — dust scattering impact is at its peak compared to midday.\n\n"
             + "Solar/antisolar horizon model: at sunset the sun is west \u2014 the solar horizon "
             + "(west) must be clear for light penetration, while mid/high cloud on the antisolar "
-            + "side (east) at 20-60% catches and reflects colour. Sunrise is the reverse. "
-            + "Since data is non-directional, use altitude as proxy: low cloud (0-3km) sits near "
-            + "the horizon and blocks light; mid (3-8km) and high (8+km) cloud sits above and "
-            + "catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
+            + "side (east) at 20-60% catches and reflects colour. Sunrise is the reverse.\n"
+            + "DIRECTIONAL CLOUD DATA: when provided, solar horizon and antisolar horizon cloud "
+            + "readings are sampled 50 km toward and away from the sun. These are MORE RELIABLE "
+            + "than the observer-point cloud layers for assessing light penetration and canvas "
+            + "availability. Key rules:\n"
+            + "- Solar horizon low cloud >40% = light is likely BLOCKED regardless of observer cloud\n"
+            + "- Solar horizon low cloud <20% = strong light penetration likely\n"
+            + "- Antisolar mid/high cloud 20-60% = ideal canvas for catching reflected colour\n"
+            + "- When directional data contradicts observer data, trust the directional data\n"
+            + "If directional data is not provided, fall back to altitude-based inference: "
+            + "low cloud (0-3km) sits near the horizon and blocks light; mid (3-8km) and high "
+            + "(8+km) cloud sits above and catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
             + "For coastal locations, tide data may be provided. When available:\n"
             + "- High tide can expose dramatic rock formations and alter water colour\n"
             + "- Low tide may reveal sand patterns and new horizon details\n"
@@ -103,7 +124,13 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
-            + "Clear + low humidity + moderate aerosol = 65-85. Overcast = 10-30. Haze = varies.\n"
+            + "Clear + low humidity + moderate aerosol = 65-85. Overcast = 10-30. Haze = varies.\n\n"
+            + "DUAL-TIER SCORING: when directional cloud data is provided, also output three "
+            + "additional fields: basic_fiery_sky, basic_golden_hour, basic_summary. These MUST "
+            + "represent what you would score if you only had the observer-point cloud data "
+            + "(the Cloud: Low/Mid/High line) and NO directional cloud information. The basic "
+            + "scores use altitude-based inference only. If no directional cloud data is provided, "
+            + "omit the basic_* fields entirely.\n\n"
             + "Do not use double-quote characters within the summary text.";
 
     /** Prompt suffix shared by all strategies: requests all three metrics and a summary. */
@@ -196,7 +223,14 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             int fierySky = node.get("fiery_sky").asInt();
             int goldenHour = node.get("golden_hour").asInt();
             String summary = node.get("summary").stringValue();
-            return new SunsetEvaluation(rating, fierySky, goldenHour, summary);
+            Integer basicFierySky = node.has("basic_fiery_sky")
+                    ? node.get("basic_fiery_sky").asInt() : null;
+            Integer basicGoldenHour = node.has("basic_golden_hour")
+                    ? node.get("basic_golden_hour").asInt() : null;
+            String basicSummary = node.has("basic_summary")
+                    ? node.get("basic_summary").stringValue() : null;
+            return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
+                    basicFierySky, basicGoldenHour, basicSummary);
         } catch (Exception jsonException) {
             return parseWithRegexFallback(text, jsonException);
         }
@@ -405,6 +439,19 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                 data.boundaryLayerHeightMetres(), data.shortwaveRadiationWm2(),
                 data.pm25(), data.dustUgm3(), data.aerosolOpticalDepth()));
 
+        // Directional cloud data — sampled 50 km toward and away from the sun
+        DirectionalCloudData dc = data.directionalCloud();
+        if (dc != null) {
+            sb.append(String.format(
+                    "%nDIRECTIONAL CLOUD (50km sample):%n"
+                    + "Solar horizon (toward sun): Low %d%%, Mid %d%%, High %d%%%n"
+                    + "Antisolar horizon (away from sun): Low %d%%, Mid %d%%, High %d%%",
+                    dc.solarLowCloudPercent(), dc.solarMidCloudPercent(),
+                    dc.solarHighCloudPercent(),
+                    dc.antisolarLowCloudPercent(), dc.antisolarMidCloudPercent(),
+                    dc.antisolarHighCloudPercent()));
+        }
+
         // Conditional dust enrichment block — only when aerosol levels are elevated
         if (isDustElevated(data)) {
             sb.append(String.format(
@@ -492,7 +539,10 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
                                         "rating", Map.of("type", "integer"),
                                         "fiery_sky", Map.of("type", "integer"),
                                         "golden_hour", Map.of("type", "integer"),
-                                        "summary", Map.of("type", "string"))))
+                                        "summary", Map.of("type", "string"),
+                                        "basic_fiery_sky", Map.of("type", "integer"),
+                                        "basic_golden_hour", Map.of("type", "integer"),
+                                        "basic_summary", Map.of("type", "string"))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties", JsonValue.from(false))
@@ -522,7 +572,19 @@ public abstract class AbstractEvaluationStrategy implements EvaluationStrategy {
             int fierySky = Integer.parseInt(fierySkyMatcher.group(1));
             int goldenHour = Integer.parseInt(goldenHourMatcher.group(1));
             String summary = summaryMatcher.group(1);
-            return new SunsetEvaluation(rating, fierySky, goldenHour, summary);
+
+            Matcher basicFierySkyMatcher = BASIC_FIERY_SKY_PATTERN.matcher(text);
+            Matcher basicGoldenHourMatcher = BASIC_GOLDEN_HOUR_PATTERN.matcher(text);
+            Matcher basicSummaryMatcher = BASIC_SUMMARY_PATTERN.matcher(text);
+            Integer basicFierySky = basicFierySkyMatcher.find()
+                    ? Integer.parseInt(basicFierySkyMatcher.group(1)) : null;
+            Integer basicGoldenHour = basicGoldenHourMatcher.find()
+                    ? Integer.parseInt(basicGoldenHourMatcher.group(1)) : null;
+            String basicSummary = basicSummaryMatcher.find()
+                    ? basicSummaryMatcher.group(1) : null;
+
+            return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
+                    basicFierySky, basicGoldenHour, basicSummary);
         }
 
         throw new IllegalArgumentException(
