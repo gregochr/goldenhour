@@ -120,7 +120,7 @@ goldenhour/
 │   │   ├── entity/        ForecastEvaluationEntity, ActualOutcomeEntity, LocationEntity, AppUserEntity, RefreshTokenEntity, TideExtremeEntity, JobRunEntity, ApiCallLogEntity, ModelSelectionEntity, ModelTestRunEntity, ModelTestResultEntity, PromptTestRunEntity, PromptTestResultEntity, EmailVerificationTokenEntity, RegionEntity, ExchangeRateEntity, OptimisationStrategyEntity, UserRole, GoldenHourType, TideType, TideExtremeType, LocationType, TideState, RunType, ServiceName, EvaluationModel, TargetType, OptimisationStrategyType
 │   │   ├── repository/    all Spring Data repos + JobRunRepository, ApiCallLogRepository, ModelTestRunRepository, ModelTestResultRepository, PromptTestRunRepository, PromptTestResultRepository, EmailVerificationTokenRepository, ExchangeRateRepository, OptimisationStrategyRepository
 │   │   ├── service/       ForecastService, ForecastCommand, ForecastCommandFactory, ForecastCommandExecutor, OpenMeteoService, OpenMeteoClient, SolarService, EvaluationService, LocationService, OutcomeService, JwtService, UserService, RegistrationService, TurnstileService, TideService, ScheduledForecastService, JobRunService, CostCalculator, ExchangeRateService, ModelSelectionService, ModelTestService, PromptTestService, OptimisationStrategyService, OptimisationSkipEvaluator, evaluation/ (AnthropicApiClient, AbstractEvaluationStrategy, Haiku/Sonnet/Opus strategies), notification/
-│   │   ├── model/         AtmosphericData, DirectionalCloudData, SunsetEvaluation, EvaluationDetail, TokenUsage, OptimisationStrategyUpdateRequest, etc.
+│   │   ├── model/         AtmosphericData (CloudData, WeatherData, AerosolData, ComfortData, TideSnapshot, DirectionalCloudData), SunsetEvaluation, EvaluationDetail, TokenUsage, etc.
 │   │   └── util/          GeoUtils (Haversine geodesic offset)
 │   └── src/main/resources/
 │       ├── application.yml          (gitignored — never commit)
@@ -167,6 +167,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 ## Key Architecture Decisions
 
 - **No DTOs** — `ForecastController` returns entities directly; all fields auto-exposed.
+- **Composable atmospheric data** — `AtmosphericData` record uses 5 sub-records (`CloudData`, `WeatherData`, `AerosolData`, `ComfortData`, `TideSnapshot`) plus `DirectionalCloudData`. `withDirectionalCloud()` and `withTide()` copy methods for immutable augmentation. `TestAtmosphericData` builder centralises test construction.
 - **Backend-heavy** — all calculations (dayLabel, windCardinal, visibilityKm, azimuthDeg, tideAligned) computed on backend. Frontend is a pure render layer.
 - **Evaluation strategy** — flat hierarchy: `AbstractEvaluationStrategy` (shared prompts, parsing) → `HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`, plus `NoOpEvaluationStrategy` for wildlife (no Claude call). Only `getEvaluationModel()` and `getModelName()` differ per Claude strategy. `AnthropicApiClient` handles API calls with declarative `@Retryable`. `EvaluationService` delegates to the strategy matching the admin-selected model for each run type.
 - **Command pattern** — `ForecastCommand` record encapsulates run parameters (run type, dates, locations, strategy, manual flag). `ForecastCommandFactory` builds commands from `RunType`, resolving the active model and strategy. `ForecastCommandExecutor` runs commands with parallel execution, configurable optimisation strategies, and metrics tracking. Controllers and schedulers are thin wrappers: `commandFactory.create()` → `commandExecutor.execute()`.
@@ -534,7 +535,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 662 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 664 tests, JaCoCo ≥ 80%
 # Run prompt regression tests (requires ANTHROPIC_API_KEY)
 cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
 cd frontend && npm run test           # 321 Vitest component tests

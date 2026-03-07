@@ -24,7 +24,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Copt Hill (negative case): blocked solar horizon, asserts rating <= 2, fiery <= 25, golden <= 35
   - Angel of the North (positive case): spectacular sunset, asserts rating >= 4, fiery >= 60, golden >= 60
   - `generate-regression-fixture.sh` — fetches Open-Meteo historical data and outputs Java fixture code
-- 662 backend tests — all passing, JaCoCo >= 80%
+- **AtmosphericData decomposition** — split the 27-field `AtmosphericData` record into 5 composable sub-records: `CloudData`, `WeatherData`, `AerosolData`, `ComfortData`, `TideSnapshot`
+  - `AtmosphericData` reduced from 27 positional fields to 9 named sub-records
+  - `withDirectionalCloud()` and `withTide()` copy methods replace the painful 27-field copy-with pattern
+  - `ForecastService.augmentWithDirectionalCloud()` reduced from 15 lines to 1 line
+  - `ForecastService.augmentWithTideData()` reduced from 25 lines to 10 lines
+  - `TestAtmosphericData` builder centralises test data construction across 12 test files
+- 664 backend tests — all passing, JaCoCo >= 80%
 
 ### Fixed (Mar 7, 2026)
 - **Solar-aware slot selection** — `findBestIndex()` replaces `findNearestIndex()` for choosing the Open-Meteo hourly slot; sunset picks the last slot at or before the event, sunrise picks the first slot at or after. Prevents using post-sunset or pre-sunrise data (0 W/m² radiation, meaningless conditions)
