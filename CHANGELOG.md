@@ -18,7 +18,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Evaluation prompt updated with directional cloud rules and dual-tier output schema
   - LITE users will see `basic_*` scores; PRO/ADMIN get enhanced directional scores (frontend gating TBD)
   - V48 migration adds all 9 columns
-- 658 backend tests — all passing, JaCoCo >= 80%
+- **Prompt regression test suite** — live Claude API tests with real-world atmospheric data that assert scores stay within observed bounds
+  - `PromptRegressionTest` with `@Tag("prompt-regression")`, excluded from `mvn verify`
+  - Run on demand: `ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression`
+  - Copt Hill (negative case): blocked solar horizon, asserts rating <= 2, fiery <= 25, golden <= 35
+  - Angel of the North (positive case): spectacular sunset, asserts rating >= 4, fiery >= 60, golden >= 60
+  - `generate-regression-fixture.sh` — fetches Open-Meteo historical data and outputs Java fixture code
+- 662 backend tests — all passing, JaCoCo >= 80%
+
+### Fixed (Mar 7, 2026)
+- **Solar-aware slot selection** — `findBestIndex()` replaces `findNearestIndex()` for choosing the Open-Meteo hourly slot; sunset picks the last slot at or before the event, sunrise picks the first slot at or after. Prevents using post-sunset or pre-sunrise data (0 W/m² radiation, meaningless conditions)
+- **Directional cloud scoring thresholds** — adjusted from >50% to >60% solar low cloud for the hard "blocked" ceiling; 40-60% band penalises but considers that mid/high cloud may still catch colour through gaps in breaking low cloud
 
 ### Added (Mar 4, 2026)
 - **Popup preview on prompt test results** — eye icon button on each succeeded result row opens a modal rendering the real `MarkerPopupContent` with mapped atmospheric data, scores, and location metadata; useful for visually checking badges like Sahara Dust

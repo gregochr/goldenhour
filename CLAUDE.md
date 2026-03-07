@@ -102,6 +102,8 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 - **URL hash navigation** ✓ — active view and Manage tab persisted in URL hash (e.g. `#manage/prompttest`); survives page refresh and supports browser back/forward
 - **Directional cloud sampling** ✓ — fetches cloud cover at 50 km offset points toward the solar and antisolar horizons using Haversine geodesic offset (`GeoUtils`); `DirectionalCloudData` record (6 fields); `OpenMeteoClient.fetchCloudOnly()` with `@Retryable`; graceful degradation to null on failure; V48 columns on `forecast_evaluation`
 - **Dual-tier scoring (freemium)** ✓ — single Claude call returns both enhanced scores (directional data) and basic scores (observer-point inference); `basic_fiery_sky_potential`, `basic_golden_hour_potential`, `basic_summary` columns (V48); LITE users get basic scores, PRO/ADMIN get enhanced directional scores
+- **Prompt regression test suite** ✓ — live Claude API tests with real atmospheric data from observed events; `@Tag("prompt-regression")` excluded from `mvn verify`, run via `-Pprompt-regression`; negative cases (blocked horizon) assert score ceilings, positive cases (spectacular sunset) assert score floors
+- **Solar-aware slot selection** ✓ — `findBestIndex()` picks the last hourly slot before sunset / first after sunrise, preventing use of post-sunset or pre-sunrise slots with 0 W/m² radiation
 - **Sahara Dust badge** ✓ — `isDustEnhanced()` in `MarkerPopupContent` shows a gold badge when AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35; threshold raised from 15 to accommodate genuine Saharan dust events where mineral particles moderately elevate PM2.5
 
 ---
@@ -173,7 +175,7 @@ To reset local DB: delete `backend/data/goldenhour.mv.db` and `.lock.db`.
 - **JWT** — stateless HMAC-SHA256; 24 h access token, 30-day refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **CORS** — configured in `SecurityConfig` via `CorsConfigurationSource` bean; `allowedOriginPatterns` covers `localhost:*` and LAN subnets.
 - **Location metadata** — production locations are DB-managed via the Admin UI (no YAML seeding). `application-local.yml` still has location config for local dev convenience.
-- **Directional cloud sampling** — 2-point directional sampling (solar + antisolar horizon at 50 km offset) provides cloud data from the direction that matters most for colour evaluation. `GeoUtils.offsetPoint()` computes geodesic coordinates using Haversine forward formula. `OpenMeteoService.fetchDirectionalCloudData()` fetches cloud-only data at both offset points. Falls back gracefully to single-point inference when directional data unavailable. Dual-tier scoring: enhanced scores use directional data (PRO/ADMIN), basic scores use observer-point inference only (LITE).
+- **Directional cloud sampling** — 2-point directional sampling (solar + antisolar horizon at 50 km offset) provides cloud data from the direction that matters most for colour evaluation. `GeoUtils.offsetPoint()` computes geodesic coordinates using Haversine forward formula. `OpenMeteoService.fetchDirectionalCloudData()` fetches cloud-only data at both offset points. Falls back gracefully to single-point inference when directional data unavailable. Dual-tier scoring: enhanced scores use directional data (PRO/ADMIN), basic scores use observer-point inference only (LITE). Prompt rules: solar low cloud >60% = blocked (rating 1-2), 40-60% = penalise but consider gaps, <20% = clear. `findBestIndex()` selects the last slot before sunset / first after sunrise to avoid post-event slots with 0 W/m² radiation.
 - **Aerosol proxy** — AOD + PM2.5 together proxy aerosol type: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (grey haze ✗). Implemented in evaluation prompt; no competitor does this.
 - **Virtual threads** — `spring.threads.virtual.enabled: true` in both profiles; Tomcat, `@Async`, and scheduling all use virtual threads. `forecastExecutor` bean uses `Executors.newVirtualThreadPerTaskExecutor()`.
 - **RestClient** — all HTTP clients use Spring's synchronous `RestClient` (no Reactor/WebFlux on classpath). `TideService`, `PushoverNotificationService`, `TurnstileService` inject `RestClient` directly. Open-Meteo calls go through `@HttpExchange` interfaces (`OpenMeteoForecastApi`, `OpenMeteoAirQualityApi`) proxied via `HttpServiceProxyFactory`.
@@ -532,7 +534,9 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Testing
 
 ```bash
-cd backend && ./mvnw clean verify     # 658 tests, JaCoCo ≥ 80%
+cd backend && ./mvnw clean verify     # 662 tests, JaCoCo ≥ 80%
+# Run prompt regression tests (requires ANTHROPIC_API_KEY)
+cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
 cd frontend && npm run test           # 321 Vitest component tests
 cd frontend && npm run test:e2e       # Playwright (requires app running)
 ```
