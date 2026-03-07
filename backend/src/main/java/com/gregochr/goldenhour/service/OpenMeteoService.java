@@ -241,7 +241,7 @@ public class OpenMeteoService {
             OpenMeteoAirQualityResponse airQuality, String locationName,
             LocalDateTime solarEventTime, TargetType targetType) {
         List<String> times = forecast.getHourly().getTime();
-        int idx = findNearestIndex(times, solarEventTime);
+        int idx = findBestIndex(times, solarEventTime, targetType);
 
         OpenMeteoForecastResponse.Hourly h = forecast.getHourly();
         OpenMeteoAirQualityResponse.Hourly aq = airQuality.getHourly();
@@ -293,12 +293,14 @@ public class OpenMeteoService {
      * @param lat              observer latitude in decimal degrees
      * @param lon              observer longitude in decimal degrees
      * @param solarAzimuthDeg  compass bearing of the sun (sunrise or sunset azimuth)
-     * @param solarEventTime   UTC time of the solar event (for finding the nearest hourly slot)
+     * @param solarEventTime   UTC time of the solar event (for finding the best hourly slot)
+     * @param targetType       SUNRISE or SUNSET (determines slot selection direction)
      * @param jobRun           the parent job run for metrics tracking, or {@code null}
      * @return directional cloud data, or {@code null} if the fetch fails
      */
     public DirectionalCloudData fetchDirectionalCloudData(double lat, double lon,
-            int solarAzimuthDeg, LocalDateTime solarEventTime, JobRunEntity jobRun) {
+            int solarAzimuthDeg, LocalDateTime solarEventTime, TargetType targetType,
+            JobRunEntity jobRun) {
         double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
                 DIRECTIONAL_OFFSET_METRES);
         double antisolarBearing = GeoUtils.antisolarBearing(solarAzimuthDeg);
@@ -318,9 +320,10 @@ public class OpenMeteoService {
             OpenMeteoForecastResponse antisolarForecast = openMeteoClient.fetchCloudOnly(
                     antisolarPoint[0], antisolarPoint[1]);
 
-            int solarIdx = findNearestIndex(solarForecast.getHourly().getTime(), solarEventTime);
-            int antisolarIdx = findNearestIndex(
-                    antisolarForecast.getHourly().getTime(), solarEventTime);
+            int solarIdx = findBestIndex(solarForecast.getHourly().getTime(),
+                    solarEventTime, targetType);
+            int antisolarIdx = findBestIndex(antisolarForecast.getHourly().getTime(),
+                    solarEventTime, targetType);
 
             long durationMs = System.currentTimeMillis() - startMs;
             if (jobRun != null) {
@@ -390,17 +393,53 @@ public class OpenMeteoService {
         return BigDecimal.valueOf(value).setScale(scale, RoundingMode.HALF_UP);
     }
 
-    private int findNearestIndex(List<String> times, LocalDateTime targetTime) {
-        int nearestIdx = 0;
-        long minDiff = Long.MAX_VALUE;
+    /**
+     * Finds the best hourly slot index for a solar event, respecting event direction.
+     *
+     * <p>For sunset, selects the latest slot at or before the event time (the slot after
+     * sunset has 0 radiation and is useless). For sunrise, selects the earliest slot at
+     * or after the event time (the slot before sunrise is pre-dawn darkness).
+     * Falls back to the absolute nearest slot if no valid slot exists on the preferred side.
+     *
+     * @param times      list of ISO-8601 time strings from the API response
+     * @param targetTime the solar event time
+     * @param targetType SUNRISE or SUNSET
+     * @return the index of the best matching slot
+     */
+    int findBestIndex(List<String> times, LocalDateTime targetTime, TargetType targetType) {
+        int bestIdx = -1;
+        long bestDiff = Long.MAX_VALUE;
+
         for (int i = 0; i < times.size(); i++) {
             LocalDateTime slotTime = LocalDateTime.parse(times.get(i));
-            long diff = Math.abs(ChronoUnit.SECONDS.between(slotTime, targetTime));
-            if (diff < minDiff) {
-                minDiff = diff;
-                nearestIdx = i;
+            long diffSeconds = ChronoUnit.SECONDS.between(slotTime, targetTime);
+            // diffSeconds > 0 means slot is before targetTime; < 0 means slot is after
+
+            boolean validSide = targetType == TargetType.SUNSET
+                    ? diffSeconds >= 0   // slot at or before sunset
+                    : diffSeconds <= 0;  // slot at or after sunrise
+
+            long absDiff = Math.abs(diffSeconds);
+            if (validSide && absDiff < bestDiff) {
+                bestDiff = absDiff;
+                bestIdx = i;
             }
         }
-        return nearestIdx;
+
+        // Fall back to absolute nearest if no valid slot on the preferred side
+        if (bestIdx == -1) {
+            bestIdx = 0;
+            long minDiff = Long.MAX_VALUE;
+            for (int i = 0; i < times.size(); i++) {
+                long diff = Math.abs(ChronoUnit.SECONDS.between(
+                        LocalDateTime.parse(times.get(i)), targetTime));
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestIdx = i;
+                }
+            }
+        }
+
+        return bestIdx;
     }
 }

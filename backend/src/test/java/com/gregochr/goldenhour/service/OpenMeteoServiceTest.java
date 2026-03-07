@@ -504,15 +504,16 @@ class OpenMeteoServiceTest {
                 .thenReturn(antisolarForecast);
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
-                54.7753, -1.5849, 245, eventTime, null);
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
 
         assertThat(result).isNotNull();
-        assertThat(result.solarLowCloudPercent()).isEqualTo(70);
-        assertThat(result.solarMidCloudPercent()).isEqualTo(25);
-        assertThat(result.solarHighCloudPercent()).isEqualTo(15);
-        assertThat(result.antisolarLowCloudPercent()).isEqualTo(8);
-        assertThat(result.antisolarMidCloudPercent()).isEqualTo(50);
-        assertThat(result.antisolarHighCloudPercent()).isEqualTo(35);
+        // Sunset at 20:47 picks 20:00 slot (index 0) — before sunset, not after
+        assertThat(result.solarLowCloudPercent()).isEqualTo(65);
+        assertThat(result.solarMidCloudPercent()).isEqualTo(20);
+        assertThat(result.solarHighCloudPercent()).isEqualTo(10);
+        assertThat(result.antisolarLowCloudPercent()).isEqualTo(5);
+        assertThat(result.antisolarMidCloudPercent()).isEqualTo(45);
+        assertThat(result.antisolarHighCloudPercent()).isEqualTo(30);
     }
 
     @Test
@@ -524,15 +525,16 @@ class OpenMeteoServiceTest {
                 .thenThrow(new RuntimeException("network error"));
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
-                54.7753, -1.5849, 245, eventTime, null);
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
 
         assertThat(result).isNull();
     }
 
     @Test
-    @DisplayName("fetchDirectionalCloudData() selects nearest timestamp slot")
-    void fetchDirectionalCloudData_selectsNearestSlot() {
-        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 30, 0);
+    @DisplayName("fetchDirectionalCloudData() for sunset selects slot before event time")
+    void fetchDirectionalCloudData_sunset_selectsSlotBeforeEvent() {
+        // Sunset at 20:47 — closer to 21:00, but should pick 20:00 (before sunset)
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
 
         OpenMeteoForecastResponse response = buildCloudOnlyResponse(
                 List.of("2026-06-21T20:00", "2026-06-21T21:00"),
@@ -542,11 +544,60 @@ class OpenMeteoServiceTest {
                 .thenReturn(response);
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
-                54.7753, -1.5849, 245, eventTime, null);
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
 
         assertThat(result).isNotNull();
-        // 20:30 is closer to 20:00 than 21:00
+        // Should pick 20:00 (before sunset), not 21:00 (after sunset, useless data)
         assertThat(result.solarLowCloudPercent()).isEqualTo(10);
+    }
+
+    // --- findBestIndex tests ---
+
+    @Test
+    @DisplayName("findBestIndex() for sunset picks slot before event, not the closer one after")
+    void findBestIndex_sunset_prefersSlotBefore() {
+        List<String> times = List.of("2026-03-05T17:00", "2026-03-05T18:00");
+        // Sunset at 17:35 — 18:00 is closer (25 min) but 17:00 should be chosen (35 min before)
+        LocalDateTime sunset = LocalDateTime.of(2026, 3, 5, 17, 35);
+
+        int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
+
+        assertThat(idx).isEqualTo(0); // 17:00
+    }
+
+    @Test
+    @DisplayName("findBestIndex() for sunrise picks slot after event, not the closer one before")
+    void findBestIndex_sunrise_prefersSlotAfter() {
+        List<String> times = List.of("2026-03-05T06:00", "2026-03-05T07:00");
+        // Sunrise at 06:25 — 06:00 is closer (25 min) but 07:00 should be chosen (35 min after)
+        LocalDateTime sunrise = LocalDateTime.of(2026, 3, 5, 6, 25);
+
+        int idx = openMeteoService.findBestIndex(times, sunrise, TargetType.SUNRISE);
+
+        assertThat(idx).isEqualTo(1); // 07:00
+    }
+
+    @Test
+    @DisplayName("findBestIndex() falls back to nearest when no slot on preferred side")
+    void findBestIndex_fallsBackToNearest() {
+        List<String> times = List.of("2026-03-05T19:00", "2026-03-05T20:00");
+        // Sunset at 17:35 — both slots are after sunset, should fall back to nearest (19:00)
+        LocalDateTime sunset = LocalDateTime.of(2026, 3, 5, 17, 35);
+
+        int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
+
+        assertThat(idx).isEqualTo(0); // 19:00 (nearest)
+    }
+
+    @Test
+    @DisplayName("findBestIndex() for sunset picks exact match at event time")
+    void findBestIndex_sunset_exactMatch() {
+        List<String> times = List.of("2026-03-05T17:00", "2026-03-05T18:00");
+        LocalDateTime sunset = LocalDateTime.of(2026, 3, 5, 17, 0);
+
+        int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
+
+        assertThat(idx).isEqualTo(0); // exact match at 17:00
     }
 
     private OpenMeteoForecastResponse buildCloudOnlyResponse(

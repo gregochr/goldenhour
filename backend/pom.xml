@@ -20,7 +20,30 @@
     <properties>
         <java.version>21</java.version>
         <anthropic-sdk.version>2.15.0</anthropic-sdk.version>
+        <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
     </properties>
+
+    <profiles>
+        <!-- Run only prompt regression tests: ./mvnw test -Pprompt-regression -->
+        <profile>
+            <id>prompt-regression</id>
+            <properties>
+                <surefire.excludedGroups/>
+                <surefire.groups>prompt-regression</surefire.groups>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups>${surefire.groups}</groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <repositories>
         <repository>
@@ -307,6 +330,7 @@
                         --add-opens java.base/java.lang.reflect=ALL-UNNAMED
                         --add-opens java.base/java.util=ALL-UNNAMED
                     </argLine>
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
                 </configuration>
             </plugin>
 

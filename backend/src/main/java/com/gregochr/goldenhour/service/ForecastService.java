@@ -231,7 +231,7 @@ public class ForecastService {
     AtmosphericData augmentWithDirectionalCloud(AtmosphericData base, double lat, double lon,
             int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun) {
         var directional = openMeteoService.fetchDirectionalCloudData(
-                lat, lon, solarAzimuth, eventTime, jobRun);
+                lat, lon, solarAzimuth, eventTime, base.targetType(), jobRun);
         if (directional == null) {
             return base;
         }
