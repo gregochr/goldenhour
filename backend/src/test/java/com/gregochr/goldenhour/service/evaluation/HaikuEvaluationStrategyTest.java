@@ -11,7 +11,6 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.TestAtmosphericData;
-import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -19,7 +18,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import com.gregochr.goldenhour.service.JobRunService;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -32,7 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link HaikuEvaluationStrategy}.
+ * Unit tests for {@link ClaudeEvaluationStrategy} with {@link EvaluationModel#HAIKU}.
  */
 @ExtendWith(MockitoExtension.class)
 class HaikuEvaluationStrategyTest {
@@ -40,46 +38,20 @@ class HaikuEvaluationStrategyTest {
     @Mock
     private AnthropicApiClient anthropicApiClient;
 
-    @Mock
-    private JobRunService jobRunService;
-
-    private HaikuEvaluationStrategy strategy;
+    private ClaudeEvaluationStrategy strategy;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        AnthropicProperties properties = new AnthropicProperties();
-        properties.setModel("claude-haiku-4-5-20251001");
         objectMapper = new ObjectMapper();
-        strategy = new HaikuEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
+        strategy = new ClaudeEvaluationStrategy(
+                anthropicApiClient, new PromptBuilder(), objectMapper, EvaluationModel.HAIKU);
     }
 
     @Test
     @DisplayName("getEvaluationModel() returns HAIKU")
     void getEvaluationModel_returnsHaiku() {
         assertThat(strategy.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
-    }
-
-    @Test
-    @DisplayName("getModelName() returns claude-haiku-4-5")
-    void getModelName_returnsHaikuModelId() {
-        assertThat(strategy.getModelName()).isEqualTo("claude-haiku-4-5");
-    }
-
-    @Test
-    @DisplayName("getPromptSuffix() returns shared prompt suffix with rating instruction")
-    void getPromptSuffix_returnsCorrectString() {
-        assertThat(strategy.getPromptSuffix())
-                .contains("Rate 1-5")
-                .contains("Fiery Sky Potential")
-                .contains("Golden Hour Potential");
-    }
-
-    @Test
-    @DisplayName("getSystemPrompt() contains rating scale instruction")
-    void getSystemPrompt_containsRatingScaleInstruction() {
-        assertThat(strategy.getSystemPrompt()).contains("1\u20135");
-        assertThat(strategy.getSystemPrompt()).contains("rating");
     }
 
     @Test
@@ -158,7 +130,7 @@ class HaikuEvaluationStrategyTest {
         ContentBlock contentBlock = ContentBlock.ofText(textBlock);
         return Message.builder()
                 .id("msg_test")
-                .model(Model.of("claude-haiku-4-5-20251001"))
+                .model(Model.of("claude-haiku-4-5"))
                 .content(List.of(contentBlock))
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())

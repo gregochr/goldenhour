@@ -2,9 +2,10 @@ package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -31,17 +32,18 @@ class NoOpEvaluationStrategyTest {
     }
 
     @Test
-    @DisplayName("evaluate(data, jobRun) returns null evaluation")
-    void evaluate_withJobRun_returnsNullEvaluation() {
+    @DisplayName("evaluateWithDetails() returns detail with null evaluation fields")
+    void evaluateWithDetails_returnsNullEvaluationDetail() {
         AtmosphericData data = buildAtmosphericData();
-        JobRunEntity jobRun = new JobRunEntity();
 
-        SunsetEvaluation result = strategy.evaluate(data, jobRun);
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
 
-        assertThat(result.rating()).isNull();
-        assertThat(result.fierySkyPotential()).isNull();
-        assertThat(result.goldenHourPotential()).isNull();
-        assertThat(result.summary()).isNull();
+        assertThat(detail.evaluation().rating()).isNull();
+        assertThat(detail.evaluation().fierySkyPotential()).isNull();
+        assertThat(detail.promptSent()).isNull();
+        assertThat(detail.rawResponse()).isNull();
+        assertThat(detail.durationMs()).isZero();
+        assertThat(detail.tokenUsage()).isEqualTo(TokenUsage.EMPTY);
     }
 
     @Test
@@ -56,7 +58,7 @@ class NoOpEvaluationStrategyTest {
         AtmosphericData data = buildAtmosphericData();
 
         SunsetEvaluation first = strategy.evaluate(data);
-        SunsetEvaluation second = strategy.evaluate(data, null);
+        SunsetEvaluation second = strategy.evaluate(data);
 
         assertThat(first).isSameAs(second);
     }

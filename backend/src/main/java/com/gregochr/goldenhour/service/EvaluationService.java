@@ -5,43 +5,37 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.MetricsLoggingDecorator;
 import org.springframework.stereotype.Service;
+
+import java.util.Map;
 
 /**
  * Evaluates sunrise/sunset colour potential by delegating to the appropriate
- * {@link com.gregochr.goldenhour.service.evaluation.EvaluationStrategy}.
+ * {@link EvaluationStrategy}.
  *
- * <p>All strategies are injected; the caller selects which to use by passing an
- * {@link EvaluationModel} to {@link #evaluate(AtmosphericData, EvaluationModel)}.
+ * <p>Strategies are looked up from an injected map keyed by {@link EvaluationModel}.
+ * When a {@link JobRunEntity} is provided, the strategy is wrapped with a
+ * {@link MetricsLoggingDecorator} that adds timing, logging, and metrics tracking —
+ * keeping cross-cutting concerns out of the core strategies.
  */
 @Service
 public class EvaluationService {
 
-    private final HaikuEvaluationStrategy haikuStrategy;
-    private final SonnetEvaluationStrategy sonnetStrategy;
-    private final OpusEvaluationStrategy opusStrategy;
-    private final NoOpEvaluationStrategy noOpStrategy;
+    private final Map<EvaluationModel, EvaluationStrategy> strategies;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs an {@code EvaluationService}.
      *
-     * @param haikuStrategy  the Haiku evaluation strategy
-     * @param sonnetStrategy the Sonnet evaluation strategy
-     * @param opusStrategy   the Opus evaluation strategy
-     * @param noOpStrategy   the no-op strategy for wildlife locations
+     * @param strategies    map from evaluation model to its strategy
+     * @param jobRunService the metrics service for decorator creation
      */
-    public EvaluationService(HaikuEvaluationStrategy haikuStrategy,
-            SonnetEvaluationStrategy sonnetStrategy,
-            OpusEvaluationStrategy opusStrategy,
-            NoOpEvaluationStrategy noOpStrategy) {
-        this.haikuStrategy = haikuStrategy;
-        this.sonnetStrategy = sonnetStrategy;
-        this.opusStrategy = opusStrategy;
-        this.noOpStrategy = noOpStrategy;
+    public EvaluationService(Map<EvaluationModel, EvaluationStrategy> strategies,
+            JobRunService jobRunService) {
+        this.strategies = strategies;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -56,42 +50,56 @@ public class EvaluationService {
     }
 
     /**
-     * Evaluates the colour potential for a solar event using the specified model.
+     * Evaluates the colour potential for a solar event using the specified model,
+     * with optional metrics tracking via the decorator pattern.
      *
      * @param data   the atmospheric forecast data to evaluate
      * @param model  which Claude model to use
-     * @param jobRun the parent job run for metrics tracking, or {@code null} if not from scheduled run
+     * @param jobRun the parent job run for metrics tracking, or {@code null}
      * @return Claude's colour potential evaluation and plain-English explanation
      */
-    public SunsetEvaluation evaluate(AtmosphericData data, EvaluationModel model, JobRunEntity jobRun) {
-        return switch (model) {
-            case HAIKU -> haikuStrategy.evaluate(data, jobRun);
-            case OPUS -> opusStrategy.evaluate(data, jobRun);
-            case WILDLIFE -> noOpStrategy.evaluate(data, jobRun);
-            case SONNET -> sonnetStrategy.evaluate(data, jobRun);
-        };
+    public SunsetEvaluation evaluate(AtmosphericData data, EvaluationModel model,
+            JobRunEntity jobRun) {
+        return decorateIfNeeded(getStrategy(model), jobRun).evaluate(data);
     }
 
     /**
      * Evaluates the colour potential and returns full detail including prompt and raw response.
      *
      * <p>Used by model comparison tests to capture exact inputs/outputs for side-by-side analysis.
-     * Only supports Claude-based models (HAIKU, SONNET, OPUS); WILDLIFE is not supported.
      *
      * @param data   the atmospheric forecast data to evaluate
-     * @param model  which Claude model to use (HAIKU, SONNET, or OPUS)
+     * @param model  which Claude model to use
      * @param jobRun the parent job run for metrics tracking, or {@code null}
      * @return full evaluation detail including prompt and raw response
-     * @throws IllegalArgumentException if model is WILDLIFE
      */
     public EvaluationDetail evaluateWithDetails(AtmosphericData data, EvaluationModel model,
             JobRunEntity jobRun) {
-        return switch (model) {
-            case HAIKU -> haikuStrategy.evaluateWithDetails(data, jobRun);
-            case SONNET -> sonnetStrategy.evaluateWithDetails(data, jobRun);
-            case OPUS -> opusStrategy.evaluateWithDetails(data, jobRun);
-            case WILDLIFE -> throw new IllegalArgumentException(
-                    "evaluateWithDetails not supported for WILDLIFE model");
-        };
+        return decorateIfNeeded(getStrategy(model), jobRun).evaluateWithDetails(data);
+    }
+
+    /**
+     * Returns the strategy for the given model.
+     *
+     * @throws IllegalArgumentException if no strategy is registered for the model
+     */
+    private EvaluationStrategy getStrategy(EvaluationModel model) {
+        EvaluationStrategy strategy = strategies.get(model);
+        if (strategy == null) {
+            throw new IllegalArgumentException("No evaluation strategy for model: " + model);
+        }
+        return strategy;
+    }
+
+    /**
+     * Wraps the strategy with a {@link MetricsLoggingDecorator} when a job run
+     * is available for metrics tracking.
+     */
+    private EvaluationStrategy decorateIfNeeded(EvaluationStrategy strategy,
+            JobRunEntity jobRun) {
+        if (jobRun != null) {
+            return new MetricsLoggingDecorator(strategy, jobRunService, jobRun);
+        }
+        return strategy;
     }
 }

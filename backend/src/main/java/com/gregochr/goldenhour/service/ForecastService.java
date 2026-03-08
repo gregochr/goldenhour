@@ -10,8 +10,6 @@ import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
-import com.gregochr.goldenhour.model.TideData;
-import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
@@ -44,7 +42,7 @@ public class ForecastService {
 
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
-    private final TideService tideService;
+    private final ForecastDataAugmentor augmentor;
     private final EvaluationService evaluationService;
     private final ForecastEvaluationRepository repository;
     private final EmailNotificationService emailService;
@@ -56,7 +54,7 @@ public class ForecastService {
      *
      * @param solarService      calculates solar event times
      * @param openMeteoService  retrieves Open-Meteo forecast data
-     * @param tideService       fetches tide data for coastal locations
+     * @param augmentor         enriches atmospheric data with directional cloud and tide information
      * @param evaluationService calls Claude to evaluate colour potential
      * @param repository        persists forecast evaluation results
      * @param emailService      email notification channel
@@ -64,12 +62,12 @@ public class ForecastService {
      * @param toastService      macOS toast notification channel
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
-            TideService tideService, EvaluationService evaluationService,
+            ForecastDataAugmentor augmentor, EvaluationService evaluationService,
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
             PushoverNotificationService pushoverService, MacOsToastNotificationService toastService) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
-        this.tideService = tideService;
+        this.augmentor = augmentor;
         this.evaluationService = evaluationService;
         this.repository = repository;
         this.emailService = emailService;
@@ -140,9 +138,9 @@ public class ForecastService {
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
-            AtmosphericData withDirectional = augmentWithDirectionalCloud(
+            AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
                     baseData, lat, lon, azimuth, eventTime, jobRun);
-            AtmosphericData forecastData = augmentWithTideData(
+            AtmosphericData forecastData = augmentor.augmentWithTideData(
                     withDirectional, locationId, eventTime, tideTypes);
 
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
@@ -204,7 +202,7 @@ public class ForecastService {
         SunsetEvaluation noEval = new SunsetEvaluation(null, null, null, null);
 
         for (AtmosphericData baseData : hourlyData) {
-            AtmosphericData forecastData = augmentWithTideData(
+            AtmosphericData forecastData = augmentor.augmentWithTideData(
                     baseData, locationId, baseData.solarEventTime(), tideTypes);
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, TargetType.HOURLY, daysAhead,
@@ -215,58 +213,6 @@ public class ForecastService {
         LOG.info("Forecast saved (WILDLIFE hourly comfort): {} {} (T+{}) — {} slot(s)",
                 locationName, date, daysAhead, results.size());
         return results;
-    }
-
-    /**
-     * Returns a copy of {@code base} with directional cloud data from the solar/antisolar
-     * horizon points (50 km offset). Falls back gracefully to null if the fetch fails.
-     *
-     * @param base           atmospheric data without directional cloud fields
-     * @param lat            observer latitude
-     * @param lon            observer longitude
-     * @param solarAzimuth   compass bearing of the sun
-     * @param eventTime      UTC time of the solar event
-     * @param jobRun         the parent job run for metrics tracking, or {@code null}
-     * @return a new {@link AtmosphericData} with directional cloud populated where available
-     */
-    AtmosphericData augmentWithDirectionalCloud(AtmosphericData base, double lat, double lon,
-            int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun) {
-        var directional = openMeteoService.fetchDirectionalCloudData(
-                lat, lon, solarAzimuth, eventTime, base.targetType(), jobRun);
-        return directional != null ? base.withDirectionalCloud(directional) : base;
-    }
-
-    /**
-     * Returns a copy of {@code base} augmented with tide fields for coastal locations.
-     *
-     * <p>If the location is not coastal (empty tide types), the tide fields in the
-     * returned record are {@code null} and the original data is otherwise unchanged.
-     *
-     * @param base        atmospheric data without tide fields
-     * @param locationId  the location primary key used for DB tide lookup, or {@code null} if inland
-     * @param eventTime   UTC time of the solar event
-     * @param tideTypes   tide preferences for this location (empty if inland)
-     * @return a new {@link AtmosphericData} with tide fields populated where applicable
-     */
-    AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
-            LocalDateTime eventTime, Set<TideType> tideTypes) {
-        boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
-        if (!isCoastal) {
-            return base;
-        }
-        var tideMaybe = tideService.deriveTideData(locationId, eventTime);
-        if (tideMaybe.isEmpty()) {
-            return base;
-        }
-        TideData tideData = tideMaybe.get();
-        Boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
-        return base.withTide(new TideSnapshot(
-                tideData.tideState(),
-                tideData.nextHighTideTime(),
-                tideData.nextHighTideHeightMetres(),
-                tideData.nextLowTideTime(),
-                tideData.nextLowTideHeightMetres(),
-                tideAligned));
     }
 
     /**

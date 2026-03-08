@@ -1,9 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 
 /**
  * No-op evaluation strategy for wildlife/comfort-only locations.
@@ -22,15 +23,11 @@ public class NoOpEvaluationStrategy implements EvaluationStrategy {
     }
 
     @Override
-    public SunsetEvaluation evaluate(AtmosphericData data, JobRunEntity jobRun) {
-        return NO_EVAL;
+    public EvaluationDetail evaluateWithDetails(AtmosphericData data) {
+        return new EvaluationDetail(NO_EVAL, null, null, 0L, TokenUsage.EMPTY);
     }
 
-    /**
-     * Returns the evaluation model identifier for this strategy.
-     *
-     * @return {@link EvaluationModel#WILDLIFE}
-     */
+    @Override
     public EvaluationModel getEvaluationModel() {
         return EvaluationModel.WILDLIFE;
     }

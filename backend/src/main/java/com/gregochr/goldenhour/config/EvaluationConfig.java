@@ -1,78 +1,63 @@
 package com.gregochr.goldenhour.config;
 
 import tools.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.Map;
+
 /**
- * Exposes both evaluation strategy beans so they can be injected by name.
+ * Wires the evaluation strategy map and supporting infrastructure.
  *
- * <p>All three strategies (Haiku, Sonnet, Opus) are always available regardless of the active
- * profile. {@link com.gregochr.goldenhour.service.EvaluationService} selects the correct
- * strategy at call time based on the {@link com.gregochr.goldenhour.entity.EvaluationModel} argument.
+ * <p>Each {@link EvaluationModel} maps to an {@link EvaluationStrategy}: the three Claude
+ * models use {@link ClaudeEvaluationStrategy} with different model identifiers, and WILDLIFE
+ * uses {@link NoOpEvaluationStrategy}. {@link com.gregochr.goldenhour.service.EvaluationService}
+ * looks up the correct strategy by model at call time, optionally wrapping it with a
+ * {@link com.gregochr.goldenhour.service.evaluation.MetricsLoggingDecorator}.
  */
 @Configuration
 public class EvaluationConfig {
 
     /**
-     * Haiku-based evaluation strategy — lower cost, 1–5 rating output.
+     * Shared prompt builder used by all Claude-based strategies.
      *
-     * @param anthropicApiClient resilient Anthropic API client
-     * @param properties         Anthropic configuration
-     * @param objectMapper       Jackson mapper
-     * @param jobRunService      job run metrics service
-     * @return a Haiku evaluation strategy
+     * @return a prompt builder instance
      */
     @Bean
-    public HaikuEvaluationStrategy haikuEvaluationStrategy(AnthropicApiClient anthropicApiClient,
-            AnthropicProperties properties, ObjectMapper objectMapper, JobRunService jobRunService) {
-        return new HaikuEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
+    public PromptBuilder promptBuilder() {
+        return new PromptBuilder();
     }
 
     /**
-     * Sonnet-based evaluation strategy — higher accuracy, dual 0–100 score output.
+     * Maps each {@link EvaluationModel} to its evaluation strategy.
      *
      * @param anthropicApiClient resilient Anthropic API client
-     * @param properties         Anthropic configuration
+     * @param promptBuilder      shared prompt builder
      * @param objectMapper       Jackson mapper
-     * @param jobRunService      job run metrics service
-     * @return a Sonnet evaluation strategy
+     * @return immutable map from model to strategy
      */
     @Bean
-    public SonnetEvaluationStrategy sonnetEvaluationStrategy(AnthropicApiClient anthropicApiClient,
-            AnthropicProperties properties, ObjectMapper objectMapper, JobRunService jobRunService) {
-        return new SonnetEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
-    }
-
-    /**
-     * Opus-based evaluation strategy — highest accuracy, dual 0–100 score output.
-     *
-     * @param anthropicApiClient resilient Anthropic API client
-     * @param properties         Anthropic configuration
-     * @param objectMapper       Jackson mapper
-     * @param jobRunService      job run metrics service
-     * @return an Opus evaluation strategy
-     */
-    @Bean
-    public OpusEvaluationStrategy opusEvaluationStrategy(AnthropicApiClient anthropicApiClient,
-            AnthropicProperties properties, ObjectMapper objectMapper, JobRunService jobRunService) {
-        return new OpusEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
-    }
-
-    /**
-     * No-op evaluation strategy — returns null evaluation without calling Claude.
-     * Used for wildlife/comfort-only locations.
-     *
-     * @return a no-op evaluation strategy
-     */
-    @Bean
-    public NoOpEvaluationStrategy noOpEvaluationStrategy() {
-        return new NoOpEvaluationStrategy();
+    public Map<EvaluationModel, EvaluationStrategy> evaluationStrategies(
+            AnthropicApiClient anthropicApiClient,
+            PromptBuilder promptBuilder,
+            ObjectMapper objectMapper) {
+        return Map.of(
+                EvaluationModel.HAIKU,
+                new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
+                        objectMapper, EvaluationModel.HAIKU),
+                EvaluationModel.SONNET,
+                new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
+                        objectMapper, EvaluationModel.SONNET),
+                EvaluationModel.OPUS,
+                new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
+                        objectMapper, EvaluationModel.OPUS),
+                EvaluationModel.WILDLIFE,
+                new NoOpEvaluationStrategy());
     }
 }

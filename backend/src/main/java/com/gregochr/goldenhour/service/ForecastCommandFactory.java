@@ -4,15 +4,13 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 /**
@@ -26,28 +24,18 @@ public class ForecastCommandFactory {
     public static final int FORECAST_HORIZON_DAYS = 5;
 
     private final ModelSelectionService modelSelectionService;
-    private final HaikuEvaluationStrategy haikuStrategy;
-    private final SonnetEvaluationStrategy sonnetStrategy;
-    private final OpusEvaluationStrategy opusStrategy;
-    private final NoOpEvaluationStrategy noOpStrategy;
+    private final Map<EvaluationModel, EvaluationStrategy> strategies;
 
     /**
      * Constructs a {@code ForecastCommandFactory}.
      *
      * @param modelSelectionService resolves the active model for a run type
-     * @param haikuStrategy         Haiku evaluation strategy
-     * @param sonnetStrategy        Sonnet evaluation strategy
-     * @param opusStrategy          Opus evaluation strategy
-     * @param noOpStrategy          no-op strategy for wildlife locations
+     * @param strategies            map from evaluation model to its strategy
      */
     public ForecastCommandFactory(ModelSelectionService modelSelectionService,
-            HaikuEvaluationStrategy haikuStrategy, SonnetEvaluationStrategy sonnetStrategy,
-            OpusEvaluationStrategy opusStrategy, NoOpEvaluationStrategy noOpStrategy) {
+            Map<EvaluationModel, EvaluationStrategy> strategies) {
         this.modelSelectionService = modelSelectionService;
-        this.haikuStrategy = haikuStrategy;
-        this.sonnetStrategy = sonnetStrategy;
-        this.opusStrategy = opusStrategy;
-        this.noOpStrategy = noOpStrategy;
+        this.strategies = strategies;
     }
 
     /**
@@ -106,7 +94,7 @@ public class ForecastCommandFactory {
     private EvaluationStrategy resolveStrategy(RunType runType) {
         return switch (runType) {
             case VERY_SHORT_TERM, SHORT_TERM, LONG_TERM -> resolveModelStrategy(runType);
-            case WEATHER -> noOpStrategy;
+            case WEATHER -> strategies.get(EvaluationModel.WILDLIFE);
             case TIDE -> null;
         };
     }
@@ -119,12 +107,7 @@ public class ForecastCommandFactory {
      */
     private EvaluationStrategy resolveModelStrategy(RunType runType) {
         EvaluationModel model = modelSelectionService.getActiveModel(runType);
-        return switch (model) {
-            case HAIKU -> haikuStrategy;
-            case SONNET -> sonnetStrategy;
-            case OPUS -> opusStrategy;
-            case WILDLIFE -> noOpStrategy;
-        };
+        return strategies.get(model);
     }
 
     /**

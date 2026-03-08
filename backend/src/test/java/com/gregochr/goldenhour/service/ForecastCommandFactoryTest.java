@@ -3,20 +3,19 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -31,19 +30,28 @@ class ForecastCommandFactoryTest {
     private ModelSelectionService modelSelectionService;
 
     @Mock
-    private HaikuEvaluationStrategy haikuStrategy;
+    private EvaluationStrategy haikuStrategy;
 
     @Mock
-    private SonnetEvaluationStrategy sonnetStrategy;
+    private EvaluationStrategy sonnetStrategy;
 
     @Mock
-    private OpusEvaluationStrategy opusStrategy;
+    private EvaluationStrategy opusStrategy;
 
-    @Mock
     private NoOpEvaluationStrategy noOpStrategy;
 
-    @InjectMocks
     private ForecastCommandFactory factory;
+
+    @BeforeEach
+    void setUp() {
+        noOpStrategy = new NoOpEvaluationStrategy();
+        Map<EvaluationModel, EvaluationStrategy> strategies = Map.of(
+                EvaluationModel.HAIKU, haikuStrategy,
+                EvaluationModel.SONNET, sonnetStrategy,
+                EvaluationModel.OPUS, opusStrategy,
+                EvaluationModel.WILDLIFE, noOpStrategy);
+        factory = new ForecastCommandFactory(modelSelectionService, strategies);
+    }
 
     @Test
     @DisplayName("create(SHORT_TERM) resolves Sonnet strategy when active model is SONNET")

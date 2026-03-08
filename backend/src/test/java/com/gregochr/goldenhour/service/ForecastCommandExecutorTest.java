@@ -8,7 +8,7 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
 import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -63,9 +63,8 @@ class ForecastCommandExecutorTest {
     private OptimisationStrategyService optimisationStrategyService;
 
     @Mock
-    private HaikuEvaluationStrategy haikuStrategy;
+    private EvaluationStrategy haikuStrategy;
 
-    @Mock
     private NoOpEvaluationStrategy noOpStrategy;
 
     private ForecastCommandExecutor executor;
@@ -95,6 +94,7 @@ class ForecastCommandExecutorTest {
 
     @BeforeEach
     void setUp() {
+        noOpStrategy = new NoOpEvaluationStrategy();
         lenient().when(locationService.findAllEnabled()).thenReturn(List.of(durham()));
         lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
         lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);

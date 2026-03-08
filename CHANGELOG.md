@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Refactored (Mar 8, 2026)
+- **Evaluation strategy hierarchy collapse** — replaced `AbstractEvaluationStrategy` + 3 trivial subclasses (`HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`) with a single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel`
+  - Model ID is the single source of truth via `EvaluationModel.getModelId()` — no more per-class `getModelName()` overrides
+  - `EvaluationConfig` produces a `Map<EvaluationModel, EvaluationStrategy>` bean; `EvaluationService` and `ForecastCommandFactory` use map lookup instead of switch/injection of 4 named beans
+- **PromptBuilder extraction** — moved prompt construction (`SYSTEM_PROMPT`, `PROMPT_SUFFIX`, `buildUserMessage()`, `buildOutputConfig()`, `toCardinal()`, `isDustElevated()`) from `AbstractEvaluationStrategy` into a dedicated `PromptBuilder` class; injected as a Spring bean
+- **MetricsLoggingDecorator** — extracted timing, logging, and metrics recording from `EvaluationService` into a GoF Decorator (`MetricsLoggingDecorator`) that wraps any `EvaluationStrategy`; applied transparently when a `JobRunEntity` is present
+- **Double buildUserMessage bug fix** — `evaluateWithDetails()` was calling `buildUserMessage()` twice per evaluation (once explicitly, once inside `invokeClaude()`); `invokeClaude()` now accepts a pre-built `String` parameter
+- **ForecastDataAugmentor extraction** — moved `augmentWithDirectionalCloud()` and `augmentWithTideData()` from `ForecastService` into a dedicated `ForecastDataAugmentor` service; `ForecastService`, `ModelTestService`, and `PromptTestService` all delegate to it
+- 680 backend tests — all passing, JaCoCo >= 80%
+
 ### Added (Mar 7, 2026)
 - **Directional cloud sampling** — fetches cloud cover at 50 km offset points toward the solar horizon and antisolar horizon using Haversine forward formula (`GeoUtils.offsetPoint()`)
   - `DirectionalCloudData` record with 6 fields: solar/antisolar low/mid/high cloud percentages
