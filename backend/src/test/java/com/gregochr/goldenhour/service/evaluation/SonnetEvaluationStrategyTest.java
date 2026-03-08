@@ -11,7 +11,6 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.TestAtmosphericData;
-import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -19,7 +18,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import com.gregochr.goldenhour.service.JobRunService;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -32,7 +30,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link SonnetEvaluationStrategy}.
+ * Unit tests for {@link ClaudeEvaluationStrategy} with {@link EvaluationModel#SONNET}.
  */
 @ExtendWith(MockitoExtension.class)
 class SonnetEvaluationStrategyTest {
@@ -40,47 +38,20 @@ class SonnetEvaluationStrategyTest {
     @Mock
     private AnthropicApiClient anthropicApiClient;
 
-    @Mock
-    private JobRunService jobRunService;
-
-    private SonnetEvaluationStrategy strategy;
+    private ClaudeEvaluationStrategy strategy;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        AnthropicProperties properties = new AnthropicProperties();
-        properties.setModel("claude-sonnet-4-5-20250929");
         objectMapper = new ObjectMapper();
-        strategy = new SonnetEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
+        strategy = new ClaudeEvaluationStrategy(
+                anthropicApiClient, new PromptBuilder(), objectMapper, EvaluationModel.SONNET);
     }
 
     @Test
     @DisplayName("getEvaluationModel() returns SONNET")
     void getEvaluationModel_returnsSonnet() {
         assertThat(strategy.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
-    }
-
-    @Test
-    @DisplayName("getModelName() returns claude-sonnet-4-5-20250929")
-    void getModelName_returnsSonnetModelId() {
-        assertThat(strategy.getModelName()).isEqualTo("claude-sonnet-4-5-20250929");
-    }
-
-    @Test
-    @DisplayName("getPromptSuffix() returns shared prompt suffix")
-    void getPromptSuffix_returnsCorrectString() {
-        assertThat(strategy.getPromptSuffix())
-                .contains("Rate 1-5")
-                .contains("Fiery Sky Potential")
-                .contains("Golden Hour Potential");
-    }
-
-    @Test
-    @DisplayName("getSystemPrompt() contains rating and dual-score JSON format instruction")
-    void getSystemPrompt_containsRatingAndDualScoreInstruction() {
-        assertThat(strategy.getSystemPrompt()).contains("rating");
-        assertThat(strategy.getSystemPrompt()).contains("fiery_sky");
-        assertThat(strategy.getSystemPrompt()).contains("golden_hour");
     }
 
     @Test

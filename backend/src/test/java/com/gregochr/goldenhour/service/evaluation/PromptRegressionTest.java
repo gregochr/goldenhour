@@ -3,7 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.gregochr.goldenhour.TestAtmosphericData;
-import com.gregochr.goldenhour.config.AnthropicProperties;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -39,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag("prompt-regression")
 class PromptRegressionTest {
 
-    private static HaikuEvaluationStrategy strategy;
+    private static ClaudeEvaluationStrategy strategy;
 
     @BeforeAll
     static void setUp() {
@@ -54,10 +54,10 @@ class PromptRegressionTest {
                 .apiKey(apiKey)
                 .build();
         AnthropicApiClient apiClient = new AnthropicApiClient(client);
-        AnthropicProperties properties = new AnthropicProperties();
         ObjectMapper mapper = new ObjectMapper();
 
-        strategy = new HaikuEvaluationStrategy(apiClient, properties, mapper, null);
+        strategy = new ClaudeEvaluationStrategy(
+                apiClient, new PromptBuilder(), mapper, EvaluationModel.HAIKU);
     }
 
     /**

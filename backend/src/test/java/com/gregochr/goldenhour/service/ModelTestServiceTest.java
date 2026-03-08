@@ -66,7 +66,7 @@ class ModelTestServiceTest {
     @Mock
     private OpenMeteoService openMeteoService;
     @Mock
-    private ForecastService forecastService;
+    private ForecastDataAugmentor augmentor;
     @Mock
     private EvaluationService evaluationService;
     @Mock
@@ -84,7 +84,7 @@ class ModelTestServiceTest {
     void setUp() {
         service = new ModelTestService(regionRepository, locationRepository,
                 testRunRepository, testResultRepository, openMeteoService,
-                forecastService, evaluationService, solarService, costCalculator,
+                augmentor, evaluationService, solarService, costCalculator,
                 exchangeRateService);
     }
 
@@ -177,7 +177,7 @@ class ModelTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
@@ -248,7 +248,7 @@ class ModelTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
 
         // Haiku succeeds, Sonnet fails, Opus succeeds — per target type
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
@@ -412,7 +412,7 @@ class ModelTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
@@ -551,7 +551,7 @@ class ModelTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
@@ -639,7 +639,7 @@ class ModelTestServiceTest {
 
         // Verify NO Open-Meteo calls were made
         verify(openMeteoService, never()).getAtmosphericData(any(), any());
-        verify(forecastService, never()).augmentWithTideData(any(), any(), any(), any());
+        verify(augmentor, never()).augmentWithTideData(any(), any(), any(), any());
 
         // Verify 3 evaluations (one per model)
         verify(evaluationService, times(3)).evaluateWithDetails(any(), any(), any());
@@ -739,7 +739,7 @@ class ModelTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(forecastService.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))

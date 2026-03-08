@@ -2,23 +2,22 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -30,31 +29,43 @@ import static org.mockito.Mockito.when;
 class EvaluationServiceTest {
 
     @Mock
-    private HaikuEvaluationStrategy haikuStrategy;
+    private EvaluationStrategy haikuStrategy;
 
     @Mock
-    private SonnetEvaluationStrategy sonnetStrategy;
+    private EvaluationStrategy sonnetStrategy;
 
     @Mock
-    private OpusEvaluationStrategy opusStrategy;
+    private EvaluationStrategy opusStrategy;
 
     @Mock
-    private NoOpEvaluationStrategy noOpStrategy;
+    private EvaluationStrategy noOpStrategy;
 
-    @InjectMocks
+    @Mock
+    private JobRunService jobRunService;
+
     private EvaluationService evaluationService;
+
+    @BeforeEach
+    void setUp() {
+        Map<EvaluationModel, EvaluationStrategy> strategies = Map.of(
+                EvaluationModel.HAIKU, haikuStrategy,
+                EvaluationModel.SONNET, sonnetStrategy,
+                EvaluationModel.OPUS, opusStrategy,
+                EvaluationModel.WILDLIFE, noOpStrategy);
+        evaluationService = new EvaluationService(strategies, jobRunService);
+    }
 
     @Test
     @DisplayName("evaluate() with SONNET delegates to the Sonnet strategy")
     void evaluate_sonnet_delegatesToSonnetStrategy() {
         AtmosphericData data = TestAtmosphericData.defaults();
         SunsetEvaluation expected = new SunsetEvaluation(4, 70, 75, "Promising conditions.");
-        when(sonnetStrategy.evaluate(data, null)).thenReturn(expected);
+        when(sonnetStrategy.evaluate(data)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.SONNET);
 
         assertThat(result).isSameAs(expected);
-        verify(sonnetStrategy).evaluate(data, null);
+        verify(sonnetStrategy).evaluate(data);
         verifyNoInteractions(haikuStrategy);
         verifyNoInteractions(opusStrategy);
     }
@@ -64,12 +75,12 @@ class EvaluationServiceTest {
     void evaluate_haiku_delegatesToHaikuStrategy() {
         AtmosphericData data = TestAtmosphericData.defaults();
         SunsetEvaluation expected = new SunsetEvaluation(4, 65, 70, "Good conditions.");
-        when(haikuStrategy.evaluate(data, null)).thenReturn(expected);
+        when(haikuStrategy.evaluate(data)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.HAIKU);
 
         assertThat(result).isSameAs(expected);
-        verify(haikuStrategy).evaluate(data, null);
+        verify(haikuStrategy).evaluate(data);
         verifyNoInteractions(sonnetStrategy);
         verifyNoInteractions(opusStrategy);
     }
@@ -79,14 +90,27 @@ class EvaluationServiceTest {
     void evaluate_opus_delegatesToOpusStrategy() {
         AtmosphericData data = TestAtmosphericData.defaults();
         SunsetEvaluation expected = new SunsetEvaluation(5, 85, 80, "Outstanding conditions.");
-        when(opusStrategy.evaluate(data, null)).thenReturn(expected);
+        when(opusStrategy.evaluate(data)).thenReturn(expected);
 
         SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.OPUS);
 
         assertThat(result).isSameAs(expected);
-        verify(opusStrategy).evaluate(data, null);
+        verify(opusStrategy).evaluate(data);
         verifyNoInteractions(haikuStrategy);
         verifyNoInteractions(sonnetStrategy);
+    }
+
+    @Test
+    @DisplayName("evaluate() with WILDLIFE delegates to the NoOp strategy")
+    void evaluate_wildlife_delegatesToNoOpStrategy() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        SunsetEvaluation expected = new SunsetEvaluation(null, null, null, null);
+        when(noOpStrategy.evaluate(data)).thenReturn(expected);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.WILDLIFE);
+
+        assertThat(result).isSameAs(expected);
+        verify(noOpStrategy).evaluate(data);
     }
 
     @Test
@@ -95,12 +119,12 @@ class EvaluationServiceTest {
         AtmosphericData data = TestAtmosphericData.defaults();
         EvaluationDetail expected = new EvaluationDetail(
                 new SunsetEvaluation(4, 65, 70, "Good."), "prompt", "raw", 500L, TokenUsage.EMPTY);
-        when(haikuStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
+        when(haikuStrategy.evaluateWithDetails(data)).thenReturn(expected);
 
         EvaluationDetail result = evaluationService.evaluateWithDetails(data, EvaluationModel.HAIKU, null);
 
         assertThat(result).isSameAs(expected);
-        verify(haikuStrategy).evaluateWithDetails(data, null);
+        verify(haikuStrategy).evaluateWithDetails(data);
     }
 
     @Test
@@ -109,12 +133,12 @@ class EvaluationServiceTest {
         AtmosphericData data = TestAtmosphericData.defaults();
         EvaluationDetail expected = new EvaluationDetail(
                 new SunsetEvaluation(4, 70, 75, "Good."), "prompt", "raw", 800L, TokenUsage.EMPTY);
-        when(sonnetStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
+        when(sonnetStrategy.evaluateWithDetails(data)).thenReturn(expected);
 
         EvaluationDetail result = evaluationService.evaluateWithDetails(data, EvaluationModel.SONNET, null);
 
         assertThat(result).isSameAs(expected);
-        verify(sonnetStrategy).evaluateWithDetails(data, null);
+        verify(sonnetStrategy).evaluateWithDetails(data);
     }
 
     @Test
@@ -123,22 +147,31 @@ class EvaluationServiceTest {
         AtmosphericData data = TestAtmosphericData.defaults();
         EvaluationDetail expected = new EvaluationDetail(
                 new SunsetEvaluation(5, 85, 80, "Outstanding."), "prompt", "raw", 1200L, TokenUsage.EMPTY);
-        when(opusStrategy.evaluateWithDetails(data, null)).thenReturn(expected);
+        when(opusStrategy.evaluateWithDetails(data)).thenReturn(expected);
 
         EvaluationDetail result = evaluationService.evaluateWithDetails(data, EvaluationModel.OPUS, null);
 
         assertThat(result).isSameAs(expected);
-        verify(opusStrategy).evaluateWithDetails(data, null);
+        verify(opusStrategy).evaluateWithDetails(data);
     }
 
     @Test
-    @DisplayName("evaluateWithDetails() with WILDLIFE throws IllegalArgumentException")
-    void evaluateWithDetails_wildlife_throws() {
+    @DisplayName("evaluate() with jobRun wraps strategy with MetricsLoggingDecorator")
+    void evaluate_withJobRun_usesDecorator() {
         AtmosphericData data = TestAtmosphericData.defaults();
+        JobRunEntity jobRun = JobRunEntity.builder().id(1L).build();
+        EvaluationDetail detail = new EvaluationDetail(
+                new SunsetEvaluation(4, 70, 75, "Good."), "prompt", "raw", 500L,
+                new TokenUsage(100, 50, 0, 0));
 
-        assertThatThrownBy(() -> evaluationService.evaluateWithDetails(data, EvaluationModel.WILDLIFE, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("WILDLIFE");
+        // When jobRun is provided, the decorator calls evaluateWithDetails on the delegate
+        when(haikuStrategy.getEvaluationModel()).thenReturn(EvaluationModel.HAIKU);
+        when(haikuStrategy.evaluateWithDetails(data)).thenReturn(detail);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.HAIKU, jobRun);
+
+        assertThat(result.fierySkyPotential()).isEqualTo(70);
+        // The decorator calls evaluateWithDetails, not evaluate directly
+        verify(haikuStrategy).evaluateWithDetails(data);
     }
-
 }

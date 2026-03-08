@@ -10,21 +10,23 @@ package com.gregochr.goldenhour.entity;
 public enum EvaluationModel {
 
     /** Claude Haiku — lower cost, 1–5 rating output. */
-    HAIKU("4.5"),
+    HAIKU("4.5", "claude-haiku-4-5"),
 
     /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
-    SONNET("4.5"),
+    SONNET("4.5", "claude-sonnet-4-5-20250929"),
 
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
-    OPUS("4.6"),
+    OPUS("4.6", "claude-opus-4-6"),
 
     /** No Claude call — raw comfort weather data only (temperature, wind, rain). */
-    WILDLIFE(null);
+    WILDLIFE(null, null);
 
     private final String version;
+    private final String modelId;
 
-    EvaluationModel(String version) {
+    EvaluationModel(String version, String modelId) {
         this.version = version;
+        this.modelId = modelId;
     }
 
     /**
@@ -34,5 +36,14 @@ public enum EvaluationModel {
      */
     public String getVersion() {
         return version;
+    }
+
+    /**
+     * Returns the Anthropic API model identifier (e.g. "claude-haiku-4-5"), or null for WILDLIFE.
+     *
+     * @return model identifier string, or null
+     */
+    public String getModelId() {
+        return modelId;
     }
 }

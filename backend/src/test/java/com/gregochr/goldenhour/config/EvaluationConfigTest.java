@@ -1,15 +1,16 @@
 package com.gregochr.goldenhour.config;
 
 import tools.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.HaikuEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.OpusEvaluationStrategy;
-import com.gregochr.goldenhour.service.evaluation.SonnetEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -17,49 +18,66 @@ import static org.mockito.Mockito.mock;
 /**
  * Unit tests for {@link EvaluationConfig}.
  *
- * <p>Verifies that each factory method returns the correct {@link EvaluationStrategy}
- * implementation without loading a Spring context.
+ * <p>Verifies that the {@code evaluationStrategies()} bean returns the correct
+ * {@link EvaluationStrategy} implementations without loading a Spring context.
  */
 class EvaluationConfigTest {
 
     private final EvaluationConfig config = new EvaluationConfig();
     private final AnthropicApiClient anthropicApiClient = mock(AnthropicApiClient.class);
-    private final AnthropicProperties properties = new AnthropicProperties();
+    private final PromptBuilder promptBuilder = new PromptBuilder();
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final JobRunService jobRunService = mock(JobRunService.class);
 
     @Test
-    @DisplayName("haikuEvaluationStrategy() returns a HaikuEvaluationStrategy")
-    void haikuEvaluationStrategy_returnsHaikuEvaluationStrategy() {
-        EvaluationStrategy strategy = config.haikuEvaluationStrategy(
-                anthropicApiClient, properties, objectMapper, jobRunService);
-
-        assertThat(strategy).isInstanceOf(HaikuEvaluationStrategy.class);
+    @DisplayName("promptBuilder() returns a PromptBuilder")
+    void promptBuilder_returnsPromptBuilder() {
+        assertThat(config.promptBuilder()).isInstanceOf(PromptBuilder.class);
     }
 
     @Test
-    @DisplayName("sonnetEvaluationStrategy() returns a SonnetEvaluationStrategy")
-    void sonnetEvaluationStrategy_returnsSonnetEvaluationStrategy() {
-        EvaluationStrategy strategy = config.sonnetEvaluationStrategy(
-                anthropicApiClient, properties, objectMapper, jobRunService);
+    @DisplayName("evaluationStrategies() returns map with all four EvaluationModel keys")
+    void evaluationStrategies_containsAllFourKeys() {
+        Map<EvaluationModel, EvaluationStrategy> strategies =
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, objectMapper);
 
-        assertThat(strategy).isInstanceOf(SonnetEvaluationStrategy.class);
+        assertThat(strategies).containsOnlyKeys(
+                EvaluationModel.HAIKU, EvaluationModel.SONNET,
+                EvaluationModel.OPUS, EvaluationModel.WILDLIFE);
     }
 
     @Test
-    @DisplayName("opusEvaluationStrategy() returns an OpusEvaluationStrategy")
-    void opusEvaluationStrategy_returnsOpusEvaluationStrategy() {
-        EvaluationStrategy strategy = config.opusEvaluationStrategy(
-                anthropicApiClient, properties, objectMapper, jobRunService);
+    @DisplayName("evaluationStrategies() maps HAIKU to ClaudeEvaluationStrategy")
+    void evaluationStrategies_haikuIsClaudeStrategy() {
+        Map<EvaluationModel, EvaluationStrategy> strategies =
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, objectMapper);
 
-        assertThat(strategy).isInstanceOf(OpusEvaluationStrategy.class);
+        assertThat(strategies.get(EvaluationModel.HAIKU)).isInstanceOf(ClaudeEvaluationStrategy.class);
     }
 
     @Test
-    @DisplayName("noOpEvaluationStrategy() returns a NoOpEvaluationStrategy")
-    void noOpEvaluationStrategy_returnsNoOpEvaluationStrategy() {
-        EvaluationStrategy strategy = config.noOpEvaluationStrategy();
+    @DisplayName("evaluationStrategies() maps SONNET to ClaudeEvaluationStrategy")
+    void evaluationStrategies_sonnetIsClaudeStrategy() {
+        Map<EvaluationModel, EvaluationStrategy> strategies =
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, objectMapper);
 
-        assertThat(strategy).isInstanceOf(NoOpEvaluationStrategy.class);
+        assertThat(strategies.get(EvaluationModel.SONNET)).isInstanceOf(ClaudeEvaluationStrategy.class);
+    }
+
+    @Test
+    @DisplayName("evaluationStrategies() maps OPUS to ClaudeEvaluationStrategy")
+    void evaluationStrategies_opusIsClaudeStrategy() {
+        Map<EvaluationModel, EvaluationStrategy> strategies =
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, objectMapper);
+
+        assertThat(strategies.get(EvaluationModel.OPUS)).isInstanceOf(ClaudeEvaluationStrategy.class);
+    }
+
+    @Test
+    @DisplayName("evaluationStrategies() maps WILDLIFE to NoOpEvaluationStrategy")
+    void evaluationStrategies_wildlifeIsNoOpStrategy() {
+        Map<EvaluationModel, EvaluationStrategy> strategies =
+                config.evaluationStrategies(anthropicApiClient, promptBuilder, objectMapper);
+
+        assertThat(strategies.get(EvaluationModel.WILDLIFE)).isInstanceOf(NoOpEvaluationStrategy.class);
     }
 }

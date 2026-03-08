@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +31,10 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -53,7 +57,7 @@ class ForecastServiceTest {
     @Mock
     private OpenMeteoService openMeteoService;
     @Mock
-    private TideService tideService;
+    private ForecastDataAugmentor augmentor;
     @Mock
     private EvaluationService evaluationService;
     @Mock
@@ -67,6 +71,16 @@ class ForecastServiceTest {
 
     @InjectMocks
     private ForecastService forecastService;
+
+    @BeforeEach
+    void setUp() {
+        // Augmentor acts as pass-through by default — returns the input data unchanged.
+        // Lenient because not every test exercises both augmentation paths.
+        lenient().when(augmentor.augmentWithDirectionalCloud(any(), anyDouble(), anyDouble(),
+                anyInt(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithTideData(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+    }
 
     @Test
     @DisplayName("runForecasts() evaluates sunrise and sunset and saves two entities")

@@ -53,7 +53,7 @@ public class ModelTestService {
     private final ModelTestRunRepository testRunRepository;
     private final ModelTestResultRepository testResultRepository;
     private final OpenMeteoService openMeteoService;
-    private final ForecastService forecastService;
+    private final ForecastDataAugmentor augmentor;
     private final EvaluationService evaluationService;
     private final SolarService solarService;
     private final CostCalculator costCalculator;
@@ -68,7 +68,7 @@ public class ModelTestService {
      * @param testRunRepository     model test run repository
      * @param testResultRepository  model test result repository
      * @param openMeteoService      Open-Meteo weather data service
-     * @param forecastService       forecast service (for tide augmentation)
+     * @param augmentor             enriches atmospheric data with tide information
      * @param evaluationService     evaluation service (delegates to strategies)
      * @param solarService          solar calculation service
      * @param costCalculator        API cost calculator
@@ -79,7 +79,7 @@ public class ModelTestService {
             ModelTestRunRepository testRunRepository,
             ModelTestResultRepository testResultRepository,
             OpenMeteoService openMeteoService,
-            ForecastService forecastService,
+            ForecastDataAugmentor augmentor,
             EvaluationService evaluationService,
             SolarService solarService,
             CostCalculator costCalculator,
@@ -89,7 +89,7 @@ public class ModelTestService {
         this.testRunRepository = testRunRepository;
         this.testResultRepository = testResultRepository;
         this.openMeteoService = openMeteoService;
-        this.forecastService = forecastService;
+        this.augmentor = augmentor;
         this.evaluationService = evaluationService;
         this.solarService = solarService;
         this.costCalculator = costCalculator;
@@ -803,7 +803,7 @@ public class ModelTestService {
         ForecastRequest request = new ForecastRequest(lat, lon, location.getName(),
                 targetDate, targetType);
         AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
-        return forecastService.augmentWithTideData(baseData, location.getId(),
+        return augmentor.augmentWithTideData(baseData, location.getId(),
                 eventTime, location.getTideType());
     }
 

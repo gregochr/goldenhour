@@ -11,11 +11,9 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.TestAtmosphericData;
-import com.gregochr.goldenhour.config.AnthropicProperties;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
-import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,7 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link OpusEvaluationStrategy}.
+ * Unit tests for {@link ClaudeEvaluationStrategy} with {@link EvaluationModel#OPUS}.
  */
 @ExtendWith(MockitoExtension.class)
 class OpusEvaluationStrategyTest {
@@ -39,30 +37,18 @@ class OpusEvaluationStrategyTest {
     @Mock
     private AnthropicApiClient anthropicApiClient;
 
-    @Mock
-    private JobRunService jobRunService;
-
-    private OpusEvaluationStrategy strategy;
-    private ObjectMapper objectMapper;
+    private ClaudeEvaluationStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        AnthropicProperties properties = new AnthropicProperties();
-        properties.setModel("claude-opus-4-6");
-        objectMapper = new ObjectMapper();
-        strategy = new OpusEvaluationStrategy(anthropicApiClient, properties, objectMapper, jobRunService);
+        strategy = new ClaudeEvaluationStrategy(
+                anthropicApiClient, new PromptBuilder(), new ObjectMapper(), EvaluationModel.OPUS);
     }
 
     @Test
     @DisplayName("getEvaluationModel() returns OPUS")
     void getEvaluationModel_returnsOpus() {
         assertThat(strategy.getEvaluationModel()).isEqualTo(EvaluationModel.OPUS);
-    }
-
-    @Test
-    @DisplayName("getModelName() returns claude-opus-4-6")
-    void getModelName_returnsOpusModelId() {
-        assertThat(strategy.getModelName()).isEqualTo("claude-opus-4-6");
     }
 
     @Test
