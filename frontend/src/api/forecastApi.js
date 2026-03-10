@@ -235,6 +235,19 @@ export async function fetchTidesForDate(locationName, date) {
 }
 
 /**
+ * Fetches aggregate tide height statistics for a location from historical data.
+ *
+ * @param {string} locationName - The configured location name.
+ * @returns {Promise<{avgHighMetres: number, maxHighMetres: number, avgLowMetres: number, minLowMetres: number, dataPoints: number}|null>}
+ */
+export async function fetchTideStats(locationName) {
+  const response = await axios.get(`${BASE_URL}/tides/stats`, {
+    params: { locationName },
+  });
+  return response.status === 204 ? null : response.data;
+}
+
+/**
  * Records an actual observed outcome for a given date and type.
  *
  * @param {object} outcome - Outcome payload.

@@ -201,6 +201,7 @@ See `docs/product/` for detailed reference documents.
 - **Prediction accuracy feedback** — structured post-event feedback per user per evaluation (ACCURATE/SLIGHTLY_OFF/VERY_INACCURATE), admin breakdown by model and days_ahead
 - **Web Push notifications** — replace Pushover with W3C Push API + VAPID (`webpush-java`), service worker, iOS Home Screen caveat
 - **macOS menu bar widget** — Tauri app reusing React components, menu bar icon with best rating
+- **Tide strength indicator** — flag "very high" tides on the map popup using two signals: (1) lunar phase (spring tides near new/full moon, ~1-2 day lag) and (2) historical percentile from accumulated `tide_extreme` data (top ~20% of a location's highs). Tide history now accumulates (windowed merge, not delete-all). Lunar calculation may belong in `solar-utils`. Consider "King tide" label for equinoctial springs.
 
 ---
 

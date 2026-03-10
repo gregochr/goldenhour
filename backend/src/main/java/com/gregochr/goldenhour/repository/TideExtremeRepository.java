@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
+import com.gregochr.goldenhour.entity.TideExtremeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -12,8 +13,8 @@ import java.util.List;
 /**
  * Spring Data repository for {@link TideExtremeEntity}.
  *
- * <p>Supports the weekly fetch-and-replace cycle: delete stale rows for a location,
- * then bulk-save the fresh batch from WorldTides.
+ * <p>Supports the weekly fetch-and-merge cycle: delete only the overlapping time window,
+ * then bulk-save the fresh batch from WorldTides, preserving historical data.
  */
 public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, Long> {
 
@@ -41,11 +42,42 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
     /**
      * Deletes all tide extremes for the given location.
      *
-     * <p>Called before saving a fresh batch to avoid duplicates on the unique constraint.
-     *
      * @param locationId the location primary key
      */
     @Modifying
     @Query("DELETE FROM TideExtremeEntity t WHERE t.locationId = :locationId")
     void deleteByLocationId(@Param("locationId") Long locationId);
+
+    /**
+     * Deletes tide extremes for a location within a time window.
+     *
+     * <p>Used before saving a fresh batch to clear only the overlapping range,
+     * preserving historical data outside the fetch window.
+     *
+     * @param locationId the location primary key
+     * @param from       window start (inclusive)
+     * @param to         window end (inclusive)
+     */
+    @Modifying
+    @Query("DELETE FROM TideExtremeEntity t WHERE t.locationId = :locationId "
+            + "AND t.eventTime >= :from AND t.eventTime <= :to")
+    void deleteByLocationIdAndEventTimeBetween(
+            @Param("locationId") Long locationId,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /**
+     * Returns aggregate height statistics for a location and tide type.
+     *
+     * <p>Result is a single-element array: {@code [avgHeight, maxHeight, minHeight, count]}.
+     *
+     * @param locationId the location primary key
+     * @param type       HIGH or LOW
+     * @return Object array with avg, max, min BigDecimal heights and Long count
+     */
+    @Query("SELECT AVG(t.heightMetres), MAX(t.heightMetres), MIN(t.heightMetres), COUNT(t) "
+            + "FROM TideExtremeEntity t WHERE t.locationId = :locationId AND t.type = :type")
+    Object[] findHeightStatsByLocationIdAndType(
+            @Param("locationId") Long locationId,
+            @Param("type") TideExtremeType type);
 }

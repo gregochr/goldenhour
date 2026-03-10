@@ -811,25 +811,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   data-testid="inline-edit-name"
                                 />
                               </td>
-                              <td className="py-2">
-                                <div className="flex gap-1">
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    className={inlineInputClass + ' w-20'}
-                                    value={editValues.lat}
-                                    onChange={(e) => handleEditChange('lat', e.target.value)}
-                                    data-testid="inline-edit-lat"
-                                  />
-                                  <input
-                                    type="number"
-                                    step="any"
-                                    className={inlineInputClass + ' w-20'}
-                                    value={editValues.lon}
-                                    onChange={(e) => handleEditChange('lon', e.target.value)}
-                                    data-testid="inline-edit-lon"
-                                  />
-                                </div>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
                               </td>
                               <td className="py-2" data-testid="inline-edit-type">
                                 <LocationTypeChips
@@ -959,6 +942,32 @@ export default function LocationManagementView({ onLocationsChanged }) {
                             </>
                           )}
                         </tr>
+                        {isEditing && (
+                          <tr className="border-b border-plex-surface">
+                            <td colSpan={9} className="py-1.5 pl-1">
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-plex-text-muted">Lat</span>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  className={inlineInputClass + ' w-28'}
+                                  value={editValues.lat}
+                                  onChange={(e) => handleEditChange('lat', e.target.value)}
+                                  data-testid="inline-edit-lat"
+                                />
+                                <span className="text-plex-text-muted">Lon</span>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  className={inlineInputClass + ' w-28'}
+                                  value={editValues.lon}
+                                  onChange={(e) => handleEditChange('lon', e.target.value)}
+                                  data-testid="inline-edit-lon"
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
                         {isEditing && editError && (
                           <tr>
                             <td colSpan={9} className="py-1 text-xs text-red-400 pl-1" data-testid="inline-edit-error">

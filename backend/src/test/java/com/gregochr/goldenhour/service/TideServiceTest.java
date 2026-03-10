@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -278,8 +279,39 @@ class TideServiceTest {
         LocationEntity location = locationEntity();
         service.fetchAndStoreTideExtremes(location);
 
-        verify(tideExtremeRepository).deleteByLocationId(1L);
+        verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class));
         verify(tideExtremeRepository).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("fetchAndStoreTideExtremes() deletes only the 14-day fetch window, not all history")
+    void fetchAndStoreTideExtremes_deletesOnlyFetchWindow() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.get().uri(any(java.util.function.Function.class))
+                .retrieve().body(WorldTidesResponse.class))
+                .thenReturn(buildWorldTidesResponse());
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
+
+        // Should NOT call deleteByLocationId (which would nuke all history)
+        verify(tideExtremeRepository, never()).deleteByLocationId(anyLong());
+        // Should call windowed delete
+        var captor = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
+                eq(1L), captor.capture(), captor.capture());
+        List<LocalDateTime> args = captor.getAllValues();
+        LocalDateTime from = args.get(0);
+        LocalDateTime to = args.get(1);
+        // Window should span roughly 14 days
+        long daysBetween = java.time.temporal.ChronoUnit.DAYS.between(from, to);
+        assertTrue(daysBetween >= 13 && daysBetween <= 14,
+                "Fetch window should be ~14 days but was " + daysBetween);
     }
 
     @Test
@@ -289,7 +321,8 @@ class TideServiceTest {
 
         tideService.fetchAndStoreTideExtremes(locationEntity());
 
-        verify(tideExtremeRepository, never()).deleteByLocationId(anyLong());
+        verify(tideExtremeRepository, never()).deleteByLocationIdAndEventTimeBetween(
+                anyLong(), any(LocalDateTime.class), any(LocalDateTime.class));
         verify(tideExtremeRepository, never()).saveAll(any());
     }
 
@@ -310,7 +343,8 @@ class TideServiceTest {
 
         service.fetchAndStoreTideExtremes(locationEntity());
 
-        verify(tideExtremeRepository, never()).deleteByLocationId(anyLong());
+        verify(tideExtremeRepository, never()).deleteByLocationIdAndEventTimeBetween(
+                anyLong(), any(LocalDateTime.class), any(LocalDateTime.class));
         verify(tideExtremeRepository, never()).saveAll(any());
     }
 
@@ -330,7 +364,8 @@ class TideServiceTest {
         // Should not throw
         service.fetchAndStoreTideExtremes(locationEntity());
 
-        verify(tideExtremeRepository, never()).deleteByLocationId(anyLong());
+        verify(tideExtremeRepository, never()).deleteByLocationIdAndEventTimeBetween(
+                anyLong(), any(LocalDateTime.class), any(LocalDateTime.class));
     }
 
     // -------------------------------------------------------------------------
@@ -430,6 +465,66 @@ class TideServiceTest {
                 LocalDateTime.of(2026, 2, 24, 14, 30), BigDecimal.valueOf(1.50),
                 LocalDateTime.of(2026, 2, 24, 20, 45), BigDecimal.valueOf(0.30));
         assertFalse(tideService.calculateTideAligned(data, Set.of(TideType.MID)));
+    }
+
+    // -------------------------------------------------------------------------
+    // getTideStats
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("getTideStats() returns stats from high and low extremes")
+    void getTideStats_withData_returnsStats() {
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
+                        BigDecimal.valueOf(1.100), 10L
+                });
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-0.800),
+                        BigDecimal.valueOf(-1.500), 10L
+                });
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        TideStats stats = result.get();
+        assertThat(stats.avgHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.400));
+        assertThat(stats.maxHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.800));
+        assertThat(stats.avgLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.200));
+        assertThat(stats.minLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.500));
+        assertThat(stats.dataPoints()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("getTideStats() returns empty when no data stored")
+    void getTideStats_noData_returnsEmpty() {
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{null, null, null, 0L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{null, null, null, 0L});
+
+        assertThat(tideService.getTideStats(1L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getTideStats() handles location with only high extremes")
+    void getTideStats_onlyHighData_returnsPartialStats() {
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(1.300), BigDecimal.valueOf(1.600),
+                        BigDecimal.valueOf(1.000), 5L
+                });
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{null, null, null, 0L});
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        TideStats stats = result.get();
+        assertThat(stats.avgHighMetres()).isNotNull();
+        assertThat(stats.avgLowMetres()).isNull();
+        assertThat(stats.dataPoints()).isEqualTo(5);
     }
 
     // -------------------------------------------------------------------------

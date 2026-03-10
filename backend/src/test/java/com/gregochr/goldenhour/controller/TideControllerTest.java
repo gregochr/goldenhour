@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
+import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.TideService;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +20,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -88,6 +90,47 @@ class TideControllerTest {
                         .param("locationName", "Unknown Place")
                         .param("date", "2026-02-24"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/tides/stats returns 200 with stats for a coastal location")
+    void getTideStats_validLocation_returnsStats() throws Exception {
+        LocationEntity location = LocationEntity.builder()
+                .id(1L).name("Berwick-Upon-Tweed").lat(55.7702).lon(-2.0054)
+                .createdAt(LocalDateTime.of(2026, 2, 1, 0, 0)).build();
+
+        TideStats stats = new TideStats(
+                BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
+                BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-1.500), 20);
+
+        when(locationService.findByName("Berwick-Upon-Tweed")).thenReturn(location);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
+
+        mockMvc.perform(get("/api/tides/stats")
+                        .param("locationName", "Berwick-Upon-Tweed"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.avgHighMetres").value(1.4))
+                .andExpect(jsonPath("$.maxHighMetres").value(1.8))
+                .andExpect(jsonPath("$.avgLowMetres").value(-1.2))
+                .andExpect(jsonPath("$.minLowMetres").value(-1.5))
+                .andExpect(jsonPath("$.dataPoints").value(20));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/tides/stats returns 204 when no tide data stored")
+    void getTideStats_noData_returns204() throws Exception {
+        LocationEntity location = LocationEntity.builder()
+                .id(1L).name("Inland Place").lat(54.0).lon(-1.0)
+                .createdAt(LocalDateTime.of(2026, 2, 1, 0, 0)).build();
+
+        when(locationService.findByName("Inland Place")).thenReturn(location);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/tides/stats")
+                        .param("locationName", "Inland Place"))
+                .andExpect(status().isNoContent());
     }
 
     private TideExtremeEntity extreme(Long id, TideExtremeType type, LocalDateTime eventTime, double height) {

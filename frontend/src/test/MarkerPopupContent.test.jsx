@@ -242,6 +242,81 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('rising tide badge', () => {
+    it('shows badge when high tide is 33 min after sunrise', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        eventType: 'SUNRISE',
+        forecast: {
+          ...BASE_FORECAST,
+          solarEventTime: '2026-03-10T06:34:00',
+          nextHighTideTime: '2026-03-10T07:07:00',
+        },
+      });
+      expect(screen.getByTestId('rising-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Rising tide/)).toBeInTheDocument();
+      expect(screen.getByText(/33 min after sunrise/)).toBeInTheDocument();
+    });
+
+    it('shows badge when high tide is 30 min before sunset (golden hour)', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        eventType: 'SUNSET',
+        forecast: {
+          ...BASE_FORECAST,
+          solarEventTime: '2026-03-10T18:15:00',
+          nextHighTideTime: '2026-03-10T17:45:00',
+        },
+      });
+      expect(screen.getByTestId('rising-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/30 min before sunset/)).toBeInTheDocument();
+    });
+
+    it('does not show badge when high tide is > 60 min away', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        eventType: 'SUNRISE',
+        forecast: {
+          ...BASE_FORECAST,
+          solarEventTime: '2026-03-10T06:34:00',
+          nextHighTideTime: '2026-03-10T09:00:00',
+        },
+      });
+      expect(screen.queryByTestId('rising-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('does not show badge when nextHighTideTime is null', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        eventType: 'SUNRISE',
+        forecast: {
+          ...BASE_FORECAST,
+          nextHighTideTime: null,
+        },
+      });
+      expect(screen.queryByTestId('rising-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows badge when high tide is exactly at sunrise', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        eventType: 'SUNRISE',
+        forecast: {
+          ...BASE_FORECAST,
+          solarEventTime: '2026-03-10T06:34:00',
+          nextHighTideTime: '2026-03-10T06:34:00',
+        },
+      });
+      expect(screen.getByTestId('rising-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/at sunrise/)).toBeInTheDocument();
+    });
+
+    it('does not show badge when forecast is null', () => {
+      renderPopup({ role: 'PRO_USER', forecast: null });
+      expect(screen.queryByTestId('rising-tide-badge')).not.toBeInTheDocument();
+    });
+  });
+
   describe('comfort rows', () => {
     it('shows temperature and wind when expanded', () => {
       renderPopup({ role: 'PRO_USER' });
