@@ -7,4 +7,12 @@
         <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin\-stdlib.*$</packageUrl>
         <cve>CVE-2020-29582</cve>
     </suppress>
+    <suppress>
+        <notes>CVE-2026-29062: nesting depth bypass in UTF8DataInputJsonParser. Fixed in Jackson 3.1.0,
+            but Spring Boot 4.0.3 requires Jackson 3.0.x (3.1.0 has breaking API changes).
+            Mitigated: this app does not accept untrusted deeply-nested JSON input.
+            Revisit when Spring Boot upgrades to Jackson 3.1.x.</notes>
+        <packageUrl regex="true">^pkg:maven/tools\.jackson\.core/jackson\-(core|databind)@.*$</packageUrl>
+        <cve>CVE-2026-29062</cve>
+    </suppress>
 </suppressions>
