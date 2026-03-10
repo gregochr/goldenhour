@@ -13,7 +13,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **MetricsLoggingDecorator** — extracted timing, logging, and metrics recording from `EvaluationService` into a GoF Decorator (`MetricsLoggingDecorator`) that wraps any `EvaluationStrategy`; applied transparently when a `JobRunEntity` is present
 - **Double buildUserMessage bug fix** — `evaluateWithDetails()` was calling `buildUserMessage()` twice per evaluation (once explicitly, once inside `invokeClaude()`); `invokeClaude()` now accepts a pre-built `String` parameter
 - **ForecastDataAugmentor extraction** — moved `augmentWithDirectionalCloud()` and `augmentWithTideData()` from `ForecastService` into a dedicated `ForecastDataAugmentor` service; `ForecastService`, `ModelTestService`, and `PromptTestService` all delegate to it
-- 680 backend tests — all passing, JaCoCo >= 80%
+- **Forecast DTO layer** — `ForecastEvaluationDto` record decouples the REST API contract from the JPA entity; `ForecastDtoMapper` maps entities to DTOs with role-based score selection (LITE users get basic observer-point scores, PRO/ADMIN get enhanced directional scores); `basic_*` columns never appear in the API response; `ForecastController` GET endpoints return DTOs instead of entities
+- 690 backend tests — all passing, JaCoCo >= 80%
 
 ### Added (Mar 7, 2026)
 - **Directional cloud sampling** — fetches cloud cover at 50 km offset points toward the solar horizon and antisolar horizon using Haversine forward formula (`GeoUtils.offsetPoint()`)

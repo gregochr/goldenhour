@@ -17,8 +17,10 @@ const ALL_OPTIONS = [
 export default function ViewToggle({ value, onChange, isAdmin = false }) {
   const options = ALL_OPTIONS.filter((opt) => !opt.adminOnly || isAdmin);
 
+  if (options.length <= 1) return null;
+
   return (
-    <div className="flex gap-6 border-b border-plex-border">
+    <div className="flex gap-6 border-b border-plex-border" data-testid="view-toggle">
       {options.map((opt) => (
         <button
           key={opt.value}

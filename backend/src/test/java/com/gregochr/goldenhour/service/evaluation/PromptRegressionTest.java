@@ -168,6 +168,74 @@ class PromptRegressionTest {
                         + result.goldenHourPotential());
     }
 
+    /**
+     * St Mary's Lighthouse, 10 March 2026, SUNRISE 06:34 UTC — MODERATE case (decent sunrise).
+     *
+     * <p>Forecast snapped at 17:05 on 9 March for 10 March sunrise. Data sourced directly
+     * from the production {@code forecast_evaluation} table. Observer point had clear low
+     * cloud (0%) but 100% mid and high cloud — a thick overcast canvas overhead. Solar
+     * horizon (50 km ESE) also 0% low with 100% mid and high cloud. Antisolar had 47% low,
+     * 2% mid, 0% high. Light wind (4.5 km/h SSW), good visibility (22 km), no precipitation.
+     *
+     * <p>In reality, this was a decent 3-star sunrise — some colour breaking through the
+     * mid/high cloud layer, but not spectacular. The clear low cloud at solar horizon
+     * allowed some light through, but the thick mid-cloud cap limited the display.
+     *
+     * <p>Score bounds based on the actual observed conditions:
+     * <ul>
+     *   <li>Rating: 3–4 (decent but not spectacular)</li>
+     *   <li>Fiery Sky: 25–70 (some colour, limited by thick mid cloud)</li>
+     *   <li>Golden Hour: 25–70 (moderate light quality)</li>
+     * </ul>
+     */
+    @Test
+    void stMarysLighthouse_10Mar2026_sunrise_moderate() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("St. Mary's Lighthouse")
+                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNRISE)
+                .solarEventTime(LocalDateTime.of(2026, 3, 10, 6, 34))
+                .lowCloud(0)
+                .midCloud(100)
+                .highCloud(100)
+                .visibility(22020)
+                .windSpeed(new BigDecimal("4.50"))
+                .windDirection(204)
+                .humidity(82)
+                .weatherCode(3)
+                .boundaryLayerHeight(625)
+                .shortwaveRadiation(new BigDecimal("4.00"))
+                .pm25(new BigDecimal("13.00"))
+                .dust(new BigDecimal("1.00"))
+                .aod(new BigDecimal("0.110"))
+                .temperature(7.3)
+                .apparentTemperature(3.6)
+                .precipProbability(0)
+                .directionalCloud(new DirectionalCloudData(
+                        0, 100, 100,    // solar horizon: Low 0%, Mid 100%, High 100%
+                        47, 2, 0))      // antisolar: Low 47%, Mid 2%, High 0%
+                .build();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertScoresNotNull(result);
+        assertTrue(result.rating() >= 3,
+                "Rating should be >= 3 (decent sunrise) but was " + result.rating());
+        assertTrue(result.rating() <= 4,
+                "Rating should be <= 4 (not spectacular) but was " + result.rating());
+        assertTrue(result.fierySkyPotential() >= 25,
+                "Fiery Sky should be >= 25 (some colour observed) but was "
+                        + result.fierySkyPotential());
+        assertTrue(result.fierySkyPotential() <= 70,
+                "Fiery Sky should be <= 70 (limited by thick mid cloud) but was "
+                        + result.fierySkyPotential());
+        assertTrue(result.goldenHourPotential() >= 25,
+                "Golden Hour should be >= 25 (moderate light) but was "
+                        + result.goldenHourPotential());
+        assertTrue(result.goldenHourPotential() <= 70,
+                "Golden Hour should be <= 70 (limited by thick mid cloud) but was "
+                        + result.goldenHourPotential());
+    }
+
     private static void assertScoresNotNull(SunsetEvaluation result) {
         assertNotNull(result.rating(), "Rating should not be null");
         assertNotNull(result.fierySkyPotential(), "Fiery Sky should not be null");

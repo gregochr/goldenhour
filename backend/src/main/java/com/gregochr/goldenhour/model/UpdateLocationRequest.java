@@ -10,6 +10,8 @@ import java.util.Set;
  * Request body for updating location metadata via {@code PUT /api/locations/{id}}.
  *
  * @param name             optional new name (cascades to forecast_evaluation and actual_outcome)
+ * @param lat              optional new latitude (null = don't change)
+ * @param lon              optional new longitude (null = don't change)
  * @param solarEventTypes  which solar events to evaluate (null = don't change)
  * @param locationType     photography type (LANDSCAPE, SEASCAPE, or WILDLIFE)
  * @param tideTypes        tide preferences (empty set = not coastal; only relevant for SEASCAPE)
@@ -17,6 +19,8 @@ import java.util.Set;
  */
 public record UpdateLocationRequest(
         String name,
+        Double lat,
+        Double lon,
         Set<SolarEventType> solarEventTypes,
         LocationType locationType,
         Set<TideType> tideTypes,

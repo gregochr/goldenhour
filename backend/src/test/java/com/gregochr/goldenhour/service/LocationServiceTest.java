@@ -276,10 +276,49 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, Set.of(SolarEventType.SUNSET), null, null, null);
+                null, null, null, Set.of(SolarEventType.SUNSET), null, null, null);
         LocationEntity result = locationService.update(1L, request);
 
         assertThat(result.getSolarEventType()).containsExactly(SolarEventType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("update() changes lat and lon")
+    void update_changesLatLon() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateLocationRequest request = new UpdateLocationRequest(
+                null, 55.0, -1.0, null, null, null, null);
+        LocationEntity result = locationService.update(1L, request);
+
+        assertThat(result.getLat()).isEqualTo(55.0);
+        assertThat(result.getLon()).isEqualTo(-1.0);
+    }
+
+    @Test
+    @DisplayName("update() rejects invalid latitude")
+    void update_invalidLat_throwsIllegalArgumentException() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> locationService.update(1L,
+                new UpdateLocationRequest(null, 91.0, null, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Latitude");
+    }
+
+    @Test
+    @DisplayName("update() rejects invalid longitude")
+    void update_invalidLon_throwsIllegalArgumentException() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> locationService.update(1L,
+                new UpdateLocationRequest(null, null, 181.0, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Longitude");
     }
 
     @Test
@@ -293,7 +332,7 @@ class LocationServiceTest {
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, LocationType.SEASCAPE,
+                null, null, null, null, LocationType.SEASCAPE,
                 Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null);
         locationService.update(1L, request);
 
@@ -312,7 +351,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         UpdateLocationRequest request = new UpdateLocationRequest(
-                null, null, LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
+                null, null, null, null, LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
         locationService.update(1L, request);
 
         assertThat(existing.getTideType()).isEmpty();
@@ -324,7 +363,7 @@ class LocationServiceTest {
         when(locationRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> locationService.update(99L,
-                new UpdateLocationRequest(null, null, null, null, null)))
+                new UpdateLocationRequest(null, null, null, null, null, null, null)))
                 .isInstanceOf(java.util.NoSuchElementException.class);
     }
 

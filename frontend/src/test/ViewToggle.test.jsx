@@ -3,18 +3,19 @@ import { describe, it, expect, vi } from 'vitest';
 import ViewToggle from '../components/ViewToggle.jsx';
 
 describe('ViewToggle', () => {
-  it('renders Map option and hides Manage when not admin', () => {
+  it('renders nothing when not admin (only one tab available)', () => {
     const onChange = vi.fn();
-    render(<ViewToggle value="map" onChange={onChange} isAdmin={false} />);
+    const { container } = render(<ViewToggle value="map" onChange={onChange} isAdmin={false} />);
 
-    expect(screen.getByRole('button', { name: 'Map' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Manage' })).not.toBeInTheDocument();
+    expect(container.innerHTML).toBe('');
+    expect(screen.queryByTestId('view-toggle')).not.toBeInTheDocument();
   });
 
-  it('renders Manage button when admin', () => {
+  it('renders Map and Manage tabs when admin', () => {
     const onChange = vi.fn();
     render(<ViewToggle value="map" onChange={onChange} isAdmin={true} />);
 
+    expect(screen.getByTestId('view-toggle')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Map' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Manage' })).toBeInTheDocument();
   });
