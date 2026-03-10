@@ -70,7 +70,7 @@ function AppInner() {
   const [viewMode, setViewModeState] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash === 'map') return 'map';
-    if (hash.startsWith('manage')) return 'manage';
+    if (hash.startsWith('manage') && isAdmin) return 'manage';
     return 'map';
   });
 
@@ -180,7 +180,7 @@ function AppInner() {
           </div>
         )}
 
-        {!loading && !error && sortedLocations.length === 0 && viewMode === 'manage' && (
+        {!loading && !error && sortedLocations.length === 0 && viewMode === 'manage' && isAdmin && (
           <>
             <div className="mb-6">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
@@ -206,7 +206,7 @@ function AppInner() {
           </div>
         )}
 
-        {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && viewMode === 'manage' && (
+        {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && viewMode === 'manage' && isAdmin && (
           <>
             <div className="mb-6">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
@@ -233,7 +233,7 @@ function AppInner() {
               <MapView locations={visibleLocations} date={effectiveDate} />
             )}
 
-            {viewMode === 'manage' && (
+            {viewMode === 'manage' && isAdmin && (
               <ManageView onComplete={refresh} />
             )}
           </>

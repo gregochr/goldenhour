@@ -89,8 +89,8 @@ function minutesBetween(a, b) {
 }
 
 /**
- * Returns rising tide warning info when a HIGH tide falls within the golden+blue
- * hour window (±60 min of the solar event) AND the tide is incoming (high tide
+ * Returns rising tide warning info when a HIGH tide falls within ±90 min of the
+ * solar event (covering the full blue+golden hour window) AND the tide is incoming
  * is after the solar event for sunrise, or before for sunset).
  *
  * @param {object} f - Forecast evaluation row with solarEventTime and nextHighTideTime.
@@ -103,15 +103,15 @@ function getRisingTideWarning(f, eventType) {
   const diffMins = minutesBetween(f.solarEventTime, f.nextHighTideTime);
 
   if (eventType === 'SUNRISE') {
-    // Sunrise: tide is rising if high tide is 0–60 min AFTER sunrise (within golden hour)
-    // Also warn if high tide is up to 60 min BEFORE sunrise (tide rushing in during blue hour)
-    if (diffMins >= -60 && diffMins <= 60) {
+    // Sunrise: tide is rising if high tide is up to 90 min AFTER sunrise (golden hour+)
+    // Also warn if high tide is up to 90 min BEFORE sunrise (tide rushing in during blue hour)
+    if (diffMins >= -90 && diffMins <= 90) {
       return { minutesAway: Math.round(diffMins), highTideTime: f.nextHighTideTime };
     }
   } else {
-    // Sunset: tide is rising if high tide is 0–60 min AFTER sunset (blue hour)
-    // Also warn if high tide is up to 60 min BEFORE sunset (golden hour)
-    if (diffMins >= -60 && diffMins <= 60) {
+    // Sunset: tide is rising if high tide is up to 90 min AFTER sunset (blue hour+)
+    // Also warn if high tide is up to 90 min BEFORE sunset (golden hour)
+    if (diffMins >= -90 && diffMins <= 90) {
       return { minutesAway: Math.round(diffMins), highTideTime: f.nextHighTideTime };
     }
   }

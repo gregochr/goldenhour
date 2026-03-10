@@ -272,7 +272,21 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText(/30 min before sunset/)).toBeInTheDocument();
     });
 
-    it('does not show badge when high tide is > 60 min away', () => {
+    it('shows badge when high tide is 78 min after sunrise (within 90 min window)', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        eventType: 'SUNRISE',
+        forecast: {
+          ...BASE_FORECAST,
+          solarEventTime: '2026-03-10T06:31:00',
+          nextHighTideTime: '2026-03-10T07:49:00',
+        },
+      });
+      expect(screen.getByTestId('rising-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/78 min after sunrise/)).toBeInTheDocument();
+    });
+
+    it('does not show badge when high tide is > 90 min away', () => {
       renderPopup({
         role: 'PRO_USER',
         eventType: 'SUNRISE',
