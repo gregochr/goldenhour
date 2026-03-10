@@ -387,6 +387,59 @@ class TideServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // backfillTideExtremes
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("backfillTideExtremes() skips chunks where data already exists")
+    void backfillTideExtremes_existingData_skipsChunk() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        // All chunks already have data
+        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(true);
+
+        int fetched = tideService.backfillTideExtremes(locationEntity(), null);
+
+        assertThat(fetched).isZero();
+        // Verify no API calls were made (restClient.get() never called for backfill)
+        verify(tideExtremeRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("backfillTideExtremes() returns 0 when API key not configured")
+    void backfillTideExtremes_noApiKey_returnsZero() {
+        when(worldTidesProperties.getApiKey()).thenReturn("");
+
+        int fetched = tideService.backfillTideExtremes(locationEntity(), null);
+
+        assertThat(fetched).isZero();
+    }
+
+    @Test
+    @DisplayName("backfillTideExtremes() fetches and stores data for missing chunks")
+    void backfillTideExtremes_missingData_fetchesAndStores() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        // All chunks missing
+        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
+                .thenReturn(false);
+
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        when(mockClient.get().uri(any(java.util.function.Function.class))
+                .retrieve().body(WorldTidesResponse.class))
+                .thenReturn(buildWorldTidesResponse());
+
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+
+        int fetched = service.backfillTideExtremes(locationEntity(), null);
+
+        assertThat(fetched).isGreaterThan(0);
+        verify(tideExtremeRepository, org.mockito.Mockito.atLeastOnce()).saveAll(any());
+    }
+
+    // -------------------------------------------------------------------------
     // calculateTideAligned — single preferences
     // -------------------------------------------------------------------------
 

@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
+
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -99,9 +102,10 @@ class ScheduledForecastServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("refreshTideExtremes() calls tideService for each coastal location")
+    @DisplayName("refreshTideExtremes() calls tideService for each SEASCAPE coastal location")
     void refreshTideExtremes_callsTideService_forCoastalLocations() {
-        LocationEntity durham = LocationEntity.builder().name("Durham UK").build();
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham));
         when(locationService.isCoastal(any())).thenReturn(true);
 
@@ -111,11 +115,11 @@ class ScheduledForecastServiceTest {
     }
 
     @Test
-    @DisplayName("refreshTideExtremes() skips non-coastal locations")
+    @DisplayName("refreshTideExtremes() skips non-SEASCAPE locations")
     void refreshTideExtremes_skipsNonCoastalLocations() {
-        LocationEntity durham = LocationEntity.builder().name("Durham UK").build();
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.LANDSCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham));
-        when(locationService.isCoastal(any())).thenReturn(false);
 
         scheduledForecastService.refreshTideExtremes();
 
@@ -125,8 +129,10 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("refreshTideExtremes() continues after a single location failure")
     void refreshTideExtremes_continuesAfterFailure() {
-        LocationEntity durham = LocationEntity.builder().name("Durham UK").build();
-        LocationEntity scarborough = LocationEntity.builder().name("Scarborough").build();
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        LocationEntity scarborough = LocationEntity.builder().name("Scarborough")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
         when(locationService.isCoastal(any())).thenReturn(true);
         doThrow(new RuntimeException("API error"))
@@ -137,5 +143,53 @@ class ScheduledForecastServiceTest {
         scheduledForecastService.refreshTideExtremes();
 
         verify(tideService, times(2)).fetchAndStoreTideExtremes(any(), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // backfillTideExtremes
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("backfillTideExtremes() calls tideService.backfillTideExtremes for SEASCAPE locations")
+    void backfillTideExtremes_callsBackfill_forSeascapeLocations() {
+        LocationEntity bamburgh = LocationEntity.builder().name("Bamburgh")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+        when(locationService.isCoastal(any())).thenReturn(true);
+        when(tideService.backfillTideExtremes(any(), any())).thenReturn(52);
+
+        scheduledForecastService.backfillTideExtremes();
+
+        verify(tideService, times(1)).backfillTideExtremes(any(), any());
+    }
+
+    @Test
+    @DisplayName("backfillTideExtremes() skips LANDSCAPE locations")
+    void backfillTideExtremes_skipsLandscapeLocations() {
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.LANDSCAPE)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
+
+        scheduledForecastService.backfillTideExtremes();
+
+        verify(tideService, never()).backfillTideExtremes(any(), any());
+    }
+
+    @Test
+    @DisplayName("backfillTideExtremes() continues after a single location failure")
+    void backfillTideExtremes_continuesAfterFailure() {
+        LocationEntity loc1 = LocationEntity.builder().name("Loc1")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        LocationEntity loc2 = LocationEntity.builder().name("Loc2")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+        when(locationService.isCoastal(any())).thenReturn(true);
+        when(tideService.backfillTideExtremes(any(), any()))
+                .thenThrow(new RuntimeException("API error"))
+                .thenReturn(52);
+
+        scheduledForecastService.backfillTideExtremes();
+
+        verify(tideService, times(2)).backfillTideExtremes(any(), any());
     }
 }

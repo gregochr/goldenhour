@@ -268,6 +268,25 @@ public class ForecastController {
     }
 
     /**
+     * Triggers a backfill of 12 months of historical tide data for all SEASCAPE locations.
+     * Restricted to ADMIN only.
+     *
+     * <p>Fetches in 7-day chunks, skipping ranges where data already exists to avoid
+     * duplicate WorldTides API charges. The run is tracked as a TIDE {@code JobRunEntity}.
+     *
+     * @return 202 Accepted with status message
+     */
+    @PostMapping("/run/tide/backfill")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, String>> backfillTideData() {
+        LOG.info("POST /api/forecast/run/tide/backfill triggered by admin");
+        CompletableFuture.runAsync(() -> scheduledForecastService.backfillTideExtremes());
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(Map.of("status", "Tide backfill started (12 months, SEASCAPE locations)",
+                        "runType", "TIDE"));
+    }
+
+    /**
      * Returns all evaluation runs for a specific location, date, and target type.
      *
      * <p>Designed for backtesting — compare how the forecast rating changed across

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, fetchLocations } from '../api/forecastApi';
+import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
@@ -108,6 +108,7 @@ const JobRunsMetricsView = () => {
   const [runningShortTerm, setRunningShortTerm] = useState(false);
   const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runningTide, setRunningTide] = useState(false);
+  const [runningBackfill, setRunningBackfill] = useState(false);
   const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
@@ -161,7 +162,7 @@ const JobRunsMetricsView = () => {
     loadJobRuns(page);
   };
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide;
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill;
 
   const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
     const summary = getLocationSummary(allLocations, runType);
@@ -224,6 +225,38 @@ const JobRunsMetricsView = () => {
     setRunningTide,
   );
 
+  const handleBackfillTide = () => {
+    const seascapeCoastal = allLocations
+      .filter((loc) => loc.enabled !== false)
+      .filter((loc) => (loc.locationType || []).includes('SEASCAPE'))
+      .filter(isCoastal);
+    const summary = getLocationSummary(
+      allLocations.filter((loc) => (loc.locationType || []).includes('SEASCAPE')),
+      'TIDE',
+    );
+    setConfirmDialog({
+      title: 'Backfill Tide History',
+      message: `Backfill 12 months of historical tide data for ${seascapeCoastal.length} SEASCAPE location(s)? This fetches in 7-day chunks, skipping dates where data already exists. Multiple WorldTides API calls will be made per location.`,
+      confirmLabel: 'Backfill',
+      destructive: false,
+      locationSummary: summary,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        setRunningBackfill(true);
+        setRunStatus(null);
+        try {
+          const result = await backfillTideData();
+          setRunStatus({ type: 'success', message: result.status || 'Backfill started.' });
+          setTimeout(() => loadJobRuns(0), 5000);
+        } catch {
+          setRunStatus({ type: 'error', message: 'Tide backfill failed. Check the logs.' });
+        } finally {
+          setRunningBackfill(false);
+        }
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
       {isAdmin && (
@@ -267,6 +300,14 @@ const JobRunsMetricsView = () => {
                 data-testid="refresh-tide-btn"
               >
                 {runningTide ? '\u27F3 Running\u2026' : '\u27F3 Refresh Tide Data'}
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleBackfillTide}
+                disabled={anyRunning}
+                data-testid="backfill-tide-btn"
+              >
+                {runningBackfill ? '\u27F3 Running\u2026' : '\u27F3 Backfill Tide History (12 mo)'}
               </button>
             </div>
           </div>

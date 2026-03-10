@@ -352,6 +352,24 @@ class ForecastControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/tide/backfill as ADMIN returns 202 Accepted")
+    void backfillTideData_asAdmin_returns202() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/tide/backfill"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Tide backfill started (12 months, SEASCAPE locations)"))
+                .andExpect(jsonPath("$.runType").value("TIDE"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/forecast/run/tide/backfill as non-admin returns 403")
+    void backfillTideData_asNonAdmin_returns403() throws Exception {
+        mockMvc.perform(post("/api/forecast/run/tide/backfill"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @WithMockUser(roles = {"LITE_USER"})
     @DisplayName("GET /api/forecast as LITE_USER passes isLiteUser=true to mapper")
     void getForecasts_asLiteUser_passesLiteFlag() throws Exception {

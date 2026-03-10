@@ -41,6 +41,13 @@ public class OpenMeteoService {
     /** Distance in metres to sample directional horizon cloud data (50 km). */
     static final double DIRECTIONAL_OFFSET_METRES = 50_000.0;
 
+    /**
+     * Half-angle of the sampling cone for the solar horizon direction (degrees).
+     * Three points are sampled at azimuth-CONE, azimuth, azimuth+CONE and averaged,
+     * smoothing out Open-Meteo grid-cell boundary effects (~11 km resolution).
+     */
+    static final int SOLAR_CONE_HALF_ANGLE_DEG = 15;
+
     private static final int WIND_SPEED_SCALE = 2;
     private static final int PRECIP_SCALE = 2;
     private static final int RADIATION_SCALE = 2;
@@ -307,51 +314,67 @@ public class OpenMeteoService {
     public DirectionalCloudData fetchDirectionalCloudData(double lat, double lon,
             int solarAzimuthDeg, LocalDateTime solarEventTime, TargetType targetType,
             JobRunEntity jobRun) {
-        double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
-                DIRECTIONAL_OFFSET_METRES);
+        // Sample 3 solar points in a cone (azimuth ± CONE_HALF_ANGLE) to smooth grid-cell effects
+        int[] solarBearings = {
+            solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
+            solarAzimuthDeg,
+            solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
+        };
         double antisolarBearing = GeoUtils.antisolarBearing(solarAzimuthDeg);
         double[] antisolarPoint = GeoUtils.offsetPoint(lat, lon, antisolarBearing,
                 DIRECTIONAL_OFFSET_METRES);
 
-        LOG.info("Directional cloud fetch: solar=[{},{}] ({}deg), antisolar=[{},{}] ({}deg)",
-                String.format("%.3f", solarPoint[0]), String.format("%.3f", solarPoint[1]),
-                solarAzimuthDeg,
+        LOG.info("Directional cloud fetch: solar cone {}±{}deg, antisolar=[{},{}] ({}deg)",
+                solarAzimuthDeg, SOLAR_CONE_HALF_ANGLE_DEG,
                 String.format("%.3f", antisolarPoint[0]), String.format("%.3f", antisolarPoint[1]),
                 (int) antisolarBearing);
 
         long startMs = System.currentTimeMillis();
         try {
-            OpenMeteoForecastResponse solarForecast = openMeteoClient.fetchCloudOnly(
-                    solarPoint[0], solarPoint[1]);
+            // Fetch cloud data at 3 solar cone points and average
+            int solarLowSum = 0;
+            int solarMidSum = 0;
+            int solarHighSum = 0;
+            for (int bearing : solarBearings) {
+                double[] point = GeoUtils.offsetPoint(lat, lon, bearing,
+                        DIRECTIONAL_OFFSET_METRES);
+                OpenMeteoForecastResponse forecast = openMeteoClient.fetchCloudOnly(
+                        point[0], point[1]);
+                int idx = findBestIndex(forecast.getHourly().getTime(),
+                        solarEventTime, targetType);
+                OpenMeteoForecastResponse.Hourly h = forecast.getHourly();
+                solarLowSum += h.getCloudCoverLow().get(idx);
+                solarMidSum += h.getCloudCoverMid().get(idx);
+                solarHighSum += h.getCloudCoverHigh().get(idx);
+            }
+            int solarLow = solarLowSum / solarBearings.length;
+            int solarMid = solarMidSum / solarBearings.length;
+            int solarHigh = solarHighSum / solarBearings.length;
+
+            // Fetch antisolar (single point — less sensitive to grid boundaries)
             OpenMeteoForecastResponse antisolarForecast = openMeteoClient.fetchCloudOnly(
                     antisolarPoint[0], antisolarPoint[1]);
-
-            int solarIdx = findBestIndex(solarForecast.getHourly().getTime(),
-                    solarEventTime, targetType);
             int antisolarIdx = findBestIndex(antisolarForecast.getHourly().getTime(),
                     solarEventTime, targetType);
+            OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
 
             long durationMs = System.currentTimeMillis() - startMs;
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "directional-cloud-solar", null, durationMs, 200, null, true, null);
+                        "GET", "directional-cloud-solar-cone(3)", null, durationMs, 200,
+                        null, true, null);
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
                         "GET", "directional-cloud-antisolar", null, durationMs, 200, null,
                         true, null);
             }
 
-            OpenMeteoForecastResponse.Hourly sh = solarForecast.getHourly();
-            OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
-
             DirectionalCloudData result = new DirectionalCloudData(
-                    sh.getCloudCoverLow().get(solarIdx),
-                    sh.getCloudCoverMid().get(solarIdx),
-                    sh.getCloudCoverHigh().get(solarIdx),
+                    solarLow, solarMid, solarHigh,
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx));
 
-            LOG.info("Directional cloud -> solar: L{}% M{}% H{}%, antisolar: L{}% M{}% H{}% ({}ms)",
+            LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}% ({}ms)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
                     result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
@@ -364,7 +387,7 @@ public class OpenMeteoService {
                     durationMs, e.getMessage());
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "directional-cloud-solar", null, durationMs,
+                        "GET", "directional-cloud-solar-cone(3)", null, durationMs,
                         getStatusCode(e), null, false, e.getMessage());
             }
             return null;
