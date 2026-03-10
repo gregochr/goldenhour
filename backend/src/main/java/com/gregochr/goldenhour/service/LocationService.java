@@ -161,7 +161,7 @@ public class LocationService {
     /**
      * Updates metadata for an existing location.
      *
-     * <p>Name and coordinates are immutable. If the location type changes to SEASCAPE,
+     * <p>If the location type changes to SEASCAPE,
      * tide data is fetched if not already stored.
      *
      * @param id      the location primary key
@@ -185,6 +185,19 @@ public class LocationService {
             String oldName = location.getName();
             location.setName(newName);
             LOG.info("Renamed location '{}' → '{}'", oldName, newName);
+        }
+
+        if (request.lat() != null) {
+            if (request.lat() < MIN_LAT || request.lat() > MAX_LAT) {
+                throw new IllegalArgumentException("Latitude must be between -90 and 90");
+            }
+            location.setLat(request.lat());
+        }
+        if (request.lon() != null) {
+            if (request.lon() < MIN_LON || request.lon() > MAX_LON) {
+                throw new IllegalArgumentException("Longitude must be between -180 and 180");
+            }
+            location.setLon(request.lon());
         }
 
         if (request.solarEventTypes() != null) {

@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ForecastDtoMapper;
+import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
@@ -28,6 +30,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -66,6 +69,9 @@ class ForecastControllerTest {
     @MockitoBean
     private ScheduledForecastService scheduledForecastService;
 
+    @MockitoBean
+    private ForecastDtoMapper dtoMapper;
+
     private static final LocationEntity DURHAM = LocationEntity.builder()
             .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
 
@@ -85,13 +91,15 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("GET /api/forecast returns 200 with evaluations for all configured locations")
-    void getForecasts_returnsEvaluationsForConfiguredLocations() throws Exception {
+    @DisplayName("GET /api/forecast returns 200 with DTOs for all configured locations")
+    void getForecasts_returnsDtosForConfiguredLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
         when(forecastEvaluationRepository
                 .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         eq(1L), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
+        when(dtoMapper.toDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
 
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
@@ -107,6 +115,8 @@ class ForecastControllerTest {
                 .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         eq(1L), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
+        when(dtoMapper.toDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
 
         mockMvc.perform(get("/api/forecast/history")
                         .param("from", "2026-01-01")
@@ -169,13 +179,15 @@ class ForecastControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("GET /api/forecast/compare returns 200 with evaluations for valid params")
+    @DisplayName("GET /api/forecast/compare returns 200 with DTOs for valid params")
     void getCompare_validParams_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 28));
         when(forecastEvaluationRepository
                 .findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
                         eq(1L), eq(LocalDate.of(2026, 2, 28)), eq(TargetType.SUNSET)))
                 .thenReturn(List.of(entity));
+        when(dtoMapper.toDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
 
         mockMvc.perform(get("/api/forecast/compare")
                         .param("location", "Durham UK")
@@ -289,6 +301,8 @@ class ForecastControllerTest {
                 .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         eq(1L), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
+        when(dtoMapper.toDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
 
         mockMvc.perform(get("/api/forecast/history")
                         .param("from", "2026-01-01")
@@ -337,6 +351,36 @@ class ForecastControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/forecast as LITE_USER passes isLiteUser=true to mapper")
+    void getForecasts_asLiteUser_passesLiteFlag() throws Exception {
+        when(forecastEvaluationRepository
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), eq(true))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/forecast as ADMIN passes isLiteUser=false to mapper")
+    void getForecasts_asAdmin_passesNonLiteFlag() throws Exception {
+        when(forecastEvaluationRepository
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), eq(false))).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
     private ForecastEvaluationEntity buildEntity(LocationEntity location, LocalDate targetDate) {
         return ForecastEvaluationEntity.builder()
                 .id(1L)
@@ -355,4 +399,18 @@ class ForecastControllerTest {
                 .build();
     }
 
+    private ForecastEvaluationDto buildDto(String locationName, int fierySky, int goldenHour) {
+        return new ForecastEvaluationDto(
+                1L, locationName,
+                BigDecimal.valueOf(54.7753), BigDecimal.valueOf(-1.5849),
+                LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 20, 12, 0), 0,
+                null, fierySky, goldenHour, "Good colour potential.",
+                LocalDateTime.of(2026, 2, 20, 16, 45), null,
+                EvaluationModel.SONNET,
+                null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null);
+    }
 }

@@ -473,6 +473,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setEditingRowId(loc.id);
     setEditValues({
       name: loc.name,
+      lat: String(loc.lat),
+      lon: String(loc.lon),
       solarEventTypes: Array.isArray(loc.solarEventType) ? [...loc.solarEventType] : ['SUNRISE', 'SUNSET'],
       locationType: firstOrDefault(loc.locationType, 'LANDSCAPE'),
       tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
@@ -502,11 +504,23 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setEditError('Name cannot be blank.');
       return;
     }
+    const parsedLat = parseFloat(editValues.lat);
+    const parsedLon = parseFloat(editValues.lon);
+    if (isNaN(parsedLat) || parsedLat < -90 || parsedLat > 90) {
+      setEditError('Latitude must be between -90 and 90.');
+      return;
+    }
+    if (isNaN(parsedLon) || parsedLon < -180 || parsedLon > 180) {
+      setEditError('Longitude must be between -180 and 180.');
+      return;
+    }
     setEditSaving(true);
     setEditError('');
     try {
       await updateLocation(editingRowId, {
         name: editValues.name.trim(),
+        lat: parsedLat,
+        lon: parsedLon,
         solarEventTypes: editValues.solarEventTypes,
         locationType: editValues.locationType,
         tideTypes: editValues.locationType === 'SEASCAPE' ? editValues.tideTypes : [],
@@ -797,8 +811,25 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   data-testid="inline-edit-name"
                                 />
                               </td>
-                              <td className="py-2 text-plex-text-secondary text-xs">
-                                {loc.lat.toFixed(3)}, {loc.lon.toFixed(3)}
+                              <td className="py-2">
+                                <div className="flex gap-1">
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className={inlineInputClass + ' w-20'}
+                                    value={editValues.lat}
+                                    onChange={(e) => handleEditChange('lat', e.target.value)}
+                                    data-testid="inline-edit-lat"
+                                  />
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    className={inlineInputClass + ' w-20'}
+                                    value={editValues.lon}
+                                    onChange={(e) => handleEditChange('lon', e.target.value)}
+                                    data-testid="inline-edit-lon"
+                                  />
+                                </div>
                               </td>
                               <td className="py-2" data-testid="inline-edit-type">
                                 <LocationTypeChips

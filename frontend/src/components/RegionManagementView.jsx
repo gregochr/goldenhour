@@ -1,6 +1,9 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { fetchRegions, addRegion, updateRegion, setRegionEnabled } from '../api/regionApi.js';
+import { fetchLocations } from '../api/forecastApi.js';
+import Pagination from './Pagination.jsx';
+import usePagination from '../hooks/usePagination.js';
 
 /**
  * Sortable header cell for the regions table.
@@ -38,12 +41,13 @@ SortableHeader.propTypes = {
 };
 
 /**
- * Region management view with list/add/edit modes.
+ * Region management view with list/add/edit modes and client-side pagination.
  *
  * <p>Follows the same pattern as UserManagementView but simpler — just name + enabled.
  */
 export default function RegionManagementView() {
   const [regions, setRegions] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState('list'); // list | add | edit
   const [editingRegion, setEditingRegion] = useState(null);
@@ -62,6 +66,16 @@ export default function RegionManagementView() {
   );
   const [, startToggleTransition] = useTransition();
 
+  const locationCountByRegion = useMemo(() => {
+    const counts = {};
+    locations.forEach((loc) => {
+      if (loc.region?.id) {
+        counts[loc.region.id] = (counts[loc.region.id] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [locations]);
+
   const sortedRegions = useMemo(() => {
     const sorted = [...optimisticRegions];
     sorted.sort((a, b) => {
@@ -69,12 +83,19 @@ export default function RegionManagementView() {
       if (sortKey === 'name') { va = a.name; vb = b.name; }
       else if (sortKey === 'status') { va = a.enabled ? 'Enabled' : 'Disabled'; vb = b.enabled ? 'Enabled' : 'Disabled'; }
       else if (sortKey === 'created') { va = a.createdAt || ''; vb = b.createdAt || ''; }
-      else { va = ''; vb = ''; }
+      else if (sortKey === 'locationCount') {
+        va = locationCountByRegion[a.id] || 0;
+        vb = locationCountByRegion[b.id] || 0;
+        return sortDir === 'asc' ? va - vb : vb - va;
+      } else { va = ''; vb = ''; }
       const cmp = String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' });
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return sorted;
-  }, [optimisticRegions, sortKey, sortDir]);
+  }, [optimisticRegions, sortKey, sortDir, locationCountByRegion]);
+
+  const pagination = usePagination(sortedRegions);
+  const pageRegions = pagination.pageItems;
 
   function handleSort(key) {
     if (sortKey === key) {
@@ -95,8 +116,8 @@ export default function RegionManagementView() {
   }
 
   useEffect(() => {
-    fetchRegions()
-      .then(setRegions)
+    Promise.all([fetchRegions(), fetchLocations()])
+      .then(([regs, locs]) => { setRegions(regs); setLocations(locs); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -155,6 +176,7 @@ export default function RegionManagementView() {
   }
 
   const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold';
+  const COL_COUNT = 5;
 
   return (
     <div className="flex flex-col gap-4">
@@ -179,19 +201,20 @@ export default function RegionManagementView() {
 
           {!loading && regions.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left" data-testid="regions-table">
+              <table className="w-full table-fixed text-sm text-left" data-testid="regions-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
                     <SortableHeader label="Name" sortKey="name" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
                     <SortableHeader label="Created" sortKey="created" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
                     <SortableHeader label="Status" sortKey="status" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
+                    <SortableHeader label="Location Count" sortKey="locationCount" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} />
                     <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
                       <span className="whitespace-nowrap">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedRegions.map((region) => (
+                  {pageRegions.map((region) => (
                     <tr
                       key={region.id}
                       className={`border-b border-plex-surface last:border-0 ${!region.enabled ? 'opacity-50' : ''}`}
@@ -213,6 +236,9 @@ export default function RegionManagementView() {
                           {region.enabled ? 'Enabled' : 'Disabled'}
                         </button>
                       </td>
+                      <td className="py-2 text-plex-text-secondary text-xs" data-testid={`region-location-count-${region.id}`}>
+                        {locationCountByRegion[region.id] || 0}
+                      </td>
                       <td className="py-2">
                         <button
                           className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
@@ -224,8 +250,26 @@ export default function RegionManagementView() {
                       </td>
                     </tr>
                   ))}
+                  {pageRegions.length > 0 && pageRegions.length < pagination.pageSize && (
+                    Array.from({ length: pagination.pageSize - pageRegions.length }, (_, i) => (
+                      <tr key={`spacer-${i}`} aria-hidden="true">
+                        <td colSpan={COL_COUNT} className="py-2 text-sm">&nbsp;</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
+              <Pagination
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                pageSize={pagination.pageSize}
+                totalItems={sortedRegions.length}
+                onNextPage={pagination.nextPage}
+                onPrevPage={pagination.prevPage}
+                onFirstPage={pagination.firstPage}
+                onLastPage={pagination.lastPage}
+                onSetPageSize={pagination.setPageSize}
+              />
             </div>
           )}
 

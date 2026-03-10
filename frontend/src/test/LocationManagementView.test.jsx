@@ -312,6 +312,8 @@ describe('LocationManagementView', () => {
     await waitFor(() => {
       expect(updateLocation).toHaveBeenCalledWith(1, {
         name: 'Durham Cathedral',
+        lat: 54.77,
+        lon: -1.58,
         solarEventTypes: ['SUNRISE', 'SUNSET'],
         locationType: 'LANDSCAPE',
         tideTypes: [],

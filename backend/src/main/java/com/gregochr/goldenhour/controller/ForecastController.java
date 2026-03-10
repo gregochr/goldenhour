@@ -1,9 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ForecastDtoMapper;
+import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastCommand;
@@ -14,8 +15,11 @@ import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,14 +33,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-
 /**
  * REST controller for forecast evaluation data.
  *
  * <p>Exposes endpoints to retrieve stored forecasts, query historical data,
- * and trigger on-demand forecast runs.
+ * and trigger on-demand forecast runs. GET endpoints return {@link ForecastEvaluationDto}
+ * with role-based score selection (LITE users receive basic scores, PRO/ADMIN receive
+ * enhanced directional scores).
  */
 @RestController
 @RequestMapping("/api/forecast")
@@ -49,6 +52,7 @@ public class ForecastController {
     private final ForecastCommandFactory commandFactory;
     private final ForecastCommandExecutor commandExecutor;
     private final ScheduledForecastService scheduledForecastService;
+    private final ForecastDtoMapper dtoMapper;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -58,37 +62,41 @@ public class ForecastController {
      * @param commandFactory            builds forecast commands from run types
      * @param commandExecutor           executes forecast commands
      * @param scheduledForecastService  the scheduled forecast service (for tide refresh)
+     * @param dtoMapper                 maps entities to role-aware DTOs
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService, ForecastCommandFactory commandFactory,
             ForecastCommandExecutor commandExecutor,
-            ScheduledForecastService scheduledForecastService) {
+            ScheduledForecastService scheduledForecastService,
+            ForecastDtoMapper dtoMapper) {
         this.repository = repository;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
         this.scheduledForecastService = scheduledForecastService;
+        this.dtoMapper = dtoMapper;
     }
 
     /**
      * Returns stored forecast evaluations for all configured locations from today
      * through T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
      *
-     * <p>All evaluations are returned with all fields populated (rating + dual scores).
-     * The frontend uses user role to decide what UI cards to display.
+     * <p>Scores are role-aware: LITE users receive basic (observer-point) scores,
+     * PRO/ADMIN users receive enhanced (directional) scores.
      *
      * @param auth the current authentication context (injected by Spring Security)
      * @return evaluations ordered by target date and target type
      */
     @GetMapping
-    public List<ForecastEvaluationEntity> getForecasts(Authentication auth) {
+    public List<ForecastEvaluationDto> getForecasts(Authentication auth) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate from = today.minusDays(7);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
-        return locationService.findAllEnabled().stream()
+        var entities = locationService.findAllEnabled().stream()
                 .flatMap(loc -> repository.findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         loc.getId(), from, horizon).stream())
                 .toList();
+        return dtoMapper.toDtoList(entities, isLiteUser(auth));
     }
 
     /**
@@ -100,29 +108,34 @@ public class ForecastController {
      * @param from     start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param to       end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param location optional location name filter
+     * @param auth     the current authentication context
      * @return evaluations ordered by target date and target type
      * @throws IllegalArgumentException if {@code from} is after {@code to}
      */
     @GetMapping("/history")
-    public List<ForecastEvaluationEntity> getHistory(
+    public List<ForecastEvaluationDto> getHistory(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(required = false) String location) {
+            @RequestParam(required = false) String location,
+            Authentication auth) {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
+        List<com.gregochr.goldenhour.entity.ForecastEvaluationEntity> entities;
         if (location != null) {
             LocationEntity loc = locationService.findByName(location);
-            return repository
+            entities = repository
                     .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                             loc.getId(), from, to);
+        } else {
+            entities = locationService.findAllEnabled().stream()
+                    .flatMap(loc -> repository
+                            .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                                    loc.getId(), from, to)
+                            .stream())
+                    .toList();
         }
-        return locationService.findAllEnabled().stream()
-                .flatMap(loc -> repository
-                        .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                                loc.getId(), from, to)
-                        .stream())
-                .toList();
+        return dtoMapper.toDtoList(entities, isLiteUser(auth));
     }
 
     /**
@@ -263,16 +276,27 @@ public class ForecastController {
      * @param location   the configured location name
      * @param date       the target date, ISO format {@code yyyy-MM-dd}
      * @param targetType SUNRISE or SUNSET
+     * @param auth       the current authentication context
      * @return evaluations ordered by forecast_run_at ascending
      */
     @GetMapping("/compare")
-    public List<ForecastEvaluationEntity> getCompare(
+    public List<ForecastEvaluationDto> getCompare(
             @RequestParam String location,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
-            @RequestParam TargetType targetType) {
+            @RequestParam TargetType targetType,
+            Authentication auth) {
         LocationEntity loc = locationService.findByName(location);
-        return repository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+        var entities = repository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
                 loc.getId(), date, targetType);
+        return dtoMapper.toDtoList(entities, isLiteUser(auth));
     }
 
+    private boolean isLiteUser(Authentication auth) {
+        if (auth == null) {
+            return true;
+        }
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_LITE_USER"::equals);
+    }
 }
