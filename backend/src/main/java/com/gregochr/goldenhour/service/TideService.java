@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import org.slf4j.Logger;
@@ -32,9 +33,10 @@ import java.util.Set;
  * Manages tide extremes for coastal locations using the WorldTides API.
  *
  * <p>On a weekly schedule, fetches 14 days of high and low tide times from WorldTides
- * and stores them in the {@code tide_extreme} table. At forecast evaluation time,
- * {@link #deriveTideData} looks up the stored extremes to classify the tide state
- * and find the next high and low tides — without calling the external API on every run.
+ * and merges them into the {@code tide_extreme} table, preserving historical data
+ * outside the fetch window. At forecast evaluation time, {@link #deriveTideData} looks
+ * up the stored extremes to classify the tide state and find the next high and low
+ * tides — without calling the external API on every run.
  *
  * <p>HIGH: solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of a stored HIGH extreme.
  * LOW: solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES} minutes of a stored LOW extreme.
@@ -84,8 +86,9 @@ public class TideService {
     }
 
     /**
-     * Fetches 14 days of tide extremes from WorldTides for a coastal location and replaces
-     * any existing rows for that location in the {@code tide_extreme} table.
+     * Fetches 14 days of tide extremes from WorldTides for a coastal location and merges
+     * them into the {@code tide_extreme} table, replacing only the overlapping window
+     * while preserving historical data.
      *
      * <p>If the WorldTides API key is not configured, or if the API call fails or returns
      * a non-200 status, no rows are deleted or written — the existing data is preserved.
@@ -98,9 +101,9 @@ public class TideService {
     }
 
     /**
-     * Fetches 14 days of tide extremes from WorldTides for a coastal location and replaces
-     * any existing rows for that location in the {@code tide_extreme} table, with optional
-     * job run tracking.
+     * Fetches 14 days of tide extremes from WorldTides for a coastal location and merges
+     * them into the {@code tide_extreme} table, replacing only the overlapping window
+     * while preserving historical data. Optionally tracks the API call in a job run.
      *
      * <p>If the WorldTides API key is not configured, or if the API call fails or returns
      * a non-200 status, no rows are deleted or written — the existing data is preserved.
@@ -174,7 +177,10 @@ public class TideService {
                             .build())
                     .toList();
 
-            tideExtremeRepository.deleteByLocationId(location.getId());
+            // Delete only the overlapping fetch window, preserving historical data
+            LocalDateTime windowEnd = startOfDay.plusSeconds(FETCH_LENGTH_SECONDS);
+            tideExtremeRepository.deleteByLocationIdAndEventTimeBetween(
+                    location.getId(), startOfDay, windowEnd);
             tideExtremeRepository.saveAll(entities);
 
             if (jobRun != null) {
@@ -276,6 +282,35 @@ public class TideService {
             case LOW -> tideState == TideState.LOW;
             case MID -> tideData.nearMidPoint();
         });
+    }
+
+    /**
+     * Computes aggregate tide height statistics for a location from all stored extremes.
+     *
+     * <p>Returns empty if no extremes are stored for the location.
+     *
+     * @param locationId the location primary key
+     * @return Optional containing TideStats if data is available, empty otherwise
+     */
+    public Optional<TideStats> getTideStats(Long locationId) {
+        Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
+                locationId, TideExtremeType.HIGH);
+        Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
+                locationId, TideExtremeType.LOW);
+
+        long highCount = highStats[3] != null ? (Long) highStats[3] : 0;
+        long lowCount = lowStats[3] != null ? (Long) lowStats[3] : 0;
+
+        if (highCount == 0 && lowCount == 0) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new TideStats(
+                highCount > 0 ? (BigDecimal) highStats[0] : null,
+                highCount > 0 ? (BigDecimal) highStats[1] : null,
+                lowCount > 0 ? (BigDecimal) lowStats[0] : null,
+                lowCount > 0 ? (BigDecimal) lowStats[2] : null,
+                highCount + lowCount));
     }
 
     /**

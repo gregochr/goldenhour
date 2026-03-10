@@ -78,6 +78,47 @@ const POPUP_TIDE_META = {
 };
 
 /**
+ * Returns the number of minutes between two ISO datetime strings.
+ *
+ * @param {string} a - ISO datetime string.
+ * @param {string} b - ISO datetime string.
+ * @returns {number} Minutes from a to b (positive if b is after a).
+ */
+function minutesBetween(a, b) {
+  return (new Date(b) - new Date(a)) / 60000;
+}
+
+/**
+ * Returns rising tide warning info when a HIGH tide falls within the golden+blue
+ * hour window (±60 min of the solar event) AND the tide is incoming (high tide
+ * is after the solar event for sunrise, or before for sunset).
+ *
+ * @param {object} f - Forecast evaluation row with solarEventTime and nextHighTideTime.
+ * @param {string} eventType - 'SUNRISE' or 'SUNSET'.
+ * @returns {{minutesAway: number, highTideTime: string}|null} Info if warning applies, null otherwise.
+ */
+function getRisingTideWarning(f, eventType) {
+  if (!f || !f.solarEventTime || !f.nextHighTideTime) return null;
+
+  const diffMins = minutesBetween(f.solarEventTime, f.nextHighTideTime);
+
+  if (eventType === 'SUNRISE') {
+    // Sunrise: tide is rising if high tide is 0–60 min AFTER sunrise (within golden hour)
+    // Also warn if high tide is up to 60 min BEFORE sunrise (tide rushing in during blue hour)
+    if (diffMins >= -60 && diffMins <= 60) {
+      return { minutesAway: Math.round(diffMins), highTideTime: f.nextHighTideTime };
+    }
+  } else {
+    // Sunset: tide is rising if high tide is 0–60 min AFTER sunset (blue hour)
+    // Also warn if high tide is up to 60 min BEFORE sunset (golden hour)
+    if (diffMins >= -60 && diffMins <= 60) {
+      return { minutesAway: Math.round(diffMins), highTideTime: f.nextHighTideTime };
+    }
+  }
+  return null;
+}
+
+/**
  * Returns true when aerosol data suggests elevated mineral dust likely to
  * enhance warm tones (high AOD/dust with low PM2.5 rules out smoke/haze).
  *
@@ -165,6 +206,7 @@ export default function MarkerPopupContent({
   darkMode = false,
 }) {
   const isSunrise = eventType === 'SUNRISE';
+  const risingTide = forecast ? getRisingTideWarning(forecast, eventType) : null;
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
   const goldenStart = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 0 : -60) : null;
   const goldenEnd   = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 60 : 0) : null;
@@ -250,6 +292,23 @@ export default function MarkerPopupContent({
                 border: '1px solid rgba(217, 119, 6, 0.4)',
               }}>
                 🏜️ Elevated dust (e.g. Saharan dust) — expect unusually vivid warm tones
+              </span>
+            </div>
+          )}
+          {risingTide && (
+            <div style={{ marginBottom: '6px' }} data-testid="rising-tide-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: 'rgba(245, 158, 11, 0.15)',
+                color: '#fbbf24',
+                border: '1px solid rgba(245, 158, 11, 0.4)',
+              }}>
+                ⚠️ Rising tide — high at {formatEventTimeUk(risingTide.highTideTime)}
+                {risingTide.minutesAway > 0
+                  ? ` (${risingTide.minutesAway} min after ${isSunrise ? 'sunrise' : 'sunset'})`
+                  : risingTide.minutesAway < 0
+                    ? ` (${Math.abs(risingTide.minutesAway)} min before ${isSunrise ? 'sunrise' : 'sunset'})`
+                    : ` (at ${isSunrise ? 'sunrise' : 'sunset'})`}
               </span>
             </div>
           )}

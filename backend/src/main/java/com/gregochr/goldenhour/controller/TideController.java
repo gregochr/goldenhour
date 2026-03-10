@@ -2,9 +2,11 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
+import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.TideService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -56,5 +58,21 @@ public class TideController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         LocationEntity location = locationService.findByName(locationName);
         return tideService.getTidesForDate(location.getId(), date);
+    }
+
+    /**
+     * Returns aggregate tide height statistics for a location from all stored historical data.
+     *
+     * <p>Returns 204 No Content if no tide extremes are stored for the location.
+     *
+     * @param locationName the configured location name
+     * @return tide stats or 204
+     */
+    @GetMapping("/stats")
+    public ResponseEntity<TideStats> getTideStats(@RequestParam String locationName) {
+        LocationEntity location = locationService.findByName(locationName);
+        return tideService.getTideStats(location.getId())
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.noContent().build());
     }
 }
