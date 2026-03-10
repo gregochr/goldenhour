@@ -22,6 +22,7 @@ import org.springframework.web.client.RestClientResponseException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
@@ -63,6 +64,9 @@ public class TideService {
 
     /** Decimal precision for stored tide heights. */
     private static final int HEIGHT_SCALE = 3;
+
+    /** Number of days per backfill chunk. WorldTides charges per request, so 7 days is efficient. */
+    private static final int BACKFILL_CHUNK_DAYS = 7;
 
     private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
@@ -202,6 +206,125 @@ public class TideService {
             }
             LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), e.getMessage());
         }
+    }
+
+    /**
+     * Backfills historical tide data for a location by fetching 7-day chunks going back
+     * 12 months from today. Skips any chunk where data already exists in the database.
+     *
+     * <p>Uses the WorldTides {@code date} parameter (ISO date) and {@code days=7} rather
+     * than epoch {@code start} + {@code length}, following the API's preferred date mode.
+     *
+     * @param location the coastal location to backfill
+     * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     * @return the number of 7-day chunks actually fetched (skipped chunks not counted)
+     */
+    public int backfillTideExtremes(LocationEntity location, JobRunEntity jobRun) {
+        String apiKey = worldTidesProperties.getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.warn("WorldTides API key not configured — skipping backfill for {}",
+                    location.getName());
+            return 0;
+        }
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate startDate = today.minusMonths(12);
+        int chunksFetched = 0;
+
+        for (LocalDate chunkStart = startDate; chunkStart.isBefore(today);
+                chunkStart = chunkStart.plusDays(BACKFILL_CHUNK_DAYS)) {
+            LocalDate chunkEnd = chunkStart.plusDays(BACKFILL_CHUNK_DAYS);
+            LocalDateTime windowFrom = chunkStart.atStartOfDay();
+            LocalDateTime windowTo = chunkEnd.atStartOfDay();
+
+            if (tideExtremeRepository.existsByLocationIdAndEventTimeBetween(
+                    location.getId(), windowFrom, windowTo)) {
+                LOG.debug("Backfill skip {} {} — data exists", location.getName(), chunkStart);
+                continue;
+            }
+
+            long callStartMs = System.currentTimeMillis();
+            String maskedKey = apiKey.length() > 4
+                    ? apiKey.substring(0, 4) + "***" : "***";
+            String tideUrl = "https://" + WORLDTIDES_HOST + "/api/v3?extremes&date="
+                    + chunkStart + "&lat=" + location.getLat() + "&lon=" + location.getLon()
+                    + "&days=" + BACKFILL_CHUNK_DAYS + "&key=" + maskedKey;
+            final String dateParam = chunkStart.toString();
+
+            try {
+                WorldTidesResponse response = restClient.get()
+                        .uri(uriBuilder -> uriBuilder
+                                .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")
+                                .queryParam("extremes")
+                                .queryParam("date", dateParam)
+                                .queryParam("lat", location.getLat())
+                                .queryParam("lon", location.getLon())
+                                .queryParam("days", BACKFILL_CHUNK_DAYS)
+                                .queryParam("key", apiKey)
+                                .build())
+                        .retrieve()
+                        .body(WorldTidesResponse.class);
+
+                long durationMs = System.currentTimeMillis() - callStartMs;
+
+                if (response == null || response.getStatus() != 200
+                        || response.getExtremes() == null) {
+                    if (jobRun != null) {
+                        jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                                "GET", tideUrl, null, durationMs,
+                                response != null ? response.getStatus() : null,
+                                null, false, "Non-200 status on backfill");
+                    }
+                    LOG.warn("Backfill failed for {} at {} — status={}",
+                            location.getName(), chunkStart,
+                            response != null ? response.getStatus() : "null");
+                    continue;
+                }
+
+                LocalDateTime fetchedAt = LocalDateTime.now(ZoneOffset.UTC);
+                List<TideExtremeEntity> entities = response.getExtremes().stream()
+                        .filter(e -> e.getType() != null
+                                && ("High".equalsIgnoreCase(e.getType())
+                                        || "Low".equalsIgnoreCase(e.getType())))
+                        .map(e -> TideExtremeEntity.builder()
+                                .locationId(location.getId())
+                                .eventTime(Instant.ofEpochSecond(e.getDt())
+                                        .atZone(ZoneOffset.UTC).toLocalDateTime())
+                                .heightMetres(BigDecimal.valueOf(e.getHeight())
+                                        .setScale(HEIGHT_SCALE, RoundingMode.HALF_UP))
+                                .type("High".equalsIgnoreCase(e.getType())
+                                        ? TideExtremeType.HIGH : TideExtremeType.LOW)
+                                .fetchedAt(fetchedAt)
+                                .build())
+                        .toList();
+
+                tideExtremeRepository.saveAll(entities);
+                chunksFetched++;
+
+                if (jobRun != null) {
+                    jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                            "GET", tideUrl, null, durationMs, 200, null, true, null);
+                }
+
+                LOG.info("Backfill {} {} — {} extremes stored",
+                        location.getName(), chunkStart, entities.size());
+
+            } catch (Exception e) {
+                long durationMs = System.currentTimeMillis() - callStartMs;
+                if (jobRun != null) {
+                    Integer statusCode = getStatusCode(e);
+                    jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
+                            "GET", tideUrl, null, durationMs, statusCode, null, false,
+                            e.getMessage());
+                }
+                LOG.warn("Backfill failed for {} at {}: {}",
+                        location.getName(), chunkStart, e.getMessage());
+            }
+        }
+
+        LOG.info("Backfill complete for {} — {} chunks fetched",
+                location.getName(), chunksFetched);
+        return chunksFetched;
     }
 
     /**

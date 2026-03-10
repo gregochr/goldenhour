@@ -483,26 +483,36 @@ class OpenMeteoServiceTest {
     // --- Directional cloud data tests ---
 
     @Test
-    @DisplayName("fetchDirectionalCloudData() returns cloud layers at solar and antisolar points")
+    @DisplayName("fetchDirectionalCloudData() averages 3 solar cone points and returns antisolar")
     void fetchDirectionalCloudData_returnsCloudAtBothPoints() {
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
 
-        OpenMeteoForecastResponse solarForecast = buildCloudOnlyResponse(
+        // 3 solar cone responses (azimuth-15, azimuth, azimuth+15) with varying cloud
+        OpenMeteoForecastResponse solarForecast1 = buildCloudOnlyResponse(
                 List.of("2026-06-21T20:00", "2026-06-21T21:00"),
-                List.of(65, 70), List.of(20, 25), List.of(10, 15));
+                List.of(60, 70), List.of(15, 25), List.of(9, 15));
+        OpenMeteoForecastResponse solarForecast2 = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00", "2026-06-21T21:00"),
+                List.of(66, 70), List.of(21, 25), List.of(12, 15));
+        OpenMeteoForecastResponse solarForecast3 = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00", "2026-06-21T21:00"),
+                List.of(69, 70), List.of(24, 25), List.of(9, 15));
         OpenMeteoForecastResponse antisolarForecast = buildCloudOnlyResponse(
                 List.of("2026-06-21T20:00", "2026-06-21T21:00"),
                 List.of(5, 8), List.of(45, 50), List.of(30, 35));
 
         when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(solarForecast)
+                .thenReturn(solarForecast1)
+                .thenReturn(solarForecast2)
+                .thenReturn(solarForecast3)
                 .thenReturn(antisolarForecast);
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
                 54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
 
         assertThat(result).isNotNull();
-        // Sunset at 20:47 picks 20:00 slot (index 0) — before sunset, not after
+        // Sunset at 20:47 picks 20:00 slot (index 0); solar values are averaged
+        // Low: (60+66+69)/3 = 65, Mid: (15+21+24)/3 = 20, High: (9+12+9)/3 = 10
         assertThat(result.solarLowCloudPercent()).isEqualTo(65);
         assertThat(result.solarMidCloudPercent()).isEqualTo(20);
         assertThat(result.solarHighCloudPercent()).isEqualTo(10);
@@ -531,12 +541,13 @@ class OpenMeteoServiceTest {
         // Sunset at 20:47 — closer to 21:00, but should pick 20:00 (before sunset)
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
 
-        OpenMeteoForecastResponse response = buildCloudOnlyResponse(
+        OpenMeteoForecastResponse beforeResponse = buildCloudOnlyResponse(
                 List.of("2026-06-21T20:00", "2026-06-21T21:00"),
                 List.of(10, 80), List.of(20, 90), List.of(30, 95));
 
+        // 3 solar + 1 antisolar = 4 calls, all return same response
         when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(response);
+                .thenReturn(beforeResponse);
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
                 54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);

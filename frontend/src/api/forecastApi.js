@@ -143,6 +143,17 @@ export async function refreshTideData() {
 }
 
 /**
+ * Triggers a backfill of 12 months of historical tide data for all SEASCAPE locations.
+ * Skips date ranges where data already exists.
+ *
+ * @returns {Promise<{status: string}>} Status message.
+ */
+export async function backfillTideData() {
+  const response = await axios.post(`${BASE_URL}/forecast/run/tide/backfill`);
+  return response.data;
+}
+
+/**
  * Fetches all persisted locations ordered alphabetically by name.
  *
  * @returns {Promise<Array<{id: number, name: string, lat: number, lon: number}>>} Location list.

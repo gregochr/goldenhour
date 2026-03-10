@@ -67,6 +67,19 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
             @Param("to") LocalDateTime to);
 
     /**
+     * Returns {@code true} if any tide extremes exist for the location within the given window.
+     *
+     * <p>Used by the backfill process to skip date ranges that already have data,
+     * avoiding duplicate WorldTides API calls.
+     *
+     * @param locationId the location primary key
+     * @param from       window start (inclusive)
+     * @param to         window end (inclusive)
+     * @return {@code true} if at least one tide extreme exists in the window
+     */
+    boolean existsByLocationIdAndEventTimeBetween(Long locationId, LocalDateTime from, LocalDateTime to);
+
+    /**
      * Returns aggregate height statistics for a location and tide type.
      *
      * <p>Result is a single-element array: {@code [avgHeight, maxHeight, minHeight, count]}.

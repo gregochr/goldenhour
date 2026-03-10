@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -108,9 +109,10 @@ public class ScheduledForecastService {
     public void refreshTideExtremes() {
         JobRunEntity jobRun = jobRunService.startRun(RunType.TIDE, false, null);
         List<LocationEntity> coastal = locationService.findAllEnabled().stream()
+                .filter(loc -> loc.getLocationType().contains(LocationType.SEASCAPE))
                 .filter(locationService::isCoastal)
                 .toList();
-        LOG.info("Weekly tide refresh started — {} coastal location(s)", coastal.size());
+        LOG.info("Weekly tide refresh started — {} SEASCAPE coastal location(s)", coastal.size());
         int succeeded = 0;
         int failed = 0;
 
@@ -127,5 +129,37 @@ public class ScheduledForecastService {
         jobRunService.completeRun(jobRun, succeeded, failed);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
+    }
+
+    /**
+     * Backfills 12 months of historical tide data for all enabled SEASCAPE locations.
+     *
+     * <p>Fetches in 7-day chunks, skipping any chunk where data already exists to avoid
+     * duplicate WorldTides API charges. Runs asynchronously from the admin UI.
+     */
+    public void backfillTideExtremes() {
+        JobRunEntity jobRun = jobRunService.startRun(RunType.TIDE, true, null);
+        List<LocationEntity> seascapeCoastal = locationService.findAllEnabled().stream()
+                .filter(loc -> loc.getLocationType().contains(LocationType.SEASCAPE))
+                .filter(locationService::isCoastal)
+                .toList();
+        LOG.info("Tide backfill started — {} SEASCAPE location(s)", seascapeCoastal.size());
+        int succeeded = 0;
+        int failed = 0;
+
+        for (LocationEntity location : seascapeCoastal) {
+            try {
+                int chunks = tideService.backfillTideExtremes(location, jobRun);
+                LOG.info("Backfilled {} chunks for {}", chunks, location.getName());
+                succeeded++;
+            } catch (Exception e) {
+                LOG.error("Tide backfill failed for {}: {}",
+                        location.getName(), e.getMessage(), e);
+                failed++;
+            }
+        }
+
+        jobRunService.completeRun(jobRun, succeeded, failed);
+        LOG.info("Tide backfill complete — {} succeeded, {} failed", succeeded, failed);
     }
 }
