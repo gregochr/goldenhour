@@ -5,7 +5,7 @@
 DELETE FROM location_location_type
 WHERE location_type = 'LANDSCAPE'
   AND location_id IN (
-    SELECT id FROM location WHERE name IN (
+    SELECT id FROM locations WHERE name IN (
       'Aysgarth Falls', 'Cauldron Snout', 'Crammel Linn',
       'East Gill Force', 'Gibson''s Cave', 'Grey Mare''s Tail',
       'Hardraw Force', 'High Cup Nick', 'High Force',
@@ -23,7 +23,7 @@ WHERE location_type = 'LANDSCAPE'
 
 -- Insert WATERFALL type for each waterfall location
 INSERT INTO location_location_type (location_id, location_type)
-SELECT id, 'WATERFALL' FROM location WHERE name IN (
+SELECT id, 'WATERFALL' FROM locations WHERE name IN (
   'Aysgarth Falls', 'Cauldron Snout', 'Crammel Linn',
   'East Gill Force', 'Gibson''s Cave', 'Grey Mare''s Tail',
   'Hardraw Force', 'High Cup Nick', 'High Force',
