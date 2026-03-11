@@ -38,6 +38,7 @@ const MOCK_DATA = {
       { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
       { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
       { strategyType: 'EVALUATE_ALL', enabled: false, paramValue: null },
+      { strategyType: 'NEXT_EVENT_ONLY', enabled: false, paramValue: null },
     ],
     SHORT_TERM: [
       { strategyType: 'SKIP_LOW_RATED', enabled: false, paramValue: 3 },
@@ -46,6 +47,7 @@ const MOCK_DATA = {
       { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
       { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
       { strategyType: 'EVALUATE_ALL', enabled: false, paramValue: null },
+      { strategyType: 'NEXT_EVENT_ONLY', enabled: false, paramValue: null },
     ],
     LONG_TERM: [
       { strategyType: 'SKIP_LOW_RATED', enabled: false, paramValue: 3 },
@@ -54,6 +56,7 @@ const MOCK_DATA = {
       { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
       { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
       { strategyType: 'EVALUATE_ALL', enabled: false, paramValue: null },
+      { strategyType: 'NEXT_EVENT_ONLY', enabled: false, paramValue: null },
     ],
   },
 };

@@ -77,14 +77,19 @@ const STRATEGY_INFO = {
     label: 'Evaluate Everything (JFDI)',
     description: 'Ignore all skip logic — evaluate every slot for every location regardless of prior data. Useful for a full refresh, but maximises API cost.',
   },
+  NEXT_EVENT_ONLY: {
+    label: 'Next Event Only',
+    description: 'Only evaluate the single nearest upcoming solar event per location. Skips all other sunrise/sunset slots. Ideal for a last-minute check before heading out.',
+  },
 };
 
 const CONFLICTS = {
-  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING'],
+  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING', 'NEXT_EVENT_ONLY'],
   SKIP_LOW_RATED: ['SKIP_EXISTING', 'EVALUATE_ALL'],
   SKIP_EXISTING: ['SKIP_LOW_RATED', 'EVALUATE_ALL'],
   FORCE_IMMINENT: [],
   FORCE_STALE: [],
+  NEXT_EVENT_ONLY: ['EVALUATE_ALL'],
 };
 
 /**

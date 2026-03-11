@@ -23,6 +23,9 @@ public enum OptimisationStrategyType {
     /** Always evaluate every slot — no skips, no optimisation (JFDI mode). */
     EVALUATE_ALL,
 
+    /** Only evaluate the single nearest upcoming solar event per location. */
+    NEXT_EVENT_ONLY,
+
     /** Submit evaluations via Anthropic Batch API (50% savings, async). Phase 2. */
     BATCH_API
 }

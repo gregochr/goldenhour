@@ -132,7 +132,7 @@ public class ForecastCommandExecutor {
                     for (TargetType targetType : applicableTypes) {
                         if (!shouldSkipEvent(targetDate, targetType, location, today, now)
                                 && !optimisationSkipEvaluator.shouldSkip(
-                                        enabledStrategies, location.getId(),
+                                        enabledStrategies, location,
                                         targetDate, targetType)) {
                             futures.add(CompletableFuture.supplyAsync(
                                     () -> runForecast(location, targetDate, targetType,
