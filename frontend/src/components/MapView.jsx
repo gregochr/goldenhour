@@ -100,9 +100,10 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
  * @param {number|null} goldenHour - Golden hour score 0–100, or null.
  * @param {string} locationName - Display name shown beneath the marker.
  * @param {boolean} [isPureWildlife=false] - If true, renders a green wildlife marker.
+ * @param {boolean} [excludeFromCluster=false] - If true, scores are excluded from cluster averages (e.g. WATERFALL).
  * @returns {L.DivIcon}
  */
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false) {
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false) {
   const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
 
   const svg = buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife);
@@ -130,6 +131,7 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
     rating: rating,
     fierySky: fierySky,
     goldenHour: goldenHour,
+    excludeFromCluster: excludeFromCluster,
     popupAnchor: [0, -26],
   });
 }
@@ -270,9 +272,10 @@ export default function MapView({ locations, date }) {
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     const hourlyData = dayData?.hourly ?? [];
-    const isPureWildlife = (loc.locationType ?? []).length > 0
-      && (loc.locationType ?? []).every((t) => t === 'WILDLIFE');
-    return { forecast, hourlyData, isPureWildlife };
+    const types = loc.locationType ?? [];
+    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+    const isWaterfall = types.includes('WATERFALL');
+    return { forecast, hourlyData, isPureWildlife, isWaterfall };
   }
 
   return (
@@ -416,13 +419,14 @@ export default function MapView({ locations, date }) {
             animate
           >
             {visibleLocations.map((loc) => {
-              const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
+              const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
               const icon = makeMarkerIcon(
                 forecast?.rating ?? null,
                 role !== 'LITE_USER' ? (forecast?.fierySkyPotential ?? null) : null,
                 role !== 'LITE_USER' ? (forecast?.goldenHourPotential ?? null) : null,
                 loc.name,
                 isPureWildlife,
+                isWaterfall,
               );
 
               return (
@@ -446,6 +450,7 @@ export default function MapView({ locations, date }) {
                           hourlyData={hourlyData}
                           eventType={eventType}
                           isPureWildlife={isPureWildlife}
+                          showComfortRows={isWaterfall}
                           isExpanded={expandedPopup === loc.name}
                           onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
                           role={role}
@@ -467,7 +472,7 @@ export default function MapView({ locations, date }) {
       {isMobile && selectedLocationName && (() => {
         const loc = visibleLocations.find((l) => l.name === selectedLocationName);
         if (!loc) return null;
-        const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
+        const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
         return (
           <BottomSheet
             open
@@ -480,6 +485,7 @@ export default function MapView({ locations, date }) {
                 hourlyData={hourlyData}
                 eventType={eventType}
                 isPureWildlife={isPureWildlife}
+                showComfortRows={isWaterfall}
                 isExpanded={expandedPopup === loc.name}
                 onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
                 role={role}

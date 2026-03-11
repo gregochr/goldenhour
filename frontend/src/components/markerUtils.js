@@ -144,7 +144,10 @@ export function createClusterIcon(cluster, role) {
 
   const markers = cluster.getAllChildMarkers();
 
-  const ratings = markers
+  // Exclude waterfall markers from cluster score averages
+  const scorableMarkers = markers.filter((m) => !m.options.icon?.options?.excludeFromCluster);
+
+  const ratings = scorableMarkers
     .map((m) => m.options.icon?.options?.rating)
     .filter((r) => r != null);
   const avgScore = ratings.length > 0
@@ -152,10 +155,10 @@ export function createClusterIcon(cluster, role) {
     : null;
   const bg = scoreColour(avgScore);
 
-  const fieryScores = markers
+  const fieryScores = scorableMarkers
     .map((m) => m.options.icon?.options?.fierySky)
     .filter((s) => s != null);
-  const goldenScores = markers
+  const goldenScores = scorableMarkers
     .map((m) => m.options.icon?.options?.goldenHour)
     .filter((s) => s != null);
   const avgFiery = fieryScores.length > 0
