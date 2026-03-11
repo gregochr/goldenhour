@@ -6,17 +6,17 @@ import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
 
-/** Returns true if the location has LANDSCAPE or SEASCAPE (or no types — defaults to colour). */
+/** Returns true if the location has LANDSCAPE, SEASCAPE, or WATERFALL (or no types — defaults to colour). */
 function hasColourTypes(loc) {
   const types = loc.locationType || [];
   if (types.length === 0) return true;
-  return types.includes('LANDSCAPE') || types.includes('SEASCAPE');
+  return types.includes('LANDSCAPE') || types.includes('SEASCAPE') || types.includes('WATERFALL');
 }
 
 /** Returns true if the location is pure-wildlife only (WILDLIFE but no colour types). */
 function isPureWildlife(loc) {
   const types = loc.locationType || [];
-  return types.includes('WILDLIFE') && !types.includes('LANDSCAPE') && !types.includes('SEASCAPE');
+  return types.includes('WILDLIFE') && !hasColourTypes(loc);
 }
 
 /** Returns true if the location is coastal (has at least one tide type). */

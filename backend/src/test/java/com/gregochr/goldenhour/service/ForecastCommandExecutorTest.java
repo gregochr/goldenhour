@@ -224,6 +224,32 @@ class ForecastCommandExecutorTest {
     }
 
     @Test
+    @DisplayName("hasColourTypes() returns true for WATERFALL location")
+    void hasColourTypes_waterfallLocation_returnsTrue() {
+        LocationEntity waterfall = LocationEntity.builder()
+                .name("High Force")
+                .lat(54.6)
+                .lon(-2.1)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .locationType(java.util.Set.of(LocationType.WATERFALL))
+                .build();
+        assertThat(executor.hasColourTypes(waterfall)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isPureWildlife() returns false for WATERFALL location")
+    void isPureWildlife_waterfallLocation_returnsFalse() {
+        LocationEntity waterfall = LocationEntity.builder()
+                .name("High Force")
+                .lat(54.6)
+                .lon(-2.1)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .locationType(java.util.Set.of(LocationType.WATERFALL))
+                .build();
+        assertThat(executor.isPureWildlife(waterfall)).isFalse();
+    }
+
+    @Test
     @DisplayName("isPureWildlife() returns false for mixed LANDSCAPE+WILDLIFE location")
     void isPureWildlife_mixedLocation_returnsFalse() {
         LocationEntity mixed = LocationEntity.builder()

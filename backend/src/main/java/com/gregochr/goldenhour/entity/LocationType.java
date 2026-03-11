@@ -16,5 +16,8 @@ public enum LocationType {
     WILDLIFE,
 
     /** Good for seascape and coastal photography — tide data displayed prominently. */
-    SEASCAPE
+    SEASCAPE,
+
+    /** Good for waterfall photography — colour forecasts, no tidal data. */
+    WATERFALL
 }
