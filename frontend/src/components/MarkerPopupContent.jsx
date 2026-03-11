@@ -60,9 +60,10 @@ const POPUP_PILL = {
 };
 
 const POPUP_LOC_TYPE_META = {
-  LANDSCAPE: { emoji: '🏔️', label: 'Landscape' },
-  WILDLIFE:  { emoji: '🐾', label: 'Wildlife' },
-  SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
+  LANDSCAPE:  { emoji: '🏔️', label: 'Landscape' },
+  WILDLIFE:   { emoji: '🐾', label: 'Wildlife' },
+  SEASCAPE:   { emoji: '🌊', label: 'Seascape' },
+  WATERFALL:  { emoji: '💦', label: 'Waterfall' },
 };
 
 const POPUP_SOLAR_EVENT_META = {
@@ -183,6 +184,7 @@ PopupScoreRow.propTypes = {
  * @param {Array} props.hourlyData - Hourly comfort data rows.
  * @param {string} props.eventType - 'SUNRISE' or 'SUNSET'.
  * @param {boolean} props.isPureWildlife - True if all location types are WILDLIFE.
+ * @param {boolean} [props.showComfortRows=false] - True to show hourly comfort alongside colour forecast (e.g. WATERFALL).
  * @param {boolean} props.isExpanded - Whether the "More details" section is open.
  * @param {function} props.onToggleExpanded - Toggle callback.
  * @param {string} props.role - User role (ADMIN, PRO_USER, LITE_USER).
@@ -197,6 +199,7 @@ export default function MarkerPopupContent({
   hourlyData,
   eventType,
   isPureWildlife,
+  showComfortRows = false,
   isExpanded,
   onToggleExpanded,
   role,
@@ -437,6 +440,33 @@ export default function MarkerPopupContent({
             </>
           )}
 
+          {/* Hourly comfort rows for waterfall locations */}
+          {showComfortRows && hourlyData.length > 0 && (
+            <div style={{ borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, paddingTop: '6px', marginTop: '6px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', marginBottom: '6px' }}>
+                💦 Hourly comfort during daylight hours
+              </div>
+              <div style={{ display: 'table', width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                {hourlyData.map((h) => (
+                  <div key={h.solarEventTime} style={{ display: 'table-row' }}>
+                    <div style={{ display: 'table-cell', color: '#6B6B6B', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                      {formatEventTimeUk(h.solarEventTime)}
+                    </div>
+                    <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><ThermometerIcon />{h.temperatureCelsius != null ? `${Math.round(h.temperatureCelsius)}°C · feels ${Math.round(h.apparentTemperatureCelsius ?? h.temperatureCelsius)}°C` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'table-cell', paddingRight: '8px', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><WindIcon />{h.windSpeed != null ? `${mpsToMph(h.windSpeed)} mph ${degreesToCompass(h.windDirection)}` : '—'}</span>
+                    </div>
+                    <div style={{ display: 'table-cell', paddingBottom: '3px', whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><RainIcon />{h.precipitationProbabilityPercent != null ? `${h.precipitationProbabilityPercent}%` : '—'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Footer: always visible for ADMIN */}
           {role === 'ADMIN' && forecast?.forecastRunAt && (
             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
@@ -467,6 +497,7 @@ MarkerPopupContent.propTypes = {
   hourlyData: PropTypes.array.isRequired,
   eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET']).isRequired,
   isPureWildlife: PropTypes.bool.isRequired,
+  showComfortRows: PropTypes.bool,
   isExpanded: PropTypes.bool.isRequired,
   onToggleExpanded: PropTypes.func.isRequired,
   role: PropTypes.string.isRequired,
