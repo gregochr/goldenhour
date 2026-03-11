@@ -562,6 +562,7 @@ public class PromptTestService {
     private boolean hasColourTypes(LocationEntity loc) {
         return loc.getLocationType().contains(LocationType.LANDSCAPE)
                 || loc.getLocationType().contains(LocationType.SEASCAPE)
+                || loc.getLocationType().contains(LocationType.WATERFALL)
                 || loc.getLocationType().isEmpty();
     }
 

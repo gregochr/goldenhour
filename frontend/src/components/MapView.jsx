@@ -143,9 +143,10 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
  * @param {string|null} props.date - The target date (YYYY-MM-DD) to display ratings for.
  */
 const LOCATION_TYPE_LABELS = {
-  LANDSCAPE: { label: 'Landscape', emoji: '🏔️' },
-  WILDLIFE:  { label: 'Wildlife',  emoji: '🐾' },
-  SEASCAPE:  { label: 'Seascape',  emoji: '🌊' },
+  LANDSCAPE:  { label: 'Landscape', emoji: '🏔️' },
+  WILDLIFE:   { label: 'Wildlife',  emoji: '🐾' },
+  SEASCAPE:   { label: 'Seascape',  emoji: '🌊' },
+  WATERFALL:  { label: 'Waterfall', emoji: '💦' },
 };
 
 /**

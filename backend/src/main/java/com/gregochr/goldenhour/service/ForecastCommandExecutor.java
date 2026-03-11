@@ -171,7 +171,7 @@ public class ForecastCommandExecutor {
 
     /**
      * Returns {@code true} if the location has at least one colour photography type
-     * (LANDSCAPE or SEASCAPE), or has no types at all (treated as colour).
+     * (LANDSCAPE, SEASCAPE, or WATERFALL), or has no types at all (treated as colour).
      *
      * @param loc the location to check
      * @return {@code true} if colour forecasts should be generated for this location
@@ -179,6 +179,7 @@ public class ForecastCommandExecutor {
     boolean hasColourTypes(LocationEntity loc) {
         return loc.getLocationType().contains(LocationType.LANDSCAPE)
                 || loc.getLocationType().contains(LocationType.SEASCAPE)
+                || loc.getLocationType().contains(LocationType.WATERFALL)
                 || loc.getLocationType().isEmpty();
     }
 

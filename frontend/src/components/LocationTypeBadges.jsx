@@ -8,9 +8,10 @@ const SOLAR_EVENT_TYPE_META = {
 };
 
 const LOCATION_TYPE_META = {
-  LANDSCAPE: { emoji: '🏔️', label: 'Landscape' },
-  WILDLIFE:  { emoji: '🐾', label: 'Wildlife' },
-  SEASCAPE:  { emoji: '🌊', label: 'Seascape' },
+  LANDSCAPE:  { emoji: '🏔️', label: 'Landscape' },
+  WILDLIFE:   { emoji: '🐾', label: 'Wildlife' },
+  SEASCAPE:   { emoji: '🌊', label: 'Seascape' },
+  WATERFALL:  { emoji: '💦', label: 'Waterfall' },
 };
 
 const TIDE_TYPE_META = {

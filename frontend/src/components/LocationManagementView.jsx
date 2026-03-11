@@ -17,6 +17,7 @@ const LOCATION_TYPES = [
   { value: 'LANDSCAPE', label: 'Landscape', emoji: '🏔️' },
   { value: 'SEASCAPE', label: 'Seascape', emoji: '🌊' },
   { value: 'WILDLIFE', label: 'Wildlife', emoji: '🐾' },
+  { value: 'WATERFALL', label: 'Waterfall', emoji: '💦' },
 ];
 
 const TIDE_TYPES = [
