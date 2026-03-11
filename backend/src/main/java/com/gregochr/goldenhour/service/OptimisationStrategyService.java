@@ -58,7 +58,8 @@ public class OptimisationStrategyService {
                 OptimisationStrategyType.SKIP_EXISTING,
                 OptimisationStrategyType.FORCE_IMMINENT,
                 OptimisationStrategyType.FORCE_STALE,
-                OptimisationStrategyType.EVALUATE_ALL
+                OptimisationStrategyType.EVALUATE_ALL,
+                OptimisationStrategyType.NEXT_EVENT_ONLY
         };
         for (RunType rt : FORECAST_RUN_TYPES) {
             for (OptimisationStrategyType st : uiTypes) {
@@ -181,10 +182,17 @@ public class OptimisationStrategyService {
         switch (strategyType) {
             case EVALUATE_ALL -> {
                 if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)
-                        || activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)) {
+                        || activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)
+                        || activeTypes.contains(OptimisationStrategyType.NEXT_EVENT_ONLY)) {
                     throw new IllegalArgumentException(
                             "EVALUATE_ALL conflicts with skip strategies. "
-                            + "Disable SKIP_LOW_RATED and SKIP_EXISTING first.");
+                            + "Disable SKIP_LOW_RATED, SKIP_EXISTING, and NEXT_EVENT_ONLY first.");
+                }
+            }
+            case NEXT_EVENT_ONLY -> {
+                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
+                    throw new IllegalArgumentException(
+                            "NEXT_EVENT_ONLY conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
                 }
             }
             case SKIP_LOW_RATED -> {

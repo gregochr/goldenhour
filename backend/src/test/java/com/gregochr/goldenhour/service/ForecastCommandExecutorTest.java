@@ -104,7 +104,7 @@ class ForecastCommandExecutorTest {
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                 .thenReturn(LocalDateTime.MAX);
         lenient().when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
-        lenient().when(optimisationSkipEvaluator.shouldSkip(any(), any(Long.class), any(), any()))
+        lenient().when(optimisationSkipEvaluator.shouldSkip(any(), any(LocationEntity.class), any(), any()))
                 .thenReturn(false);
         lenient().when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
         lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
@@ -260,7 +260,7 @@ class ForecastCommandExecutorTest {
 
         // Verify evaluator was called for each target type
         verify(optimisationSkipEvaluator, times(EXPECTED_CALLS_PER_DAY))
-                .shouldSkip(eq(strategies), eq(1L), eq(today), any(TargetType.class));
+                .shouldSkip(eq(strategies), any(LocationEntity.class), eq(today), any(TargetType.class));
     }
 
     @Test
@@ -269,7 +269,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
-        when(optimisationSkipEvaluator.shouldSkip(any(), any(Long.class), any(), any()))
+        when(optimisationSkipEvaluator.shouldSkip(any(), any(LocationEntity.class), any(), any()))
                 .thenReturn(true);
 
         ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
