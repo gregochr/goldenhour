@@ -7,6 +7,7 @@ import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import ModelTestView from './ModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
+import TideManagementView from './TideManagementView.jsx';
 
 const GROUPS = [
   {
@@ -16,6 +17,7 @@ const GROUPS = [
       { value: 'users', label: 'Users' },
       { value: 'locations', label: 'Locations' },
       { value: 'regions', label: 'Regions' },
+      { value: 'tides', label: 'Tides' },
     ],
   },
   {
@@ -124,6 +126,12 @@ export default function ManageView({ onComplete }) {
         {activeTab === 'regions' && (
           <div className="card">
             <RegionManagementView />
+          </div>
+        )}
+
+        {activeTab === 'tides' && (
+          <div className="card">
+            <TideManagementView />
           </div>
         )}
 

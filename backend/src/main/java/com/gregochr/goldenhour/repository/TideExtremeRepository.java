@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -91,6 +92,21 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
     @Query("SELECT AVG(t.heightMetres), MAX(t.heightMetres), MIN(t.heightMetres), COUNT(t) "
             + "FROM TideExtremeEntity t WHERE t.locationId = :locationId AND t.type = :type")
     Object[] findHeightStatsByLocationIdAndType(
+            @Param("locationId") Long locationId,
+            @Param("type") TideExtremeType type);
+
+    /**
+     * Returns all heights for a location and tide type, ordered ascending.
+     *
+     * <p>Used for percentile calculations in Java (H2 lacks PERCENTILE_CONT).
+     *
+     * @param locationId the location primary key
+     * @param type       HIGH or LOW
+     * @return sorted list of heights
+     */
+    @Query("SELECT t.heightMetres FROM TideExtremeEntity t "
+            + "WHERE t.locationId = :locationId AND t.type = :type ORDER BY t.heightMetres ASC")
+    List<BigDecimal> findHeightsByLocationIdAndTypeOrderByHeightAsc(
             @Param("locationId") Long locationId,
             @Param("type") TideExtremeType type);
 }

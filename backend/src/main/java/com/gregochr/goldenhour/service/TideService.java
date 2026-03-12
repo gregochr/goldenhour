@@ -68,6 +68,9 @@ public class TideService {
     /** Number of days per backfill chunk. WorldTides charges per request, so 7 days is efficient. */
     private static final int BACKFILL_CHUNK_DAYS = 7;
 
+    /** A HIGH tide exceeding 125% of average high is classified as a spring tide. */
+    private static final BigDecimal SPRING_TIDE_FACTOR = new BigDecimal("1.25");
+
     private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
     private final WorldTidesProperties worldTidesProperties;
@@ -428,12 +431,64 @@ public class TideService {
             return Optional.empty();
         }
 
+        BigDecimal avgHigh = highCount > 0 ? (BigDecimal) highStats[0] : null;
+        BigDecimal maxHigh = highCount > 0 ? (BigDecimal) highStats[1] : null;
+        BigDecimal avgLow = lowCount > 0 ? (BigDecimal) lowStats[0] : null;
+        BigDecimal minLow = lowCount > 0 ? (BigDecimal) lowStats[2] : null;
+
+        BigDecimal avgRange = (avgHigh != null && avgLow != null)
+                ? avgHigh.subtract(avgLow).setScale(HEIGHT_SCALE, RoundingMode.HALF_UP) : null;
+
+        // Percentile and spring tide calculations require the full sorted height list
+        BigDecimal p75 = null;
+        BigDecimal p90 = null;
+        BigDecimal p95 = null;
+        long springCount = 0;
+        BigDecimal springFreq = null;
+
+        if (highCount > 0) {
+            List<BigDecimal> highHeights = tideExtremeRepository
+                    .findHeightsByLocationIdAndTypeOrderByHeightAsc(locationId, TideExtremeType.HIGH);
+
+            p75 = percentile(highHeights, 75);
+            p90 = percentile(highHeights, 90);
+            p95 = percentile(highHeights, 95);
+
+            // Spring tide: HIGH tide exceeding 125% of average high
+            BigDecimal springThreshold = avgHigh.multiply(SPRING_TIDE_FACTOR);
+            springCount = highHeights.stream()
+                    .filter(h -> h.compareTo(springThreshold) > 0)
+                    .count();
+            springFreq = BigDecimal.valueOf(springCount)
+                    .divide(BigDecimal.valueOf(highCount), HEIGHT_SCALE, RoundingMode.HALF_UP);
+        }
+
         return Optional.of(new TideStats(
-                highCount > 0 ? (BigDecimal) highStats[0] : null,
-                highCount > 0 ? (BigDecimal) highStats[1] : null,
-                lowCount > 0 ? (BigDecimal) lowStats[0] : null,
-                lowCount > 0 ? (BigDecimal) lowStats[2] : null,
-                highCount + lowCount));
+                avgHigh, maxHigh, avgLow, minLow,
+                highCount + lowCount,
+                avgRange, p75, p90, p95,
+                springCount, springFreq));
+    }
+
+    /**
+     * Computes the p-th percentile from a sorted (ascending) list of values using
+     * linear interpolation between nearest ranks.
+     *
+     * @param sorted ascending-sorted list of values (must not be empty)
+     * @param p      percentile (0–100)
+     * @return the interpolated percentile value
+     */
+    static BigDecimal percentile(List<BigDecimal> sorted, double p) {
+        if (sorted.size() == 1) {
+            return sorted.getFirst();
+        }
+        double rank = (p / 100.0) * (sorted.size() - 1);
+        int lower = (int) Math.floor(rank);
+        int upper = Math.min(lower + 1, sorted.size() - 1);
+        BigDecimal fraction = BigDecimal.valueOf(rank - lower);
+        BigDecimal diff = sorted.get(upper).subtract(sorted.get(lower));
+        return sorted.get(lower).add(diff.multiply(fraction))
+                .setScale(HEIGHT_SCALE, RoundingMode.HALF_UP);
     }
 
     /**
