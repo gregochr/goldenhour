@@ -157,8 +157,8 @@ class TideControllerTest {
                 2L, BigDecimal.valueOf(0.100));
 
         when(locationService.findAllEnabled()).thenReturn(java.util.List.of(coastal, inland));
-        when(locationService.isCoastal(coastal)).thenReturn(true);
-        when(locationService.isCoastal(inland)).thenReturn(false);
+        when(tideService.hasStoredExtremes(1L)).thenReturn(true);
+        when(tideService.hasStoredExtremes(2L)).thenReturn(false);
         when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
 
         mockMvc.perform(get("/api/tides/stats/all"))

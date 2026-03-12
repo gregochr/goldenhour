@@ -90,7 +90,7 @@ public class TideController {
     public Map<String, TideStats> getAllTideStats() {
         Map<String, TideStats> result = new LinkedHashMap<>();
         for (LocationEntity loc : locationService.findAllEnabled()) {
-            if (!locationService.isCoastal(loc)) {
+            if (!tideService.hasStoredExtremes(loc.getId())) {
                 continue;
             }
             tideService.getTideStats(loc.getId()).ifPresent(stats -> result.put(loc.getName(), stats));
