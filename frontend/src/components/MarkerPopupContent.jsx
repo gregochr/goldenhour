@@ -206,6 +206,8 @@ export default function MarkerPopupContent({
   date,
   onTideFetchedAt,
   tideFetchedAt,
+  onTideClassification,
+  tideClassification,
   darkMode = false,
 }) {
   const isSunrise = eventType === 'SUNRISE';
@@ -315,6 +317,32 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
+          {tideClassification && tideClassification.map((tc) => {
+            const isKing = tc.isKing;
+            const near = tc.nearSolarEvent;
+            const label = isKing ? 'King tide' : 'Spring tide';
+            const emoji = isKing ? '👑' : '🌊';
+            return (
+              <div key={tc.time} style={{ marginBottom: '6px' }} data-testid={isKing ? 'king-tide-badge' : 'spring-tide-badge'}>
+                <span style={{
+                  ...POPUP_PILL,
+                  background: near
+                    ? (isKing ? 'rgba(220, 38, 38, 0.15)' : 'rgba(245, 158, 11, 0.15)')
+                    : 'rgba(107, 114, 128, 0.15)',
+                  color: near
+                    ? (isKing ? '#fca5a5' : '#fbbf24')
+                    : '#9ca3af',
+                  border: `1px solid ${near
+                    ? (isKing ? 'rgba(220, 38, 38, 0.4)' : 'rgba(245, 158, 11, 0.4)')
+                    : 'rgba(107, 114, 128, 0.3)'}`,
+                }}>
+                  {near
+                    ? `${emoji} ${label} — high at ${formatEventTimeUk(tc.time)} (${tc.height.toFixed(1)}m)`
+                    : `${emoji} ${label} today — but outside golden/blue hours (high at ${formatEventTimeUk(tc.time)}, ${tc.height.toFixed(1)}m)`}
+                </span>
+              </div>
+            );
+          })}
           {forecast.summary && (
             <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
               {forecast.summary}
@@ -376,7 +404,13 @@ export default function MarkerPopupContent({
               )}
 
               {/* Daily tide schedule */}
-              <TideIndicator locationName={location.name} date={date} onFetchedAt={onTideFetchedAt} />
+              <TideIndicator
+                locationName={location.name}
+                date={date}
+                onFetchedAt={onTideFetchedAt}
+                solarEventTime={forecast?.solarEventTime}
+                onTideClassification={onTideClassification}
+              />
 
               {/* Golden / Blue hour pills */}
               {goldenStart && blueStart && (
@@ -504,5 +538,13 @@ MarkerPopupContent.propTypes = {
   date: PropTypes.string.isRequired,
   onTideFetchedAt: PropTypes.func,
   tideFetchedAt: PropTypes.string,
+  onTideClassification: PropTypes.func,
+  tideClassification: PropTypes.arrayOf(PropTypes.shape({
+    time: PropTypes.string.isRequired,
+    height: PropTypes.number.isRequired,
+    isSpring: PropTypes.bool.isRequired,
+    isKing: PropTypes.bool.isRequired,
+    nearSolarEvent: PropTypes.bool.isRequired,
+  })),
   darkMode: PropTypes.bool,
 };
