@@ -1368,7 +1368,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
                 <div className="col-span-2 border-t border-plex-border pt-3 mt-1">
                   <span className="text-plex-text-muted text-xs block mb-2">Spring Tides (&gt;125% avg high)</span>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">Threshold</span>
+                      <span className="text-plex-text font-medium">{tideStatsModal.stats.springTideThreshold != null ? `${Number(tideStatsModal.stats.springTideThreshold).toFixed(2)} m` : '—'}</span>
+                    </div>
                     <div>
                       <span className="text-plex-text-muted text-xs block">Count</span>
                       <span className="text-plex-text font-medium">{tideStatsModal.stats.springTideCount}</span>
@@ -1377,6 +1381,21 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       <span className="text-plex-text-muted text-xs block">Frequency</span>
                       <span className="text-plex-text font-medium">{tideStatsModal.stats.springTideFrequency != null ? `${(Number(tideStatsModal.stats.springTideFrequency) * 100).toFixed(1)}%` : '—'}</span>
                     </div>
+                  </div>
+                </div>
+
+                <div className="col-span-2 border-t border-plex-border pt-3 mt-1">
+                  <span className="text-plex-text-muted text-xs block mb-2">King Tides (&gt;P95)</span>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">Threshold</span>
+                      <span className="text-amber-300 font-medium">{tideStatsModal.stats.kingTideThreshold != null ? `${Number(tideStatsModal.stats.kingTideThreshold).toFixed(2)} m` : '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">Count</span>
+                      <span className="text-plex-text font-medium">{tideStatsModal.stats.kingTideCount ?? '—'}</span>
+                    </div>
+                    <div />
                   </div>
                 </div>
               </div>

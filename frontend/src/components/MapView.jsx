@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -11,12 +11,47 @@ import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
 
 // Override Leaflet popup width
+const POPUP_MAX_HEIGHT = Math.max(300, window.innerHeight - 200);
 const popupStyles = `
   .leaflet-popup-content-wrapper {
     width: calc(100vw - 40px) !important;
     max-width: 600px !important;
   }
+  .leaflet-popup-content-wrapper,
+  .leaflet-popup-content {
+    max-height: ${POPUP_MAX_HEIGHT}px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
 `;
+
+/**
+ * Sits inside a Leaflet Popup and directly manipulates the popup's DOM
+ * to enforce a max-height with scrolling whenever deps change.
+ */
+function PopupResizer({ deps }) {
+  const map = useMap();
+  useEffect(() => {
+    const id = setTimeout(() => {
+      map.eachLayer((layer) => {
+        const popup = layer.getPopup?.();
+        if (popup?.isOpen()) {
+          const wrapper = popup.getElement()?.querySelector('.leaflet-popup-content');
+          if (wrapper) {
+            const maxH = Math.max(300, map.getContainer().clientHeight - 150);
+            wrapper.style.setProperty('max-height', maxH + 'px', 'important');
+            wrapper.style.setProperty('overflow-y', 'auto', 'important');
+          }
+          popup._updatePosition?.();
+          popup._adjustPan?.();
+        }
+      });
+    }, 20);
+    return () => clearTimeout(id);
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 import InfoTip from './InfoTip.jsx';
 import { buildMarkerSvg, markerLabelAndColour, createClusterIcon } from './markerUtils.js';
 
@@ -439,6 +474,7 @@ export default function MapView({ locations, date }) {
                 >
                   {!isMobile && (
                     <Popup maxWidth={9999} autoPanPadding={[20, 60]}>
+                      <PopupResizer deps={[expandedPopup]} />
                       <div key={`${date}-${eventType}`} className="animate-popup-refresh">
                         <MarkerPopupContent
                           location={loc}

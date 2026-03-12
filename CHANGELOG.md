@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Mar 12, 2026)
+- **Tide stats: spring & king tide thresholds** — `TideStats` record extended with `springTideThreshold` (125% of avg high), `kingTideThreshold` (P95), and `kingTideCount`; displayed in Location Tides modal
+- **H2 aggregate query robustness** — `TideService.getTideStats()` unwraps nested `Object[1]{Object[4]}` arrays returned by H2 and safely converts `Double`→`BigDecimal` for AVG() results
+- **Map popup scroll fix** — expanded "More details" popup now scrolls when content exceeds map height; `PopupResizer` component directly manipulates Leaflet popup DOM to enforce max-height
+- **Tide indicator spacing** — improved vertical breathing room between tide schedule, typical range, and golden/blue hour pills
+
+### Added (Mar 12, 2026) — Cloud Approach Risk
 - **Cloud approach risk detection** — two new signals augment directional cloud data to detect cloud approaching the solar horizon that a single event-time snapshot would miss
   - `SolarCloudTrend`: hourly low cloud at the 113 km solar horizon from T-3h to event time; `isBuilding()` detects a peak-vs-earliest increase of 20+ pp, appending a `[BUILDING]` label to the prompt that instructs Claude to penalise fiery_sky by 10–25 points
   - `UpwindCloudSample`: current low cloud at an upwind point along the wind vector vs the model's event-time prediction; high current cloud with low event-time prediction flags over-optimistic clearing

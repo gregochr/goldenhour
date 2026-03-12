@@ -56,7 +56,7 @@ export default function TideIndicator({ locationName, date, onFetchedAt }) {
   if (!tides || tides.length === 0) return null;
 
   return (
-    <div data-testid="tide-indicator">
+    <div data-testid="tide-indicator" className="mb-2">
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 pt-2 border-t border-plex-border">
         {tides.map((tide) => (
           <span key={tide.id} className="text-xs text-plex-text-secondary whitespace-nowrap">
@@ -69,7 +69,7 @@ export default function TideIndicator({ locationName, date, onFetchedAt }) {
       {stats && (
         <div
           data-testid="tide-stats"
-          className="text-[10px] text-plex-text-muted mt-1"
+          className="text-[10px] text-plex-text-muted mt-2"
         >
           Typical range:{' '}
           {stats.avgHighMetres != null && (
