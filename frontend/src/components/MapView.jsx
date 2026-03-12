@@ -16,13 +16,6 @@ const popupStyles = `
     width: calc(100vw - 40px) !important;
     max-width: 600px !important;
   }
-  .leaflet-popup-content-wrapper {
-    overflow-y: auto !important;
-    max-height: calc(80vh - 80px) !important;
-  }
-  .leaflet-popup-content {
-    overflow: visible !important;
-  }
 `;
 import InfoTip from './InfoTip.jsx';
 import { buildMarkerSvg, markerLabelAndColour, createClusterIcon } from './markerUtils.js';
