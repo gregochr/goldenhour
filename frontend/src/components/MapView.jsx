@@ -216,6 +216,7 @@ export default function MapView({ locations, date }) {
   const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
   const [expandedPopup, setExpandedPopup] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
+  const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
   useEffect(() => {
@@ -489,6 +490,8 @@ export default function MapView({ locations, date }) {
                           date={date}
                           onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
+                          onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
+                          tideClassification={tideClassifications[loc.name] ?? null}
                         />
                       </div>
                     </Popup>
@@ -524,6 +527,8 @@ export default function MapView({ locations, date }) {
                 date={date}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
+                onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
+                tideClassification={tideClassifications[loc.name] ?? null}
                 darkMode
               />
             </div>

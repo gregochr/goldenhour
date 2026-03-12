@@ -331,6 +331,87 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('spring/king tide badge', () => {
+    const SPRING_CLASSIFICATION = [
+      { time: '2026-03-03T18:00:00', height: 5.2, isSpring: true, isKing: false, nearSolarEvent: true },
+    ];
+    const KING_CLASSIFICATION = [
+      { time: '2026-03-03T18:00:00', height: 6.1, isSpring: false, isKing: true, nearSolarEvent: true },
+    ];
+    const SPRING_OUTSIDE = [
+      { time: '2026-03-03T10:00:00', height: 5.2, isSpring: true, isKing: false, nearSolarEvent: false },
+    ];
+    const KING_OUTSIDE = [
+      { time: '2026-03-03T10:00:00', height: 6.1, isSpring: false, isKing: true, nearSolarEvent: false },
+    ];
+
+    it('shows spring tide badge when high tide is within ±90 min of the forecast solar event', () => {
+      renderPopup({ role: 'PRO_USER', tideClassification: SPRING_CLASSIFICATION });
+      expect(screen.getByTestId('spring-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Spring tide/)).toBeInTheDocument();
+      expect(screen.getByText(/5\.2m/)).toBeInTheDocument();
+      expect(screen.queryByTestId('king-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows king tide badge when high tide is within ±90 min of the forecast solar event', () => {
+      renderPopup({ role: 'PRO_USER', tideClassification: KING_CLASSIFICATION });
+      expect(screen.getByTestId('king-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/King tide/)).toBeInTheDocument();
+      expect(screen.getByText(/6\.1m/)).toBeInTheDocument();
+      expect(screen.queryByTestId('spring-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows muted spring tide badge outside golden/blue hours', () => {
+      renderPopup({ role: 'PRO_USER', tideClassification: SPRING_OUTSIDE });
+      const badge = screen.getByTestId('spring-tide-badge');
+      expect(badge).toBeInTheDocument();
+      expect(screen.getByText(/but outside golden\/blue hours/)).toBeInTheDocument();
+    });
+
+    it('shows muted king tide badge outside golden/blue hours', () => {
+      renderPopup({ role: 'PRO_USER', tideClassification: KING_OUTSIDE });
+      const badge = screen.getByTestId('king-tide-badge');
+      expect(badge).toBeInTheDocument();
+      expect(screen.getByText(/but outside golden\/blue hours/)).toBeInTheDocument();
+    });
+
+    it('king tide trumps spring tide (only king shown)', () => {
+      const both = [
+        { time: '2026-03-03T18:00:00', height: 6.1, isSpring: false, isKing: true, nearSolarEvent: true },
+      ];
+      renderPopup({ role: 'PRO_USER', tideClassification: both });
+      expect(screen.getByTestId('king-tide-badge')).toBeInTheDocument();
+      expect(screen.queryByTestId('spring-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('does not show badge when tideClassification is null', () => {
+      renderPopup({ role: 'PRO_USER', tideClassification: null });
+      expect(screen.queryByTestId('spring-tide-badge')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('king-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('does not show badge when tideClassification is undefined', () => {
+      renderPopup({ role: 'PRO_USER' });
+      expect(screen.queryByTestId('spring-tide-badge')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('king-tide-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows badge for LITE_USER (visible to all roles)', () => {
+      renderPopup({ role: 'LITE_USER', tideClassification: SPRING_CLASSIFICATION });
+      expect(screen.getByTestId('spring-tide-badge')).toBeInTheDocument();
+    });
+
+    it('shows multiple badges when two high tides qualify', () => {
+      const twoHighs = [
+        { time: '2026-03-03T06:00:00', height: 5.3, isSpring: true, isKing: false, nearSolarEvent: false },
+        { time: '2026-03-03T18:20:00', height: 5.1, isSpring: true, isKing: false, nearSolarEvent: true },
+      ];
+      renderPopup({ role: 'PRO_USER', tideClassification: twoHighs });
+      const badges = screen.getAllByTestId('spring-tide-badge');
+      expect(badges).toHaveLength(2);
+    });
+  });
+
   describe('comfort rows', () => {
     it('shows temperature and wind when expanded', () => {
       renderPopup({ role: 'PRO_USER' });

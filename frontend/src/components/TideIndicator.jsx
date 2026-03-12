@@ -13,7 +13,7 @@ import { formatEventTimeUk } from '../utils/conversions.js';
  * @param {string} props.date - Target date in ISO format (YYYY-MM-DD).
  * @param {function} [props.onFetchedAt] - Called with the fetchedAt timestamp when tide data loads.
  */
-export default function TideIndicator({ locationName, date, onFetchedAt }) {
+export default function TideIndicator({ locationName, date, onFetchedAt, solarEventTime, onTideClassification }) {
   const [tides, setTides] = useState(null);
   const [stats, setStats] = useState(null);
 
@@ -52,6 +52,32 @@ export default function TideIndicator({ locationName, date, onFetchedAt }) {
 
     return () => { cancelled = true; };
   }, [locationName]);
+
+  // Classify high tides as spring/king and whether they fall near the solar event
+  useEffect(() => {
+    if (!tides || tides.length === 0 || !stats || !onTideClassification) return;
+
+    const NEAR_MINS = 90;
+    const springThreshold = stats.springTideThreshold != null ? parseFloat(stats.springTideThreshold) : null;
+    const kingThreshold = stats.kingTideThreshold != null ? parseFloat(stats.kingTideThreshold) : null;
+
+    const highTides = tides
+      .filter((t) => t.type === 'HIGH')
+      .map((t) => {
+        const height = parseFloat(t.heightMetres);
+        const isKing = kingThreshold != null && height > kingThreshold;
+        const isSpring = !isKing && springThreshold != null && height > springThreshold;
+        let nearSolarEvent = false;
+        if (solarEventTime) {
+          const diffMins = Math.abs((new Date(t.eventTime) - new Date(solarEventTime)) / 60000);
+          nearSolarEvent = diffMins <= NEAR_MINS;
+        }
+        return { time: t.eventTime, height, isSpring, isKing, nearSolarEvent };
+      })
+      .filter((h) => h.isSpring || h.isKing);
+
+    onTideClassification(highTides.length > 0 ? highTides : null);
+  }, [tides, stats, solarEventTime, onTideClassification]);
 
   if (!tides || tides.length === 0) return null;
 
@@ -95,4 +121,6 @@ TideIndicator.propTypes = {
   locationName: PropTypes.string.isRequired,
   date: PropTypes.string.isRequired,
   onFetchedAt: PropTypes.func,
+  solarEventTime: PropTypes.string,
+  onTideClassification: PropTypes.func,
 };

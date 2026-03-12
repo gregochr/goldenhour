@@ -6,6 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added (Mar 12, 2026)
+- **Spring/king tide badge pills** — map popup shows spring tide (🌊) or king tide (👑) badges when a HIGH tide exceeds the spring (125% avg) or king (P95) threshold; prominent styling when within ±90 min of the forecast solar event, muted with "outside golden/blue hours" text otherwise; king trumps spring (never both for the same tide); coexists with the existing rising tide warning badge
 - **Tide stats: spring & king tide thresholds** — `TideStats` record extended with `springTideThreshold` (125% of avg high), `kingTideThreshold` (P95), and `kingTideCount`; displayed in Location Tides modal
 - **H2 aggregate query robustness** — `TideService.getTideStats()` unwraps nested `Object[1]{Object[4]}` arrays returned by H2 and safely converts `Double`→`BigDecimal` for AVG() results
 - **Map popup scroll fix** — expanded "More details" popup now scrolls when content exceeds map height; `PopupResizer` component directly manipulates Leaflet popup DOM to enforce max-height
