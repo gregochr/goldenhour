@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 11, 2026)
+- **LocationType.WATERFALL** — new location type with 💦 emoji across map filters, badges, location editor, and metrics
+  - V50 migration reclassifies 31 waterfall locations from LANDSCAPE to WATERFALL
+  - Waterfall locations show both colour forecasts AND hourly comfort rows (temp/wind/rain)
+  - Waterfall scores excluded from cluster marker averages (waterfall photography is about the water, not sky colour)
+- **NEXT_EVENT_ONLY optimisation strategy** — evaluates only the single nearest upcoming solar event per location, skipping all other sunrise/sunset slots; ideal for last-minute checks before heading out
+  - V49 migration seeds the new strategy; conflicts with EVALUATE_ALL only
+
+### Added (Mar 10, 2026)
+- **Tide history backfill** — 12-month historical fetch via WorldTides API (7-day chunks, duplicate-aware skipping) with admin UI button and async execution
+- **3-point cone cloud sampling** — replaces single-point directional sampling with azimuth ±15° cone (3 points averaged) to smooth Open-Meteo grid-cell boundary effects that caused inconsistent ratings for nearby locations (~11km resolution)
+- **Tide stats endpoint** — `GET /api/tides/stats` with avg/max high and avg/min low from accumulated `tide_extreme` data; "Typical range" row shown in TideIndicator
+- **Rising tide warning badge** — amber badge when high tide falls within ±90 min of solar event (blue+golden hour window)
+- **Tide history preservation** — windowed delete replaces only the 14-day fetch window instead of deleting all rows per location
+- **SEASCAPE filtering** — both tide refresh and backfill consistently filtered by `LocationType.SEASCAPE`
+- **Editable lat/lon** — location inline edit now supports lat/lon editing with validation
+- **Region pagination** — client-side pagination with location count column in regions table
+- **St Mary's Lighthouse regression test** — new prompt regression test case from 10 Mar 2026 sunrise prod data
+
+### Fixed (Mar 10, 2026)
+- **Rising tide window** — widened from ±60 to ±90 min of solar event
+- **Manage view gate** — `ManageView` guarded with `isAdmin` in all render paths so PRO/LITE users only see the map
+- **Jackson CVE suppression** — suppress CVE-2026-29062 (Jackson 3.0.4 nesting depth bypass); fix requires Jackson 3.1.0 incompatible with Spring Boot 4.0.3
+
 ### Refactored (Mar 8, 2026)
 - **Evaluation strategy hierarchy collapse** — replaced `AbstractEvaluationStrategy` + 3 trivial subclasses (`HaikuEvaluationStrategy`, `SonnetEvaluationStrategy`, `OpusEvaluationStrategy`) with a single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel`
   - Model ID is the single source of truth via `EvaluationModel.getModelId()` — no more per-class `getModelName()` overrides
