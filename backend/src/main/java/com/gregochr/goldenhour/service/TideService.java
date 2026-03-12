@@ -424,8 +424,8 @@ public class TideService {
         Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
                 locationId, TideExtremeType.LOW);
 
-        long highCount = highStats[3] != null ? (Long) highStats[3] : 0;
-        long lowCount = lowStats[3] != null ? (Long) lowStats[3] : 0;
+        long highCount = highStats.length > 3 && highStats[3] != null ? (Long) highStats[3] : 0;
+        long lowCount = lowStats.length > 3 && lowStats[3] != null ? (Long) lowStats[3] : 0;
 
         if (highCount == 0 && lowCount == 0) {
             return Optional.empty();

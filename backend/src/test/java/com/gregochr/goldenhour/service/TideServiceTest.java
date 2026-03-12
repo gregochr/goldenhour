@@ -576,6 +576,18 @@ class TideServiceTest {
     }
 
     @Test
+    @DisplayName("getTideStats() handles H2 returning single-element array when no rows match")
+    void getTideStats_singleElementArray_returnsEmpty() {
+        // H2 may return Object[]{null} instead of Object[]{null, null, null, 0L} when no rows
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{null});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{null});
+
+        assertThat(tideService.getTideStats(1L)).isEmpty();
+    }
+
+    @Test
     @DisplayName("getTideStats() handles location with only high extremes")
     void getTideStats_onlyHighData_returnsPartialStats() {
         when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
