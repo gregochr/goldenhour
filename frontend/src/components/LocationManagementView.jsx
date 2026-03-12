@@ -2,6 +2,7 @@ import React, { useEffect, useOptimistic, useState, useTransition, useMemo } fro
 import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
+import { fetchTideStats } from '../api/tideApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
 import Pagination from './Pagination.jsx';
@@ -404,6 +405,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
   // Confirm modal state
   const [confirmData, setConfirmData] = useState(null);
 
+  // Tide stats modal state
+  const [tideStatsModal, setTideStatsModal] = useState(null); // { name, stats, loading }
+
   // Save state
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -482,6 +486,16 @@ export default function LocationManagementView({ onLocationsChanged }) {
       regionId: loc.region?.id ? String(loc.region.id) : '',
     });
     setEditError('');
+  }
+
+  async function handleShowTideStats(loc) {
+    setTideStatsModal({ name: loc.name, stats: null, loading: true });
+    try {
+      const stats = await fetchTideStats(loc.name);
+      setTideStatsModal({ name: loc.name, stats, loading: false });
+    } catch {
+      setTideStatsModal({ name: loc.name, stats: null, loading: false, error: 'Failed to load tide stats.' });
+    }
   }
 
   function handleEditCancel() {
@@ -932,13 +946,24 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 </button>
                               </td>
                               <td className="py-2">
-                                <button
-                                  className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
-                                  onClick={() => handleStartEdit(loc)}
-                                  data-testid={`edit-location-${loc.id}`}
-                                >
-                                  Edit
-                                </button>
+                                <div className="flex gap-1">
+                                  <button
+                                    className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
+                                    onClick={() => handleStartEdit(loc)}
+                                    data-testid={`edit-location-${loc.id}`}
+                                  >
+                                    Edit
+                                  </button>
+                                  {(loc.locationType || []).includes('SEASCAPE') && (
+                                    <button
+                                      className="text-xs px-2 py-0.5 rounded bg-cyan-900/40 text-cyan-400 hover:bg-cyan-900/60"
+                                      onClick={() => handleShowTideStats(loc)}
+                                      data-testid={`tides-location-${loc.id}`}
+                                    >
+                                      Tides
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </>
                           )}
@@ -1266,6 +1291,104 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tide stats modal */}
+      {tideStatsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Tide statistics"
+          data-testid="tide-stats-modal"
+        >
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">
+              Tide Statistics: <span className="text-cyan-400">{tideStatsModal.name}</span>
+            </p>
+
+            {tideStatsModal.loading && (
+              <p className="text-sm text-plex-text-muted animate-pulse">Loading...</p>
+            )}
+
+            {tideStatsModal.error && (
+              <p className="text-xs text-red-400">{tideStatsModal.error}</p>
+            )}
+
+            {!tideStatsModal.loading && !tideStatsModal.error && !tideStatsModal.stats && (
+              <p className="text-sm text-plex-text-muted">No tide data stored for this location.</p>
+            )}
+
+            {tideStatsModal.stats && (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div>
+                  <span className="text-plex-text-muted text-xs block">Data Points</span>
+                  <span className="text-plex-text font-medium">{tideStatsModal.stats.dataPoints}</span>
+                </div>
+                <div>
+                  <span className="text-plex-text-muted text-xs block">Avg Range</span>
+                  <span className="text-plex-text font-medium">{tideStatsModal.stats.avgRangeMetres != null ? `${Number(tideStatsModal.stats.avgRangeMetres).toFixed(2)} m` : '—'}</span>
+                </div>
+                <div>
+                  <span className="text-plex-text-muted text-xs block">Avg High</span>
+                  <span className="text-plex-text font-medium">{Number(tideStatsModal.stats.avgHighMetres).toFixed(2)} m</span>
+                </div>
+                <div>
+                  <span className="text-plex-text-muted text-xs block">Max High</span>
+                  <span className="text-amber-400 font-medium">{Number(tideStatsModal.stats.maxHighMetres).toFixed(2)} m</span>
+                </div>
+                <div>
+                  <span className="text-plex-text-muted text-xs block">Avg Low</span>
+                  <span className="text-plex-text font-medium">{Number(tideStatsModal.stats.avgLowMetres).toFixed(2)} m</span>
+                </div>
+                <div>
+                  <span className="text-plex-text-muted text-xs block">Min Low</span>
+                  <span className="text-blue-400 font-medium">{Number(tideStatsModal.stats.minLowMetres).toFixed(2)} m</span>
+                </div>
+
+                <div className="col-span-2 border-t border-plex-border pt-3 mt-1">
+                  <span className="text-plex-text-muted text-xs block mb-2">Percentiles (High Tides)</span>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">P75</span>
+                      <span className="text-plex-text font-medium">{tideStatsModal.stats.p75HighMetres != null ? `${Number(tideStatsModal.stats.p75HighMetres).toFixed(2)} m` : '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">P90</span>
+                      <span className="text-plex-text font-medium">{tideStatsModal.stats.p90HighMetres != null ? `${Number(tideStatsModal.stats.p90HighMetres).toFixed(2)} m` : '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">P95 (King)</span>
+                      <span className="text-amber-300 font-medium">{tideStatsModal.stats.p95HighMetres != null ? `${Number(tideStatsModal.stats.p95HighMetres).toFixed(2)} m` : '—'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-span-2 border-t border-plex-border pt-3 mt-1">
+                  <span className="text-plex-text-muted text-xs block mb-2">Spring Tides (&gt;125% avg high)</span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">Count</span>
+                      <span className="text-plex-text font-medium">{tideStatsModal.stats.springTideCount}</span>
+                    </div>
+                    <div>
+                      <span className="text-plex-text-muted text-xs block">Frequency</span>
+                      <span className="text-plex-text font-medium">{tideStatsModal.stats.springTideFrequency != null ? `${(Number(tideStatsModal.stats.springTideFrequency) * 100).toFixed(1)}%` : '—'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              className="btn-primary text-sm self-end"
+              onClick={() => setTideStatsModal(null)}
+              data-testid="close-tide-stats-modal"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

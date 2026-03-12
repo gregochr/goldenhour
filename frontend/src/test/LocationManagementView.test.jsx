@@ -14,11 +14,22 @@ vi.mock('../api/regionApi', () => ({
   fetchRegions: vi.fn(),
 }));
 
+vi.mock('../api/tideApi', () => ({
+  fetchTideStats: vi.fn(),
+  fetchAllTideStats: vi.fn(),
+  fetchTidesForDate: vi.fn(),
+}));
+
 import { fetchLocations, updateLocation, geocodePlace } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
+import { fetchTideStats } from '../api/tideApi';
 
 const MOCK_LOCATIONS = [
   { id: 1, name: 'Durham', lat: 54.77, lon: -1.58, enabled: true, solarEventType: ['SUNRISE', 'SUNSET'], locationType: ['LANDSCAPE'], tideType: [] },
+];
+
+const MOCK_SEASCAPE_LOCATIONS = [
+  { id: 2, name: 'Berwick-Upon-Tweed', lat: 55.77, lon: -2.00, enabled: true, solarEventType: ['SUNRISE', 'SUNSET'], locationType: ['SEASCAPE'], tideType: ['HIGH'] },
 ];
 
 const MOCK_REGIONS = [
@@ -422,5 +433,50 @@ describe('LocationManagementView', () => {
     expect(regionSelect).toBeInTheDocument();
     // Should have "— None —" + 2 regions = 3 options
     expect(regionSelect.querySelectorAll('option')).toHaveLength(3);
+  });
+
+  it('shows Tides button for SEASCAPE locations only', async () => {
+    fetchLocations.mockResolvedValue([
+      ...MOCK_LOCATIONS,
+      ...MOCK_SEASCAPE_LOCATIONS,
+    ]);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Berwick-Upon-Tweed')).toBeInTheDocument();
+    });
+
+    // SEASCAPE location should have Tides button
+    expect(screen.getByTestId('tides-location-2')).toBeInTheDocument();
+    // LANDSCAPE location should not
+    expect(screen.queryByTestId('tides-location-1')).not.toBeInTheDocument();
+  });
+
+  it('opens tide stats modal when Tides button clicked', async () => {
+    fetchLocations.mockResolvedValue(MOCK_SEASCAPE_LOCATIONS);
+    fetchTideStats.mockResolvedValue({
+      avgHighMetres: 1.4, maxHighMetres: 1.8, avgLowMetres: -1.2, minLowMetres: -1.5,
+      dataPoints: 200, avgRangeMetres: 2.6, p75HighMetres: 1.6, p90HighMetres: 1.72,
+      p95HighMetres: 1.78, springTideCount: 5, springTideFrequency: 0.05,
+    });
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tides-location-2')).toBeInTheDocument();
+    });
+
+    await fireEvent.click(screen.getByTestId('tides-location-2'));
+
+    // Modal should appear immediately with loading state
+    await waitFor(() => {
+      expect(screen.getByTestId('tide-stats-modal')).toBeInTheDocument();
+    });
+
+    // After stats load, data should be visible
+    await waitFor(() => {
+      expect(screen.getByText('200')).toBeInTheDocument();
+    });
   });
 });

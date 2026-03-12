@@ -525,7 +525,7 @@ class TideServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("getTideStats() returns stats from high and low extremes")
+    @DisplayName("getTideStats() returns stats with percentiles from high and low extremes")
     void getTideStats_withData_returnsStats() {
         when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
                 .thenReturn(new Object[]{
@@ -537,6 +537,14 @@ class TideServiceTest {
                         BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-0.800),
                         BigDecimal.valueOf(-1.500), 10L
                 });
+        // 10 sorted HIGH heights for percentile calculation
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(
+                        BigDecimal.valueOf(1.100), BigDecimal.valueOf(1.200),
+                        BigDecimal.valueOf(1.250), BigDecimal.valueOf(1.300),
+                        BigDecimal.valueOf(1.350), BigDecimal.valueOf(1.400),
+                        BigDecimal.valueOf(1.500), BigDecimal.valueOf(1.600),
+                        BigDecimal.valueOf(1.700), BigDecimal.valueOf(1.800)));
 
         Optional<TideStats> result = tideService.getTideStats(1L);
 
@@ -547,6 +555,13 @@ class TideServiceTest {
         assertThat(stats.avgLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.200));
         assertThat(stats.minLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.500));
         assertThat(stats.dataPoints()).isEqualTo(20);
+        assertThat(stats.avgRangeMetres()).isEqualByComparingTo(BigDecimal.valueOf(2.600));
+        assertThat(stats.p75HighMetres()).isNotNull();
+        assertThat(stats.p90HighMetres()).isNotNull();
+        assertThat(stats.p95HighMetres()).isNotNull();
+        // 1.75 threshold (125% of 1.4); only 1.800 exceeds it
+        assertThat(stats.springTideCount()).isEqualTo(1);
+        assertThat(stats.springTideFrequency()).isEqualByComparingTo(BigDecimal.valueOf(0.100));
     }
 
     @Test
@@ -570,6 +585,11 @@ class TideServiceTest {
                 });
         when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
                 .thenReturn(new Object[]{null, null, null, 0L});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(
+                        BigDecimal.valueOf(1.000), BigDecimal.valueOf(1.200),
+                        BigDecimal.valueOf(1.300), BigDecimal.valueOf(1.400),
+                        BigDecimal.valueOf(1.600)));
 
         Optional<TideStats> result = tideService.getTideStats(1L);
 
@@ -577,7 +597,40 @@ class TideServiceTest {
         TideStats stats = result.get();
         assertThat(stats.avgHighMetres()).isNotNull();
         assertThat(stats.avgLowMetres()).isNull();
+        assertThat(stats.avgRangeMetres()).isNull();
+        assertThat(stats.p75HighMetres()).isNotNull();
+        assertThat(stats.p95HighMetres()).isNotNull();
         assertThat(stats.dataPoints()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("percentile() returns correct values for known distribution")
+    void percentile_knownDistribution_returnsCorrectValues() {
+        List<BigDecimal> sorted = List.of(
+                BigDecimal.valueOf(1.000), BigDecimal.valueOf(1.100),
+                BigDecimal.valueOf(1.200), BigDecimal.valueOf(1.300),
+                BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.500),
+                BigDecimal.valueOf(1.600), BigDecimal.valueOf(1.700),
+                BigDecimal.valueOf(1.800), BigDecimal.valueOf(1.900),
+                BigDecimal.valueOf(2.000));
+
+        // p50 = median of 11 values (index 5) = 1.500
+        assertThat(TideService.percentile(sorted, 50))
+                .isEqualByComparingTo(BigDecimal.valueOf(1.500));
+        // p0 = first element
+        assertThat(TideService.percentile(sorted, 0))
+                .isEqualByComparingTo(BigDecimal.valueOf(1.000));
+        // p100 = last element
+        assertThat(TideService.percentile(sorted, 100))
+                .isEqualByComparingTo(BigDecimal.valueOf(2.000));
+    }
+
+    @Test
+    @DisplayName("percentile() handles single-element list")
+    void percentile_singleElement_returnsThatElement() {
+        List<BigDecimal> single = List.of(BigDecimal.valueOf(1.500));
+        assertThat(TideService.percentile(single, 95))
+                .isEqualByComparingTo(BigDecimal.valueOf(1.500));
     }
 
     // -------------------------------------------------------------------------

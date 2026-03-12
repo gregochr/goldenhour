@@ -17,7 +17,7 @@ const popupStyles = `
     max-width: 600px !important;
   }
   .leaflet-popup-content {
-    max-height: 600px !important;
+    max-height: calc(80vh - 100px) !important;
     overflow-y: auto !important;
   }
 `;
@@ -442,7 +442,7 @@ export default function MapView({ locations, date }) {
                   }}
                 >
                   {!isMobile && (
-                    <Popup maxWidth={9999} maxHeight={600}>
+                    <Popup maxWidth={9999} autoPanPadding={[20, 60]}>
                       <div key={`${date}-${eventType}`} className="animate-popup-refresh">
                         <MarkerPopupContent
                           location={loc}

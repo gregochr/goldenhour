@@ -13,7 +13,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST controller for tide extreme data.
@@ -74,5 +76,25 @@ public class TideController {
         return tideService.getTideStats(location.getId())
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.noContent().build());
+    }
+
+    /**
+     * Returns tide height statistics for all coastal locations that have stored extremes.
+     *
+     * <p>The response is a map keyed by location name. Inland locations and coastal
+     * locations with no stored data are omitted.
+     *
+     * @return map of location name to tide stats
+     */
+    @GetMapping("/stats/all")
+    public Map<String, TideStats> getAllTideStats() {
+        Map<String, TideStats> result = new LinkedHashMap<>();
+        for (LocationEntity loc : locationService.findAllEnabled()) {
+            if (!locationService.isCoastal(loc)) {
+                continue;
+            }
+            tideService.getTideStats(loc.getId()).ifPresent(stats -> result.put(loc.getName(), stats));
+        }
+        return result;
     }
 }

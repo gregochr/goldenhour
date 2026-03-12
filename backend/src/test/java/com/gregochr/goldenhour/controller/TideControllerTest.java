@@ -102,7 +102,10 @@ class TideControllerTest {
 
         TideStats stats = new TideStats(
                 BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
-                BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-1.500), 20);
+                BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-1.500), 20,
+                BigDecimal.valueOf(2.600), BigDecimal.valueOf(1.600),
+                BigDecimal.valueOf(1.750), BigDecimal.valueOf(1.780),
+                2L, BigDecimal.valueOf(0.100));
 
         when(locationService.findByName("Berwick-Upon-Tweed")).thenReturn(location);
         when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
@@ -131,6 +134,38 @@ class TideControllerTest {
         mockMvc.perform(get("/api/tides/stats")
                         .param("locationName", "Inland Place"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/tides/stats/all returns stats for all coastal locations")
+    void getAllTideStats_returnsCombinedStats() throws Exception {
+        LocationEntity coastal = LocationEntity.builder()
+                .id(1L).name("Berwick-Upon-Tweed").lat(55.77).lon(-2.00)
+                .tideType(java.util.Set.of(com.gregochr.goldenhour.entity.TideType.HIGH))
+                .createdAt(LocalDateTime.of(2026, 2, 1, 0, 0)).build();
+        LocationEntity inland = LocationEntity.builder()
+                .id(2L).name("Durham").lat(54.77).lon(-1.58)
+                .tideType(java.util.Set.of())
+                .createdAt(LocalDateTime.of(2026, 2, 1, 0, 0)).build();
+
+        TideStats stats = new TideStats(
+                BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
+                BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-1.500), 20,
+                BigDecimal.valueOf(2.600), BigDecimal.valueOf(1.600),
+                BigDecimal.valueOf(1.750), BigDecimal.valueOf(1.780),
+                2L, BigDecimal.valueOf(0.100));
+
+        when(locationService.findAllEnabled()).thenReturn(java.util.List.of(coastal, inland));
+        when(locationService.isCoastal(coastal)).thenReturn(true);
+        when(locationService.isCoastal(inland)).thenReturn(false);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
+
+        mockMvc.perform(get("/api/tides/stats/all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.['Berwick-Upon-Tweed'].avgHighMetres").value(1.4))
+                .andExpect(jsonPath("$.['Berwick-Upon-Tweed'].p95HighMetres").value(1.78))
+                .andExpect(jsonPath("$.['Durham']").doesNotExist());
     }
 
     private TideExtremeEntity extreme(Long id, TideExtremeType type, LocalDateTime eventTime, double height) {
