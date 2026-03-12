@@ -53,6 +53,12 @@ class ForecastDtoMapperTest {
         assertThat(dto.tideAligned()).isTrue();
         assertThat(dto.solarLowCloud()).isEqualTo(5);
         assertThat(dto.antisolarHighCloud()).isEqualTo(90);
+        assertThat(dto.solarTrendEventLowCloud()).isEqualTo(7);
+        assertThat(dto.solarTrendEarliestLowCloud()).isEqualTo(5);
+        assertThat(dto.solarTrendBuilding()).isTrue();
+        assertThat(dto.upwindCurrentLowCloud()).isEqualTo(70);
+        assertThat(dto.upwindEventLowCloud()).isEqualTo(15);
+        assertThat(dto.upwindDistanceKm()).isEqualTo(87);
     }
 
     @Test
@@ -198,6 +204,12 @@ class ForecastDtoMapperTest {
                 .antisolarLowCloud(30)
                 .antisolarMidCloud(50)
                 .antisolarHighCloud(90)
+                .solarTrendEventLowCloud(7)
+                .solarTrendEarliestLowCloud(5)
+                .solarTrendBuilding(true)
+                .upwindCurrentLowCloud(70)
+                .upwindEventLowCloud(15)
+                .upwindDistanceKm(87)
                 .build();
     }
 }

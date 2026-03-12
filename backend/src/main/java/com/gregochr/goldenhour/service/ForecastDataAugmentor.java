@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import org.springframework.stereotype.Service;
@@ -84,5 +85,31 @@ public class ForecastDataAugmentor {
                 tideData.nextLowTideTime(),
                 tideData.nextLowTideHeightMetres(),
                 tideAligned));
+    }
+
+    /**
+     * Returns a copy of {@code base} with cloud approach risk data from the solar horizon
+     * temporal trend and upwind spatial sample. Falls back to the original data if the fetch fails.
+     *
+     * @param base           atmospheric data to augment
+     * @param lat            observer latitude
+     * @param lon            observer longitude
+     * @param solarAzimuth   compass bearing of the sun
+     * @param eventTime      UTC time of the solar event
+     * @param currentTime    current UTC time
+     * @param jobRun         the parent job run for metrics tracking, or {@code null}
+     * @return a new {@link AtmosphericData} with cloud approach data populated where available
+     */
+    public AtmosphericData augmentWithCloudApproach(AtmosphericData base, double lat,
+            double lon, int solarAzimuth, LocalDateTime eventTime, LocalDateTime currentTime,
+            JobRunEntity jobRun) {
+        if (base.weather() == null) {
+            return base;
+        }
+        CloudApproachData approach = openMeteoService.fetchCloudApproachData(
+                lat, lon, solarAzimuth, eventTime, currentTime, base.targetType(),
+                base.weather().windDirectionDegrees(),
+                base.weather().windSpeedMs().doubleValue(), jobRun);
+        return approach != null ? base.withCloudApproach(approach) : base;
     }
 }

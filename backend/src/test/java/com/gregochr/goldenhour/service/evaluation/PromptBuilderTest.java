@@ -4,13 +4,17 @@ import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -123,7 +127,7 @@ public class PromptBuilderTest {
         String message = promptBuilder.buildUserMessage(data);
 
         assertThat(message)
-                .contains("DIRECTIONAL CLOUD (50km sample):")
+                .contains("DIRECTIONAL CLOUD (113km sample):")
                 .contains("Solar horizon (toward sun): Low 65%, Mid 20%, High 10%")
                 .contains("Antisolar horizon (away from sun): Low 5%, Mid 45%, High 30%");
     }
@@ -216,5 +220,88 @@ public class PromptBuilderTest {
     @DisplayName("buildOutputConfig returns non-null config")
     void buildOutputConfig_returnsNonNull() {
         assertThat(promptBuilder.buildOutputConfig()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with cloud approach data includes CLOUD APPROACH RISK block")
+    void buildUserMessage_withCloudApproach_includesCloudApproachBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 5),
+                                new SolarCloudTrend.SolarCloudSlot(2, 15),
+                                new SolarCloudTrend.SolarCloudSlot(1, 35),
+                                new SolarCloudTrend.SolarCloudSlot(0, 7))),
+                        new UpwindCloudSample(87, 228, 70, 15)))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD APPROACH RISK:")
+                .contains("Solar horizon low cloud trend (113km):")
+                .contains("T-3h=5%")
+                .contains("event=7%")
+                .contains("[BUILDING]")
+                .contains("Upwind sample (87km along 228\u00b0 SW): current=70%, at-event=15%");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage without cloud approach data omits CLOUD APPROACH RISK block")
+    void buildUserMessage_withoutCloudApproach_omitsBlock() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("CLOUD APPROACH RISK");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with non-building trend omits BUILDING label")
+    void buildUserMessage_nonBuildingTrend_omitsBuildingLabel() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 50),
+                                new SolarCloudTrend.SolarCloudSlot(2, 40),
+                                new SolarCloudTrend.SolarCloudSlot(1, 20),
+                                new SolarCloudTrend.SolarCloudSlot(0, 10))),
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD APPROACH RISK:")
+                .contains("Solar horizon low cloud trend (113km):")
+                .doesNotContain("[BUILDING]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with upwind only (no trend) shows upwind block")
+    void buildUserMessage_upwindOnly_showsUpwindBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        null,
+                        new UpwindCloudSample(120, 180, 65, 20)))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD APPROACH RISK:")
+                .doesNotContain("Solar horizon low cloud trend")
+                .contains("Upwind sample (120km along 180\u00b0 S): current=65%, at-event=20%");
+    }
+
+    @Test
+    @DisplayName("getSystemPrompt contains cloud approach risk guidance")
+    void getSystemPrompt_containsCloudApproachGuidance() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("CLOUD APPROACH RISK:")
+                .contains("Solar trend")
+                .contains("Upwind sample");
     }
 }

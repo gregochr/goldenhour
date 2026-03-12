@@ -232,6 +232,30 @@ public class ForecastEvaluationEntity {
     @Column(name = "basic_summary", columnDefinition = "TEXT")
     private String basicSummary;
 
+    /** Low cloud % at the solar horizon at event time, from the temporal trend. */
+    @Column(name = "solar_trend_event_low_cloud")
+    private Integer solarTrendEventLowCloud;
+
+    /** Low cloud % at the solar horizon at the earliest trend slot (T-3h). */
+    @Column(name = "solar_trend_earliest_low_cloud")
+    private Integer solarTrendEarliestLowCloud;
+
+    /** True if the solar horizon low cloud trend is building (increase >= 20pp). */
+    @Column(name = "solar_trend_building")
+    private Boolean solarTrendBuilding;
+
+    /** Low cloud % at the upwind sample point at current time. */
+    @Column(name = "upwind_current_low_cloud")
+    private Integer upwindCurrentLowCloud;
+
+    /** Low cloud % at the upwind sample point at event time. */
+    @Column(name = "upwind_event_low_cloud")
+    private Integer upwindEventLowCloud;
+
+    /** Distance in km to the upwind sample point. */
+    @Column(name = "upwind_distance_km")
+    private Integer upwindDistanceKm;
+
     /**
      * Returns the location name for JSON serialisation, preserving the API contract.
      *

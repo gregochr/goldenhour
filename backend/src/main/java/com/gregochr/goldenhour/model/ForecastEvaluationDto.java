@@ -59,7 +59,13 @@ import java.time.LocalDateTime;
  * @param solarHighCloud                 high cloud at solar horizon 50 km offset (nullable)
  * @param antisolarLowCloud              low cloud at antisolar horizon 50 km offset (nullable)
  * @param antisolarMidCloud              mid cloud at antisolar horizon 50 km offset (nullable)
- * @param antisolarHighCloud             high cloud at antisolar horizon 50 km offset (nullable)
+ * @param antisolarHighCloud             high cloud at antisolar horizon offset (nullable)
+ * @param solarTrendEventLowCloud        low cloud at solar horizon at event time (nullable)
+ * @param solarTrendEarliestLowCloud     low cloud at solar horizon at T-3h (nullable)
+ * @param solarTrendBuilding             true if solar horizon cloud trend is building (nullable)
+ * @param upwindCurrentLowCloud          low cloud at upwind point now (nullable)
+ * @param upwindEventLowCloud            low cloud at upwind point at event time (nullable)
+ * @param upwindDistanceKm               distance to upwind sample point in km (nullable)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -105,5 +111,11 @@ public record ForecastEvaluationDto(
         Integer solarHighCloud,
         Integer antisolarLowCloud,
         Integer antisolarMidCloud,
-        Integer antisolarHighCloud) {
+        Integer antisolarHighCloud,
+        Integer solarTrendEventLowCloud,
+        Integer solarTrendEarliestLowCloud,
+        Boolean solarTrendBuilding,
+        Integer upwindCurrentLowCloud,
+        Integer upwindEventLowCloud,
+        Integer upwindDistanceKm) {
 }

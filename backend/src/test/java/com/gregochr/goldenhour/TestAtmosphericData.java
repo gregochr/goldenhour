@@ -3,6 +3,7 @@ package com.gregochr.goldenhour;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
@@ -43,6 +44,7 @@ public final class TestAtmosphericData {
     private Integer precipProbability = null;
     private DirectionalCloudData directionalCloud = null;
     private TideSnapshot tide = null;
+    private CloudApproachData cloudApproach = null;
 
     private TestAtmosphericData() {
     }
@@ -175,6 +177,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData cloudApproach(CloudApproachData val) {
+        this.cloudApproach = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -188,6 +195,6 @@ public final class TestAtmosphericData {
                         precipitation, humidity, weatherCode, shortwaveRadiation),
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
-                directionalCloud, tide);
+                directionalCloud, tide, cloudApproach);
     }
 }

@@ -5,8 +5,11 @@ import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.OutputConfig;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.goldenhour.model.UpwindCloudSample;
 
 import java.util.List;
 import java.util.Map;
@@ -24,7 +27,16 @@ public class PromptBuilder {
     static final String SYSTEM_PROMPT =
             "You are an expert sunrise/sunset colour potential advisor for landscape photographers.\n"
             + "Evaluate on three scales:\n"
-            + "  1. Rating: 1\u20135 scale (overall potential)\n"
+            + "  1. Rating: 1\u20135 scale (overall potential). Definitions:\n"
+            + "     1 = skip (overcast, no colour likely)\n"
+            + "     2 = poor (unlikely to reward a trip)\n"
+            + "     3 = maybe (some colour possible, not reliable)\n"
+            + "     4 = go out (good conditions, worth the trip)\n"
+            + "     5 = spectacular (near-perfect alignment of clear solar horizon, broken cloud "
+            + "canvas, and favourable aerosol/humidity — rare, reserve for exceptional setups)\n"
+            + "  Rating 5 requires: solar horizon low cloud <20%, mid cloud <50% at solar horizon, "
+            + "AND cloud canvas (mid/high) on the antisolar side. If ANY of these is missing, cap "
+            + "at 4. Thick mid cloud (>80%) at the solar horizon limits colour variety — cap at 4.\n"
             + "  2. Fiery Sky Potential: 0\u2013100 (dramatic colour, vivid reds/oranges)\n"
             + "  3. Golden Hour Potential: 0\u2013100 (overall light quality, softness)\n\n"
             + "Key criteria: clear horizon critical (high low cloud >70% = poor for fiery sky); "
@@ -46,7 +58,7 @@ public class PromptBuilder {
             + "(west) must be clear for light penetration, while mid/high cloud on the antisolar "
             + "side (east) at 20-60% catches and reflects colour. Sunrise is the reverse.\n"
             + "DIRECTIONAL CLOUD DATA: when provided, solar horizon and antisolar horizon cloud "
-            + "readings are sampled 50 km toward and away from the sun. These are MORE RELIABLE "
+            + "readings are sampled 113 km toward and away from the sun. These are MORE RELIABLE "
             + "than the observer-point cloud layers for assessing light penetration and canvas "
             + "availability. Key rules:\n"
             + "- Solar horizon low cloud >60% = light is BLOCKED; treat as overcast for scoring "
@@ -54,9 +66,20 @@ public class PromptBuilder {
             + "- Solar horizon low cloud 40-60% = light partially blocked, penalise but consider "
             + "that mid/high cloud above may still catch colour if gaps exist in the low cloud\n"
             + "- Solar horizon low cloud <20% = strong light penetration likely\n"
-            + "- Antisolar mid/high cloud 20-60% = ideal canvas for catching reflected colour\n"
-            + "- When directional data contradicts observer data, ALWAYS trust the directional data. "
-            + "A clear observer point is irrelevant if the solar horizon is blocked.\n"
+            + "- IDEAL scenario: solar horizon low cloud <20% AND mid cloud <50%, with high cloud "
+            + "present on either horizon as canvas. Score fiery_sky 70-90, rating 4-5.\n"
+            + "- Solar horizon low cloud <20% with thick mid cloud (>80%) = light still penetrates "
+            + "below the mid layer, and the mid/high cloud acts as a large canvas. This is a good "
+            + "scenario (rating 4) but NOT spectacular — the uniform mid-cloud blanket limits colour "
+            + "variety. NEVER rate 5 when solar horizon mid cloud >80%.\n"
+            + "- Antisolar mid/high cloud 20-60% = ideal canvas; >60% is still good (more canvas, "
+            + "not a penalty). Antisolar LOW cloud does NOT block light — it sits near the far "
+            + "horizon behind the viewer and can itself catch reflected colour. Do NOT apply the "
+            + "solar horizon low-cloud blocking rules to the antisolar side.\n"
+            + "- When directional data is provided, ALWAYS use it instead of the observer-point "
+            + "Cloud line for scoring. A clear observer point is irrelevant if the solar horizon "
+            + "is blocked; equally, a clear observer point with directional cloud canvas is NOT "
+            + "'clear sky' — score based on the directional data.\n"
             + "If directional data is not provided, fall back to altitude-based inference: "
             + "low cloud (0-3km) sits near the horizon and blocks light; mid (3-8km) and high "
             + "(8+km) cloud sits above and catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
@@ -78,6 +101,19 @@ public class PromptBuilder {
             + "(the Cloud: Low/Mid/High line) and NO directional cloud information. The basic "
             + "scores use altitude-based inference only. If no directional cloud data is provided, "
             + "omit the basic_* fields entirely.\n\n"
+            + "CLOUD APPROACH RISK: ONLY apply these rules when a 'CLOUD APPROACH RISK:' block is "
+            + "present in the data below. If no such block appears, ignore this section entirely.\n"
+            + "This data overrides the snapshot — if risk signals are strong, the snapshot cannot "
+            + "be trusted.\n"
+            + "- Solar trend [BUILDING]: low cloud is rising toward the event. The event-time "
+            + "value is likely understated. Penalise fiery_sky by 15-30 points.\n"
+            + "- Upwind sample: cloud upstream along the wind vector. If current upwind low cloud "
+            + "is much higher than event-time prediction (e.g. 70% current vs 15% predicted), the "
+            + "model is almost certainly too optimistic. Treat the current upwind value as the "
+            + "likely reality at event time.\n"
+            + "- Combined signal: when BOTH [BUILDING] trend AND high upwind cloud are present, "
+            + "this is a strong approaching-cloud-bank signal. Override the snapshot entirely: "
+            + "score as if the solar horizon will be blocked (rating 1-2, fiery_sky 10-25).\n\n"
             + "Do not use double-quote characters within the summary text.";
 
     /** Prompt suffix: requests all three metrics and a summary. */
@@ -149,17 +185,45 @@ public class PromptBuilder {
                 a.boundaryLayerHeightMetres(), w.shortwaveRadiationWm2(),
                 a.pm25(), a.dustUgm3(), a.aerosolOpticalDepth()));
 
-        // Directional cloud data — sampled 50 km toward and away from the sun
+        // Directional cloud data — sampled 113 km toward and away from the sun
         DirectionalCloudData dc = data.directionalCloud();
         if (dc != null) {
             sb.append(String.format(
-                    "%nDIRECTIONAL CLOUD (50km sample):%n"
+                    "%nDIRECTIONAL CLOUD (113km sample):%n"
                     + "Solar horizon (toward sun): Low %d%%, Mid %d%%, High %d%%%n"
                     + "Antisolar horizon (away from sun): Low %d%%, Mid %d%%, High %d%%",
                     dc.solarLowCloudPercent(), dc.solarMidCloudPercent(),
                     dc.solarHighCloudPercent(),
                     dc.antisolarLowCloudPercent(), dc.antisolarMidCloudPercent(),
                     dc.antisolarHighCloudPercent()));
+            if (dc.solarMidCloudPercent() > 80) {
+                sb.append(" [THICK MID CLOUD — rate 4, not 5]");
+            }
+        }
+
+        // Cloud approach risk block — temporal trend and upwind sample
+        CloudApproachData ca = data.cloudApproach();
+        if (ca != null) {
+            sb.append(String.format("%nCLOUD APPROACH RISK:"));
+            SolarCloudTrend trend = ca.solarTrend();
+            if (trend != null && trend.slots() != null && !trend.slots().isEmpty()) {
+                sb.append(String.format("%nSolar horizon low cloud trend (113km):"));
+                for (SolarCloudTrend.SolarCloudSlot slot : trend.slots()) {
+                    String label = slot.hoursBeforeEvent() == 0 ? "event" : "T-" + slot.hoursBeforeEvent() + "h";
+                    sb.append(String.format(" %s=%d%%", label, slot.lowCloudPercent()));
+                }
+                if (trend.isBuilding()) {
+                    sb.append(" [BUILDING]");
+                }
+            }
+            UpwindCloudSample upwind = ca.upwindSample();
+            if (upwind != null) {
+                sb.append(String.format(
+                        "%nUpwind sample (%dkm along %d\u00b0 %s): current=%d%%, at-event=%d%%",
+                        upwind.distanceKm(), upwind.windFromBearing(),
+                        toCardinal(upwind.windFromBearing()),
+                        upwind.currentLowCloudPercent(), upwind.eventLowCloudPercent()));
+            }
         }
 
         // Conditional dust enrichment block — only when aerosol levels are elevated

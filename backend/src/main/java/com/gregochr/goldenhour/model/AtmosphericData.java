@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
  * @param comfort          human comfort metrics (temperature, feels-like, precip probability)
  * @param directionalCloud cloud cover at solar/antisolar horizon points, or null if unavailable
  * @param tide             tide state snapshot, or null for inland locations
+ * @param cloudApproach    cloud approach risk signals, or null if unavailable
  */
 public record AtmosphericData(
         String locationName,
@@ -29,7 +30,8 @@ public record AtmosphericData(
         AerosolData aerosol,
         ComfortData comfort,
         DirectionalCloudData directionalCloud,
-        TideSnapshot tide) {
+        TideSnapshot tide,
+        CloudApproachData cloudApproach) {
 
     /**
      * Returns a copy with directional cloud data set.
@@ -39,7 +41,7 @@ public record AtmosphericData(
      */
     public AtmosphericData withDirectionalCloud(DirectionalCloudData dc) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, dc, tide);
+                cloud, weather, aerosol, comfort, dc, tide, cloudApproach);
     }
 
     /**
@@ -50,6 +52,17 @@ public record AtmosphericData(
      */
     public AtmosphericData withTide(TideSnapshot tideSnapshot) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot);
+                cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach);
+    }
+
+    /**
+     * Returns a copy with cloud approach risk data set.
+     *
+     * @param approach the cloud approach risk signals to attach
+     * @return a new instance with the cloud approach data populated
+     */
+    public AtmosphericData withCloudApproach(CloudApproachData approach) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, approach);
     }
 }
