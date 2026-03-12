@@ -105,7 +105,8 @@ class TideControllerTest {
                 BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-1.500), 20,
                 BigDecimal.valueOf(2.600), BigDecimal.valueOf(1.600),
                 BigDecimal.valueOf(1.750), BigDecimal.valueOf(1.780),
-                2L, BigDecimal.valueOf(0.100));
+                2L, BigDecimal.valueOf(0.100),
+                BigDecimal.valueOf(1.750), BigDecimal.valueOf(1.780), 1L);
 
         when(locationService.findByName("Berwick-Upon-Tweed")).thenReturn(location);
         when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
@@ -154,7 +155,8 @@ class TideControllerTest {
                 BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-1.500), 20,
                 BigDecimal.valueOf(2.600), BigDecimal.valueOf(1.600),
                 BigDecimal.valueOf(1.750), BigDecimal.valueOf(1.780),
-                2L, BigDecimal.valueOf(0.100));
+                2L, BigDecimal.valueOf(0.100),
+                BigDecimal.valueOf(1.750), BigDecimal.valueOf(1.780), 1L);
 
         when(locationService.findAllEnabled()).thenReturn(java.util.List.of(coastal, inland));
         when(tideService.hasStoredExtremes(1L)).thenReturn(true);

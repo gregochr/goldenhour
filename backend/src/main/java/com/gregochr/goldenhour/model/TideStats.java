@@ -17,6 +17,9 @@ import java.math.BigDecimal;
  * @param p95HighMetres       95th percentile of HIGH tide heights (king tide threshold)
  * @param springTideCount     number of HIGH tides exceeding 125% of average high
  * @param springTideFrequency proportion of HIGH tides that are spring tides (0.0–1.0)
+ * @param springTideThreshold height in metres above which a HIGH tide is classified as spring (125% of avg)
+ * @param kingTideThreshold   height in metres above which a HIGH tide is classified as king (P95)
+ * @param kingTideCount       number of HIGH tides exceeding the P95 threshold
  */
 public record TideStats(
         BigDecimal avgHighMetres,
@@ -29,5 +32,8 @@ public record TideStats(
         BigDecimal p90HighMetres,
         BigDecimal p95HighMetres,
         long springTideCount,
-        BigDecimal springTideFrequency) {
+        BigDecimal springTideFrequency,
+        BigDecimal springTideThreshold,
+        BigDecimal kingTideThreshold,
+        long kingTideCount) {
 }

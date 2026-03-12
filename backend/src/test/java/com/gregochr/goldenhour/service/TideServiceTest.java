@@ -562,6 +562,9 @@ class TideServiceTest {
         // 1.75 threshold (125% of 1.4); only 1.800 exceeds it
         assertThat(stats.springTideCount()).isEqualTo(1);
         assertThat(stats.springTideFrequency()).isEqualByComparingTo(BigDecimal.valueOf(0.100));
+        assertThat(stats.springTideThreshold()).isEqualByComparingTo(BigDecimal.valueOf(1.750));
+        assertThat(stats.kingTideThreshold()).isNotNull();
+        assertThat(stats.kingTideCount()).isGreaterThanOrEqualTo(0);
     }
 
     @Test
@@ -585,6 +588,53 @@ class TideServiceTest {
                 .thenReturn(new Object[]{null});
 
         assertThat(tideService.getTideStats(1L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getTideStats() unwraps nested Object[1]{Object[4]} from H2 aggregate query")
+    void getTideStats_nestedArray_unwrapsAndReturnsStats() {
+        // H2 may wrap the result as Object[1] containing Object[4]{avg,max,min,count}
+        Object[] innerHigh = new Object[]{
+                BigDecimal.valueOf(1.400), BigDecimal.valueOf(1.800),
+                BigDecimal.valueOf(0.500), 20L};
+        Object[] innerLow = new Object[]{
+                BigDecimal.valueOf(-1.200), BigDecimal.valueOf(-0.500),
+                BigDecimal.valueOf(-1.500), 20L};
+
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{innerHigh});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{innerLow});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
+                1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(BigDecimal.valueOf(1.200), BigDecimal.valueOf(1.400),
+                        BigDecimal.valueOf(1.800)));
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+        assertThat(result).isPresent();
+        assertThat(result.get().avgHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.400));
+        assertThat(result.get().dataPoints()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("getTideStats() handles H2 returning Double for AVG instead of BigDecimal")
+    void getTideStats_doubleValues_convertsCorrectly() {
+        // H2 returns Double for AVG() and BigDecimal for MAX()/MIN()
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{1.635, BigDecimal.valueOf(2.753), BigDecimal.valueOf(0.559), 722L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{-1.625, BigDecimal.valueOf(-0.510), BigDecimal.valueOf(-2.906), 720L});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
+                1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(BigDecimal.valueOf(0.559), BigDecimal.valueOf(1.600),
+                        BigDecimal.valueOf(2.753)));
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+        assertThat(result).isPresent();
+        assertThat(result.get().avgHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.635));
+        assertThat(result.get().maxHighMetres()).isEqualByComparingTo(BigDecimal.valueOf(2.753));
+        assertThat(result.get().avgLowMetres()).isEqualByComparingTo(BigDecimal.valueOf(-1.625));
+        assertThat(result.get().dataPoints()).isEqualTo(1442);
     }
 
     @Test

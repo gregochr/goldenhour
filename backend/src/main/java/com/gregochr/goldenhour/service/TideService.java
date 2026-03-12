@@ -424,6 +424,14 @@ public class TideService {
         Object[] lowStats = tideExtremeRepository.findHeightStatsByLocationIdAndType(
                 locationId, TideExtremeType.LOW);
 
+        // H2 may return Object[1]{Object[4]{avg,max,min,count}} — unwrap if nested
+        if (highStats.length == 1 && highStats[0] instanceof Object[]) {
+            highStats = (Object[]) highStats[0];
+        }
+        if (lowStats.length == 1 && lowStats[0] instanceof Object[]) {
+            lowStats = (Object[]) lowStats[0];
+        }
+
         long highCount = highStats.length > 3 && highStats[3] != null ? (Long) highStats[3] : 0;
         long lowCount = lowStats.length > 3 && lowStats[3] != null ? (Long) lowStats[3] : 0;
 
@@ -431,10 +439,10 @@ public class TideService {
             return Optional.empty();
         }
 
-        BigDecimal avgHigh = highCount > 0 ? (BigDecimal) highStats[0] : null;
-        BigDecimal maxHigh = highCount > 0 ? (BigDecimal) highStats[1] : null;
-        BigDecimal avgLow = lowCount > 0 ? (BigDecimal) lowStats[0] : null;
-        BigDecimal minLow = lowCount > 0 ? (BigDecimal) lowStats[2] : null;
+        BigDecimal avgHigh = highCount > 0 ? toBigDecimal(highStats[0]) : null;
+        BigDecimal maxHigh = highCount > 0 ? toBigDecimal(highStats[1]) : null;
+        BigDecimal avgLow = lowCount > 0 ? toBigDecimal(lowStats[0]) : null;
+        BigDecimal minLow = lowCount > 0 ? toBigDecimal(lowStats[2]) : null;
 
         BigDecimal avgRange = (avgHigh != null && avgLow != null)
                 ? avgHigh.subtract(avgLow).setScale(HEIGHT_SCALE, RoundingMode.HALF_UP) : null;
@@ -445,6 +453,8 @@ public class TideService {
         BigDecimal p95 = null;
         long springCount = 0;
         BigDecimal springFreq = null;
+        BigDecimal springThreshold = null;
+        long kingCount = 0;
 
         if (highCount > 0) {
             List<BigDecimal> highHeights = tideExtremeRepository
@@ -455,19 +465,28 @@ public class TideService {
             p95 = percentile(highHeights, 95);
 
             // Spring tide: HIGH tide exceeding 125% of average high
-            BigDecimal springThreshold = avgHigh.multiply(SPRING_TIDE_FACTOR);
+            springThreshold = avgHigh.multiply(SPRING_TIDE_FACTOR)
+                    .setScale(HEIGHT_SCALE, RoundingMode.HALF_UP);
+            final BigDecimal springThresholdFinal = springThreshold;
             springCount = highHeights.stream()
-                    .filter(h -> h.compareTo(springThreshold) > 0)
+                    .filter(h -> h.compareTo(springThresholdFinal) > 0)
                     .count();
             springFreq = BigDecimal.valueOf(springCount)
                     .divide(BigDecimal.valueOf(highCount), HEIGHT_SCALE, RoundingMode.HALF_UP);
+
+            // King tide: HIGH tide exceeding P95
+            final BigDecimal kingThreshold = p95;
+            kingCount = highHeights.stream()
+                    .filter(h -> h.compareTo(kingThreshold) > 0)
+                    .count();
         }
 
         return Optional.of(new TideStats(
                 avgHigh, maxHigh, avgLow, minLow,
                 highCount + lowCount,
                 avgRange, p75, p90, p95,
-                springCount, springFreq));
+                springCount, springFreq,
+                springThreshold, p95, kingCount));
     }
 
     /**
@@ -589,5 +608,29 @@ public class TideService {
             return rex.getStatusCode().value();
         }
         return null;
+    }
+
+    /**
+     * Safely converts an aggregate query result value to {@link BigDecimal}.
+     *
+     * <p>H2 may return {@code Double} for {@code AVG()} and {@code BigDecimal} for
+     * {@code MAX()}/{@code MIN()}, so a direct cast is unsafe.
+     *
+     * @param value the query result value
+     * @return the value as a BigDecimal, or null if the input is null
+     */
+    private static BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number num) {
+            return BigDecimal.valueOf(num.doubleValue())
+                    .setScale(HEIGHT_SCALE, RoundingMode.HALF_UP);
+        }
+        return new BigDecimal(value.toString())
+                .setScale(HEIGHT_SCALE, RoundingMode.HALF_UP);
     }
 }
