@@ -99,6 +99,12 @@ public class ForecastDtoMapper {
                 entity.getSolarHighCloud(),
                 entity.getAntisolarLowCloud(),
                 entity.getAntisolarMidCloud(),
-                entity.getAntisolarHighCloud());
+                entity.getAntisolarHighCloud(),
+                entity.getSolarTrendEventLowCloud(),
+                entity.getSolarTrendEarliestLowCloud(),
+                entity.getSolarTrendBuilding(),
+                entity.getUpwindCurrentLowCloud(),
+                entity.getUpwindEventLowCloud(),
+                entity.getUpwindDistanceKm());
     }
 }

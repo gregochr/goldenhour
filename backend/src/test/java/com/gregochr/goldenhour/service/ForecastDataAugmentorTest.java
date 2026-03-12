@@ -4,7 +4,9 @@ import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideData;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,8 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import java.util.List;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -135,6 +139,43 @@ class ForecastDataAugmentorTest {
 
         AtmosphericData result = augmentor.augmentWithTideData(
                 base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithCloudApproach() adds cloud approach data when fetch succeeds")
+    void augmentWithCloudApproach_success_addsCloudApproachData() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        CloudApproachData approach = new CloudApproachData(
+                new SolarCloudTrend(List.of(
+                        new SolarCloudTrend.SolarCloudSlot(3, 5),
+                        new SolarCloudTrend.SolarCloudSlot(0, 30))),
+                null);
+        when(openMeteoService.fetchCloudApproachData(
+                anyDouble(), anyDouble(), anyInt(), any(), any(), any(), anyInt(),
+                anyDouble(), any()))
+                .thenReturn(approach);
+
+        AtmosphericData result = augmentor.augmentWithCloudApproach(
+                base, 54.77, -1.57, 250, EVENT_TIME,
+                EVENT_TIME.minusHours(4), null);
+
+        assertThat(result.cloudApproach()).isEqualTo(approach);
+    }
+
+    @Test
+    @DisplayName("augmentWithCloudApproach() returns original data when fetch returns null")
+    void augmentWithCloudApproach_fetchReturnsNull_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        when(openMeteoService.fetchCloudApproachData(
+                anyDouble(), anyDouble(), anyInt(), any(), any(), any(), anyInt(),
+                anyDouble(), any()))
+                .thenReturn(null);
+
+        AtmosphericData result = augmentor.augmentWithCloudApproach(
+                base, 54.77, -1.57, 250, EVENT_TIME,
+                EVENT_TIME.minusHours(4), null);
 
         assertThat(result).isSameAs(base);
     }

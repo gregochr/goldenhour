@@ -5,8 +5,11 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -14,7 +17,9 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,8 +61,12 @@ class PromptRegressionTest {
         AnthropicApiClient apiClient = new AnthropicApiClient(client);
         ObjectMapper mapper = new ObjectMapper();
 
+        String modelName = System.getProperty("regression.model",
+                System.getenv().getOrDefault("REGRESSION_MODEL", "HAIKU"));
+        EvaluationModel model = EvaluationModel.valueOf(modelName.toUpperCase());
+
         strategy = new ClaudeEvaluationStrategy(
-                apiClient, new PromptBuilder(), mapper, EvaluationModel.HAIKU);
+                apiClient, new PromptBuilder(), mapper, model);
     }
 
     /**
@@ -169,23 +178,23 @@ class PromptRegressionTest {
     }
 
     /**
-     * St Mary's Lighthouse, 10 March 2026, SUNRISE 06:34 UTC — MODERATE case (decent sunrise).
+     * St Mary's Lighthouse, 10 March 2026, SUNRISE 06:34 UTC — POSITIVE case (worth going out).
      *
      * <p>Forecast snapped at 17:05 on 9 March for 10 March sunrise. Data sourced directly
      * from the production {@code forecast_evaluation} table. Observer point had clear low
-     * cloud (0%) but 100% mid and high cloud — a thick overcast canvas overhead. Solar
-     * horizon (50 km ESE) also 0% low with 100% mid and high cloud. Antisolar had 47% low,
+     * cloud (0%) but 100% mid and high cloud — a thick canvas overhead. Solar horizon
+     * (50 km ESE) also 0% low with 100% mid and high cloud. Antisolar had 47% low,
      * 2% mid, 0% high. Light wind (4.5 km/h SSW), good visibility (22 km), no precipitation.
      *
-     * <p>In reality, this was a decent 3-star sunrise — some colour breaking through the
-     * mid/high cloud layer, but not spectacular. The clear low cloud at solar horizon
-     * allowed some light through, but the thick mid-cloud cap limited the display.
+     * <p>In reality, this was a 4-star sunrise — clear low cloud let light through, and
+     * the mid/high cloud canvas caught enough colour to make the trip worthwhile. Production
+     * forecast correctly rated this 4 stars.
      *
      * <p>Score bounds based on the actual observed conditions:
      * <ul>
-     *   <li>Rating: 3–4 (decent but not spectacular)</li>
-     *   <li>Fiery Sky: 25–70 (some colour, limited by thick mid cloud)</li>
-     *   <li>Golden Hour: 25–70 (moderate light quality)</li>
+     *   <li>Rating: min 4 (worth going out for)</li>
+     *   <li>Fiery Sky: 30–85 (decent colour, not a washout)</li>
+     *   <li>Golden Hour: 30–85 (decent light quality)</li>
      * </ul>
      */
     @Test
@@ -218,21 +227,90 @@ class PromptRegressionTest {
         SunsetEvaluation result = strategy.evaluate(data);
 
         assertScoresNotNull(result);
-        assertTrue(result.rating() >= 3,
-                "Rating should be >= 3 (decent sunrise) but was " + result.rating());
-        assertTrue(result.rating() <= 4,
-                "Rating should be <= 4 (not spectacular) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() >= 25,
-                "Fiery Sky should be >= 25 (some colour observed) but was "
+        assertEquals(4, result.rating(),
+                "Rating should be exactly 4 (worth going out, not spectacular) but was " + result.rating());
+        assertTrue(result.fierySkyPotential() >= 30,
+                "Fiery Sky should be >= 30 (decent colour observed) but was "
                         + result.fierySkyPotential());
-        assertTrue(result.fierySkyPotential() <= 70,
-                "Fiery Sky should be <= 70 (limited by thick mid cloud) but was "
+        assertTrue(result.fierySkyPotential() <= 85,
+                "Fiery Sky should be <= 85 (not a spectacular fireworks display) but was "
                         + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() >= 25,
-                "Golden Hour should be >= 25 (moderate light) but was "
+        assertTrue(result.goldenHourPotential() >= 30,
+                "Golden Hour should be >= 30 (decent light) but was "
                         + result.goldenHourPotential());
-        assertTrue(result.goldenHourPotential() <= 70,
-                "Golden Hour should be <= 70 (limited by thick mid cloud) but was "
+        assertTrue(result.goldenHourPotential() <= 85,
+                "Golden Hour should be <= 85 (decent, not spectacular) but was "
+                        + result.goldenHourPotential());
+    }
+
+    /**
+     * Copt Hill, 11 March 2026, SUNSET ~17:45 UTC — FALSE POSITIVE case (cloud approach risk).
+     *
+     * <p>The 13:45 forecast showed clear solar horizon (7% low cloud at 50 km) and 88% high
+     * cloud — looked ideal. Production rated it 4 stars. In reality, a cloud bank was
+     * approaching from the SW and the sunset was a 2-star disappointment.
+     *
+     * <p>With cloud approach risk data, the prompt now includes:
+     * <ul>
+     *   <li>Solar trend: T-3h=5%, T-2h=15%, T-1h=35%, event=7% [BUILDING]</li>
+     *   <li>Upwind: 70% low cloud at 87 km along 228° SW, model predicts 15% at event</li>
+     * </ul>
+     *
+     * <p>This data should tell Claude to penalise — the model is too optimistic about clearing.
+     *
+     * <p>Score bounds based on the actual observed outcome:
+     * <ul>
+     *   <li>Rating: max 2 (the trip was a disappointment)</li>
+     *   <li>Fiery Sky: max 35 (cloud bank arrived and blocked the display)</li>
+     *   <li>Golden Hour: max 40 (some residual light but poor overall)</li>
+     * </ul>
+     */
+    @Test
+    void coptHill_11Mar2026_sunset_cloudApproachFalsePositive() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("Copt Hill")
+                .solarEventTime(LocalDateTime.of(2026, 3, 11, 17, 45))
+                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNSET)
+                .lowCloud(0)
+                .midCloud(0)
+                .highCloud(100)
+                .visibility(27980)
+                .windSpeed(new BigDecimal("5.70"))
+                .windDirection(228)
+                .precipitation(BigDecimal.ZERO)
+                .humidity(69)
+                .weatherCode(3)
+                .shortwaveRadiation(new BigDecimal("180.00"))
+                .aod(new BigDecimal("0.080"))
+                .pm25(new BigDecimal("3.80"))
+                .dust(new BigDecimal("0.00"))
+                .boundaryLayerHeight(1035)
+                .temperature(7.6)
+                .apparentTemperature(2.8)
+                .precipProbability(0)
+                .directionalCloud(new DirectionalCloudData(
+                        7, 0, 88,       // solar horizon: Low 7%, Mid 0%, High 88%
+                        81, 0, 0))      // antisolar: Low 81%, Mid 0%, High 0%
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 5),
+                                new SolarCloudTrend.SolarCloudSlot(2, 15),
+                                new SolarCloudTrend.SolarCloudSlot(1, 35),
+                                new SolarCloudTrend.SolarCloudSlot(0, 7))),
+                        new UpwindCloudSample(87, 228, 70, 15)))
+                .build();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertScoresNotNull(result);
+        assertTrue(result.rating() <= 2,
+                "Rating should be <= 2 (cloud approach risk = don't go) but was "
+                        + result.rating());
+        assertTrue(result.fierySkyPotential() <= 45,
+                "Fiery Sky should be <= 45 (approaching cloud blocks display) but was "
+                        + result.fierySkyPotential());
+        assertTrue(result.goldenHourPotential() <= 55,
+                "Golden Hour should be <= 55 (poor outcome) but was "
                         + result.goldenHourPotential());
     }
 

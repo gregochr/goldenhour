@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 12, 2026)
+- **Cloud approach risk detection** — two new signals augment directional cloud data to detect cloud approaching the solar horizon that a single event-time snapshot would miss
+  - `SolarCloudTrend`: hourly low cloud at the 113 km solar horizon from T-3h to event time; `isBuilding()` detects a peak-vs-earliest increase of 20+ pp, appending a `[BUILDING]` label to the prompt that instructs Claude to penalise fiery_sky by 10–25 points
+  - `UpwindCloudSample`: current low cloud at an upwind point along the wind vector vs the model's event-time prediction; high current cloud with low event-time prediction flags over-optimistic clearing
+  - `CloudApproachData` record composes both signals into `AtmosphericData`; `ForecastDataAugmentor` assembles the data from Open-Meteo; `PromptBuilder` formats it as a `CLOUD APPROACH RISK:` block
+  - V51 migration adds persistence columns to `forecast_evaluation`
+  - Motivated by the Copt Hill 2026-03-11 sunset failure case (4-star prediction, ~2-star reality)
+
 ### Added (Mar 11, 2026)
 - **LocationType.WATERFALL** — new location type with 💦 emoji across map filters, badges, location editor, and metrics
   - V50 migration reclassifies 31 waterfall locations from LANDSCAPE to WATERFALL

@@ -140,8 +140,11 @@ public class ForecastService {
 
             AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
                     baseData, lat, lon, azimuth, eventTime, jobRun);
+            AtmosphericData withApproach = augmentor.augmentWithCloudApproach(
+                    withDirectional, lat, lon, azimuth, eventTime,
+                    LocalDateTime.now(ZoneOffset.UTC), jobRun);
             AtmosphericData forecastData = augmentor.augmentWithTideData(
-                    withDirectional, locationId, eventTime, tideTypes);
+                    withApproach, locationId, eventTime, tideTypes);
 
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
 
@@ -236,6 +239,7 @@ public class ForecastService {
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
         var dc = data.directionalCloud();
         var tide = data.tide();
+        var ca = data.cloudApproach();
         return ForecastEvaluationEntity.builder()
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
@@ -283,6 +287,20 @@ public class ForecastService {
                 .basicSummary(evaluation.basicSummary())
                 .solarEventTime(eventTime)
                 .azimuthDeg(azimuth)
+                .solarTrendEventLowCloud(ca != null && ca.solarTrend() != null
+                        && !ca.solarTrend().slots().isEmpty()
+                        ? ca.solarTrend().slots().getLast().lowCloudPercent() : null)
+                .solarTrendEarliestLowCloud(ca != null && ca.solarTrend() != null
+                        && !ca.solarTrend().slots().isEmpty()
+                        ? ca.solarTrend().slots().getFirst().lowCloudPercent() : null)
+                .solarTrendBuilding(ca != null && ca.solarTrend() != null
+                        ? ca.solarTrend().isBuilding() : null)
+                .upwindCurrentLowCloud(ca != null && ca.upwindSample() != null
+                        ? ca.upwindSample().currentLowCloudPercent() : null)
+                .upwindEventLowCloud(ca != null && ca.upwindSample() != null
+                        ? ca.upwindSample().eventLowCloudPercent() : null)
+                .upwindDistanceKm(ca != null && ca.upwindSample() != null
+                        ? ca.upwindSample().distanceKm() : null)
                 .build();
     }
 }

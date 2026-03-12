@@ -5,12 +5,15 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.SolarCloudTrend;
+import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherData;
 import com.gregochr.goldenhour.util.GeoUtils;
 import org.springframework.stereotype.Service;
@@ -21,6 +24,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -38,8 +42,21 @@ public class OpenMeteoService {
 
     private static final Logger LOG = LoggerFactory.getLogger(OpenMeteoService.class);
 
-    /** Distance in metres to sample directional horizon cloud data (50 km). */
-    static final double DIRECTIONAL_OFFSET_METRES = 50_000.0;
+    /**
+     * Distance in metres to sample directional horizon cloud data.
+     * Derived from sqrt(2Rh) for cloud at 1 km altitude: sqrt(2 × 6371 km × 1 km) ≈ 113 km.
+     * This is the geometric horizon distance for low cloud.
+     */
+    static final double DIRECTIONAL_OFFSET_METRES = 113_000.0;
+
+    /** Minimum upwind distance in metres below which the upwind sample is skipped. */
+    private static final double MIN_UPWIND_DISTANCE_M = 5_000.0;
+
+    /** Maximum upwind distance in metres (cap at 200 km). */
+    private static final double MAX_UPWIND_DISTANCE_M = 200_000.0;
+
+    /** Number of hours before the event to sample for the solar trend. */
+    private static final int TREND_HOURS_BACK = 3;
 
     /**
      * Half-angle of the sampling cone for the solar horizon direction (degrees).
@@ -293,7 +310,8 @@ public class OpenMeteoService {
                 locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort,
                 null,  // directionalCloud — populated later for colour locations
-                null); // tide — populated later for coastal locations
+                null,  // tide — populated later for coastal locations
+                null); // cloudApproach — populated later if directional data available
     }
 
     /**
@@ -469,6 +487,156 @@ public class OpenMeteoService {
             }
         }
 
+        return bestIdx;
+    }
+
+    /**
+     * Fetches cloud approach risk data: a temporal trend at the solar horizon and an
+     * upwind spatial sample.
+     *
+     * <p>Makes up to 2 additional Open-Meteo calls. Returns {@code null} gracefully on failure.
+     *
+     * @param lat              observer latitude
+     * @param lon              observer longitude
+     * @param solarAzimuthDeg  compass bearing of the sun
+     * @param solarEventTime   UTC time of the solar event
+     * @param currentTime      current UTC time (for upwind distance calculation)
+     * @param targetType       SUNRISE or SUNSET
+     * @param windFromDeg      wind-from bearing in degrees
+     * @param windSpeedMs      wind speed in m/s
+     * @param jobRun           the parent job run for metrics tracking, or {@code null}
+     * @return cloud approach risk data, or {@code null} if the fetch fails
+     */
+    public CloudApproachData fetchCloudApproachData(double lat, double lon,
+            int solarAzimuthDeg, LocalDateTime solarEventTime, LocalDateTime currentTime,
+            TargetType targetType, int windFromDeg, double windSpeedMs, JobRunEntity jobRun) {
+        try {
+            // 1. Fetch cloud at primary solar horizon point for temporal trend
+            double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
+                    DIRECTIONAL_OFFSET_METRES);
+            long startMs = System.currentTimeMillis();
+            OpenMeteoForecastResponse solarForecast = openMeteoClient.fetchCloudOnly(
+                    solarPoint[0], solarPoint[1]);
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "cloud-approach-solar-trend", null, durationMs, 200,
+                        null, true, null);
+            }
+
+            SolarCloudTrend trend = extractSolarTrend(solarForecast, solarEventTime, targetType);
+
+            // 2. Upwind sample — skip if wind too light or event has passed
+            UpwindCloudSample upwind = null;
+            long secondsToEvent = Duration.between(currentTime, solarEventTime).getSeconds();
+            if (secondsToEvent > 0 && windSpeedMs > 0) {
+                double upwindDistanceM = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
+                if (upwindDistanceM >= MIN_UPWIND_DISTANCE_M) {
+                    double[] upwindPoint = GeoUtils.offsetPoint(lat, lon, windFromDeg,
+                            upwindDistanceM);
+                    startMs = System.currentTimeMillis();
+                    OpenMeteoForecastResponse upwindForecast = openMeteoClient.fetchCloudOnly(
+                            upwindPoint[0], upwindPoint[1]);
+                    durationMs = System.currentTimeMillis() - startMs;
+                    if (jobRun != null) {
+                        jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                                "GET", "cloud-approach-upwind", null, durationMs, 200,
+                                null, true, null);
+                    }
+
+                    upwind = extractUpwindSample(upwindForecast, solarEventTime, currentTime,
+                            targetType, (int) (upwindDistanceM / 1000), windFromDeg);
+                }
+            }
+
+            return new CloudApproachData(trend, upwind);
+        } catch (Exception e) {
+            LOG.warn("Cloud approach data fetch failed, continuing without: {}", e.getMessage());
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "cloud-approach-data", null, 0L,
+                        getStatusCode(e), null, false, e.getMessage());
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Extracts the solar horizon low cloud trend from T-3h through T.
+     *
+     * <p>Package-private for unit testing.
+     *
+     * @param forecast       the Open-Meteo forecast for the solar horizon point
+     * @param eventTime      UTC time of the solar event
+     * @param targetType     SUNRISE or SUNSET
+     * @return the trend, or {@code null} if no valid slots found
+     */
+    SolarCloudTrend extractSolarTrend(OpenMeteoForecastResponse forecast,
+            LocalDateTime eventTime, TargetType targetType) {
+        List<String> times = forecast.getHourly().getTime();
+        int eventIdx = findBestIndex(times, eventTime, targetType);
+
+        List<SolarCloudTrend.SolarCloudSlot> slots = new ArrayList<>();
+        List<Integer> lowCloud = forecast.getHourly().getCloudCoverLow();
+
+        for (int h = TREND_HOURS_BACK; h >= 0; h--) {
+            int idx = eventIdx - h;
+            if (idx >= 0 && idx < lowCloud.size()) {
+                slots.add(new SolarCloudTrend.SolarCloudSlot(h, lowCloud.get(idx)));
+            }
+        }
+
+        return slots.isEmpty() ? null : new SolarCloudTrend(slots);
+    }
+
+    /**
+     * Extracts low cloud at the upwind point for both current time and event time.
+     *
+     * <p>Package-private for unit testing.
+     *
+     * @param forecast        the Open-Meteo forecast for the upwind point
+     * @param eventTime       UTC time of the solar event
+     * @param currentTime     current UTC time
+     * @param targetType      SUNRISE or SUNSET
+     * @param distanceKm      distance to the upwind point in km
+     * @param windFromBearing wind-from bearing in degrees
+     * @return the upwind sample
+     */
+    UpwindCloudSample extractUpwindSample(OpenMeteoForecastResponse forecast,
+            LocalDateTime eventTime, LocalDateTime currentTime, TargetType targetType,
+            int distanceKm, int windFromBearing) {
+        List<String> times = forecast.getHourly().getTime();
+        List<Integer> lowCloud = forecast.getHourly().getCloudCoverLow();
+
+        int eventIdx = findBestIndex(times, eventTime, targetType);
+        int currentIdx = findNearestIndex(times, currentTime);
+
+        int eventLowCloud = lowCloud.get(eventIdx);
+        int currentLowCloud = lowCloud.get(currentIdx);
+
+        return new UpwindCloudSample(distanceKm, windFromBearing,
+                currentLowCloud, eventLowCloud);
+    }
+
+    /**
+     * Finds the index of the time slot nearest to the target time (absolute nearest, no
+     * direction preference).
+     *
+     * @param times      list of ISO-8601 time strings
+     * @param targetTime the target time
+     * @return the index of the nearest slot
+     */
+    private int findNearestIndex(List<String> times, LocalDateTime targetTime) {
+        int bestIdx = 0;
+        long minDiff = Long.MAX_VALUE;
+        for (int i = 0; i < times.size(); i++) {
+            long diff = Math.abs(ChronoUnit.SECONDS.between(
+                    LocalDateTime.parse(times.get(i)), targetTime));
+            if (diff < minDiff) {
+                minDiff = diff;
+                bestIdx = i;
+            }
+        }
         return bestIdx;
     }
 }

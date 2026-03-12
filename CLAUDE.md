@@ -13,9 +13,9 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Core pipeline**: Open-Meteo → Claude → H2 | Scheduled evaluations (06:00 + 18:00 UTC, T through T+7) | Notifications (email, Pushover, macOS toast)
 
-**Scoring**: Two scores (Fiery Sky 0–100, Golden Hour 0–100) + 1–5 star rating | Dual-tier: enhanced (directional cloud) for PRO/ADMIN, basic (observer-point) for LITE | 3-point cone cloud sampling at 50 km offset (azimuth ±15°) via `GeoUtils` + `DirectionalCloudData` | Solar-aware slot selection (`findBestIndex()`) | Sahara Dust badge (AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35) | Rising tide warning badge (high tide within ±90 min of solar event)
+**Scoring**: Two scores (Fiery Sky 0–100, Golden Hour 0–100) + 1–5 star rating | Dual-tier: enhanced (directional cloud) for PRO/ADMIN, basic (observer-point) for LITE | 3-point cone cloud sampling at 50 km offset (azimuth ±15°) via `GeoUtils` + `DirectionalCloudData` | Cloud approach risk detection (`CloudApproachData`, `SolarCloudTrend`, `UpwindCloudSample`) | Solar-aware slot selection (`findBestIndex()`) | Sahara Dust badge (AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35) | Rising tide warning badge (high tide within ±90 min of solar event)
 
-**Evaluation**: Single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel` | `PromptBuilder` + `MetricsLoggingDecorator` (GoF Decorator) | `NoOpEvaluationStrategy` for wildlife | `AnthropicApiClient` with `@Retryable` | Composable `AtmosphericData` (5 sub-records + `DirectionalCloudData`)
+**Evaluation**: Single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel` | `PromptBuilder` + `MetricsLoggingDecorator` (GoF Decorator) | `NoOpEvaluationStrategy` for wildlife | `AnthropicApiClient` with `@Retryable` | Composable `AtmosphericData` (5 sub-records + `DirectionalCloudData` + `CloudApproachData`)
 
 **Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
 
@@ -62,7 +62,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V50 Flyway migrations
+│       └── db/migration/            V1–V51 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -110,6 +110,7 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 - **Command pattern** — `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor`. Controllers/schedulers are thin wrappers.
 - **Evaluation strategy** — single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel`. `EvaluationConfig` produces `Map<EvaluationModel, EvaluationStrategy>` bean. `NoOpEvaluationStrategy` for wildlife.
 - **Directional cloud sampling** — 3-point cone sampling (azimuth ±15° at 50 km offset) to smooth Open-Meteo grid-cell boundary effects. Falls back to single-point. Prompt rules: solar low cloud >60% = blocked, 40-60% = penalise, <20% = clear. `findBestIndex()` avoids post-sunset/pre-sunrise slots.
+- **Cloud approach risk** — detects cloud approaching the solar horizon that a single event-time snapshot would miss. Two signals: (1) `SolarCloudTrend` — hourly low cloud at the solar horizon from T-3h to event time; a peak-vs-earliest increase of 20+ pp triggers a `[BUILDING]` label that tells Claude to penalise fiery_sky by 10–25 points. (2) `UpwindCloudSample` — current low cloud at an upwind point along the wind vector vs the model's event-time prediction; if current is much higher, the model may be too optimistic about clearing. `CloudApproachData` record composes both signals into `AtmosphericData`. `ForecastDataAugmentor` assembles the data from Open-Meteo; `PromptBuilder` formats it as a `CLOUD APPROACH RISK:` block in the user message. V51 migration adds persistence columns.
 - **Aerosol proxy** — AOD + PM2.5: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (haze ✗). No competitor does this.
 - **Virtual threads** — `spring.threads.virtual.enabled: true`; `forecastExecutor` uses `newVirtualThreadPerTaskExecutor()`.
 - **RestClient** — synchronous `RestClient` everywhere (no WebFlux). Open-Meteo via `@HttpExchange` + `HttpServiceProxyFactory`.
@@ -128,7 +129,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V50)
+## Database Migrations (V1–V51)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -145,6 +146,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V44–V46 | prompt_test_run/result, SolarEventType refactor |
 | V47–V48 | location_id FK, directional cloud columns + basic-tier scores |
 | V49–V50 | NEXT_EVENT_ONLY strategy, WATERFALL location type + reclassification |
+| V51 | Cloud approach risk columns (solar trend, upwind sample) on forecast_evaluation |
 
 ---
 
@@ -196,7 +198,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 See `docs/product/` for detailed reference documents.
 
-**Differentiators**: Claude-generated "why" explanation | AOD+PM2.5 aerosol proxy | Location type-specific UI | Outcome recording feedback loop
+**Differentiators**: Claude-generated "why" explanation | AOD+PM2.5 aerosol proxy | Cloud approach risk detection (temporal trend + upwind sampling) | Location type-specific UI | Outcome recording feedback loop
 
 **Freemium split**: LITE gets basic scores, 3-day horizon, 1 location, blurred metrics. PRO gets enhanced directional scores, 7-day horizon, unlimited locations, full metrics.
 

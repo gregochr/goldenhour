@@ -2,10 +2,13 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.SolarCloudTrend;
+import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -604,6 +607,167 @@ class OpenMeteoServiceTest {
         int idx = openMeteoService.findBestIndex(times, sunset, TargetType.SUNSET);
 
         assertThat(idx).isEqualTo(0); // exact match at 17:00
+    }
+
+    // --- Cloud approach data tests ---
+
+    @Test
+    @DisplayName("fetchCloudApproachData() returns trend and upwind sample on happy path")
+    void fetchCloudApproachData_happyPath_returnsBothSignals() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 3, 11, 17, 45, 0);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 3, 11, 13, 45, 0);
+
+        // Solar trend response: T-3h=5%, T-2h=15%, T-1h=35%, T=7%
+        OpenMeteoForecastResponse solarForecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T14:00", "2026-03-11T15:00",
+                        "2026-03-11T16:00", "2026-03-11T17:00"),
+                List.of(5, 15, 35, 7), List.of(0, 0, 0, 0), List.of(80, 80, 80, 80));
+
+        // Upwind response: current at 14:00=70%, event at 17:00=15%
+        OpenMeteoForecastResponse upwindForecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T14:00", "2026-03-11T15:00",
+                        "2026-03-11T16:00", "2026-03-11T17:00"),
+                List.of(70, 55, 30, 15), List.of(0, 0, 0, 0), List.of(50, 50, 50, 50));
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenReturn(solarForecast)
+                .thenReturn(upwindForecast);
+
+        CloudApproachData result = openMeteoService.fetchCloudApproachData(
+                54.8975, -1.5076, 245, eventTime, currentTime,
+                TargetType.SUNSET, 228, 5.7, null);
+
+        assertThat(result).isNotNull();
+
+        // Solar trend
+        assertThat(result.solarTrend()).isNotNull();
+        assertThat(result.solarTrend().slots()).hasSize(4);
+        assertThat(result.solarTrend().slots().getFirst().lowCloudPercent()).isEqualTo(5);
+        assertThat(result.solarTrend().slots().getLast().lowCloudPercent()).isEqualTo(7);
+
+        // Upwind
+        assertThat(result.upwindSample()).isNotNull();
+        assertThat(result.upwindSample().currentLowCloudPercent()).isEqualTo(70);
+        assertThat(result.upwindSample().eventLowCloudPercent()).isEqualTo(15);
+        assertThat(result.upwindSample().windFromBearing()).isEqualTo(228);
+    }
+
+    @Test
+    @DisplayName("fetchCloudApproachData() returns null when API fails")
+    void fetchCloudApproachData_apiFailure_returnsNull() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 3, 11, 17, 45, 0);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 3, 11, 13, 45, 0);
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("network error"));
+
+        CloudApproachData result = openMeteoService.fetchCloudApproachData(
+                54.8975, -1.5076, 245, eventTime, currentTime,
+                TargetType.SUNSET, 228, 5.7, null);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("fetchCloudApproachData() skips upwind when wind speed is zero")
+    void fetchCloudApproachData_zeroWind_skipsUpwind() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 3, 11, 17, 45, 0);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 3, 11, 13, 45, 0);
+
+        OpenMeteoForecastResponse solarForecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T14:00", "2026-03-11T15:00",
+                        "2026-03-11T16:00", "2026-03-11T17:00"),
+                List.of(5, 10, 15, 20), List.of(0, 0, 0, 0), List.of(80, 80, 80, 80));
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenReturn(solarForecast);
+
+        CloudApproachData result = openMeteoService.fetchCloudApproachData(
+                54.8975, -1.5076, 245, eventTime, currentTime,
+                TargetType.SUNSET, 228, 0.0, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.solarTrend()).isNotNull();
+        assertThat(result.upwindSample()).isNull();
+    }
+
+    @Test
+    @DisplayName("fetchCloudApproachData() skips upwind when event has passed")
+    void fetchCloudApproachData_eventPassed_skipsUpwind() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 3, 11, 13, 0, 0);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 3, 11, 14, 0, 0);
+
+        OpenMeteoForecastResponse solarForecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T10:00", "2026-03-11T11:00",
+                        "2026-03-11T12:00", "2026-03-11T13:00"),
+                List.of(5, 10, 15, 20), List.of(0, 0, 0, 0), List.of(80, 80, 80, 80));
+
+        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+                .thenReturn(solarForecast);
+
+        CloudApproachData result = openMeteoService.fetchCloudApproachData(
+                54.8975, -1.5076, 245, eventTime, currentTime,
+                TargetType.SUNSET, 228, 5.7, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.solarTrend()).isNotNull();
+        assertThat(result.upwindSample()).isNull();
+    }
+
+    // --- extractSolarTrend tests ---
+
+    @Test
+    @DisplayName("extractSolarTrend() extracts T-3h through T for a sunset event")
+    void extractSolarTrend_sunsetEvent_extractsFourSlots() {
+        OpenMeteoForecastResponse forecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T14:00", "2026-03-11T15:00",
+                        "2026-03-11T16:00", "2026-03-11T17:00", "2026-03-11T18:00"),
+                List.of(5, 12, 25, 7, 80), List.of(0, 0, 0, 0, 0), List.of(80, 80, 80, 80, 80));
+
+        SolarCloudTrend trend = openMeteoService.extractSolarTrend(
+                forecast, LocalDateTime.of(2026, 3, 11, 17, 45), TargetType.SUNSET);
+
+        assertThat(trend).isNotNull();
+        assertThat(trend.slots()).hasSize(4);
+        assertThat(trend.slots().get(0).hoursBeforeEvent()).isEqualTo(3);
+        assertThat(trend.slots().get(0).lowCloudPercent()).isEqualTo(5);
+        assertThat(trend.slots().get(3).hoursBeforeEvent()).isEqualTo(0);
+        assertThat(trend.slots().get(3).lowCloudPercent()).isEqualTo(7);
+    }
+
+    @Test
+    @DisplayName("extractSolarTrend() returns fewer slots when event is near start of data")
+    void extractSolarTrend_nearStartOfData_returnsFewerSlots() {
+        OpenMeteoForecastResponse forecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T06:00", "2026-03-11T07:00"),
+                List.of(30, 45), List.of(0, 0), List.of(80, 80));
+
+        SolarCloudTrend trend = openMeteoService.extractSolarTrend(
+                forecast, LocalDateTime.of(2026, 3, 11, 7, 15), TargetType.SUNRISE);
+
+        assertThat(trend).isNotNull();
+        assertThat(trend.slots()).hasSizeLessThanOrEqualTo(2);
+    }
+
+    // --- extractUpwindSample tests ---
+
+    @Test
+    @DisplayName("extractUpwindSample() extracts current and event-time low cloud")
+    void extractUpwindSample_extractsBothSlots() {
+        OpenMeteoForecastResponse forecast = buildCloudOnlyResponse(
+                List.of("2026-03-11T13:00", "2026-03-11T14:00",
+                        "2026-03-11T15:00", "2026-03-11T16:00", "2026-03-11T17:00"),
+                List.of(80, 70, 50, 30, 15), List.of(0, 0, 0, 0, 0), List.of(50, 50, 50, 50, 50));
+
+        UpwindCloudSample sample = openMeteoService.extractUpwindSample(
+                forecast, LocalDateTime.of(2026, 3, 11, 17, 45),
+                LocalDateTime.of(2026, 3, 11, 13, 30), TargetType.SUNSET, 87, 228);
+
+        assertThat(sample).isNotNull();
+        assertThat(sample.distanceKm()).isEqualTo(87);
+        assertThat(sample.windFromBearing()).isEqualTo(228);
+        assertThat(sample.currentLowCloudPercent()).isEqualTo(80);
+        assertThat(sample.eventLowCloudPercent()).isEqualTo(15);
     }
 
     private OpenMeteoForecastResponse buildCloudOnlyResponse(
