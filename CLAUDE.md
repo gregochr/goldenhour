@@ -13,13 +13,13 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Core pipeline**: Open-Meteo → Claude → H2 | Scheduled evaluations (06:00 + 18:00 UTC, T through T+7) | Notifications (email, Pushover, macOS toast)
 
-**Scoring**: Two scores (Fiery Sky 0–100, Golden Hour 0–100) + 1–5 star rating | Dual-tier: enhanced (directional cloud) for PRO/ADMIN, basic (observer-point) for LITE | Directional cloud sampling at 50 km solar/antisolar offsets (`GeoUtils`, `DirectionalCloudData`) | Solar-aware slot selection (`findBestIndex()`) | Sahara Dust badge (AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35)
+**Scoring**: Two scores (Fiery Sky 0–100, Golden Hour 0–100) + 1–5 star rating | Dual-tier: enhanced (directional cloud) for PRO/ADMIN, basic (observer-point) for LITE | 3-point cone cloud sampling at 50 km offset (azimuth ±15°) via `GeoUtils` + `DirectionalCloudData` | Solar-aware slot selection (`findBestIndex()`) | Sahara Dust badge (AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35) | Rising tide warning badge (high tide within ±90 min of solar event)
 
 **Evaluation**: Single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel` | `PromptBuilder` + `MetricsLoggingDecorator` (GoF Decorator) | `NoOpEvaluationStrategy` for wildlife | `AnthropicApiClient` with `@Retryable` | Composable `AtmosphericData` (5 sub-records + `DirectionalCloudData`)
 
 **Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
 
-**Optimisation strategies**: 5 toggleable strategies (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL) per run type | `OptimisationSkipEvaluator` | Mutual exclusion validation | Active strategies snapshot on each `job_run`
+**Optimisation strategies**: 6 toggleable strategies (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL, NEXT_EVENT_ONLY) per run type | `OptimisationSkipEvaluator` | Mutual exclusion validation | Active strategies snapshot on each `job_run`
 
 **Cost tracking**: Token-based micro-dollar pricing from Anthropic SDK | `ExchangeRateService` (Frankfurter API, ECB data) | `CostCalculator` with cache/batch discount | Frontend shows GBP + USD costs
 
@@ -27,11 +27,13 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Resilience**: `@Retryable` on `AnthropicApiClient` (529/content filter) and `OpenMeteoClient` (5xx/429) | `@ConcurrencyLimit(8)` | Dead-letter mechanism | `RequestLoggingInterceptor`
 
-**Locations**: Multi-location with map view (Leaflet/OSM) | Metadata: `SolarEventType`, `TideType` (H/M/L multi-select), `LocationType` (LANDSCAPE/WILDLIFE/SEASCAPE) | Regions (geographic grouping) | Sunrise/sunset azimuth lines | Marker clustering (`react-leaflet-cluster`) | Star rating + location type filters | Emoji chip UI for metadata
+**Locations**: Multi-location with map view (Leaflet/OSM) | Metadata: `SolarEventType`, `TideType` (H/M/L multi-select), `LocationType` (LANDSCAPE/WILDLIFE/SEASCAPE/WATERFALL) | Regions (geographic grouping) | Sunrise/sunset azimuth lines | Marker clustering (`react-leaflet-cluster`) | Star rating + location type filters | Emoji chip UI for metadata | Editable lat/lon
 
-**Tide data**: WorldTides API, weekly refresh, `tide_extreme` table | `TideService` derives state/next tides from DB at evaluation time
+**Tide data**: WorldTides API, weekly refresh, `tide_extreme` table | `TideService` derives state/next tides from DB at evaluation time | Tide history preservation (windowed merge, not delete-all) | 12-month backfill capability | Tide stats endpoint (avg/max high, avg/min low) | SEASCAPE-filtered refresh
 
 **Wildlife UI**: Hourly comfort rows (temp/wind/rain) between sunrise–sunset | Green 🐾 marker | No Claude call
+
+**Waterfall UI**: Colour forecast AND hourly comfort rows | 💦 marker | Scores excluded from cluster marker averages (waterfall photography ≠ sky colour)
 
 **Auth**: JWT (HMAC-SHA256, 24h access, 30-day refresh) | ADMIN / PRO_USER / LITE_USER roles | Self-registration with email verification + Turnstile CAPTCHA | First-login password change gate | Session expiry warnings | Marketing email opt-in
 
@@ -60,7 +62,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V48 Flyway migrations
+│       └── db/migration/            V1–V50 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -107,7 +109,7 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 - **Backend-heavy** — all calculations on backend. Frontend is a pure render layer.
 - **Command pattern** — `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor`. Controllers/schedulers are thin wrappers.
 - **Evaluation strategy** — single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel`. `EvaluationConfig` produces `Map<EvaluationModel, EvaluationStrategy>` bean. `NoOpEvaluationStrategy` for wildlife.
-- **Directional cloud sampling** — 2-point sampling (solar + antisolar at 50 km offset). Falls back to single-point. Prompt rules: solar low cloud >60% = blocked, 40-60% = penalise, <20% = clear. `findBestIndex()` avoids post-sunset/pre-sunrise slots.
+- **Directional cloud sampling** — 3-point cone sampling (azimuth ±15° at 50 km offset) to smooth Open-Meteo grid-cell boundary effects. Falls back to single-point. Prompt rules: solar low cloud >60% = blocked, 40-60% = penalise, <20% = clear. `findBestIndex()` avoids post-sunset/pre-sunrise slots.
 - **Aerosol proxy** — AOD + PM2.5: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (haze ✗). No competitor does this.
 - **Virtual threads** — `spring.threads.virtual.enabled: true`; `forecastExecutor` uses `newVirtualThreadPerTaskExecutor()`.
 - **RestClient** — synchronous `RestClient` everywhere (no WebFlux). Open-Meteo via `@HttpExchange` + `HttpServiceProxyFactory`.
@@ -126,7 +128,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V48)
+## Database Migrations (V1–V50)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -142,6 +144,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V41–V43 | optimisation_strategy, TideType enum refactor |
 | V44–V46 | prompt_test_run/result, SolarEventType refactor |
 | V47–V48 | location_id FK, directional cloud columns + basic-tier scores |
+| V49–V50 | NEXT_EVENT_ONLY strategy, WATERFALL location type + reclassification |
 
 ---
 
@@ -181,6 +184,9 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 ### Admin tools (ADMIN)
 `GET /api/metrics/job-runs|api-calls` | `GET|PUT /api/models` | `PUT /api/models/active|optimisation` | `POST /api/model-test/run|run-location|rerun` | `GET /api/model-test/runs|results` | `POST /api/prompt-test/run|replay` | `GET /api/prompt-test/runs|runs/{id}|results|git-info`
 
+### Tides (ADMIN)
+`GET /api/tides` | `GET /api/tides/stats`
+
 ### Push (mixed auth)
 `GET /api/push/vapid-public-key` (none) | `POST|DELETE /api/push/subscribe` (Bearer)
 
@@ -201,7 +207,7 @@ See `docs/product/` for detailed reference documents.
 - **Prediction accuracy feedback** — structured post-event feedback per user per evaluation (ACCURATE/SLIGHTLY_OFF/VERY_INACCURATE), admin breakdown by model and days_ahead
 - **Web Push notifications** — replace Pushover with W3C Push API + VAPID (`webpush-java`), service worker, iOS Home Screen caveat
 - **macOS menu bar widget** — Tauri app reusing React components, menu bar icon with best rating
-- **Tide strength indicator** — flag "very high" tides on the map popup using two signals: (1) lunar phase (spring tides near new/full moon, ~1-2 day lag) and (2) historical percentile from accumulated `tide_extreme` data (top ~20% of a location's highs). Tide history now accumulates (windowed merge, not delete-all). Lunar calculation may belong in `solar-utils`. Consider "King tide" label for equinoctial springs.
+- **Tide strength indicator** — flag "very high" tides on the map popup using two signals: (1) lunar phase (spring tides near new/full moon, ~1-2 day lag) and (2) historical percentile from accumulated `tide_extreme` data (top ~20% of a location's highs). Lunar calculation may belong in `solar-utils`. Consider "King tide" label for equinoctial springs. (Partially built: rising tide badge, tide stats endpoint, and history accumulation are done; percentile and lunar signals remain.)
 
 ---
 
