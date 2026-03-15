@@ -6,10 +6,13 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
+import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,21 +23,33 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Executes {@link ForecastCommand} instances — the core forecast run loop.
+ * Executes {@link ForecastCommand} instances using a three-phase pipeline:
  *
- * <p>Handles location filtering, configurable skip logic (via {@link OptimisationSkipEvaluator}),
- * parallel execution, metrics tracking, and error isolation per location/date combination.
+ * <ol>
+ *   <li><strong>TRIAGE</strong> — fetch weather data for all tasks and apply heuristic checks
+ *       (solar low cloud &gt;80%, precipitation &gt;2mm, visibility &lt;5km). Triaged tasks get
+ *       canned entities (rating=1) with zero Claude calls.</li>
+ *   <li><strong>SENTINEL_SAMPLING</strong> — group surviving tasks by region. Per region, evaluate
+ *       geographic sentinel locations first. If all sentinels score &le;2, skip the rest of that
+ *       region with canned entities.</li>
+ *   <li><strong>FULL_EVALUATION</strong> — evaluate all remaining tasks with Claude normally.</li>
+ * </ol>
+ *
+ * <p>Wildlife runs bypass all three phases (existing shortcut via {@code ForecastService.runForecasts()}).
  */
 @Service
 public class ForecastCommandExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastCommandExecutor.class);
+    private static final int SENTINEL_RATING_THRESHOLD = 2;
 
     private final ForecastService forecastService;
     private final LocationService locationService;
@@ -46,6 +61,7 @@ public class ForecastCommandExecutor {
     private final OptimisationStrategyService optimisationStrategyService;
     private final RunProgressTracker progressTracker;
     private final ApplicationEventPublisher eventPublisher;
+    private final SentinelSelector sentinelSelector;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -60,13 +76,15 @@ public class ForecastCommandExecutor {
      * @param optimisationStrategyService the service for loading active strategies
      * @param progressTracker             tracks live run progress for SSE broadcasting
      * @param eventPublisher              publishes location task state transition events
+     * @param sentinelSelector            selects geographic sentinel locations per region
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
             SolarService solarService, ForecastCommandFactory commandFactory,
             Executor forecastExecutor, OptimisationSkipEvaluator optimisationSkipEvaluator,
             OptimisationStrategyService optimisationStrategyService,
-            RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher) {
+            RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher,
+            SentinelSelector sentinelSelector) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -77,6 +95,7 @@ public class ForecastCommandExecutor {
         this.optimisationStrategyService = optimisationStrategyService;
         this.progressTracker = progressTracker;
         this.eventPublisher = eventPublisher;
+        this.sentinelSelector = sentinelSelector;
     }
 
     /**
@@ -118,7 +137,7 @@ public class ForecastCommandExecutor {
                 : jobRunService.startRun(runType, command.triggeredManually(),
                         evaluationModel, strategiesAudit);
 
-        // Resolve locations — use command-provided or filter from all configured
+        // Resolve locations
         List<LocationEntity> locations = command.locations() != null
                 ? command.locations()
                 : locationService.findAllEnabled().stream()
@@ -131,66 +150,310 @@ public class ForecastCommandExecutor {
                 runType, evaluationModel, locations.size(), dates.size(),
                 strategiesAudit != null ? strategiesAudit : "none");
 
+        // Wildlife runs bypass the three-phase pipeline
+        if (isWildlife) {
+            return executeWildlife(locations, dates, jobRun);
+        }
+
+        return executeThreePhasePipeline(locations, dates, enabledStrategies,
+                evaluationModel, runType, jobRun);
+    }
+
+    // -------------------------------------------------------------------------
+    // Three-phase pipeline
+    // -------------------------------------------------------------------------
+
+    private List<ForecastEvaluationEntity> executeThreePhasePipeline(
+            List<LocationEntity> locations, List<LocalDate> dates,
+            List<OptimisationStrategyEntity> enabledStrategies,
+            EvaluationModel evaluationModel, RunType runType, JobRunEntity jobRun) {
+
         AtomicInteger succeeded = new AtomicInteger(0);
         AtomicInteger failed = new AtomicInteger(0);
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
-        // Build the list of tasks — one per location/date/targetType combination.
-        // Also collect task metadata for progress tracking.
-        List<CompletableFuture<List<ForecastEvaluationEntity>>> futures = new ArrayList<>();
-        List<String[]> taskKeys = new ArrayList<>();
+        // Build non-skipped task descriptors
+        List<TaskDescriptor> nonSkippedTasks = new ArrayList<>();
+        List<String[]> allTaskKeys = new ArrayList<>();
 
         for (LocationEntity location : locations) {
             for (LocalDate targetDate : dates) {
-                if (isWildlife) {
-                    String taskKey = location.getName() + "|" + targetDate + "|HOURLY";
-                    taskKeys.add(new String[]{taskKey, location.getName(),
-                            targetDate.toString(), "HOURLY"});
-                    futures.add(CompletableFuture.supplyAsync(
-                            () -> runForecast(location, targetDate, null,
-                                    EvaluationModel.WILDLIFE, jobRun),
-                            forecastExecutor));
-                } else {
-                    List<TargetType> applicableTypes = new ArrayList<>();
-                    if (locationService.shouldEvaluateSunrise(location)) {
-                        applicableTypes.add(TargetType.SUNRISE);
-                    }
-                    if (locationService.shouldEvaluateSunset(location)) {
-                        applicableTypes.add(TargetType.SUNSET);
-                    }
+                List<TargetType> applicableTypes = new ArrayList<>();
+                if (locationService.shouldEvaluateSunrise(location)) {
+                    applicableTypes.add(TargetType.SUNRISE);
+                }
+                if (locationService.shouldEvaluateSunset(location)) {
+                    applicableTypes.add(TargetType.SUNSET);
+                }
 
-                    for (TargetType targetType : applicableTypes) {
-                        String taskKey = location.getName() + "|" + targetDate + "|" + targetType;
-                        if (shouldSkipEvent(targetDate, targetType, location, today, now)
-                                || optimisationSkipEvaluator.shouldSkip(
-                                        enabledStrategies, location,
-                                        targetDate, targetType)) {
-                            // Publish SKIPPED event
-                            taskKeys.add(new String[]{taskKey, location.getName(),
-                                    targetDate.toString(), targetType.name()});
-                            eventPublisher.publishEvent(new LocationTaskEvent(
-                                    this, jobRun.getId(), taskKey, location.getName(),
-                                    targetDate.toString(), targetType.name(),
-                                    LocationTaskState.SKIPPED, null, null));
-                        } else {
-                            taskKeys.add(new String[]{taskKey, location.getName(),
-                                    targetDate.toString(), targetType.name()});
-                            futures.add(CompletableFuture.supplyAsync(
-                                    () -> runForecast(location, targetDate, targetType,
-                                            evaluationModel, jobRun),
-                                    forecastExecutor));
-                        }
+                for (TargetType targetType : applicableTypes) {
+                    String taskKey = location.getName() + "|" + targetDate + "|" + targetType;
+                    allTaskKeys.add(new String[]{taskKey, location.getName(),
+                            targetDate.toString(), targetType.name()});
+
+                    if (shouldSkipEvent(targetDate, targetType, location, today, now)
+                            || optimisationSkipEvaluator.shouldSkip(
+                                    enabledStrategies, location, targetDate, targetType)) {
+                        eventPublisher.publishEvent(new LocationTaskEvent(
+                                this, jobRun.getId(), taskKey, location.getName(),
+                                targetDate.toString(), targetType.name(),
+                                LocationTaskState.SKIPPED, null, null));
+                    } else {
+                        nonSkippedTasks.add(new TaskDescriptor(
+                                location, targetDate, targetType, evaluationModel));
                     }
                 }
             }
         }
 
         // Initialise progress tracking
+        progressTracker.initRun(jobRun.getId(), allTaskKeys);
+
+        List<ForecastEvaluationEntity> results = new ArrayList<>();
+
+        // Phase 1: TRIAGE
+        progressTracker.setPhase(jobRun.getId(), RunPhase.TRIAGE);
+        List<ForecastPreEvalResult> triageResults = runTriagePhase(nonSkippedTasks, jobRun);
+        List<ForecastPreEvalResult> survivors = triageResults.stream()
+                .filter(r -> !r.triaged())
+                .toList();
+        long triagedCount = triageResults.size() - survivors.size();
+        LOG.info("Triage phase complete — {} triaged, {} survivors", triagedCount, survivors.size());
+
+        if (survivors.isEmpty()) {
+            // Everything was triaged — early stop
+            progressTracker.setPhase(jobRun.getId(), RunPhase.EARLY_STOP);
+            jobRunService.completeRun(jobRun, succeeded.get(), failed.get(), dates);
+            progressTracker.completeRun(jobRun.getId());
+            LOG.info("Forecast run early-stopped — all tasks triaged");
+            return results;
+        }
+
+        // Phase 2: SENTINEL_SAMPLING
+        progressTracker.setPhase(jobRun.getId(), RunPhase.SENTINEL_SAMPLING);
+        List<ForecastPreEvalResult> fullEvalBatch = runSentinelPhase(survivors, jobRun,
+                succeeded, failed, results);
+        LOG.info("Sentinel phase complete — {} tasks remaining for full evaluation",
+                fullEvalBatch.size());
+
+        if (fullEvalBatch.isEmpty()) {
+            RunPhase finalPhase = survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE;
+            progressTracker.setPhase(jobRun.getId(), finalPhase);
+            jobRunService.completeRun(jobRun, succeeded.get(), failed.get(), dates);
+            progressTracker.completeRun(jobRun.getId());
+            LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
+                    runType, evaluationModel, succeeded.get(), failed.get());
+            return results;
+        }
+
+        // Phase 3: FULL_EVALUATION
+        progressTracker.setPhase(jobRun.getId(), RunPhase.FULL_EVALUATION);
+        runFullEvalPhase(fullEvalBatch, jobRun, succeeded, failed, results);
+
+        progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
+        jobRunService.completeRun(jobRun, succeeded.get(), failed.get(), dates);
+        progressTracker.completeRun(jobRun.getId());
+        LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
+                runType, evaluationModel, succeeded.get(), failed.get());
+
+        return results;
+    }
+
+    /**
+     * Phase 1: Fetch weather data and apply triage heuristics to all non-skipped tasks in parallel.
+     */
+    private List<ForecastPreEvalResult> runTriagePhase(List<TaskDescriptor> tasks,
+            JobRunEntity jobRun) {
+        List<CompletableFuture<ForecastPreEvalResult>> futures = new ArrayList<>();
+
+        for (TaskDescriptor task : tasks) {
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                    return forecastService.fetchWeatherAndTriage(
+                            task.location, task.date, task.targetType,
+                            task.location.getTideType(), task.model, jobRun);
+                } catch (Exception e) {
+                    LOG.error("Triage failed for {} {} on {} [{}]: {}",
+                            task.location.getName(), task.targetType, task.date,
+                            task.model, e.getMessage(), e);
+                    return null;
+                }
+            }, forecastExecutor));
+        }
+
+        List<ForecastPreEvalResult> results = new ArrayList<>();
+        for (CompletableFuture<ForecastPreEvalResult> future : futures) {
+            try {
+                ForecastPreEvalResult result = future.join();
+                if (result != null) {
+                    results.add(result);
+                }
+            } catch (Exception e) {
+                LOG.error("Triage future join failed: {}", e.getMessage(), e);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Phase 2: Group survivors by region, evaluate sentinels, skip regions where all sentinels ≤2.
+     */
+    private List<ForecastPreEvalResult> runSentinelPhase(List<ForecastPreEvalResult> survivors,
+            JobRunEntity jobRun, AtomicInteger succeeded, AtomicInteger failed,
+            List<ForecastEvaluationEntity> results) {
+
+        // Group by region (null region key = "no-region")
+        Map<Long, List<ForecastPreEvalResult>> byRegion = new LinkedHashMap<>();
+        List<ForecastPreEvalResult> noRegion = new ArrayList<>();
+
+        for (ForecastPreEvalResult result : survivors) {
+            RegionEntity region = result.location().getRegion();
+            if (region == null) {
+                noRegion.add(result);
+            } else {
+                byRegion.computeIfAbsent(region.getId(), k -> new ArrayList<>()).add(result);
+            }
+        }
+
+        List<ForecastPreEvalResult> fullEvalBatch = new ArrayList<>();
+
+        // Null-region tasks go directly to full evaluation
+        fullEvalBatch.addAll(noRegion);
+
+        // Per region: select sentinels, evaluate, decide
+        for (Map.Entry<Long, List<ForecastPreEvalResult>> entry : byRegion.entrySet()) {
+            List<ForecastPreEvalResult> regionTasks = entry.getValue();
+
+            // Get unique locations in this region
+            List<LocationEntity> regionLocations = regionTasks.stream()
+                    .map(ForecastPreEvalResult::location)
+                    .distinct()
+                    .toList();
+
+            List<LocationEntity> sentinelLocations = sentinelSelector.selectSentinels(regionLocations);
+
+            // Partition tasks into sentinel vs remainder
+            List<ForecastPreEvalResult> sentinelTasks = new ArrayList<>();
+            List<ForecastPreEvalResult> remainderTasks = new ArrayList<>();
+            for (ForecastPreEvalResult task : regionTasks) {
+                if (sentinelLocations.contains(task.location())) {
+                    sentinelTasks.add(task);
+                } else {
+                    remainderTasks.add(task);
+                }
+            }
+
+            // Evaluate sentinels
+            boolean allSentinelsLow = true;
+            for (ForecastPreEvalResult sentinel : sentinelTasks) {
+                try {
+                    ForecastEvaluationEntity entity = forecastService.evaluateAndPersist(
+                            sentinel, jobRun);
+                    results.add(entity);
+                    succeeded.incrementAndGet();
+                    if (entity.getRating() != null && entity.getRating() > SENTINEL_RATING_THRESHOLD) {
+                        allSentinelsLow = false;
+                    }
+                } catch (Exception e) {
+                    LOG.error("Sentinel evaluation failed for {} {} on {}: {}",
+                            sentinel.location().getName(), sentinel.targetType(),
+                            sentinel.date(), e.getMessage(), e);
+                    failed.incrementAndGet();
+                    allSentinelsLow = false; // Don't skip region on error
+                }
+            }
+
+            if (allSentinelsLow && !sentinelTasks.isEmpty()) {
+                // Skip remainder — persist canned entities
+                String reason = "Region sentinel sampling — all sentinels rated "
+                        + SENTINEL_RATING_THRESHOLD + " or below";
+                for (ForecastPreEvalResult task : remainderTasks) {
+                    try {
+                        ForecastEvaluationEntity entity = forecastService.persistCannedResult(
+                                task, reason, jobRun);
+                        results.add(entity);
+                    } catch (Exception e) {
+                        LOG.error("Failed to persist canned result for {} {} on {}: {}",
+                                task.location().getName(), task.targetType(),
+                                task.date(), e.getMessage(), e);
+                    }
+                }
+                LOG.info("Region {} sentinel early-stop — {} tasks skipped",
+                        entry.getKey(), remainderTasks.size());
+            } else {
+                // Sentinels passed — remainder goes to full evaluation
+                fullEvalBatch.addAll(remainderTasks);
+            }
+        }
+
+        return fullEvalBatch;
+    }
+
+    /**
+     * Phase 3: Full Claude evaluation of all remaining tasks.
+     */
+    private void runFullEvalPhase(List<ForecastPreEvalResult> tasks,
+            JobRunEntity jobRun, AtomicInteger succeeded, AtomicInteger failed,
+            List<ForecastEvaluationEntity> results) {
+        List<CompletableFuture<ForecastEvaluationEntity>> futures = new ArrayList<>();
+
+        for (ForecastPreEvalResult task : tasks) {
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                    return forecastService.evaluateAndPersist(task, jobRun);
+                } catch (Exception e) {
+                    LOG.error("Full evaluation failed for {} {} on {}: {}",
+                            task.location().getName(), task.targetType(),
+                            task.date(), e.getMessage(), e);
+                    return null;
+                }
+            }, forecastExecutor));
+        }
+
+        for (CompletableFuture<ForecastEvaluationEntity> future : futures) {
+            try {
+                ForecastEvaluationEntity entity = future.join();
+                if (entity != null) {
+                    results.add(entity);
+                    succeeded.incrementAndGet();
+                } else {
+                    failed.incrementAndGet();
+                }
+            } catch (Exception e) {
+                LOG.error("Full evaluation future join failed: {}", e.getMessage(), e);
+                failed.incrementAndGet();
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Wildlife (bypass pipeline)
+    // -------------------------------------------------------------------------
+
+    private List<ForecastEvaluationEntity> executeWildlife(List<LocationEntity> locations,
+            List<LocalDate> dates, JobRunEntity jobRun) {
+        AtomicInteger succeeded = new AtomicInteger(0);
+        AtomicInteger failed = new AtomicInteger(0);
+
+        List<CompletableFuture<List<ForecastEvaluationEntity>>> futures = new ArrayList<>();
+        List<String[]> taskKeys = new ArrayList<>();
+
+        for (LocationEntity location : locations) {
+            for (LocalDate targetDate : dates) {
+                String taskKey = location.getName() + "|" + targetDate + "|HOURLY";
+                taskKeys.add(new String[]{taskKey, location.getName(),
+                        targetDate.toString(), "HOURLY"});
+                futures.add(CompletableFuture.supplyAsync(
+                        () -> runForecast(location, targetDate, null,
+                                EvaluationModel.WILDLIFE, jobRun),
+                        forecastExecutor));
+            }
+        }
+
         progressTracker.initRun(jobRun.getId(), taskKeys);
 
-        // Collect results — join() blocks until each future completes.
         List<ForecastEvaluationEntity> results = new ArrayList<>();
         for (CompletableFuture<List<ForecastEvaluationEntity>> future : futures) {
             try {
@@ -202,19 +465,19 @@ public class ForecastCommandExecutor {
                     failed.incrementAndGet();
                 }
             } catch (Exception e) {
-                LOG.error("Future join failed for {} [{}]: {}",
-                        runType, evaluationModel, e.getMessage(), e);
+                LOG.error("Wildlife future join failed: {}", e.getMessage(), e);
                 failed.incrementAndGet();
             }
         }
 
         jobRunService.completeRun(jobRun, succeeded.get(), failed.get(), dates);
         progressTracker.completeRun(jobRun.getId());
-        LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
-                runType, evaluationModel, succeeded.get(), failed.get());
-
         return results;
     }
+
+    // -------------------------------------------------------------------------
+    // Utility methods
+    // -------------------------------------------------------------------------
 
     /**
      * Returns {@code true} if the location has at least one colour photography type
@@ -241,16 +504,6 @@ public class ForecastCommandExecutor {
         return loc.getLocationType().contains(LocationType.WILDLIFE) && !hasColourTypes(loc);
     }
 
-    /**
-     * Checks if a sunrise or sunset event has already passed for today, and should be skipped.
-     *
-     * @param targetDate the calendar date to check
-     * @param targetType SUNRISE or SUNSET
-     * @param location   the location to check event time for
-     * @param today      today's date in UTC
-     * @param now        current time in UTC
-     * @return {@code true} if the event has already passed and should be skipped
-     */
     private boolean shouldSkipEvent(LocalDate targetDate, TargetType targetType,
             LocationEntity location, LocalDate today, LocalDateTime now) {
         if (!targetDate.equals(today)) {
@@ -262,16 +515,6 @@ public class ForecastCommandExecutor {
         return now.isAfter(eventTime);
     }
 
-    /**
-     * Runs a single forecast for a location, date, target type, and model, logging any failure.
-     *
-     * @param location   the location to forecast
-     * @param targetDate the calendar date to forecast
-     * @param targetType SUNRISE, SUNSET, or null for WILDLIFE
-     * @param model      the evaluation model to use
-     * @param jobRun     the parent job run for metrics tracking
-     * @return the saved entity list, or null if the forecast failed
-     */
     private List<ForecastEvaluationEntity> runForecast(LocationEntity location, LocalDate targetDate,
             TargetType targetType, EvaluationModel model, JobRunEntity jobRun) {
         try {
@@ -282,5 +525,12 @@ public class ForecastCommandExecutor {
                     location.getName(), targetType, targetDate, model, e.getMessage(), e);
             return null;
         }
+    }
+
+    /**
+     * Descriptor for a non-skipped task awaiting triage.
+     */
+    private record TaskDescriptor(LocationEntity location, LocalDate date,
+            TargetType targetType, EvaluationModel model) {
     }
 }

@@ -8,10 +8,12 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
@@ -29,6 +31,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -52,25 +55,27 @@ public class ForecastService {
     private final PushoverNotificationService pushoverService;
     private final MacOsToastNotificationService toastService;
     private final ApplicationEventPublisher eventPublisher;
+    private final WeatherTriageEvaluator weatherTriageEvaluator;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
      *
-     * @param solarService      calculates solar event times
-     * @param openMeteoService  retrieves Open-Meteo forecast data
-     * @param augmentor         enriches atmospheric data with directional cloud and tide information
-     * @param evaluationService calls Claude to evaluate colour potential
-     * @param repository        persists forecast evaluation results
-     * @param emailService      email notification channel
-     * @param pushoverService   Pushover notification channel
-     * @param toastService      macOS toast notification channel
-     * @param eventPublisher    publishes location task state transition events
+     * @param solarService           calculates solar event times
+     * @param openMeteoService       retrieves Open-Meteo forecast data
+     * @param augmentor              enriches atmospheric data with directional cloud and tide information
+     * @param evaluationService      calls Claude to evaluate colour potential
+     * @param repository             persists forecast evaluation results
+     * @param emailService           email notification channel
+     * @param pushoverService        Pushover notification channel
+     * @param toastService           macOS toast notification channel
+     * @param eventPublisher         publishes location task state transition events
+     * @param weatherTriageEvaluator heuristic triage evaluator for skipping unsuitable conditions
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
             PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -80,6 +85,7 @@ public class ForecastService {
         this.pushoverService = pushoverService;
         this.toastService = toastService;
         this.eventPublisher = eventPublisher;
+        this.weatherTriageEvaluator = weatherTriageEvaluator;
     }
 
     /**
@@ -196,6 +202,183 @@ public class ForecastService {
             }
         }
         return results;
+    }
+
+    /**
+     * Fetches weather data and applies heuristic triage for a single location/date/targetType.
+     *
+     * <p>If triage determines conditions are unsuitable, a canned entity (rating=1) is persisted
+     * and the result is marked as triaged. Otherwise, the atmospheric data is returned ready for
+     * Claude evaluation.
+     *
+     * @param location   the location entity
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @param tideTypes  tide preferences
+     * @param model      evaluation model
+     * @param jobRun     parent job run for metrics
+     * @return the pre-evaluation result
+     */
+    @ConcurrencyLimit(8)
+    public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
+            LocalDate date, TargetType targetType, Set<TideType> tideTypes,
+            EvaluationModel model, JobRunEntity jobRun) {
+        String locationName = location.getName();
+        double lat = location.getLat();
+        double lon = location.getLon();
+        Long locationId = location.getId();
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        int daysAhead = (int) ChronoUnit.DAYS.between(today, date);
+        String taskKey = locationName + "|" + date + "|" + targetType;
+        Long runId = jobRun != null ? jobRun.getId() : null;
+
+        LocalDateTime eventTime = targetType == TargetType.SUNRISE
+                ? solarService.sunriseUtc(lat, lon, date)
+                : solarService.sunsetUtc(lat, lon, date);
+
+        ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, targetType);
+
+        // Fetch weather data
+        publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                LocationTaskState.FETCHING_WEATHER);
+        AtmosphericData baseData;
+        try {
+            baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
+        } catch (Exception e) {
+            String msg = "Weather data fetch failed for " + locationName + " " + targetType
+                    + ": " + e.getMessage();
+            LOG.error(msg);
+            publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                    LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
+            throw new WeatherDataFetchException(msg, locationName, targetType.name(), e);
+        }
+
+        if (baseData == null) {
+            String msg = "Weather service returned null for " + locationName + " " + targetType;
+            LOG.error(msg);
+            publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                    LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
+            throw new WeatherDataFetchException(msg, locationName, targetType.name(), null);
+        }
+
+        int azimuth = targetType == TargetType.SUNRISE
+                ? solarService.sunriseAzimuthDeg(lat, lon, date)
+                : solarService.sunsetAzimuthDeg(lat, lon, date);
+
+        // Augment with directional cloud and cloud approach
+        publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                LocationTaskState.FETCHING_CLOUD);
+        AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
+                baseData, lat, lon, azimuth, eventTime, jobRun);
+        AtmosphericData withApproach = augmentor.augmentWithCloudApproach(
+                withDirectional, lat, lon, azimuth, eventTime,
+                LocalDateTime.now(ZoneOffset.UTC), jobRun);
+
+        // Augment with tide data
+        publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                LocationTaskState.FETCHING_TIDES);
+        AtmosphericData forecastData = augmentor.augmentWithTideData(
+                withApproach, locationId, eventTime, tideTypes);
+
+        // Apply triage heuristic
+        Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
+        if (triageResult.isPresent()) {
+            String reason = triageResult.get().reason();
+            SunsetEvaluation cannedEval = new SunsetEvaluation(
+                    1, 5, 5, "Conditions unsuitable — " + reason);
+            ForecastEvaluationEntity entity = buildEntity(
+                    location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
+                    forecastData, cannedEval, model);
+            repository.save(entity);
+            publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                    LocationTaskState.TRIAGED);
+            LOG.info("Forecast triaged: {} {} {} (T+{}) — {}", locationName, targetType,
+                    date, daysAhead, reason);
+            return new ForecastPreEvalResult(true, reason, forecastData, location, date,
+                    targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+        }
+
+        return new ForecastPreEvalResult(false, null, forecastData, location, date,
+                targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+    }
+
+    /**
+     * Evaluates atmospheric data with Claude and persists the result.
+     *
+     * @param preEval the pre-evaluation result from the triage phase
+     * @param jobRun  parent job run for metrics
+     * @return the saved evaluation entity
+     */
+    public ForecastEvaluationEntity evaluateAndPersist(ForecastPreEvalResult preEval,
+            JobRunEntity jobRun) {
+        Long runId = jobRun != null ? jobRun.getId() : null;
+
+        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
+                preEval.date().toString(), preEval.targetType().name(),
+                LocationTaskState.EVALUATING);
+        SunsetEvaluation evaluation = evaluationService.evaluate(
+                preEval.atmosphericData(), preEval.model(), jobRun);
+
+        ForecastEvaluationEntity entity = buildEntity(
+                preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
+                preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
+                preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
+
+        ForecastEvaluationEntity saved = repository.save(entity);
+        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
+                preEval.date().toString(), preEval.targetType().name(),
+                LocationTaskState.COMPLETE);
+
+        String locationName = preEval.location().getName();
+        if (evaluation.rating() != null) {
+            LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — rating={}/5",
+                    locationName, preEval.targetType(), preEval.date(), preEval.daysAhead(),
+                    preEval.model(), evaluation.rating());
+        } else {
+            LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — fiery={}/100 golden={}/100",
+                    locationName, preEval.targetType(), preEval.date(), preEval.daysAhead(),
+                    preEval.model(), evaluation.fierySkyPotential(),
+                    evaluation.goldenHourPotential());
+        }
+
+        try {
+            emailService.notify(evaluation, locationName, preEval.targetType(), preEval.date());
+            pushoverService.notify(evaluation, locationName, preEval.targetType(), preEval.date());
+            toastService.notify(evaluation, locationName, preEval.targetType(), preEval.date());
+        } catch (Exception e) {
+            LOG.warn("Notification failed for {} {} {} — forecast was saved successfully: {}",
+                    locationName, preEval.targetType(), preEval.date(), e.getMessage());
+        }
+
+        return saved;
+    }
+
+    /**
+     * Persists a canned result for a task skipped by sentinel sampling.
+     *
+     * @param preEval the pre-evaluation result with atmospheric data
+     * @param reason  human-readable reason for the skip
+     * @param jobRun  parent job run for metrics
+     * @return the saved canned entity
+     */
+    public ForecastEvaluationEntity persistCannedResult(ForecastPreEvalResult preEval,
+            String reason, JobRunEntity jobRun) {
+        SunsetEvaluation cannedEval = new SunsetEvaluation(
+                1, 5, 5, "Conditions unsuitable — " + reason);
+        ForecastEvaluationEntity entity = buildEntity(
+                preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
+                preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
+                preEval.azimuth(), preEval.atmosphericData(), cannedEval, preEval.model());
+        ForecastEvaluationEntity saved = repository.save(entity);
+
+        Long runId = jobRun != null ? jobRun.getId() : null;
+        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
+                preEval.date().toString(), preEval.targetType().name(),
+                LocationTaskState.SKIPPED);
+        LOG.info("Forecast sentinel-skipped: {} {} {} — {}", preEval.location().getName(),
+                preEval.targetType(), preEval.date(), reason);
+        return saved;
     }
 
     /**
