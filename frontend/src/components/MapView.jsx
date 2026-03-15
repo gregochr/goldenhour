@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -51,6 +51,10 @@ function PopupResizer({ deps }) {
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
+
+PopupResizer.propTypes = {
+  deps: PropTypes.array.isRequired,
+};
 
 import InfoTip from './InfoTip.jsx';
 import { buildMarkerSvg, markerLabelAndColour, createClusterIcon } from './markerUtils.js';
