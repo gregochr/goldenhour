@@ -28,6 +28,7 @@ public class RunProgress {
     private final long jobRunId;
     private final ConcurrentHashMap<String, LocationTaskSnapshot> tasks = new ConcurrentHashMap<>();
     private final Instant startedAt;
+    private volatile RunPhase phase = RunPhase.TRIAGE;
 
     /**
      * Constructs a new run progress tracker for a job run.
@@ -127,7 +128,34 @@ public class RunProgress {
     }
 
     /**
-     * Returns the number of tasks currently in progress (not PENDING/COMPLETE/FAILED/SKIPPED).
+     * Returns the number of triaged tasks.
+     *
+     * @return triaged task count
+     */
+    public int getTriaged() {
+        return countByState(LocationTaskState.TRIAGED);
+    }
+
+    /**
+     * Returns the current run phase.
+     *
+     * @return the run phase
+     */
+    public RunPhase getPhase() {
+        return phase;
+    }
+
+    /**
+     * Sets the current run phase.
+     *
+     * @param phase the new phase
+     */
+    public void setPhase(RunPhase phase) {
+        this.phase = phase;
+    }
+
+    /**
+     * Returns the number of tasks currently in progress (not terminal states).
      *
      * @return in-progress task count
      */
@@ -137,7 +165,8 @@ public class RunProgress {
                 .filter(s -> s != LocationTaskState.PENDING
                         && s != LocationTaskState.COMPLETE
                         && s != LocationTaskState.FAILED
-                        && s != LocationTaskState.SKIPPED)
+                        && s != LocationTaskState.SKIPPED
+                        && s != LocationTaskState.TRIAGED)
                 .count();
     }
 
@@ -163,7 +192,8 @@ public class RunProgress {
         int completed = getCompleted();
         int failed = getFailed();
         int skipped = getSkipped();
-        int finished = completed + failed + skipped;
+        int triaged = getTriaged();
+        int finished = completed + failed + skipped + triaged;
 
         if (finished < total) {
             return RunStatus.RUNNING;
@@ -171,7 +201,7 @@ public class RunProgress {
         if (failed == 0) {
             return RunStatus.COMPLETE;
         }
-        if (completed == 0 && skipped == 0) {
+        if (completed == 0 && skipped == 0 && triaged == 0) {
             return RunStatus.FAILED;
         }
         return RunStatus.PARTIAL;

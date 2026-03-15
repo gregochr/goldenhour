@@ -185,8 +185,6 @@ PopupScoreRow.propTypes = {
  * @param {string} props.eventType - 'SUNRISE' or 'SUNSET'.
  * @param {boolean} props.isPureWildlife - True if all location types are WILDLIFE.
  * @param {boolean} [props.showComfortRows=false] - True to show hourly comfort alongside colour forecast (e.g. WATERFALL).
- * @param {boolean} [props.isExpanded] - Ignored (expanded state is now internal).
- * @param {function} [props.onToggleExpanded] - Ignored (expanded state is now internal).
  * @param {string} props.role - User role (ADMIN, PRO_USER, LITE_USER).
  * @param {string} props.date - Selected date string (YYYY-MM-DD).
  * @param {function} props.onTideFetchedAt - Called with fetchedAt timestamp from TideIndicator.
@@ -200,8 +198,6 @@ export default function MarkerPopupContent({
   eventType,
   isPureWildlife,
   showComfortRows = false,
-  isExpanded: _isExpanded,
-  onToggleExpanded: _onToggleExpanded,
   role,
   date,
   onTideFetchedAt,
@@ -535,8 +531,6 @@ MarkerPopupContent.propTypes = {
   eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET']).isRequired,
   isPureWildlife: PropTypes.bool.isRequired,
   showComfortRows: PropTypes.bool,
-  isExpanded: PropTypes.bool,
-  onToggleExpanded: PropTypes.func,
   role: PropTypes.string.isRequired,
   date: PropTypes.string.isRequired,
   onTideFetchedAt: PropTypes.func,

@@ -1,13 +1,17 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
 import com.gregochr.goldenhour.entity.OptimisationStrategyType;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,7 +32,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -69,11 +72,16 @@ class ForecastCommandExecutorTest {
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Mock
+    private SentinelSelector sentinelSelector;
+
+    @Mock
     private EvaluationStrategy haikuStrategy;
 
     private NoOpEvaluationStrategy noOpStrategy;
 
     private ForecastCommandExecutor executor;
+
+    private JobRunEntity stubJobRun;
 
     private static final int EXPECTED_CALLS_PER_DAY = 2; // SUNRISE + SUNSET
 
@@ -116,22 +124,42 @@ class ForecastCommandExecutorTest {
         lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
 
         // Return a stub job run entity from startRun()
-        com.gregochr.goldenhour.entity.JobRunEntity stubJobRun =
-                new com.gregochr.goldenhour.entity.JobRunEntity();
+        stubJobRun = new JobRunEntity();
         stubJobRun.setId(1L);
         lenient().when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
                 .thenReturn(stubJobRun);
+
+        // Default: fetchWeatherAndTriage returns non-triaged result
+        lenient().when(forecastService.fetchWeatherAndTriage(
+                any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
+                any(), any(EvaluationModel.class), any(JobRunEntity.class)))
+                .thenAnswer(invocation -> {
+                    LocationEntity loc = invocation.getArgument(0);
+                    LocalDate date = invocation.getArgument(1);
+                    TargetType type = invocation.getArgument(2);
+                    EvaluationModel model = invocation.getArgument(4);
+                    return new ForecastPreEvalResult(false, null, null,
+                            loc, date, type, LocalDateTime.now(), 90, 0,
+                            model, loc.getTideType(),
+                            loc.getName() + "|" + date + "|" + type);
+                });
+
+        // Default: evaluateAndPersist returns a stub entity
+        lenient().when(forecastService.evaluateAndPersist(
+                any(ForecastPreEvalResult.class), any(JobRunEntity.class)))
+                .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
 
         // Use synchronous executor
         executor = new ForecastCommandExecutor(
                 forecastService, locationService, jobRunService, solarService,
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
-                optimisationStrategyService, progressTracker, eventPublisher);
+                optimisationStrategyService, progressTracker, eventPublisher,
+                sentinelSelector);
     }
 
     @Test
-    @DisplayName("execute() calls forecastService once per target type per day for colour locations")
-    void execute_colourLocations_callsForecastServiceForEachTargetTypePerDay() {
+    @DisplayName("execute() calls fetchWeatherAndTriage once per target type per day for colour locations")
+    void execute_colourLocations_callsTriageForEachTargetTypePerDay() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2));
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates, List.of(durham()),
@@ -141,38 +169,50 @@ class ForecastCommandExecutorTest {
 
         int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
-                .runForecasts(any(LocationEntity.class), any(LocalDate.class),
+                .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                         any(TargetType.class), any(), eq(EvaluationModel.HAIKU), any());
     }
 
     @Test
-    @DisplayName("execute() continues after a single location failure")
-    void execute_continuesAfterFailure() {
-        LocationEntity london = LocationEntity.builder()
-                .id(3L)
-                .name("London UK")
-                .lat(51.5074)
-                .lon(-0.1278)
-                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
-                .build();
-
+    @DisplayName("execute() calls evaluateAndPersist for non-triaged tasks")
+    void execute_colourLocations_callsEvaluateForNonTriaged() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
-
-        LocationEntity durhamEntity = durham();
-        doThrow(new RuntimeException("API error"))
-                .when(forecastService).runForecasts(eq(durhamEntity),
-                        any(), any(TargetType.class), any(), any(EvaluationModel.class), any());
-
-        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
-                List.of(durhamEntity, london), haikuStrategy, true);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates, List.of(durham()),
+                haikuStrategy, true);
 
         executor.execute(cmd);
 
-        // London calls should still happen despite Durham failures
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .runForecasts(eq(london), any(LocalDate.class), any(TargetType.class),
-                        any(), any(EvaluationModel.class), any());
+                .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+    }
+
+    @Test
+    @DisplayName("execute() skips evaluation for triaged tasks")
+    void execute_triagedTasks_skipEvaluation() {
+        // All tasks triaged
+        when(forecastService.fetchWeatherAndTriage(
+                any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
+                any(), any(EvaluationModel.class), any(JobRunEntity.class)))
+                .thenAnswer(invocation -> {
+                    LocationEntity loc = invocation.getArgument(0);
+                    LocalDate date = invocation.getArgument(1);
+                    TargetType type = invocation.getArgument(2);
+                    return new ForecastPreEvalResult(true, "Low cloud cover 85%", null,
+                            loc, date, type, LocalDateTime.now(), 90, 0,
+                            EvaluationModel.HAIKU, loc.getTideType(),
+                            loc.getName() + "|" + date + "|" + type);
+                });
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // No evaluations should happen
+        verify(forecastService, never())
+                .evaluateAndPersist(any(), any());
     }
 
     @Test
@@ -201,7 +241,6 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
-        // When locations are null, executor resolves from locationService.findAll()
         ForecastCommand cmd = new ForecastCommand(RunType.WEATHER, dates,
                 null, noOpStrategy, false);
 
@@ -318,7 +357,9 @@ class ForecastCommandExecutorTest {
 
         // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
-                .runForecasts(any(LocationEntity.class), any(), any(), any(), any(), any());
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), any());
+        verify(forecastService, never())
+                .evaluateAndPersist(any(), any());
     }
 
     @Test
@@ -351,5 +392,90 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(optimisationStrategyService, never()).getEnabledStrategies(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Sentinel sampling
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Sentinel early-stop skips remainder when all sentinels rate ≤2")
+    void execute_sentinelEarlyStop_skipsRemainder() {
+        RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
+        LocationEntity sentinel = LocationEntity.builder()
+                .id(10L).name("Sentinel Loc").lat(55.0).lon(-1.0)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+        LocationEntity nonSentinel = LocationEntity.builder()
+                .id(11L).name("Non-Sentinel Loc").lat(54.0).lon(-1.5)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+
+        // Sentinel selector picks only sentinel
+        when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(sentinel));
+
+        // Sentinel evaluation returns rating 2 (≤ threshold)
+        when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
+                .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(2).build());
+
+        // persistCannedResult for non-sentinel
+        when(forecastService.persistCannedResult(any(), any(String.class), any()))
+                .thenReturn(ForecastEvaluationEntity.builder().id(2L).rating(1).build());
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(sentinel, nonSentinel), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // persistCannedResult should be called for non-sentinel tasks (2 target types)
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .persistCannedResult(any(), any(String.class), any());
+    }
+
+    @Test
+    @DisplayName("Sentinel passes when any sentinel rates >2, remainder goes to full eval")
+    void execute_sentinelPasses_remainderEvaluated() {
+        RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
+        LocationEntity sentinel = LocationEntity.builder()
+                .id(10L).name("Sentinel Loc").lat(55.0).lon(-1.0)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+        LocationEntity nonSentinel = LocationEntity.builder()
+                .id(11L).name("Non-Sentinel Loc").lat(54.0).lon(-1.5)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+
+        when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(sentinel));
+
+        // Sentinel returns rating 4 (> threshold)
+        when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
+                .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(4).build());
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(sentinel, nonSentinel), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // persistCannedResult should NOT be called — remainder goes to full eval
+        verify(forecastService, never()).persistCannedResult(any(), any(String.class), any());
+    }
+
+    @Test
+    @DisplayName("Null-region locations bypass sentinel logic and go directly to full eval")
+    void execute_nullRegion_bypassesSentinel() {
+        // Durham has no region — should bypass sentinel logic
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // sentinelSelector should not be called for null-region locations
+        verify(sentinelSelector, never()).selectSentinels(any());
+        // But evaluateAndPersist should be called (full eval path)
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
     }
 }

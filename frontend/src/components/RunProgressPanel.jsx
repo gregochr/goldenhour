@@ -67,12 +67,15 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
   const completed = summary?.completed || 0;
   const failed = summary?.failed || 0;
   const skipped = summary?.skipped || 0;
+  const triaged = summary?.triaged || 0;
   const inProgress = summary?.inProgress || 0;
-  const pending = total - completed - failed - skipped - inProgress;
+  const phase = summary?.phase || null;
+  const pending = total - completed - failed - skipped - triaged - inProgress;
 
   const pctComplete = total > 0 ? (completed / total) * 100 : 0;
   const pctFailed = total > 0 ? (failed / total) * 100 : 0;
   const pctSkipped = total > 0 ? (skipped / total) * 100 : 0;
+  const pctTriaged = total > 0 ? (triaged / total) * 100 : 0;
   const pctInProgress = total > 0 ? (inProgress / total) * 100 : 0;
 
   const elapsedSec = summary?.elapsedMs ? (summary.elapsedMs / 1000).toFixed(1) : '0.0';
@@ -92,12 +95,12 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide">
-          Run Progress {complete ? '(Complete)' : ''}
+          Run Progress {complete ? '(Complete)' : phase ? `(${phase.replace(/_/g, ' ')})` : ''}
         </p>
         <p className="text-xs text-plex-text-muted">
           {complete ? `${durationSec || elapsedSec}s` : `${elapsedSec}s`}
           {' | '}
-          {completed + failed + skipped}/{total}
+          {completed + failed + skipped + triaged}/{total}
         </p>
       </div>
 
@@ -115,6 +118,9 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
         {pctSkipped > 0 && (
           <div className="bg-slate-500 h-full" style={{ width: `${pctSkipped}%` }} />
         )}
+        {pctTriaged > 0 && (
+          <div className="bg-gray-500 h-full" style={{ width: `${pctTriaged}%` }} />
+        )}
       </div>
 
       {/* Summary counts */}
@@ -122,6 +128,7 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
         {completed > 0 && <span className="text-green-400">{completed} complete</span>}
         {inProgress > 0 && <span className="text-blue-400">{inProgress} in progress</span>}
         {pending > 0 && <span className="text-gray-400">{pending} pending</span>}
+        {triaged > 0 && <span className="text-gray-300">{triaged} triaged</span>}
         {failed > 0 && <span className="text-red-400">{failed} failed</span>}
         {skipped > 0 && <span className="text-slate-400">{skipped} skipped</span>}
       </div>

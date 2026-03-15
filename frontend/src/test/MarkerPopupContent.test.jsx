@@ -37,8 +37,6 @@ const DEFAULT_PROPS = {
   hourlyData: [],
   eventType: 'SUNSET',
   isPureWildlife: false,
-  isExpanded: true,
-  onToggleExpanded: vi.fn(),
   date: '2026-03-03',
   onTideFetchedAt: vi.fn(),
   tideFetchedAt: null,
@@ -65,15 +63,15 @@ describe('MarkerPopupContent', () => {
   });
 
   it('shows more-details toggle', () => {
-    renderPopup({ role: 'PRO_USER', isExpanded: false });
+    renderPopup({ role: 'PRO_USER' });
     expect(screen.getByTestId('more-details-toggle')).toHaveTextContent('More details');
   });
 
-  it('calls onToggleExpanded when toggle clicked', () => {
-    const onToggle = vi.fn();
-    renderPopup({ role: 'PRO_USER', isExpanded: false, onToggleExpanded: onToggle });
+  it('toggles expanded state when toggle clicked', () => {
+    renderPopup({ role: 'PRO_USER' });
+    expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('more-details-toggle'));
-    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
   });
 
   describe('LITE vs PRO/ADMIN score bar visibility', () => {
@@ -84,38 +82,42 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByText('Scores')).not.toBeInTheDocument();
     });
 
-    it('shows score bars for PRO_USER', () => {
+    it('shows score bars for PRO_USER when expanded', () => {
       renderPopup({ role: 'PRO_USER' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
       expect(screen.getByText('Golden Hour')).toBeInTheDocument();
       expect(screen.getByText('78')).toBeInTheDocument();
       expect(screen.getByText('62')).toBeInTheDocument();
     });
 
-    it('shows score bars for ADMIN', () => {
+    it('shows score bars for ADMIN when expanded', () => {
       renderPopup({ role: 'ADMIN' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
       expect(screen.getByText('Golden Hour')).toBeInTheDocument();
     });
 
     it('hides score bars when collapsed even for PRO_USER', () => {
-      renderPopup({ role: 'PRO_USER', isExpanded: false });
+      renderPopup({ role: 'PRO_USER' });
       expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
     });
   });
 
   describe('footer visibility by role', () => {
-    it('shows forecast-generated footer for PRO_USER', () => {
+    it('shows forecast-generated footer for PRO_USER when expanded', () => {
       renderPopup({ role: 'PRO_USER' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText(/Forecast generated/)).toBeInTheDocument();
     });
 
-    it('shows forecast-generated footer for LITE_USER', () => {
+    it('shows forecast-generated footer for LITE_USER when expanded', () => {
       renderPopup({ role: 'LITE_USER' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText(/Forecast generated/)).toBeInTheDocument();
     });
 
-    it('shows forecast-generated footer for ADMIN', () => {
+    it('shows forecast-generated footer for ADMIN (always visible)', () => {
       renderPopup({ role: 'ADMIN' });
       expect(screen.getByText(/Forecast generated/)).toBeInTheDocument();
     });
@@ -137,18 +139,21 @@ describe('MarkerPopupContent', () => {
   });
 
   describe('tide display for coastal vs non-coastal', () => {
-    it('shows tide pills for coastal location with HIGH', () => {
+    it('shows tide pills for coastal location with HIGH when expanded', () => {
       renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH'] } });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText(/High tide/)).toBeInTheDocument();
     });
 
-    it('shows tide pills for coastal location with LOW', () => {
+    it('shows tide pills for coastal location with LOW when expanded', () => {
       renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['LOW'] } });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText(/Low tide/)).toBeInTheDocument();
     });
 
     it('shows multiple tide pills when location has several tide types', () => {
       renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH', 'MID'] } });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText(/High tide/)).toBeInTheDocument();
       expect(screen.getByText(/Mid tide/)).toBeInTheDocument();
     });
@@ -165,17 +170,18 @@ describe('MarkerPopupContent', () => {
 
     it('renders TideIndicator when expanded', () => {
       renderPopup({ role: 'PRO_USER' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByTestId('tide-indicator')).toBeInTheDocument();
       expect(screen.getByText('Tides for Bamburgh')).toBeInTheDocument();
     });
 
     it('does not render TideIndicator when collapsed', () => {
-      renderPopup({ role: 'PRO_USER', isExpanded: false });
+      renderPopup({ role: 'PRO_USER' });
       expect(screen.queryByTestId('tide-indicator')).not.toBeInTheDocument();
     });
 
     it('hides tide pills when collapsed', () => {
-      renderPopup({ role: 'PRO_USER', isExpanded: false, location: { ...BASE_LOCATION, tideType: ['HIGH'] } });
+      renderPopup({ role: 'PRO_USER', location: { ...BASE_LOCATION, tideType: ['HIGH'] } });
       expect(screen.queryByText(/High tide/)).not.toBeInTheDocument();
     });
   });
@@ -415,6 +421,7 @@ describe('MarkerPopupContent', () => {
   describe('comfort rows', () => {
     it('shows temperature and wind when expanded', () => {
       renderPopup({ role: 'PRO_USER' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText(/8°C/)).toBeInTheDocument();
       expect(screen.getByText(/feels like/)).toBeInTheDocument();
       expect(screen.getByText(/rain chance/)).toBeInTheDocument();

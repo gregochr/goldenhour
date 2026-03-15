@@ -29,6 +29,9 @@ public enum LocationTaskState {
     /** Failed at one of the processing phases. */
     FAILED,
 
-    /** Skipped by an optimisation strategy. */
-    SKIPPED
+    /** Skipped by an optimisation strategy or sentinel early stop. */
+    SKIPPED,
+
+    /** Weather data fetched but Claude skipped due to heuristic triage. */
+    TRIAGED
 }

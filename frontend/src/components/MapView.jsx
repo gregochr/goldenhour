@@ -220,7 +220,6 @@ function MapView({ locations, date }) {
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
-  const [expandedPopup] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   const [tideClassifications, setTideClassifications] = useState({});
 
@@ -490,8 +489,6 @@ function MapView({ locations, date }) {
                           eventType={eventType}
                           isPureWildlife={isPureWildlife}
                           showComfortRows={isWaterfall}
-                          isExpanded={expandedPopup === loc.name}
-                          onToggleExpanded={() => void 0}
                           role={role}
                           date={date}
                           onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
@@ -527,8 +524,6 @@ function MapView({ locations, date }) {
                 eventType={eventType}
                 isPureWildlife={isPureWildlife}
                 showComfortRows={isWaterfall}
-                isExpanded={expandedPopup === loc.name}
-                onToggleExpanded={() => void 0}
                 role={role}
                 date={date}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}

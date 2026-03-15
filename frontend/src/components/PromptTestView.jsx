@@ -922,8 +922,6 @@ const PromptTestView = () => {
                 hourlyData={[]}
                 eventType={eventType}
                 isPureWildlife={isPureWildlife}
-                isExpanded={true}
-                onToggleExpanded={() => {}}
                 role="ADMIN" // eslint-disable-line jsx-a11y/aria-role -- component prop, not ARIA
                 date={previewResult.targetDate || ''}
                 darkMode={true}

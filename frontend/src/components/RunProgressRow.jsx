@@ -10,6 +10,7 @@ const STATE_BADGES = {
   COMPLETE: { label: 'Complete', color: 'bg-green-700 text-green-100' },
   FAILED: { label: 'Failed', color: 'bg-red-700 text-red-100' },
   SKIPPED: { label: 'Skipped', color: 'bg-slate-600 text-slate-200' },
+  TRIAGED: { label: 'Triaged', color: 'bg-gray-500 text-gray-100' },
 };
 
 /**

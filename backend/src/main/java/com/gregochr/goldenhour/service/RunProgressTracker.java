@@ -209,16 +209,32 @@ public class RunProgressTracker {
         }
     }
 
+    /**
+     * Updates the phase of an active run and broadcasts the change.
+     *
+     * @param jobRunId the job run ID
+     * @param phase    the new phase
+     */
+    public void setPhase(long jobRunId, com.gregochr.goldenhour.model.RunPhase phase) {
+        RunProgress progress = activeRuns.get(jobRunId);
+        if (progress != null) {
+            progress.setPhase(phase);
+            broadcastTaskUpdate(jobRunId, progress);
+        }
+    }
+
     private Map<String, Object> buildSummary(long jobRunId, RunProgress progress) {
-        return Map.of(
-                "jobRunId", jobRunId,
-                "total", progress.getTotal(),
-                "completed", progress.getCompleted(),
-                "failed", progress.getFailed(),
-                "inProgress", progress.getInProgress(),
-                "skipped", progress.getSkipped(),
-                "status", progress.getStatus().name(),
-                "elapsedMs", progress.getElapsedMs()
+        return Map.ofEntries(
+                Map.entry("jobRunId", jobRunId),
+                Map.entry("phase", progress.getPhase().name()),
+                Map.entry("total", progress.getTotal()),
+                Map.entry("completed", progress.getCompleted()),
+                Map.entry("triaged", progress.getTriaged()),
+                Map.entry("failed", progress.getFailed()),
+                Map.entry("inProgress", progress.getInProgress()),
+                Map.entry("skipped", progress.getSkipped()),
+                Map.entry("status", progress.getStatus().name()),
+                Map.entry("elapsedMs", progress.getElapsedMs())
         );
     }
 
@@ -230,15 +246,17 @@ public class RunProgressTracker {
                         "errorMessage", t.errorMessage() != null ? t.errorMessage() : ""))
                 .toList();
 
-        return Map.of(
-                "jobRunId", jobRunId,
-                "status", progress.getStatus().name(),
-                "total", progress.getTotal(),
-                "completed", progress.getCompleted(),
-                "failed", progress.getFailed(),
-                "skipped", progress.getSkipped(),
-                "durationMs", progress.getElapsedMs(),
-                "failedTasks", failedTasks
+        return Map.ofEntries(
+                Map.entry("jobRunId", jobRunId),
+                Map.entry("status", progress.getStatus().name()),
+                Map.entry("phase", progress.getPhase().name()),
+                Map.entry("total", progress.getTotal()),
+                Map.entry("completed", progress.getCompleted()),
+                Map.entry("triaged", progress.getTriaged()),
+                Map.entry("failed", progress.getFailed()),
+                Map.entry("skipped", progress.getSkipped()),
+                Map.entry("durationMs", progress.getElapsedMs()),
+                Map.entry("failedTasks", failedTasks)
         );
     }
 }
