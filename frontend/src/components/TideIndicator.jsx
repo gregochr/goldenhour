@@ -77,7 +77,8 @@ export default function TideIndicator({ locationName, date, onFetchedAt, solarEv
       .filter((h) => h.isSpring || h.isKing);
 
     onTideClassification(highTides.length > 0 ? highTides : null);
-  }, [tides, stats, solarEventTime, onTideClassification]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tides, stats, solarEventTime]);
 
   if (!tides || tides.length === 0) return null;
 

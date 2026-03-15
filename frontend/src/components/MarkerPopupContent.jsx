@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   formatEventTimeUk,
@@ -185,8 +185,8 @@ PopupScoreRow.propTypes = {
  * @param {string} props.eventType - 'SUNRISE' or 'SUNSET'.
  * @param {boolean} props.isPureWildlife - True if all location types are WILDLIFE.
  * @param {boolean} [props.showComfortRows=false] - True to show hourly comfort alongside colour forecast (e.g. WATERFALL).
- * @param {boolean} props.isExpanded - Whether the "More details" section is open.
- * @param {function} props.onToggleExpanded - Toggle callback.
+ * @param {boolean} [props.isExpanded] - Ignored (expanded state is now internal).
+ * @param {function} [props.onToggleExpanded] - Ignored (expanded state is now internal).
  * @param {string} props.role - User role (ADMIN, PRO_USER, LITE_USER).
  * @param {string} props.date - Selected date string (YYYY-MM-DD).
  * @param {function} props.onTideFetchedAt - Called with fetchedAt timestamp from TideIndicator.
@@ -200,8 +200,8 @@ export default function MarkerPopupContent({
   eventType,
   isPureWildlife,
   showComfortRows = false,
-  isExpanded,
-  onToggleExpanded,
+  isExpanded: _isExpanded,
+  onToggleExpanded: _onToggleExpanded,
   role,
   date,
   onTideFetchedAt,
@@ -210,6 +210,9 @@ export default function MarkerPopupContent({
   tideClassification,
   darkMode = false,
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const onToggleExpanded = () => setIsExpanded((prev) => !prev);
+
   const isSunrise = eventType === 'SUNRISE';
   const risingTide = forecast ? getRisingTideWarning(forecast, eventType) : null;
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
@@ -532,8 +535,8 @@ MarkerPopupContent.propTypes = {
   eventType: PropTypes.oneOf(['SUNRISE', 'SUNSET']).isRequired,
   isPureWildlife: PropTypes.bool.isRequired,
   showComfortRows: PropTypes.bool,
-  isExpanded: PropTypes.bool.isRequired,
-  onToggleExpanded: PropTypes.func.isRequired,
+  isExpanded: PropTypes.bool,
+  onToggleExpanded: PropTypes.func,
   role: PropTypes.string.isRequired,
   date: PropTypes.string.isRequired,
   onTideFetchedAt: PropTypes.func,
