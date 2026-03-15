@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
+import com.gregochr.goldenhour.config.OpenMeteoRateLimiter;
 import com.gregochr.goldenhour.config.TransientHttpErrorPredicate;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -34,16 +35,20 @@ public class OpenMeteoClient {
 
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
+    private final OpenMeteoRateLimiter rateLimiter;
 
     /**
      * Constructs an {@code OpenMeteoClient}.
      *
      * @param forecastApi   proxy for the Open-Meteo forecast endpoint
      * @param airQualityApi proxy for the Open-Meteo air quality endpoint
+     * @param rateLimiter   rate limiter to stay within Open-Meteo's minutely quota
      */
-    public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi) {
+    public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi,
+            OpenMeteoRateLimiter rateLimiter) {
         this.forecastApi = forecastApi;
         this.airQualityApi = airQualityApi;
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -57,7 +62,7 @@ public class OpenMeteoClient {
                predicate = TransientHttpErrorPredicate.class,
                maxRetries = 2, delay = 5000, multiplier = 2)
     public OpenMeteoForecastResponse fetchForecast(double lat, double lon) {
-        return forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC");
+        return rateLimited(() -> forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC"));
     }
 
     /**
@@ -71,7 +76,7 @@ public class OpenMeteoClient {
                predicate = TransientHttpErrorPredicate.class,
                maxRetries = 2, delay = 5000, multiplier = 2)
     public OpenMeteoAirQualityResponse fetchAirQuality(double lat, double lon) {
-        return airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC");
+        return rateLimited(() -> airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC"));
     }
 
     /**
@@ -85,6 +90,27 @@ public class OpenMeteoClient {
                predicate = TransientHttpErrorPredicate.class,
                maxRetries = 2, delay = 5000, multiplier = 2)
     public OpenMeteoForecastResponse fetchCloudOnly(double lat, double lon) {
-        return forecastApi.getForecast(lat, lon, CLOUD_ONLY_PARAMS, "ms", "UTC");
+        return rateLimited(() -> forecastApi.getForecast(lat, lon, CLOUD_ONLY_PARAMS, "ms", "UTC"));
+    }
+
+    /**
+     * Executes a supplier within the rate limiter's acquire/release lifecycle.
+     *
+     * @param supplier the API call to execute
+     * @param <T>      the response type
+     * @return the API response
+     */
+    private <T> T rateLimited(java.util.function.Supplier<T> supplier) {
+        try {
+            rateLimiter.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for Open-Meteo rate limit", e);
+        }
+        try {
+            return supplier.get();
+        } finally {
+            rateLimiter.release();
+        }
     }
 }
