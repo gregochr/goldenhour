@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
@@ -84,13 +84,22 @@ function AppInner() {
   };
   const [selectedDate, setSelectedDate] = useState(null);
 
-  const sortedLocations = [...locations].sort((a, b) => a.name.localeCompare(b.name));
-  const visibleLocations = sortedLocations.filter((loc) => loc.enabled !== false);
+  const sortedLocations = useMemo(
+    () => [...locations].sort((a, b) => a.name.localeCompare(b.name)),
+    [locations],
+  );
+  const visibleLocations = useMemo(
+    () => sortedLocations.filter((loc) => loc.enabled !== false),
+    [sortedLocations],
+  );
 
   // All dates available across any visible (enabled) location, sorted, for the map date strip.
-  const allDates = [...new Set(
-    visibleLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
-  )].sort();
+  const allDates = useMemo(
+    () => [...new Set(
+      visibleLocations.flatMap((loc) => Array.from(loc.forecastsByDate.keys()))
+    )].sort(),
+    [visibleLocations],
+  );
 
   // Default to today (or the nearest future date) when data loads.
   const todayStr = new Date().toISOString().slice(0, 10);

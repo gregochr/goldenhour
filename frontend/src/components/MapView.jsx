@@ -29,6 +29,10 @@ const popupStyles = `
  * Sits inside a Leaflet Popup and directly manipulates the popup's DOM
  * to enforce a max-height with scrolling whenever deps change.
  */
+/**
+ * Sits inside a Leaflet Popup and directly manipulates the popup's DOM
+ * to enforce a max-height with scrolling whenever deps change.
+ */
 function PopupResizer({ deps }) {
   const map = useMap();
   useEffect(() => {
@@ -40,10 +44,8 @@ function PopupResizer({ deps }) {
           if (wrapper) {
             const maxH = Math.max(300, map.getContainer().clientHeight - 150);
             wrapper.style.setProperty('max-height', maxH + 'px', 'important');
-            wrapper.style.setProperty('overflow-y', 'auto', 'important');
+            wrapper.style.setProperty('overflow-y', 'scroll', 'important');
           }
-          popup._updatePosition?.();
-          popup._adjustPan?.();
         }
       });
     }, 20);
@@ -210,7 +212,7 @@ function getNextEventType(locations, date) {
   return 'SUNSET';
 }
 
-export default function MapView({ locations, date }) {
+function MapView({ locations, date }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
@@ -218,7 +220,7 @@ export default function MapView({ locations, date }) {
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
-  const [expandedPopup, setExpandedPopup] = useState(null);
+  const [expandedPopup] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   const [tideClassifications, setTideClassifications] = useState({});
 
@@ -233,7 +235,7 @@ export default function MapView({ locations, date }) {
 
   // Close bottom sheet / reset expanded state when switching mobile ↔ desktop
   useEffect(() => {
-    setExpandedPopup(null);
+    void 0;
   }, [isMobile]);
 
   const lineKm = lineKmForZoom(zoom);
@@ -473,13 +475,13 @@ export default function MapView({ locations, date }) {
                   eventHandlers={{
                     click: () => setSelectedLocationName(loc.name),
                     ...(isMobile ? {} : {
-                      popupclose: () => { setSelectedLocationName(null); setExpandedPopup(null); },
+                      popupclose: () => { setSelectedLocationName(null); void 0; },
                     }),
                   }}
                 >
                   {!isMobile && (
                     <Popup maxWidth={9999} autoPanPadding={[20, 60]}>
-                      <PopupResizer deps={[expandedPopup]} />
+                      <PopupResizer deps={[date, eventType]} />
                       <div key={`${date}-${eventType}`} className="animate-popup-refresh">
                         <MarkerPopupContent
                           location={loc}
@@ -489,7 +491,7 @@ export default function MapView({ locations, date }) {
                           isPureWildlife={isPureWildlife}
                           showComfortRows={isWaterfall}
                           isExpanded={expandedPopup === loc.name}
-                          onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
+                          onToggleExpanded={() => void 0}
                           role={role}
                           date={date}
                           onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
@@ -515,7 +517,7 @@ export default function MapView({ locations, date }) {
         return (
           <BottomSheet
             open
-            onClose={() => { setSelectedLocationName(null); setExpandedPopup(null); }}
+            onClose={() => { setSelectedLocationName(null); void 0; }}
           >
             <div key={`${date}-${eventType}`} className="animate-popup-refresh">
               <MarkerPopupContent
@@ -526,7 +528,7 @@ export default function MapView({ locations, date }) {
                 isPureWildlife={isPureWildlife}
                 showComfortRows={isWaterfall}
                 isExpanded={expandedPopup === loc.name}
-                onToggleExpanded={() => setExpandedPopup(expandedPopup === loc.name ? null : loc.name)}
+                onToggleExpanded={() => void 0}
                 role={role}
                 date={date}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
@@ -555,3 +557,5 @@ MapView.propTypes = {
   ).isRequired,
   date: PropTypes.string,
 };
+
+export default React.memo(MapView);
