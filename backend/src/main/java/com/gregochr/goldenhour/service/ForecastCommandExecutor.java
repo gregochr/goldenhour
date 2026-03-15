@@ -8,9 +8,12 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -41,6 +44,8 @@ public class ForecastCommandExecutor {
     private final Executor forecastExecutor;
     private final OptimisationSkipEvaluator optimisationSkipEvaluator;
     private final OptimisationStrategyService optimisationStrategyService;
+    private final RunProgressTracker progressTracker;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -53,12 +58,15 @@ public class ForecastCommandExecutor {
      * @param forecastExecutor            the executor used to run forecast calls in parallel
      * @param optimisationSkipEvaluator   the evaluator for configurable skip strategies
      * @param optimisationStrategyService the service for loading active strategies
+     * @param progressTracker             tracks live run progress for SSE broadcasting
+     * @param eventPublisher              publishes location task state transition events
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
             SolarService solarService, ForecastCommandFactory commandFactory,
             Executor forecastExecutor, OptimisationSkipEvaluator optimisationSkipEvaluator,
-            OptimisationStrategyService optimisationStrategyService) {
+            OptimisationStrategyService optimisationStrategyService,
+            RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -67,6 +75,8 @@ public class ForecastCommandExecutor {
         this.forecastExecutor = forecastExecutor;
         this.optimisationSkipEvaluator = optimisationSkipEvaluator;
         this.optimisationStrategyService = optimisationStrategyService;
+        this.progressTracker = progressTracker;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -76,6 +86,21 @@ public class ForecastCommandExecutor {
      * @return all saved evaluation entities produced by the run
      */
     public List<ForecastEvaluationEntity> execute(ForecastCommand command) {
+        return execute(command, null);
+    }
+
+    /**
+     * Executes a forecast command with a pre-created job run entity.
+     *
+     * <p>When {@code preCreatedJobRun} is non-null, it is used instead of creating a new one.
+     * This allows the controller to return the job run ID synchronously before execution starts.
+     *
+     * @param command           the command to execute
+     * @param preCreatedJobRun  a pre-created job run entity, or null to create one internally
+     * @return all saved evaluation entities produced by the run
+     */
+    public List<ForecastEvaluationEntity> execute(ForecastCommand command,
+            JobRunEntity preCreatedJobRun) {
         RunType runType = command.runType();
         EvaluationModel evaluationModel = commandFactory.resolveEvaluationModel(command);
         boolean isWildlife = command.strategy() instanceof NoOpEvaluationStrategy;
@@ -88,8 +113,10 @@ public class ForecastCommandExecutor {
                 ? null
                 : optimisationStrategyService.serialiseEnabledStrategies(runType);
 
-        JobRunEntity jobRun = jobRunService.startRun(runType, command.triggeredManually(),
-                evaluationModel, strategiesAudit);
+        JobRunEntity jobRun = preCreatedJobRun != null
+                ? preCreatedJobRun
+                : jobRunService.startRun(runType, command.triggeredManually(),
+                        evaluationModel, strategiesAudit);
 
         // Resolve locations — use command-provided or filter from all configured
         List<LocationEntity> locations = command.locations() != null
@@ -111,11 +138,16 @@ public class ForecastCommandExecutor {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
         // Build the list of tasks — one per location/date/targetType combination.
+        // Also collect task metadata for progress tracking.
         List<CompletableFuture<List<ForecastEvaluationEntity>>> futures = new ArrayList<>();
+        List<String[]> taskKeys = new ArrayList<>();
 
         for (LocationEntity location : locations) {
             for (LocalDate targetDate : dates) {
                 if (isWildlife) {
+                    String taskKey = location.getName() + "|" + targetDate + "|HOURLY";
+                    taskKeys.add(new String[]{taskKey, location.getName(),
+                            targetDate.toString(), "HOURLY"});
                     futures.add(CompletableFuture.supplyAsync(
                             () -> runForecast(location, targetDate, null,
                                     EvaluationModel.WILDLIFE, jobRun),
@@ -130,10 +162,21 @@ public class ForecastCommandExecutor {
                     }
 
                     for (TargetType targetType : applicableTypes) {
-                        if (!shouldSkipEvent(targetDate, targetType, location, today, now)
-                                && !optimisationSkipEvaluator.shouldSkip(
+                        String taskKey = location.getName() + "|" + targetDate + "|" + targetType;
+                        if (shouldSkipEvent(targetDate, targetType, location, today, now)
+                                || optimisationSkipEvaluator.shouldSkip(
                                         enabledStrategies, location,
                                         targetDate, targetType)) {
+                            // Publish SKIPPED event
+                            taskKeys.add(new String[]{taskKey, location.getName(),
+                                    targetDate.toString(), targetType.name()});
+                            eventPublisher.publishEvent(new LocationTaskEvent(
+                                    this, jobRun.getId(), taskKey, location.getName(),
+                                    targetDate.toString(), targetType.name(),
+                                    LocationTaskState.SKIPPED, null, null));
+                        } else {
+                            taskKeys.add(new String[]{taskKey, location.getName(),
+                                    targetDate.toString(), targetType.name()});
                             futures.add(CompletableFuture.supplyAsync(
                                     () -> runForecast(location, targetDate, targetType,
                                             evaluationModel, jobRun),
@@ -143,6 +186,9 @@ public class ForecastCommandExecutor {
                 }
             }
         }
+
+        // Initialise progress tracking
+        progressTracker.initRun(jobRun.getId(), taskKeys);
 
         // Collect results — join() blocks until each future completes.
         List<ForecastEvaluationEntity> results = new ArrayList<>();
@@ -163,6 +209,7 @@ public class ForecastCommandExecutor {
         }
 
         jobRunService.completeRun(jobRun, succeeded.get(), failed.get(), dates);
+        progressTracker.completeRun(jobRun.getId());
         LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
                 runType, evaluationModel, succeeded.get(), failed.get());
 

@@ -7,10 +7,13 @@ import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -72,6 +75,12 @@ class ForecastControllerTest {
     @MockitoBean
     private ForecastDtoMapper dtoMapper;
 
+    @MockitoBean
+    private JobRunService jobRunService;
+
+    @MockitoBean
+    private RunProgressTracker progressTracker;
+
     private static final LocationEntity DURHAM = LocationEntity.builder()
             .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
 
@@ -87,6 +96,10 @@ class ForecastControllerTest {
                 .thenReturn(new com.gregochr.goldenhour.service.ForecastCommand(
                         com.gregochr.goldenhour.entity.RunType.SHORT_TERM,
                         List.of(), null, null, true));
+        JobRunEntity stubJobRun = new JobRunEntity();
+        stubJobRun.setId(1L);
+        when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
+                .thenReturn(stubJobRun);
     }
 
     @Test

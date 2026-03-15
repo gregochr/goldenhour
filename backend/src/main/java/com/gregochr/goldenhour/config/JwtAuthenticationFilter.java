@@ -63,13 +63,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
 
-        String authHeader = request.getHeader(AUTHORIZATION_HEADER);
-        if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+        String token = extractToken(request);
+        if (token == null) {
             filterChain.doFilter(request, response);
             return;
         }
-
-        String token = authHeader.substring(BEARER_PREFIX.length());
         if (!jwtService.validateToken(token)) {
             filterChain.doFilter(request, response);
             return;
@@ -97,6 +95,40 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
      *
      * @param username the authenticated username
      */
+    /**
+     * Extracts the JWT token from the Authorization header, or from the {@code token}
+     * query parameter for SSE paths (EventSource API cannot set HTTP headers).
+     *
+     * @param request the HTTP request
+     * @return the JWT token string, or null if not present
+     */
+    private String extractToken(HttpServletRequest request) {
+        String authHeader = request.getHeader(AUTHORIZATION_HEADER);
+        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+            return authHeader.substring(BEARER_PREFIX.length());
+        }
+
+        // SSE paths: allow token as query parameter (EventSource cannot set headers)
+        String path = request.getRequestURI();
+        if (isSsePath(path)) {
+            return request.getParameter("token");
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns {@code true} if the request path is an SSE endpoint that supports
+     * query-param authentication.
+     *
+     * @param path the request URI
+     * @return true for SSE paths
+     */
+    private boolean isSsePath(String path) {
+        return path.matches("/api/forecast/run/\\d+/progress")
+                || path.equals("/api/forecast/run/notifications");
+    }
+
     private void updateLastActiveIfStale(String username) {
         try {
             userRepository.findByUsername(username).ifPresent(user -> {
