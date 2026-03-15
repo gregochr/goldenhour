@@ -11,6 +11,7 @@ import HealthIndicator from './components/HealthIndicator.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
+import { useRunNotifications } from './hooks/useRunNotifications.js';
 
 /**
  * Auth gate — renders {@link LoginPage} when no token is present,
@@ -64,9 +65,11 @@ function AuthGate() {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout, username, sessionDaysRemaining } = useAuth();
+  const { isAdmin, logout, username, sessionDaysRemaining, token } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const { status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt } = useHealthStatus();
+  const { lastCompletedRun } = useRunNotifications(token);
+  const [showRunBanner, setShowRunBanner] = useState(false);
   const [viewMode, setViewModeState] = useState(() => {
     const hash = window.location.hash.replace('#', '');
     if (hash === 'map') return 'map';
@@ -95,6 +98,14 @@ function AppInner() {
   const effectiveDate = (selectedDate && allDates.includes(selectedDate))
     ? selectedDate
     : defaultDate;
+
+  // Show banner when a run completes, auto-dismiss after 15 seconds
+  useEffect(() => {
+    if (!lastCompletedRun) return;
+    setShowRunBanner(true);
+    const timer = setTimeout(() => setShowRunBanner(false), 15000);
+    return () => clearTimeout(timer);
+  }, [lastCompletedRun]);
 
   const isDown = healthStatus === 'DOWN';
 
@@ -130,6 +141,28 @@ function AppInner() {
       </header>
 
       <SessionExpiryBanner />
+
+      {showRunBanner && lastCompletedRun && (
+        <div
+          className="bg-green-900/40 border-b border-green-700 px-4 py-3 text-center"
+          data-testid="run-complete-banner"
+        >
+          <p className="text-sm text-green-300">
+            Forecast run completed — {lastCompletedRun.completed} location{lastCompletedRun.completed !== 1 ? 's' : ''} updated
+            {lastCompletedRun.failed > 0 && `, ${lastCompletedRun.failed} failed`}.
+            {' '}
+            <button
+              className="underline font-medium hover:text-green-100"
+              onClick={() => {
+                refresh();
+                setShowRunBanner(false);
+              }}
+            >
+              Refresh
+            </button>
+          </p>
+        </div>
+      )}
 
       {isDown && (
         <div

@@ -1,37 +1,46 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
+import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.ForecastCommand;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * REST controller for forecast evaluation data.
@@ -53,6 +62,9 @@ public class ForecastController {
     private final ForecastCommandExecutor commandExecutor;
     private final ScheduledForecastService scheduledForecastService;
     private final ForecastDtoMapper dtoMapper;
+    private final JobRunService jobRunService;
+    private final RunProgressTracker progressTracker;
+    private final Executor forecastExecutor;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -63,18 +75,25 @@ public class ForecastController {
      * @param commandExecutor           executes forecast commands
      * @param scheduledForecastService  the scheduled forecast service (for tide refresh)
      * @param dtoMapper                 maps entities to role-aware DTOs
+     * @param jobRunService             the service for creating job run entities
+     * @param progressTracker           tracks live run progress for SSE broadcasting
+     * @param forecastExecutor          the executor used for async forecast runs
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService, ForecastCommandFactory commandFactory,
             ForecastCommandExecutor commandExecutor,
             ScheduledForecastService scheduledForecastService,
-            ForecastDtoMapper dtoMapper) {
+            ForecastDtoMapper dtoMapper, JobRunService jobRunService,
+            RunProgressTracker progressTracker, Executor forecastExecutor) {
         this.repository = repository;
         this.locationService = locationService;
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
         this.scheduledForecastService = scheduledForecastService;
         this.dtoMapper = dtoMapper;
+        this.jobRunService = jobRunService;
+        this.progressTracker = progressTracker;
+        this.forecastExecutor = forecastExecutor;
     }
 
     /**
@@ -156,7 +175,7 @@ public class ForecastController {
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> runForecast(
+    public ResponseEntity<Map<String, Object>> runForecast(
             @RequestBody(required = false) ForecastRunRequest request,
             @RequestParam(required = false) Integer maxDays,
             @RequestParam(required = false) Integer maxLocations) {
@@ -192,9 +211,10 @@ public class ForecastController {
                 maxDays, maxLocations);
 
         ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, locations, dates);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(Map.of("status", "Forecast run started", "runType", "SHORT_TERM"));
+                .body(buildRunResponse("Forecast run started", "SHORT_TERM", jobRun.getId()));
     }
 
     /**
@@ -206,12 +226,13 @@ public class ForecastController {
      */
     @PostMapping("/run/very-short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> runVeryShortTermForecast() {
+    public ResponseEntity<Map<String, Object>> runVeryShortTermForecast() {
         LOG.info("POST /api/forecast/run/very-short-term triggered by admin");
         ForecastCommand cmd = commandFactory.create(RunType.VERY_SHORT_TERM, true);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        JobRunEntity jobRun = jobRunService.startRun(RunType.VERY_SHORT_TERM, true, null, null);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(Map.of("status", "Forecast run started", "runType", "VERY_SHORT_TERM"));
+                .body(buildRunResponse("Forecast run started", "VERY_SHORT_TERM", jobRun.getId()));
     }
 
     /**
@@ -223,12 +244,13 @@ public class ForecastController {
      */
     @PostMapping("/run/short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> runShortTermForecast() {
+    public ResponseEntity<Map<String, Object>> runShortTermForecast() {
         LOG.info("POST /api/forecast/run/short-term triggered by admin");
         ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(Map.of("status", "Forecast run started", "runType", "SHORT_TERM"));
+                .body(buildRunResponse("Forecast run started", "SHORT_TERM", jobRun.getId()));
     }
 
     /**
@@ -240,12 +262,13 @@ public class ForecastController {
      */
     @PostMapping("/run/long-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> runLongTermForecast() {
+    public ResponseEntity<Map<String, Object>> runLongTermForecast() {
         LOG.info("POST /api/forecast/run/long-term triggered by admin");
         ForecastCommand cmd = commandFactory.create(RunType.LONG_TERM, true);
-        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd));
+        JobRunEntity jobRun = jobRunService.startRun(RunType.LONG_TERM, true, null, null);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
-                .body(Map.of("status", "Forecast run started", "runType", "LONG_TERM"));
+                .body(buildRunResponse("Forecast run started", "LONG_TERM", jobRun.getId()));
     }
 
     /**
@@ -308,6 +331,76 @@ public class ForecastController {
         var entities = repository.findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
                 loc.getId(), date, targetType);
         return dtoMapper.toDtoList(entities, isLiteUser(auth));
+    }
+
+    /**
+     * SSE endpoint streaming live progress for a specific forecast run. ADMIN only.
+     *
+     * @param runId the job run ID
+     * @return an SSE emitter streaming task-update, run-summary, and run-complete events
+     */
+    @GetMapping(value = "/run/{runId}/progress", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public SseEmitter getRunProgress(@PathVariable long runId) {
+        return progressTracker.subscribe(runId);
+    }
+
+    /**
+     * SSE endpoint for run-complete notifications. Any authenticated user can subscribe.
+     * Fires a single event per completed run (lightweight, no per-location detail).
+     *
+     * @return an SSE emitter streaming run-complete events
+     */
+    @GetMapping(value = "/run/notifications", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter getRunNotifications() {
+        return progressTracker.subscribeNotifications();
+    }
+
+    /**
+     * Retries failed tasks from a previous run. ADMIN only.
+     *
+     * @param runId the job run ID whose failed tasks to retry
+     * @return 202 Accepted with new job run ID, or 404 if the run is not found or has no failures
+     */
+    @PostMapping("/run/{runId}/retry-failed")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> retryFailed(@PathVariable long runId) {
+        RunProgress progress = progressTracker.getProgress(runId);
+        if (progress == null || progress.getFailedTasks().isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        var failedTasks = progress.getFailedTasks();
+        List<String> locationNames = failedTasks.stream()
+                .map(t -> t.locationName())
+                .distinct()
+                .toList();
+
+        List<LocationEntity> locations = locationService.findAllEnabled().stream()
+                .filter(loc -> locationNames.contains(loc.getName()))
+                .toList();
+
+        List<LocalDate> dates = failedTasks.stream()
+                .map(t -> LocalDate.parse(t.targetDate()))
+                .distinct()
+                .toList();
+
+        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, locations, dates);
+        JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
+        CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
+
+        LOG.info("POST /api/forecast/run/{}/retry-failed — retrying {} failed tasks",
+                runId, failedTasks.size());
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(buildRunResponse("Retry run started", "SHORT_TERM", jobRun.getId()));
+    }
+
+    private Map<String, Object> buildRunResponse(String status, String runType, Long jobRunId) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", status);
+        response.put("runType", runType);
+        response.put("jobRunId", jobRunId);
+        return response;
     }
 
     private boolean isLiteUser(Authentication auth) {

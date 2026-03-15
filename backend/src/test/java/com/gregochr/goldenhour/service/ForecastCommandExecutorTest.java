@@ -63,6 +63,12 @@ class ForecastCommandExecutorTest {
     private OptimisationStrategyService optimisationStrategyService;
 
     @Mock
+    private RunProgressTracker progressTracker;
+
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
+    @Mock
     private EvaluationStrategy haikuStrategy;
 
     private NoOpEvaluationStrategy noOpStrategy;
@@ -109,11 +115,18 @@ class ForecastCommandExecutorTest {
         lenient().when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
         lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
 
+        // Return a stub job run entity from startRun()
+        com.gregochr.goldenhour.entity.JobRunEntity stubJobRun =
+                new com.gregochr.goldenhour.entity.JobRunEntity();
+        stubJobRun.setId(1L);
+        lenient().when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
+                .thenReturn(stubJobRun);
+
         // Use synchronous executor
         executor = new ForecastCommandExecutor(
                 forecastService, locationService, jobRunService, solarService,
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
-                optimisationStrategyService);
+                optimisationStrategyService, progressTracker, eventPublisher);
     }
 
     @Test

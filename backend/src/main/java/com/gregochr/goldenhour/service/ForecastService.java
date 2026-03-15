@@ -9,6 +9,8 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastRequest;
+import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
@@ -16,6 +18,7 @@ import com.gregochr.goldenhour.service.notification.MacOsToastNotificationServic
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.resilience.annotation.ConcurrencyLimit;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +51,7 @@ public class ForecastService {
     private final EmailNotificationService emailService;
     private final PushoverNotificationService pushoverService;
     private final MacOsToastNotificationService toastService;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -60,11 +64,13 @@ public class ForecastService {
      * @param emailService      email notification channel
      * @param pushoverService   Pushover notification channel
      * @param toastService      macOS toast notification channel
+     * @param eventPublisher    publishes location task state transition events
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
-            PushoverNotificationService pushoverService, MacOsToastNotificationService toastService) {
+            PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
+            ApplicationEventPublisher eventPublisher) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -73,6 +79,7 @@ public class ForecastService {
         this.emailService = emailService;
         this.pushoverService = pushoverService;
         this.toastService = toastService;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -111,6 +118,9 @@ public class ForecastService {
                 : List.of(TargetType.SUNRISE, TargetType.SUNSET);
 
         for (TargetType type : types) {
+            String taskKey = locationName + "|" + date + "|" + type;
+            Long runId = jobRun != null ? jobRun.getId() : null;
+
             LocalDateTime eventTime = type == TargetType.SUNRISE
                     ? solarService.sunriseUtc(lat, lon, date)
                     : solarService.sunsetUtc(lat, lon, date);
@@ -118,12 +128,16 @@ public class ForecastService {
             ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, type);
 
             // Fetch weather data with explicit error handling
+            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                    LocationTaskState.FETCHING_WEATHER);
             AtmosphericData baseData;
             try {
                 baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
             } catch (Exception e) {
                 String msg = "Weather data fetch failed for " + locationName + " " + type + ": " + e.getMessage();
                 LOG.error(msg);
+                publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                        LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
                 throw new WeatherDataFetchException(msg, locationName, type.name(), e);
             }
 
@@ -131,6 +145,8 @@ public class ForecastService {
             if (baseData == null) {
                 String msg = "Weather service returned null for " + locationName + " " + type;
                 LOG.error(msg);
+                publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                        LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
                 throw new WeatherDataFetchException(msg, locationName, type.name(), null);
             }
 
@@ -138,14 +154,21 @@ public class ForecastService {
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
+            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                    LocationTaskState.FETCHING_CLOUD);
             AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
                     baseData, lat, lon, azimuth, eventTime, jobRun);
             AtmosphericData withApproach = augmentor.augmentWithCloudApproach(
                     withDirectional, lat, lon, azimuth, eventTime,
                     LocalDateTime.now(ZoneOffset.UTC), jobRun);
+
+            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                    LocationTaskState.FETCHING_TIDES);
             AtmosphericData forecastData = augmentor.augmentWithTideData(
                     withApproach, locationId, eventTime, tideTypes);
 
+            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                    LocationTaskState.EVALUATING);
             SunsetEvaluation evaluation = evaluationService.evaluate(forecastData, model, jobRun);
 
             ForecastEvaluationEntity entity = buildEntity(
@@ -153,6 +176,8 @@ public class ForecastService {
                     forecastData, evaluation, model);
 
             results.add(repository.save(entity));
+            publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
+                    LocationTaskState.COMPLETE);
             if (evaluation.rating() != null) {
                 LOG.info("Forecast saved: {} {} {} (T+{}) [{}] — rating={}/5",
                         locationName, type, date, daysAhead, model, evaluation.rating());
@@ -234,6 +259,22 @@ public class ForecastService {
      * @param model      which Claude model produced the evaluation
      * @return the unsaved entity
      */
+    private void publishEvent(Long runId, String taskKey, String locationName,
+            String targetDate, String targetType, LocationTaskState state) {
+        publishEvent(runId, taskKey, locationName, targetDate, targetType, state, null, null);
+    }
+
+    private void publishEvent(Long runId, String taskKey, String locationName,
+            String targetDate, String targetType, LocationTaskState state,
+            String errorMessage, String failedStep) {
+        if (runId == null) {
+            return;
+        }
+        eventPublisher.publishEvent(new LocationTaskEvent(
+                this, runId, taskKey, locationName, targetDate, targetType,
+                state, errorMessage, failedStep));
+    }
+
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {

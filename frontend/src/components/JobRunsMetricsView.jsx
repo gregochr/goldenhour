@@ -5,6 +5,7 @@ import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, re
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
+import RunProgressPanel from './RunProgressPanel';
 
 /** Returns true if the location has LANDSCAPE, SEASCAPE, or WATERFALL (or no types — defaults to colour). */
 function hasColourTypes(loc) {
@@ -96,7 +97,7 @@ LocationSummary.propTypes = {
  * - Per-run API call details
  */
 const JobRunsMetricsView = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, token } = useAuth();
   const [runs, setRuns] = useState([]);
   const [allApiCalls, setAllApiCalls] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -112,6 +113,7 @@ const JobRunsMetricsView = () => {
   const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
+  const [activeRunId, setActiveRunId] = useState(null);
   const PAGE_SIZE = 20;
 
   // Load locations once for run summaries
@@ -179,7 +181,9 @@ const JobRunsMetricsView = () => {
         try {
           const result = await runFn();
           setRunStatus({ type: 'success', message: result.status || 'Run started.' });
-          setTimeout(() => loadJobRuns(0), 3000);
+          if (result.jobRunId) {
+            setActiveRunId(result.jobRunId);
+          }
         } catch {
           setRunStatus({ type: 'error', message: `${title} failed. Check the logs.` });
         } finally {
@@ -247,7 +251,6 @@ const JobRunsMetricsView = () => {
         try {
           const result = await backfillTideData();
           setRunStatus({ type: 'success', message: result.status || 'Backfill started.' });
-          setTimeout(() => loadJobRuns(0), 5000);
         } catch {
           setRunStatus({ type: 'error', message: 'Tide backfill failed. Check the logs.' });
         } finally {
@@ -317,6 +320,18 @@ const JobRunsMetricsView = () => {
             </p>
           )}
         </div>
+      )}
+
+      {/* Live run progress */}
+      {activeRunId && token && (
+        <RunProgressPanel
+          jobRunId={activeRunId}
+          token={token}
+          onComplete={() => {
+            setActiveRunId(null);
+            loadJobRuns(0);
+          }}
+        />
       )}
 
       {error && (
