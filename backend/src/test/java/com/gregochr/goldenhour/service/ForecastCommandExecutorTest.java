@@ -398,8 +398,16 @@ class ForecastCommandExecutorTest {
     // Sentinel sampling
     // -------------------------------------------------------------------------
 
+    private OptimisationStrategyEntity sentinelStrategy(int threshold) {
+        OptimisationStrategyEntity entity = new OptimisationStrategyEntity();
+        entity.setStrategyType(OptimisationStrategyType.SENTINEL_SAMPLING);
+        entity.setEnabled(true);
+        entity.setParamValue(threshold);
+        return entity;
+    }
+
     @Test
-    @DisplayName("Sentinel early-stop skips remainder when all sentinels rate ≤2")
+    @DisplayName("Sentinel early-stop skips remainder when all sentinels rate ≤ threshold")
     void execute_sentinelEarlyStop_skipsRemainder() {
         RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
         LocationEntity sentinel = LocationEntity.builder()
@@ -411,14 +419,16 @@ class ForecastCommandExecutorTest {
                 .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .region(northRegion).build();
 
-        // Sentinel selector picks only sentinel
+        // Enable SENTINEL_SAMPLING strategy with threshold 2
+        when(optimisationStrategyService.getEnabledStrategies(any()))
+                .thenReturn(List.of(sentinelStrategy(2)));
+
         when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(sentinel));
 
         // Sentinel evaluation returns rating 2 (≤ threshold)
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(2).build());
 
-        // persistCannedResult for non-sentinel
         when(forecastService.persistCannedResult(any(), any(String.class), any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(2L).rating(1).build());
 
@@ -428,13 +438,12 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
-        // persistCannedResult should be called for non-sentinel tasks (2 target types)
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
                 .persistCannedResult(any(), any(String.class), any());
     }
 
     @Test
-    @DisplayName("Sentinel passes when any sentinel rates >2, remainder goes to full eval")
+    @DisplayName("Sentinel passes when any sentinel rates above threshold, remainder evaluated")
     void execute_sentinelPasses_remainderEvaluated() {
         RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
         LocationEntity sentinel = LocationEntity.builder()
@@ -446,6 +455,8 @@ class ForecastCommandExecutorTest {
                 .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
                 .region(northRegion).build();
 
+        when(optimisationStrategyService.getEnabledStrategies(any()))
+                .thenReturn(List.of(sentinelStrategy(2)));
         when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(sentinel));
 
         // Sentinel returns rating 4 (> threshold)
@@ -458,24 +469,91 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
-        // persistCannedResult should NOT be called — remainder goes to full eval
         verify(forecastService, never()).persistCannedResult(any(), any(String.class), any());
     }
 
     @Test
     @DisplayName("Null-region locations bypass sentinel logic and go directly to full eval")
     void execute_nullRegion_bypassesSentinel() {
-        // Durham has no region — should bypass sentinel logic
+        when(optimisationStrategyService.getEnabledStrategies(any()))
+                .thenReturn(List.of(sentinelStrategy(2)));
+
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
 
         executor.execute(cmd);
 
-        // sentinelSelector should not be called for null-region locations
         verify(sentinelSelector, never()).selectSentinels(any());
-        // But evaluateAndPersist should be called (full eval path)
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
                 .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+    }
+
+    @Test
+    @DisplayName("Sentinel disabled — all survivors go directly to full evaluation, no sentinel calls")
+    void execute_sentinelDisabled_allGoToFullEval() {
+        RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(10L).name("Loc A").lat(55.0).lon(-1.0)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(11L).name("Loc B").lat(54.0).lon(-1.5)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+
+        // No SENTINEL_SAMPLING in enabled strategies
+        when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
+
+        when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
+                .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(loc1, loc2), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // Sentinel selector should never be called
+        verify(sentinelSelector, never()).selectSentinels(any());
+        // All 4 tasks (2 locations × 2 target types) should go to evaluateAndPersist
+        verify(forecastService, times(4))
+                .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+        verify(forecastService, never()).persistCannedResult(any(), any(String.class), any());
+    }
+
+    @Test
+    @DisplayName("Sentinel with custom threshold 3 — skips when all sentinels rate ≤3")
+    void execute_sentinelCustomThreshold_usesParamValue() {
+        RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
+        LocationEntity sentinel = LocationEntity.builder()
+                .id(10L).name("Sentinel Loc").lat(55.0).lon(-1.0)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+        LocationEntity nonSentinel = LocationEntity.builder()
+                .id(11L).name("Non-Sentinel Loc").lat(54.0).lon(-1.5)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .region(northRegion).build();
+
+        // Custom threshold 3 — sentinels rating 3 should trigger skip
+        when(optimisationStrategyService.getEnabledStrategies(any()))
+                .thenReturn(List.of(sentinelStrategy(3)));
+        when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(sentinel));
+
+        // Sentinel returns rating 3 (≤ threshold 3)
+        when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), any()))
+                .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
+        when(forecastService.persistCannedResult(any(), any(String.class), any()))
+                .thenReturn(ForecastEvaluationEntity.builder().id(2L).rating(1).build());
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(sentinel, nonSentinel), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // Non-sentinel tasks should be skipped (rating 3 ≤ threshold 3)
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .persistCannedResult(any(), any(String.class), any());
     }
 }

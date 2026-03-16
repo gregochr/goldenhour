@@ -81,15 +81,24 @@ const STRATEGY_INFO = {
     label: 'Next Event Only',
     description: 'Only evaluate the single nearest upcoming solar event per location. Skips all other sunrise/sunset slots. Ideal for a last-minute check before heading out.',
   },
+  SENTINEL_SAMPLING: {
+    label: 'Sentinel Sampling',
+    description: 'Evaluate a handful of geographic sentinel locations per region first. If all sentinels rate at or below the threshold, skip the rest of that region with canned results. Saves cost when conditions are uniformly poor across a region.',
+    hasParam: true,
+    paramLabel: 'Max skip rating',
+    paramMin: 1,
+    paramMax: 5,
+  },
 };
 
 const CONFLICTS = {
-  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING', 'NEXT_EVENT_ONLY'],
+  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING', 'NEXT_EVENT_ONLY', 'SENTINEL_SAMPLING'],
   SKIP_LOW_RATED: ['SKIP_EXISTING', 'EVALUATE_ALL'],
   SKIP_EXISTING: ['SKIP_LOW_RATED', 'EVALUATE_ALL'],
   FORCE_IMMINENT: [],
   FORCE_STALE: [],
   NEXT_EVENT_ONLY: ['EVALUATE_ALL'],
+  SENTINEL_SAMPLING: ['EVALUATE_ALL'],
 };
 
 /**
