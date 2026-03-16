@@ -85,7 +85,7 @@ const STRATEGY_INFO = {
     label: 'Sentinel Sampling',
     description: 'Evaluate a handful of geographic sentinel locations per region first. If all sentinels rate at or below the threshold, skip the rest of that region with canned results. Saves cost when conditions are uniformly poor across a region.',
     hasParam: true,
-    paramLabel: 'Max skip rating',
+    paramLabel: 'Max skip threshold',
     paramMin: 1,
     paramMax: 5,
   },

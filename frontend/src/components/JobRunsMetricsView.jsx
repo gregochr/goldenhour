@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
@@ -114,6 +114,7 @@ const JobRunsMetricsView = () => {
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
   const [activeRunId, setActiveRunId] = useState(null);
+  const [dateRange, setDateRange] = useState('7d');
   const PAGE_SIZE = 20;
 
   // Load locations once for run summaries
@@ -260,6 +261,17 @@ const JobRunsMetricsView = () => {
     });
   };
 
+  const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []);
+  const dateFilteredRuns = useMemo(() => {
+    if (!runs || runs.length === 0) return [];
+    if (dateRange === 'today') {
+      return runs.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
+    }
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    return runs.filter((r) => r.startedAt && new Date(r.startedAt) >= cutoff);
+  }, [runs, dateRange, todayStr]);
+
   return (
     <div className="space-y-6">
       {isAdmin && (
@@ -341,7 +353,7 @@ const JobRunsMetricsView = () => {
       )}
 
       {/* Summary cards */}
-      <MetricsSummary runs={runs} apiCalls={allApiCalls} />
+      <MetricsSummary runs={runs} apiCalls={allApiCalls} range={dateRange} onRangeChange={setDateRange} />
 
       {/* Run type filter */}
       <div className="card">
@@ -362,9 +374,9 @@ const JobRunsMetricsView = () => {
         </select>
       </div>
 
-      {/* Job runs grid */}
+      {/* Job runs grid — filtered by the same date range as the summary */}
       <JobRunsGrid
-        runs={runs}
+        runs={dateFilteredRuns}
         onLoadMore={handleLoadMore}
         hasMore={hasMore}
         loading={loading}

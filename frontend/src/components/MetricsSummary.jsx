@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { formatCostUsd } from '../utils/formatCost';
 
@@ -14,8 +14,7 @@ import { formatCostUsd } from '../utils/formatCost';
  *
  * Toggle between "Today" and "Last 7 Days" to filter the data.
  */
-const MetricsSummary = ({ runs, apiCalls }) => {
-  const [range, setRange] = useState('7d');
+const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
 
   const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []);
 
@@ -114,7 +113,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
         <span className="text-sm text-plex-text-secondary">Show:</span>
         <div className="flex gap-1 bg-plex-surface-light rounded-lg p-0.5">
           <button
-            onClick={() => setRange('today')}
+            onClick={() => onRangeChange('today')}
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
               range === 'today'
                 ? 'bg-plex-gold text-gray-900'
@@ -125,7 +124,7 @@ const MetricsSummary = ({ runs, apiCalls }) => {
             Today
           </button>
           <button
-            onClick={() => setRange('7d')}
+            onClick={() => onRangeChange('7d')}
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
               range === '7d'
                 ? 'bg-plex-gold text-gray-900'
@@ -244,6 +243,8 @@ MetricsSummary.propTypes = {
       durationMs: PropTypes.number,
     })
   ),
+  range: PropTypes.oneOf(['today', '7d']).isRequired,
+  onRangeChange: PropTypes.func.isRequired,
 };
 
 export default MetricsSummary;

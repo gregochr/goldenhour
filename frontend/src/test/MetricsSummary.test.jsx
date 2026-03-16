@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import MetricsSummary from '../components/MetricsSummary.jsx';
 
@@ -53,30 +53,29 @@ const MOCK_API_CALLS = [
   { id: 4, jobRunId: 3, service: 'ANTHROPIC', durationMs: 1500 },
 ];
 
+const noop = () => {};
+
 describe('MetricsSummary', () => {
   it('shows empty message when no runs', () => {
-    render(<MetricsSummary runs={[]} apiCalls={[]} />);
+    render(<MetricsSummary runs={[]} apiCalls={[]} range="7d" onRangeChange={noop} />);
     expect(screen.getByText('No job runs available')).toBeInTheDocument();
   });
 
-  it('defaults to Last 7 Days view', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
-    // Last 7 Days should be active (gold background)
+  it('defaults to Last 7 Days view when range is 7d', () => {
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="7d" onRangeChange={noop} />);
     expect(screen.getByTestId('summary-range-7d')).toHaveClass('bg-plex-gold');
   });
 
   it('filters out runs older than 7 days in default view', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="7d" onRangeChange={noop} />);
     // Run 3 is 8 days old, so only runs 1 and 2 count
     expect(screen.getByText('2')).toBeInTheDocument(); // total runs
     // 100 + 200 = 300 succeeded, 5 + 10 = 15 failed
     expect(screen.getByText(/300 succeeded, 15 failed/)).toBeInTheDocument();
   });
 
-  it('switching to Today shows only today runs', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
-    fireEvent.click(screen.getByTestId('summary-range-today'));
-
+  it('shows only today runs when range is today', () => {
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="today" onRangeChange={noop} />);
     // Only run 1 is today
     expect(screen.getByText('100 succeeded, 5 failed')).toBeInTheDocument();
   });
@@ -86,34 +85,29 @@ describe('MetricsSummary', () => {
       ...r,
       startedAt: `${yesterdayStr}T12:00:00Z`,
     }));
-    render(<MetricsSummary runs={oldRuns} apiCalls={MOCK_API_CALLS} />);
-    fireEvent.click(screen.getByTestId('summary-range-today'));
-
+    render(<MetricsSummary runs={oldRuns} apiCalls={MOCK_API_CALLS} range="today" onRangeChange={noop} />);
     expect(screen.getByText('No job runs today')).toBeInTheDocument();
   });
 
   it('shows runs grouped by type', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="7d" onRangeChange={noop} />);
     // In 7-day view: run 1 = SHORT_TERM, run 2 = LONG_TERM
     expect(screen.getByText('SHORT_TERM: 1')).toBeInTheDocument();
     expect(screen.getByText('LONG_TERM: 1')).toBeInTheDocument();
   });
 
   it('shows slowest service from filtered API calls', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
-    // In 7-day view: ANTHROPIC calls from runs 1 and 2 (2000ms, 3000ms avg=2500ms)
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="7d" onRangeChange={noop} />);
     expect(screen.getByText('ANTHROPIC')).toBeInTheDocument();
   });
 
   it('shows cost in GBP with USD below', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
-    // Should show GBP cost (primary) and USD (secondary)
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="7d" onRangeChange={noop} />);
     expect(screen.getByText(/\$/)).toBeInTheDocument();
     expect(screen.getByText(/£/)).toBeInTheDocument();
   });
 
   it('combines micro-dollar and legacy pence costs', () => {
-    // Run 1 has micro-dollars, run 2 has only legacy pence
     const mixedRuns = [
       {
         id: 1, runType: 'SHORT_TERM',
@@ -130,23 +124,23 @@ describe('MetricsSummary', () => {
         exchangeRateGbpPerUsd: null,
       },
     ];
-    render(<MetricsSummary runs={mixedRuns} apiCalls={[]} />);
-    // micro-dollars: 100000µ$ × 0.80 = £0.08, legacy: 5000/1000 = £5.00
-    // combined = £5.08
+    render(<MetricsSummary runs={mixedRuns} apiCalls={[]} range="7d" onRangeChange={noop} />);
     expect(screen.getByText('£5.08')).toBeInTheDocument();
     expect(screen.getByText(/Token-based \+ legacy/)).toBeInTheDocument();
     expect(screen.getByText(/token-based only/)).toBeInTheDocument();
   });
 
-  it('toggles between Today and 7 Days', () => {
-    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} />);
-
-    // Switch to today
+  it('calls onRangeChange when clicking Today', () => {
+    const onRangeChange = vi.fn();
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="7d" onRangeChange={onRangeChange} />);
     fireEvent.click(screen.getByTestId('summary-range-today'));
-    expect(screen.getByTestId('summary-range-today')).toHaveClass('bg-plex-gold');
+    expect(onRangeChange).toHaveBeenCalledWith('today');
+  });
 
-    // Switch back to 7d
+  it('calls onRangeChange when clicking Last 7 Days', () => {
+    const onRangeChange = vi.fn();
+    render(<MetricsSummary runs={MOCK_RUNS} apiCalls={MOCK_API_CALLS} range="today" onRangeChange={onRangeChange} />);
     fireEvent.click(screen.getByTestId('summary-range-7d'));
-    expect(screen.getByTestId('summary-range-7d')).toHaveClass('bg-plex-gold');
+    expect(onRangeChange).toHaveBeenCalledWith('7d');
   });
 });
