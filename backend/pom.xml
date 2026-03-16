@@ -223,11 +223,12 @@
         </dependency>
 
         <!-- H2 - used in tests (@DataJpaTest) and local dev profile (H2 file DB).
-             runtime scope makes it available for both test execution and spring-boot:run. -->
+             test scope makes it available for test execution and spring-boot:run (via Maven),
+             but excludes it from the production Docker image (which uses PostgreSQL). -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
 
     </dependencies>
@@ -368,6 +369,8 @@
                                 <exclude>com/gregochr/goldenhour/model/EvaluationResponse.class</exclude>
                                 <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
                                 <exclude>com/gregochr/goldenhour/config/WorldTidesProperties.class</exclude>
+                                <!-- SSE progress tracker — async/reactive plumbing, hard to unit test -->
+                                <exclude>com/gregochr/goldenhour/service/RunProgressTracker.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

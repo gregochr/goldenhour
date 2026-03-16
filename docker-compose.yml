@@ -1,4 +1,22 @@
 services:
+  goldenhour-db:
+    image: postgres:17-alpine
+    container_name: goldenhour-db
+    environment:
+      POSTGRES_DB: goldenhour
+      POSTGRES_USER: goldenhour
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - /Users/gregochr/goldenhour-data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U goldenhour"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   goldenhour-frontend:
     build:
       context: ./frontend
@@ -25,12 +43,13 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      SPRING_DATASOURCE_URL: jdbc:h2:file:/data/goldenhour
-      SPRING_DATASOURCE_USERNAME: sa
-      SPRING_DATASOURCE_PASSWORD: ""
+      SPRING_DATASOURCE_URL: jdbc:postgresql://goldenhour-db:5432/goldenhour
+      SPRING_DATASOURCE_USERNAME: goldenhour
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_PROFILES_ACTIVE: prod
-    volumes:
-      - /Users/gregochr/goldenhour-data:/data
+    depends_on:
+      goldenhour-db:
+        condition: service_healthy
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]

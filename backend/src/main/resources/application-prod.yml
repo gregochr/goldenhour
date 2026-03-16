@@ -3,20 +3,15 @@ spring:
     virtual:
       enabled: true
   datasource:
-    url: jdbc:h2:file:/data/goldenhour
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:postgresql://goldenhour-db:5432/goldenhour
+    username: goldenhour
+    password: ${POSTGRES_PASSWORD}
 
   jpa:
     hibernate:
       # Production: validate only, never auto-migrate. Flyway handles all migrations.
       ddl-auto: validate
     show-sql: false
-
-  h2:
-    console:
-      enabled: false
 
   flyway:
     enabled: true

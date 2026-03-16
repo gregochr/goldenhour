@@ -1,7 +1,7 @@
 -- V39: Determinism re-run support — atmospheric data storage and run lineage
 
 -- Store atmospheric data as JSON for exact replay
-ALTER TABLE model_test_result ADD COLUMN atmospheric_data_json CLOB;
+ALTER TABLE model_test_result ADD COLUMN atmospheric_data_json TEXT;
 
 -- Run lineage tracking
 ALTER TABLE model_test_run ADD COLUMN parent_run_id BIGINT;
@@ -22,8 +22,8 @@ ALTER TABLE model_test_result ADD COLUMN weather_code INT;
 ALTER TABLE model_test_result ADD COLUMN pm25 DECIMAL(6,2);
 ALTER TABLE model_test_result ADD COLUMN dust_ugm3 DECIMAL(6,2);
 ALTER TABLE model_test_result ADD COLUMN aerosol_optical_depth DECIMAL(5,3);
-ALTER TABLE model_test_result ADD COLUMN temperature_celsius DOUBLE;
-ALTER TABLE model_test_result ADD COLUMN apparent_temperature_celsius DOUBLE;
+ALTER TABLE model_test_result ADD COLUMN temperature_celsius DOUBLE PRECISION;
+ALTER TABLE model_test_result ADD COLUMN apparent_temperature_celsius DOUBLE PRECISION;
 ALTER TABLE model_test_result ADD COLUMN precipitation_probability INT;
 ALTER TABLE model_test_result ADD COLUMN tide_state VARCHAR(20);
 ALTER TABLE model_test_result ADD COLUMN tide_aligned BOOLEAN;
