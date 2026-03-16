@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
+import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -49,7 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ForecastCommandExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastCommandExecutor.class);
-    private static final int SENTINEL_RATING_THRESHOLD = 2;
+    private static final int DEFAULT_SENTINEL_RATING_THRESHOLD = 2;
 
     private final ForecastService forecastService;
     private final LocationService locationService;
@@ -231,12 +232,25 @@ public class ForecastCommandExecutor {
             return results;
         }
 
-        // Phase 2: SENTINEL_SAMPLING
-        progressTracker.setPhase(jobRun.getId(), RunPhase.SENTINEL_SAMPLING);
-        List<ForecastPreEvalResult> fullEvalBatch = runSentinelPhase(survivors, jobRun,
-                succeeded, failed, results);
-        LOG.info("Sentinel phase complete — {} tasks remaining for full evaluation",
-                fullEvalBatch.size());
+        // Phase 2: SENTINEL_SAMPLING (only if strategy is enabled)
+        OptimisationStrategyEntity sentinelStrategy = enabledStrategies.stream()
+                .filter(s -> s.getStrategyType() == OptimisationStrategyType.SENTINEL_SAMPLING)
+                .findFirst().orElse(null);
+
+        List<ForecastPreEvalResult> fullEvalBatch;
+        if (sentinelStrategy != null) {
+            int threshold = sentinelStrategy.getParamValue() != null
+                    ? sentinelStrategy.getParamValue() : DEFAULT_SENTINEL_RATING_THRESHOLD;
+            progressTracker.setPhase(jobRun.getId(), RunPhase.SENTINEL_SAMPLING);
+            fullEvalBatch = runSentinelPhase(survivors, jobRun,
+                    succeeded, failed, results, threshold);
+            LOG.info("Sentinel phase complete — {} tasks remaining for full evaluation",
+                    fullEvalBatch.size());
+        } else {
+            fullEvalBatch = survivors;
+            LOG.info("Sentinel sampling disabled — {} tasks go directly to full evaluation",
+                    fullEvalBatch.size());
+        }
 
         if (fullEvalBatch.isEmpty()) {
             RunPhase finalPhase = survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE;
@@ -302,7 +316,7 @@ public class ForecastCommandExecutor {
      */
     private List<ForecastPreEvalResult> runSentinelPhase(List<ForecastPreEvalResult> survivors,
             JobRunEntity jobRun, AtomicInteger succeeded, AtomicInteger failed,
-            List<ForecastEvaluationEntity> results) {
+            List<ForecastEvaluationEntity> results, int ratingThreshold) {
 
         // Group by region (null region key = "no-region")
         Map<Long, List<ForecastPreEvalResult>> byRegion = new LinkedHashMap<>();
@@ -353,7 +367,7 @@ public class ForecastCommandExecutor {
                             sentinel, jobRun);
                     results.add(entity);
                     succeeded.incrementAndGet();
-                    if (entity.getRating() != null && entity.getRating() > SENTINEL_RATING_THRESHOLD) {
+                    if (entity.getRating() != null && entity.getRating() > ratingThreshold) {
                         allSentinelsLow = false;
                     }
                 } catch (Exception e) {
@@ -368,7 +382,7 @@ public class ForecastCommandExecutor {
             if (allSentinelsLow && !sentinelTasks.isEmpty()) {
                 // Skip remainder — persist canned entities
                 String reason = "Region sentinel sampling — all sentinels rated "
-                        + SENTINEL_RATING_THRESHOLD + " or below";
+                        + ratingThreshold + " or below";
                 for (ForecastPreEvalResult task : remainderTasks) {
                     try {
                         ForecastEvaluationEntity entity = forecastService.persistCannedResult(

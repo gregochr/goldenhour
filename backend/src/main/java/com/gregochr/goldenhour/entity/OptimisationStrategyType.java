@@ -27,5 +27,9 @@ public enum OptimisationStrategyType {
     NEXT_EVENT_ONLY,
 
     /** Submit evaluations via Anthropic Batch API (50% savings, async). Phase 2. */
-    BATCH_API
+    BATCH_API,
+
+    /** Enable sentinel sampling — evaluate geographic representatives per region first;
+     *  skip remainder if all sentinels rate at or below the configured threshold (default 2). */
+    SENTINEL_SAMPLING
 }

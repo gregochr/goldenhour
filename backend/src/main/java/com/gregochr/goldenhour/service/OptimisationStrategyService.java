@@ -59,12 +59,13 @@ public class OptimisationStrategyService {
                 OptimisationStrategyType.FORCE_IMMINENT,
                 OptimisationStrategyType.FORCE_STALE,
                 OptimisationStrategyType.EVALUATE_ALL,
-                OptimisationStrategyType.NEXT_EVENT_ONLY
+                OptimisationStrategyType.NEXT_EVENT_ONLY,
+                OptimisationStrategyType.SENTINEL_SAMPLING
         };
         for (RunType rt : FORECAST_RUN_TYPES) {
             for (OptimisationStrategyType st : uiTypes) {
                 boolean enabled = isDefaultEnabled(rt, st);
-                Integer param = (st == OptimisationStrategyType.SKIP_LOW_RATED) ? 3 : null;
+                Integer param = defaultParamValue(st);
                 repository.save(OptimisationStrategyEntity.builder()
                         .runType(rt).strategyType(st)
                         .enabled(enabled).paramValue(param)
@@ -74,6 +75,9 @@ public class OptimisationStrategyService {
     }
 
     private static boolean isDefaultEnabled(RunType rt, OptimisationStrategyType st) {
+        if (st == OptimisationStrategyType.SENTINEL_SAMPLING) {
+            return true; // enabled by default for all run types
+        }
         if (rt == RunType.VERY_SHORT_TERM) {
             return st == OptimisationStrategyType.SKIP_LOW_RATED;
         }
@@ -81,6 +85,14 @@ public class OptimisationStrategyService {
             return st == OptimisationStrategyType.SKIP_EXISTING;
         }
         return false;
+    }
+
+    private static Integer defaultParamValue(OptimisationStrategyType st) {
+        return switch (st) {
+            case SKIP_LOW_RATED -> 3;
+            case SENTINEL_SAMPLING -> 2;
+            default -> null;
+        };
     }
 
     /**
@@ -183,10 +195,12 @@ public class OptimisationStrategyService {
             case EVALUATE_ALL -> {
                 if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)
                         || activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)
-                        || activeTypes.contains(OptimisationStrategyType.NEXT_EVENT_ONLY)) {
+                        || activeTypes.contains(OptimisationStrategyType.NEXT_EVENT_ONLY)
+                        || activeTypes.contains(OptimisationStrategyType.SENTINEL_SAMPLING)) {
                     throw new IllegalArgumentException(
-                            "EVALUATE_ALL conflicts with skip strategies. "
-                            + "Disable SKIP_LOW_RATED, SKIP_EXISTING, and NEXT_EVENT_ONLY first.");
+                            "EVALUATE_ALL conflicts with skip/sampling strategies. "
+                            + "Disable SKIP_LOW_RATED, SKIP_EXISTING, NEXT_EVENT_ONLY, "
+                            + "and SENTINEL_SAMPLING first.");
                 }
             }
             case NEXT_EVENT_ONLY -> {
@@ -215,7 +229,13 @@ public class OptimisationStrategyService {
                             "SKIP_EXISTING conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
                 }
             }
-            default -> { /* FORCE_IMMINENT, FORCE_STALE are always compatible */ }
+            case SENTINEL_SAMPLING -> {
+                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
+                    throw new IllegalArgumentException(
+                            "SENTINEL_SAMPLING conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
+                }
+            }
+            default -> { /* FORCE_IMMINENT, FORCE_STALE, BATCH_API are always compatible */ }
         }
     }
 }
