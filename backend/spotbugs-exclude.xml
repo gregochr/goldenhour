@@ -135,4 +135,19 @@
         </Or>
     </Match>
 
+    <!--
+        ForecastPreEvalResult.location is a JPA entity — defensive copying is not feasible.
+        The record is an internal hand-off between triage and evaluation phases; the
+        LocationEntity reference is never mutated after construction.
+        tideTypes is already defensively copied via the compact constructor.
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.model.ForecastPreEvalResult"/>
+        <Field name="location"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
 </FindBugsFilter>

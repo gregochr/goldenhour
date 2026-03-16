@@ -43,4 +43,10 @@ public record ForecastPreEvalResult(
         Set<TideType> tideTypes,
         String taskKey
 ) {
+    /**
+     * Compact constructor — defensive copy of tideTypes to prevent external mutation.
+     */
+    public ForecastPreEvalResult {
+        tideTypes = tideTypes == null ? null : Set.copyOf(tideTypes);
+    }
 }
