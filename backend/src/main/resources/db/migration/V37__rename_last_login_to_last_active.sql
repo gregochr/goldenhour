@@ -1,1 +1,1 @@
-ALTER TABLE app_user ALTER COLUMN last_login_at RENAME TO last_active_at;
+ALTER TABLE app_user RENAME COLUMN last_login_at TO last_active_at;

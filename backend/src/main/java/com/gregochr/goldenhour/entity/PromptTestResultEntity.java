@@ -7,7 +7,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
+
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -63,16 +63,13 @@ public class PromptTestResultEntity {
     @Column(name = "summary", length = 1000)
     private String summary;
 
-    @Lob
-    @Column(name = "prompt_sent")
+    @Column(name = "prompt_sent", columnDefinition = "TEXT")
     private String promptSent;
 
-    @Lob
-    @Column(name = "response_json")
+    @Column(name = "response_json", columnDefinition = "TEXT")
     private String responseJson;
 
-    @Lob
-    @Column(name = "atmospheric_data_json")
+    @Column(name = "atmospheric_data_json", columnDefinition = "TEXT")
     private String atmosphericDataJson;
 
     @Column(name = "duration_ms")
