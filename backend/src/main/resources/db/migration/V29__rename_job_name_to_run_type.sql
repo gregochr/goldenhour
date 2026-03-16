@@ -20,4 +20,4 @@ DROP INDEX IF EXISTS idx_job_run_name_started;
 ALTER TABLE job_run DROP COLUMN IF EXISTS job_name;
 
 -- 5. model_selection: rename config_type → run_type
-ALTER TABLE model_selection ALTER COLUMN config_type RENAME TO run_type;
+ALTER TABLE model_selection RENAME COLUMN config_type TO run_type;

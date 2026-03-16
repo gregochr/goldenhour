@@ -104,6 +104,12 @@
             <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
 
+        <!-- Flyway PostgreSQL support (required for PG 17+ with Flyway community edition) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <!-- ==================== Caching ==================== -->
 
         <!-- Caffeine in-memory cache -->

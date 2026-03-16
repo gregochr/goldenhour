@@ -7,7 +7,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
+
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -91,13 +91,11 @@ public class ModelTestResultEntity {
     private String summary;
 
     /** The exact prompt sent to Claude (for reproducibility). */
-    @Lob
-    @Column(name = "prompt_sent")
+    @Column(name = "prompt_sent", columnDefinition = "TEXT")
     private String promptSent;
 
     /** The raw JSON response from Claude (for debugging). */
-    @Lob
-    @Column(name = "response_json")
+    @Column(name = "response_json", columnDefinition = "TEXT")
     private String responseJson;
 
     /** How long the Claude API call took in milliseconds. */
@@ -145,8 +143,7 @@ public class ModelTestResultEntity {
     // --- Atmospheric data (V39) ---
 
     /** Serialised AtmosphericData JSON for exact replay in determinism re-runs. */
-    @Lob
-    @Column(name = "atmospheric_data_json")
+    @Column(name = "atmospheric_data_json", columnDefinition = "TEXT")
     private String atmosphericDataJson;
 
     /** Low cloud cover percentage (0-100). */
