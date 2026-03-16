@@ -314,6 +314,75 @@ class PromptRegressionTest {
                         + result.goldenHourPotential());
     }
 
+    /**
+     * Copt Hill, 15 March 2026, SUNSET ~18:08 UTC — NEGATIVE case (total overcast + approach risk).
+     *
+     * <p>Observer point completely overcast (100% low, 99% mid). Solar horizon had 39% low and
+     * 65% mid cloud — marginal at best. Solar trend showed [BUILDING] behaviour, and the upwind
+     * sample revealed 84% current low cloud vs model's 0% prediction — model was wildly
+     * optimistic about clearing.
+     *
+     * <p>Antisolar side also heavily blocked (95% low, 53% mid). Light drizzle (0.1mm),
+     * weather code 51. In reality this was a complete non-event.
+     *
+     * <p>User observation: 1-2 stars (would not have gone out).
+     *
+     * <p>Score ceilings:
+     * <ul>
+     *   <li>Rating: max 2 (total overcast, no clearing)</li>
+     *   <li>Fiery Sky: max 25 (no light penetration through 100% low cloud)</li>
+     *   <li>Golden Hour: max 30 (completely blocked horizon)</li>
+     * </ul>
+     */
+    @Test
+    void coptHill_15Mar2026_sunset_totalOvercastWithApproach() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("Copt Hill")
+                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNSET)
+                .solarEventTime(LocalDateTime.of(2026, 3, 15, 18, 8))
+                .lowCloud(100)
+                .midCloud(99)
+                .highCloud(0)
+                .visibility(19080)
+                .windSpeed(new BigDecimal("7.70"))
+                .windDirection(274)
+                .precipitation(new BigDecimal("0.10"))
+                .humidity(73)
+                .weatherCode(51)
+                .boundaryLayerHeight(1210)
+                .shortwaveRadiation(new BigDecimal("25.00"))
+                .pm25(new BigDecimal("3.20"))
+                .dust(new BigDecimal("0.00"))
+                .aod(new BigDecimal("0.090"))
+                .temperature(5.9)
+                .apparentTemperature(0.0)
+                .precipProbability(45)
+                .directionalCloud(new DirectionalCloudData(
+                        39, 65, 0,      // solar horizon: Low 39%, Mid 65%, High 0%
+                        95, 53, 0))     // antisolar: Low 95%, Mid 53%, High 0%
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 52),
+                                new SolarCloudTrend.SolarCloudSlot(2, 100),
+                                new SolarCloudTrend.SolarCloudSlot(1, 100),
+                                new SolarCloudTrend.SolarCloudSlot(0, 20))),
+                        new UpwindCloudSample(67, 274, 84, 0)))
+                .build();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertScoresNotNull(result);
+        assertTrue(result.rating() <= 2,
+                "Rating should be <= 2 (total overcast, no clearing) but was "
+                        + result.rating());
+        assertTrue(result.fierySkyPotential() <= 25,
+                "Fiery Sky should be <= 25 (no light penetration) but was "
+                        + result.fierySkyPotential());
+        assertTrue(result.goldenHourPotential() <= 30,
+                "Golden Hour should be <= 30 (completely blocked) but was "
+                        + result.goldenHourPotential());
+    }
+
     private static void assertScoresNotNull(SunsetEvaluation result) {
         assertNotNull(result.rating(), "Rating should not be null");
         assertNotNull(result.fierySkyPotential(), "Fiery Sky should not be null");
