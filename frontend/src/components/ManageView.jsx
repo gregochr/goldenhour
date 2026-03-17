@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
@@ -55,6 +55,8 @@ export default function ManageView({ onComplete }) {
   const initial = parseHash();
   const [activeGroup, setActiveGroup] = useState(initial.group);
   const [activeTab, setActiveTabState] = useState(initial.tab);
+  const [activeRunId, setActiveRunId] = useState(null);
+  const clearActiveRun = useCallback(() => setActiveRunId(null), []);
 
   /** Update tab and sync to URL hash. */
   const setActiveTab = (tab) => {
@@ -138,7 +140,11 @@ export default function ManageView({ onComplete }) {
         {activeTab === 'metrics' && (
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Job Run Metrics</p>
-            <JobRunsMetricsView />
+            <JobRunsMetricsView
+              activeRunId={activeRunId}
+              onActiveRunChange={setActiveRunId}
+              onActiveRunClear={clearActiveRun}
+            />
           </div>
         )}
 

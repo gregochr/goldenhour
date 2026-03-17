@@ -1,17 +1,20 @@
 const BASE_URL = '/api';
+const TOKEN_KEY = 'goldenhour_token';
 
 /**
  * Subscribes to live progress updates for a specific forecast run via SSE.
+ * Reads the JWT from localStorage at connection time so the token is always
+ * current, even if the axios interceptor has silently refreshed it.
  *
  * @param {number} runId - The job run ID.
- * @param {string} token - JWT access token (passed as query param for EventSource).
  * @param {function} onTaskUpdate - Called with task update data on each state change.
  * @param {function} onRunSummary - Called with run summary data after each task update.
  * @param {function} onRunComplete - Called with run complete data when the run finishes.
  * @param {function} onError - Called on connection error.
  * @returns {function} Cleanup function to close the EventSource.
  */
-export function subscribeToRunProgress(runId, token, onTaskUpdate, onRunSummary, onRunComplete, onError) {
+export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError) {
+  const token = localStorage.getItem(TOKEN_KEY);
   const url = `${BASE_URL}/forecast/run/${runId}/progress?token=${encodeURIComponent(token)}`;
   const source = new EventSource(url);
 
@@ -54,13 +57,14 @@ export function subscribeToRunProgress(runId, token, onTaskUpdate, onRunSummary,
 /**
  * Subscribes to run-complete notifications for the map view via SSE.
  * Fires a single event per completed run (lightweight, no per-location detail).
+ * Reads the JWT from localStorage at connection time.
  *
- * @param {string} token - JWT access token.
  * @param {function} onRunComplete - Called with run complete data.
  * @param {function} onError - Called on connection error.
  * @returns {function} Cleanup function to close the EventSource.
  */
-export function subscribeToRunNotifications(token, onRunComplete, onError) {
+export function subscribeToRunNotifications(onRunComplete, onError) {
+  const token = localStorage.getItem(TOKEN_KEY);
   const url = `${BASE_URL}/forecast/run/notifications?token=${encodeURIComponent(token)}`;
   const source = new EventSource(url);
 

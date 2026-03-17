@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.RunProgress;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +22,7 @@ class RunProgressTrackerTest {
 
     @BeforeEach
     void setUp() {
-        tracker = new RunProgressTracker();
+        tracker = new RunProgressTracker(Jackson2ObjectMapperBuilder.json().build());
     }
 
     private static List<String[]> tasks(String[]... entries) {

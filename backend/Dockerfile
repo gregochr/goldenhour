@@ -1,12 +1,18 @@
 # Multi-stage build for Spring Boot application
 FROM eclipse-temurin:21-jdk-alpine AS builder
+RUN apk add --no-cache maven git
 WORKDIR /app
-COPY backend/ .
-COPY .git .git
-# Copy local Maven settings for GitHub Packages authentication
+
+# Layer 1: Copy POM + settings and resolve dependencies (cached until pom.xml changes)
+COPY backend/pom.xml pom.xml
 COPY backend/.m2/settings.xml /root/.m2/settings.xml
-RUN apk add --no-cache maven git && \
-    mvn clean package -DskipTests -Dspring-boot.run.profiles=prod
+RUN mvn dependency:go-offline -B
+
+# Layer 2: Copy config files and source code, then build
+COPY backend/checkstyle.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
+COPY backend/src src
+COPY .git .git
+RUN mvn package -DskipTests -Dspring-boot.run.profiles=prod -o
 
 # Runtime image
 FROM eclipse-temurin:21-jre-alpine

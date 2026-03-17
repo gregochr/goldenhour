@@ -9,10 +9,9 @@ import RunProgressRow from './RunProgressRow';
  *
  * @param {object} props - Component props.
  * @param {number} props.jobRunId - The job run ID to track.
- * @param {string} props.token - JWT access token for SSE auth.
  * @param {function} props.onComplete - Called when the run completes (to refresh job runs grid).
  */
-const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
+const RunProgressPanel = ({ jobRunId, onComplete }) => {
   const [tasks, setTasks] = useState({});
   const [summary, setSummary] = useState(null);
   const [complete, setComplete] = useState(false);
@@ -34,14 +33,14 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
   }, [onComplete]);
 
   useEffect(() => {
-    if (!jobRunId || !token) return;
+    if (!jobRunId) return;
     const cleanup = subscribeToRunProgress(
-      jobRunId, token,
+      jobRunId,
       handleTaskUpdate, handleRunSummary, handleRunComplete,
       () => {} // onError — silently handle
     );
     return cleanup;
-  }, [jobRunId, token, handleTaskUpdate, handleRunSummary, handleRunComplete]);
+  }, [jobRunId, handleTaskUpdate, handleRunSummary, handleRunComplete]);
 
   const handleRetry = async () => {
     setRetrying(true);
@@ -160,7 +159,6 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
       {retryRunId && (
         <RunProgressPanel
           jobRunId={retryRunId}
-          token={token}
           onComplete={onComplete}
         />
       )}
@@ -170,7 +168,6 @@ const RunProgressPanel = ({ jobRunId, token, onComplete }) => {
 
 RunProgressPanel.propTypes = {
   jobRunId: PropTypes.number.isRequired,
-  token: PropTypes.string.isRequired,
   onComplete: PropTypes.func,
 };
 

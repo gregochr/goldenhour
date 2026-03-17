@@ -68,7 +68,7 @@ function AppInner() {
   const { isAdmin, logout, username, sessionDaysRemaining, token } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
   const { status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt } = useHealthStatus();
-  const { lastCompletedRun } = useRunNotifications(token);
+  const { lastCompletedRun } = useRunNotifications(!!token);
   const [showRunBanner, setShowRunBanner] = useState(false);
   const [viewMode, setViewModeState] = useState(() => {
     const hash = window.location.hash.replace('#', '');

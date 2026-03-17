@@ -275,9 +275,11 @@ public class ForecastService {
                 withDirectional, lat, lon, azimuth, eventTime,
                 LocalDateTime.now(ZoneOffset.UTC), jobRun);
 
-        // Augment with tide data
-        publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
-                LocationTaskState.FETCHING_TIDES);
+        // Augment with tide data (skip state transition for non-coastal locations)
+        if (tideTypes != null && !tideTypes.isEmpty()) {
+            publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                    LocationTaskState.FETCHING_TIDES);
+        }
         AtmosphericData forecastData = augmentor.augmentWithTideData(
                 withApproach, locationId, eventTime, tideTypes);
 

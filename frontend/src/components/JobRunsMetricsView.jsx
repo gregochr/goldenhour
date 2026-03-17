@@ -2,10 +2,22 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
+import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
 import RunProgressPanel from './RunProgressPanel';
+
+/** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
+const STRATEGY_LABELS = {
+  SKIP_LOW_RATED: 'Skip Low-Rated',
+  SKIP_EXISTING: 'Skip Already-Evaluated',
+  FORCE_IMMINENT: 'Always Evaluate Today',
+  FORCE_STALE: 'Re-evaluate Stale Data',
+  EVALUATE_ALL: 'Evaluate Everything',
+  NEXT_EVENT_ONLY: 'Next Event Only',
+  SENTINEL_SAMPLING: 'Sentinel Sampling',
+};
 
 /** Returns true if the location has LANDSCAPE, SEASCAPE, or WATERFALL (or no types — defaults to colour). */
 function hasColourTypes(loc) {
@@ -96,8 +108,8 @@ LocationSummary.propTypes = {
  * - Pageable job runs grid with filtering
  * - Per-run API call details
  */
-const JobRunsMetricsView = () => {
-  const { isAdmin, token } = useAuth();
+const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }) => {
+  const { isAdmin } = useAuth();
   const [runs, setRuns] = useState([]);
   const [allApiCalls, setAllApiCalls] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -113,13 +125,16 @@ const JobRunsMetricsView = () => {
   const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
-  const [activeRunId, setActiveRunId] = useState(null);
   const [dateRange, setDateRange] = useState('7d');
+  const [strategies, setStrategies] = useState({});
   const PAGE_SIZE = 20;
 
-  // Load locations once for run summaries
+  // Load locations and optimisation strategies once for run summaries
   useEffect(() => {
     fetchLocations().then(setAllLocations).catch(() => {});
+    getAvailableModels()
+      .then((data) => setStrategies(data.optimisationStrategies || {}))
+      .catch(() => {});
   }, []);
 
   const loadJobRuns = useCallback(async (pageNum) => {
@@ -169,12 +184,20 @@ const JobRunsMetricsView = () => {
 
   const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
     const summary = getLocationSummary(allLocations, runType);
+    const activeStrategies = (strategies[runType] || [])
+      .filter((s) => s.enabled)
+      .map((s) => ({
+        label: STRATEGY_LABELS[s.strategyType] || s.strategyType,
+        param: s.paramValue,
+        type: s.strategyType,
+      }));
     setConfirmDialog({
       title,
       message,
       confirmLabel,
       destructive: false,
       locationSummary: summary,
+      activeStrategies,
       onConfirm: async () => {
         setConfirmDialog(null);
         setRunning(true);
@@ -183,7 +206,7 @@ const JobRunsMetricsView = () => {
           const result = await runFn();
           setRunStatus({ type: 'success', message: result.status || 'Run started.' });
           if (result.jobRunId) {
-            setActiveRunId(result.jobRunId);
+            onActiveRunChange(result.jobRunId);
           }
         } catch {
           setRunStatus({ type: 'error', message: `${title} failed. Check the logs.` });
@@ -335,12 +358,11 @@ const JobRunsMetricsView = () => {
       )}
 
       {/* Live run progress */}
-      {activeRunId && token && (
+      {activeRunId && (
         <RunProgressPanel
           jobRunId={activeRunId}
-          token={token}
           onComplete={() => {
-            setActiveRunId(null);
+            onActiveRunClear();
             loadJobRuns(0);
           }}
         />
@@ -400,6 +422,21 @@ const JobRunsMetricsView = () => {
           <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
             <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+            {confirmDialog.activeStrategies?.length > 0 && (
+              <div data-testid="confirm-dialog-strategies">
+                <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Active optimisations</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {confirmDialog.activeStrategies.map((s) => (
+                    <span
+                      key={s.type}
+                      className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40"
+                    >
+                      {s.label}{s.param != null ? ` (${s.param})` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             {confirmDialog.locationSummary && (
               <LocationSummary
                 groups={confirmDialog.locationSummary.groups}
@@ -431,6 +468,12 @@ const JobRunsMetricsView = () => {
       )}
     </div>
   );
+};
+
+JobRunsMetricsView.propTypes = {
+  activeRunId: PropTypes.number,
+  onActiveRunChange: PropTypes.func.isRequired,
+  onActiveRunClear: PropTypes.func.isRequired,
 };
 
 export default JobRunsMetricsView;

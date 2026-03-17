@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.RunProgress;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -27,6 +28,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Stale entries are cleaned up after 30 minutes.
  */
 @Service
+@RequiredArgsConstructor
 public class RunProgressTracker {
 
     private static final Logger LOG = LoggerFactory.getLogger(RunProgressTracker.class);
@@ -36,7 +38,7 @@ public class RunProgressTracker {
     private final ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>> runEmitters =
             new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<SseEmitter> notificationEmitters = new CopyOnWriteArrayList<>();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     /**
      * Initialises tracking for a new run with all tasks set to PENDING.
