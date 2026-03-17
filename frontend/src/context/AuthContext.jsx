@@ -140,19 +140,6 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener('goldenhour:session-expired', handleExpired);
   }, []);
 
-  // Listen for token-refreshed events from the axios interceptor so that
-  // React state stays in sync with localStorage (needed for SSE connections
-  // that read the token from state rather than localStorage).
-  useEffect(() => {
-    const handleRefreshed = (e) => {
-      const { accessToken, refreshToken: rt } = e.detail;
-      if (accessToken) setToken(accessToken);
-      if (rt) setRefreshToken(rt);
-    };
-    window.addEventListener('goldenhour:token-refreshed', handleRefreshed);
-    return () => window.removeEventListener('goldenhour:token-refreshed', handleRefreshed);
-  }, []);
-
   const sessionDaysRemaining = useMemo(() => {
     if (!refreshExpiresAt) return null;
     const diff = new Date(refreshExpiresAt) - Date.now();

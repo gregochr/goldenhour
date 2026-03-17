@@ -436,8 +436,8 @@ class ForecastServiceTest {
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
                 EvaluationModel.SONNET, jobRun);
 
-        // Should publish FETCHING_WEATHER, FETCHING_CLOUD, FETCHING_TIDES events
-        verify(eventPublisher, times(3)).publishEvent(any());
+        // Should publish FETCHING_WEATHER, FETCHING_CLOUD (no FETCHING_TIDES — empty tideTypes)
+        verify(eventPublisher, times(2)).publishEvent(any());
     }
 
     // --- evaluateAndPersist tests ---

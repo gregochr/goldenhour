@@ -43,9 +43,6 @@ axios.interceptors.response.use(
       .then((data) => {
         localStorage.setItem(TOKEN_KEY, data.accessToken);
         if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken);
-        window.dispatchEvent(new CustomEvent('goldenhour:token-refreshed', {
-          detail: { accessToken: data.accessToken, refreshToken: data.refreshToken },
-        }));
       })
       .catch(() => {
         localStorage.removeItem(TOKEN_KEY);
