@@ -35,12 +35,14 @@ public class WeatherTriageEvaluator {
      */
     public Optional<TriageResult> evaluate(AtmosphericData data) {
         // Rule 1: Solar low cloud > 80% (prefer directional, fall back to observer)
-        int lowCloud = data.directionalCloud() != null
+        boolean usedDirectional = data.directionalCloud() != null;
+        int lowCloud = usedDirectional
                 ? data.directionalCloud().solarLowCloudPercent()
                 : data.cloud().lowCloudPercent();
         if (lowCloud > CLOUD_THRESHOLD) {
+            String source = usedDirectional ? "Solar horizon low cloud" : "Low cloud cover";
             return Optional.of(new TriageResult(
-                    "Low cloud cover " + lowCloud + "% — sun blocked", TriageRule.HIGH_CLOUD));
+                    source + " " + lowCloud + "% — sun blocked", TriageRule.HIGH_CLOUD));
         }
 
         // Rule 2: Precipitation > 2mm

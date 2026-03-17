@@ -136,6 +136,47 @@ describe('MarkerPopupContent', () => {
       renderPopup({ role: 'PRO_USER', tideFetchedAt: '2026-03-02T02:00:00Z' });
       expect(screen.queryByText(/Tide data fetched/)).not.toBeInTheDocument();
     });
+
+    it('shows weather triage note in footer when forecast was triaged by cloud', () => {
+      const triaged = {
+        ...BASE_FORECAST,
+        rating: 1,
+        summary: 'Conditions unsuitable — Solar horizon low cloud 85% — sun blocked',
+        evaluationModel: 'HAIKU',
+      };
+      renderPopup({ role: 'ADMIN', forecast: triaged });
+      expect(screen.getByText(/not evaluated by Claude due to weather triage/)).toBeInTheDocument();
+      expect(screen.getByText(/Haiku run/)).toBeInTheDocument();
+    });
+
+    it('shows sentinel skip note in footer when forecast was sentinel-skipped', () => {
+      const sentinel = {
+        ...BASE_FORECAST,
+        rating: 1,
+        summary: 'Conditions unsuitable — Region sentinel sampling — all sentinels rated ≤2',
+        evaluationModel: 'SONNET',
+      };
+      renderPopup({ role: 'ADMIN', forecast: sentinel });
+      expect(screen.getByText(/not evaluated by Claude due to regional sentinel sampling/)).toBeInTheDocument();
+    });
+
+    it('shows normal model footer when forecast was evaluated by Claude', () => {
+      renderPopup({ role: 'ADMIN' });
+      expect(screen.getByText(/by Sonnet/)).toBeInTheDocument();
+      expect(screen.queryByText(/not evaluated by Claude/)).not.toBeInTheDocument();
+    });
+
+    it('shows weather triage note for non-ADMIN when expanded', () => {
+      const triaged = {
+        ...BASE_FORECAST,
+        rating: 1,
+        summary: 'Conditions unsuitable — Precipitation 3.2 mm — active rain',
+        evaluationModel: 'HAIKU',
+      };
+      renderPopup({ role: 'PRO_USER', forecast: triaged });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.getByText(/not evaluated by Claude due to weather triage/)).toBeInTheDocument();
+    });
   });
 
   describe('tide display for coastal vs non-coastal', () => {
