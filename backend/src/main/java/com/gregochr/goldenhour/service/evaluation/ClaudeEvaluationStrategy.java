@@ -32,7 +32,7 @@ import java.util.regex.Pattern;
 public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
     /** Maximum tokens Claude may return per evaluation. */
-    static final int MAX_TOKENS = 256;
+    static final int MAX_TOKENS = 512;
 
     /**
      * Extracts the summary text from Claude's response using a greedy match.
