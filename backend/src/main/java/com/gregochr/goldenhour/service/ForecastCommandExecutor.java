@@ -175,9 +175,10 @@ public class ForecastCommandExecutor {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
-        // Build non-skipped task descriptors
+        // Build non-skipped task descriptors; collect skipped keys to publish after tracker init
         List<TaskDescriptor> nonSkippedTasks = new ArrayList<>();
         List<String[]> allTaskKeys = new ArrayList<>();
+        List<String[]> skippedKeys = new ArrayList<>();
 
         for (LocationEntity location : locations) {
             for (LocalDate targetDate : dates) {
@@ -197,10 +198,8 @@ public class ForecastCommandExecutor {
                     if (shouldSkipEvent(targetDate, targetType, location, today, now)
                             || optimisationSkipEvaluator.shouldSkip(
                                     enabledStrategies, location, targetDate, targetType)) {
-                        eventPublisher.publishEvent(new LocationTaskEvent(
-                                this, jobRun.getId(), taskKey, location.getName(),
-                                targetDate.toString(), targetType.name(),
-                                LocationTaskState.SKIPPED, null, null));
+                        skippedKeys.add(new String[]{taskKey, location.getName(),
+                                targetDate.toString(), targetType.name()});
                     } else {
                         nonSkippedTasks.add(new TaskDescriptor(
                                 location, targetDate, targetType, evaluationModel));
@@ -209,8 +208,13 @@ public class ForecastCommandExecutor {
             }
         }
 
-        // Initialise progress tracking
+        // Initialise progress tracking, then publish deferred skip events
         progressTracker.initRun(jobRun.getId(), allTaskKeys);
+        for (String[] sk : skippedKeys) {
+            eventPublisher.publishEvent(new LocationTaskEvent(
+                    this, jobRun.getId(), sk[0], sk[1], sk[2], sk[3],
+                    LocationTaskState.SKIPPED, null, null));
+        }
 
         List<ForecastEvaluationEntity> results = new ArrayList<>();
 

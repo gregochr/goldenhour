@@ -47,8 +47,8 @@ export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunC
     if (source.readyState === EventSource.CLOSED) {
       return;
     }
+    // Don't close — let EventSource's built-in reconnect handle transient errors.
     onError?.();
-    source.close();
   };
 
   return () => source.close();
@@ -80,8 +80,8 @@ export function subscribeToRunNotifications(onRunComplete, onError) {
     if (source.readyState === EventSource.CLOSED) {
       return;
     }
+    // Don't close — let EventSource's built-in reconnect handle transient errors.
     onError?.();
-    source.close();
   };
 
   return () => source.close();

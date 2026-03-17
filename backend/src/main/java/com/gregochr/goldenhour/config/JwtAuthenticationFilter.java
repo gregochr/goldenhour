@@ -52,6 +52,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final AppUserRepository userRepository;
 
     /**
+     * Skips this filter on async dispatches (e.g. SSE emitter flushes). The initial
+     * request already authenticated and set the security context; re-running the
+     * filter on the async dispatch would fail because the query-param token is not
+     * present on internal dispatches.
+     */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return true;
+    }
+
+    /**
      * {@inheritDoc}
      *
      * <p>Reads the {@code Authorization} header, extracts and validates the JWT,
