@@ -10,6 +10,31 @@ import {
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 
+/**
+ * Builds the "Forecast generated" footer text. For triaged/sentinel-skipped forecasts
+ * (summary starts with "Conditions unsuitable"), appends a note that Claude was not invoked.
+ */
+function buildGeneratedFooter(forecast) {
+  const base = formatGeneratedAtFull(forecast.forecastRunAt);
+  const model = forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE'
+    ? forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()
+    : null;
+
+  const summary = forecast.summary || '';
+  if (summary.startsWith('Conditions unsuitable')) {
+    const reason = summary.includes('sentinel sampling')
+      ? 'regional sentinel sampling predicted poor conditions'
+      : 'weather triage predicting poor conditions';
+    return model
+      ? `Forecast generated: ${base} (${model} run, but not evaluated by Claude due to ${reason})`
+      : `Forecast generated: ${base} (not evaluated by Claude due to ${reason})`;
+  }
+
+  return model
+    ? `Forecast generated: ${base} by ${model}`
+    : `Forecast generated: ${base}`;
+}
+
 /** Inline SVG weather icons for comfort rows. */
 const ICON_STYLE = { width: '14px', height: '14px', verticalAlign: 'middle', marginRight: '3px', flexShrink: 0 };
 
@@ -467,7 +492,7 @@ export default function MarkerPopupContent({
               {/* Footer: generated at (non-admin only — admin sees it always below) */}
               {role !== 'ADMIN' && forecast?.forecastRunAt && (
                 <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
-                  Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
+                  {buildGeneratedFooter(forecast)}
                 </div>
               )}
             </>
@@ -503,7 +528,7 @@ export default function MarkerPopupContent({
           {/* Footer: always visible for ADMIN */}
           {role === 'ADMIN' && forecast?.forecastRunAt && (
             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: `1px solid ${darkMode ? '#3A3D45' : '#e5e7eb'}`, fontSize: '10px', color: '#9ca3af' }}>
-              Forecast generated: {formatGeneratedAtFull(forecast.forecastRunAt)}{forecast.evaluationModel && forecast.evaluationModel !== 'WILDLIFE' && ` by ${forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()}`}
+              {buildGeneratedFooter(forecast)}
               {tideFetchedAt && (
                 <div>Tide data fetched: {formatGeneratedAtFull(tideFetchedAt)}</div>
               )}

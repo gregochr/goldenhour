@@ -47,6 +47,7 @@ class WeatherTriageEvaluatorTest {
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.HIGH_CLOUD);
         assertThat(result.get().reason()).contains("85%");
+        assertThat(result.get().reason()).startsWith("Low cloud cover");
     }
 
     @Test
@@ -58,6 +59,7 @@ class WeatherTriageEvaluatorTest {
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.HIGH_CLOUD);
         assertThat(result.get().reason()).contains("90%");
+        assertThat(result.get().reason()).startsWith("Solar horizon low cloud");
     }
 
     @Test

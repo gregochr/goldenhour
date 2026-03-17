@@ -137,7 +137,7 @@ public class JobRunService {
                 .statusCode(statusCode)
                 .responseBody(responseBody)
                 .succeeded(succeeded)
-                .errorMessage(errorMessage)
+                .errorMessage(truncate(errorMessage, 500))
                 .costPence(costPence)
                 .createdAt(now)
                 .evaluationModel(model)
@@ -194,7 +194,7 @@ public class JobRunService {
                 .statusCode(statusCode)
                 .responseBody(responseBody)
                 .succeeded(succeeded)
-                .errorMessage(errorMessage)
+                .errorMessage(truncate(errorMessage, 500))
                 .costPence(costPence)
                 .createdAt(now)
                 .evaluationModel(model)
@@ -337,5 +337,12 @@ public class JobRunService {
         LocalDateTime since = LocalDateTime.now(ZoneOffset.UTC).minusDays(7);
         List<JobRunEntity> runs = jobRunRepository.findByStartedAtAfterOrderByStartedAtDesc(since);
         return runs.stream().limit(limit).toList();
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 }
