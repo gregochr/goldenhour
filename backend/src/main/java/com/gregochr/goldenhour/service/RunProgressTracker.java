@@ -4,8 +4,12 @@ import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.RunProgress;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
+// Note: ObjectMapper is created inline with JavaTimeModule rather than injected,
+// because this service only serialises SSE payloads and does not need the full
+// Spring-configured ObjectMapper.
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -28,7 +32,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Stale entries are cleaned up after 30 minutes.
  */
 @Service
-@RequiredArgsConstructor
 public class RunProgressTracker {
 
     private static final Logger LOG = LoggerFactory.getLogger(RunProgressTracker.class);
@@ -38,7 +41,9 @@ public class RunProgressTracker {
     private final ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>> runEmitters =
             new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<SseEmitter> notificationEmitters = new CopyOnWriteArrayList<>();
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     /**
      * Initialises tracking for a new run with all tasks set to PENDING.
