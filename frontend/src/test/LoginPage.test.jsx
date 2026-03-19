@@ -97,4 +97,47 @@ describe('LoginPage', () => {
     expect(screen.getByTestId('turnstile-widget')).toBeInTheDocument();
     expect(window.turnstile.render).toHaveBeenCalled();
   });
+
+  it('submit button is disabled when Turnstile has not yet verified', () => {
+    window.turnstile = {
+      render: vi.fn(() => 'widget-id'), // does not call callback — token stays empty
+      remove: vi.fn(),
+    };
+    renderWithAuth(<LoginPage />);
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  });
+
+  describe('when Turnstile fails to render (e.g. domain not whitelisted)', () => {
+    beforeEach(() => {
+      window.turnstile = {
+        render: vi.fn(() => { throw new Error('Domain not whitelisted'); }),
+        remove: vi.fn(),
+      };
+    });
+
+    it('hides the Turnstile widget and shows a fallback message', () => {
+      renderWithAuth(<LoginPage />);
+      expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
+      expect(screen.getByTestId('turnstile-unavailable')).toBeInTheDocument();
+    });
+
+    it('enables the submit button so the user is not stuck', () => {
+      renderWithAuth(<LoginPage />);
+      expect(screen.getByRole('button', { name: 'Sign in' })).not.toBeDisabled();
+    });
+
+    it('submits with an empty token and lets the backend respond', async () => {
+      vi.spyOn(AuthApi, 'login').mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderWithAuth(<LoginPage />);
+
+      await user.type(screen.getByTestId('login-username'), 'testuser');
+      await user.type(screen.getByTestId('login-password'), 'password123');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await waitFor(() => {
+        expect(AuthApi.login).toHaveBeenCalledWith('testuser', 'password123', '');
+      });
+    });
+  });
 });

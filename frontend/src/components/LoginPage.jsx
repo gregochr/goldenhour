@@ -12,9 +12,11 @@ export default function LoginPage({ onRegister = null }) {
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
+  const [turnstileLoadFailed, setTurnstileLoadFailed] = useState(false);
+
   const [error, submitAction, isPending] = useActionState(async (_prev, formData) => {
     const token = formData.get('turnstile-token');
-    if (!token) return 'Please complete the verification challenge.';
+    if (!token && !turnstileLoadFailed) return 'Please complete the verification challenge.';
     try {
       await login(formData.get('username'), formData.get('password'), token);
       return '';
@@ -94,11 +96,19 @@ export default function LoginPage({ onRegister = null }) {
           </div>
 
           <input type="hidden" name="turnstile-token" value={turnstileToken} />
-          <TurnstileWidget
-            key={turnstileResetKey}
-            onVerify={(token) => setTurnstileToken(token)}
-            onExpire={() => setTurnstileToken('')}
-          />
+          {!turnstileLoadFailed && (
+            <TurnstileWidget
+              key={turnstileResetKey}
+              onVerify={(token) => setTurnstileToken(token)}
+              onExpire={() => setTurnstileToken('')}
+              onLoadFail={() => setTurnstileLoadFailed(true)}
+            />
+          )}
+          {turnstileLoadFailed && (
+            <p className="text-xs text-amber-400" data-testid="turnstile-unavailable">
+              Security check unavailable — sign-in will be verified server-side.
+            </p>
+          )}
 
           {error && (
             <p className="text-xs text-red-400" role="alert" data-testid="login-error">
@@ -110,7 +120,7 @@ export default function LoginPage({ onRegister = null }) {
             type="submit"
             data-testid="login-submit"
             className="btn-primary"
-            disabled={isPending || !turnstileToken}
+            disabled={isPending || (!turnstileToken && !turnstileLoadFailed)}
           >
             {isPending ? 'Signing in…' : 'Sign in'}
           </button>
