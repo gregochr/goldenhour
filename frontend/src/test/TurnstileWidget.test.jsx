@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TurnstileWidget from '../components/TurnstileWidget.jsx';
 
@@ -18,6 +18,7 @@ describe('TurnstileWidget', () => {
 
   afterEach(() => {
     delete window.turnstile;
+    vi.useRealTimers();
   });
 
   it('renders the container element', () => {
@@ -48,5 +49,30 @@ describe('TurnstileWidget', () => {
     render(<TurnstileWidget onVerify={vi.fn()} onExpire={vi.fn()} />);
     cleanup();
     expect(window.turnstile.remove).toHaveBeenCalledWith('widget-42');
+  });
+
+  it('calls onLoadFail when window.turnstile.render throws', () => {
+    window.turnstile.render = vi.fn(() => { throw new Error('Domain not whitelisted'); });
+    const onLoadFail = vi.fn();
+    render(<TurnstileWidget onVerify={vi.fn()} onExpire={vi.fn()} onLoadFail={onLoadFail} />);
+    expect(onLoadFail).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not crash the component when render throws and onLoadFail is omitted', () => {
+    window.turnstile.render = vi.fn(() => { throw new Error('Domain not whitelisted'); });
+    expect(() =>
+      render(<TurnstileWidget onVerify={vi.fn()} onExpire={vi.fn()} />)
+    ).not.toThrow();
+    expect(screen.getByTestId('turnstile-widget')).toBeInTheDocument();
+  });
+
+  it('calls onLoadFail after 10 s when window.turnstile never loads', () => {
+    delete window.turnstile;
+    vi.useFakeTimers();
+    const onLoadFail = vi.fn();
+    render(<TurnstileWidget onVerify={vi.fn()} onExpire={vi.fn()} onLoadFail={onLoadFail} />);
+    expect(onLoadFail).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(10000));
+    expect(onLoadFail).toHaveBeenCalledTimes(1);
   });
 });
