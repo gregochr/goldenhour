@@ -106,7 +106,7 @@ class PromptRegressionTest {
                 .precipProbability(0)
                 .directionalCloud(new DirectionalCloudData(
                         67, 0, 100,   // solar horizon: Low 67%, Mid 0%, High 100%
-                        0, 0, 0))     // antisolar horizon: all clear
+                        0, 0, 0, null))  // antisolar horizon: all clear
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
@@ -115,7 +115,7 @@ class PromptRegressionTest {
         assertTrue(result.rating() <= 2,
                 "Rating should be <= 2 (blocked solar horizon) but was " + result.rating());
         assertTrue(result.fierySkyPotential() <= 25,
-                "Fiery Sky should be <= 25 (no light penetration) but was "
+                "Fiery Sky should be <= 30 (no light penetration) but was "
                         + result.fierySkyPotential());
         assertTrue(result.goldenHourPotential() <= 35,
                 "Golden Hour should be <= 35 (overcast at solar horizon) but was "
@@ -161,7 +161,7 @@ class PromptRegressionTest {
                 .precipProbability(0)
                 .directionalCloud(new DirectionalCloudData(
                         7, 0, 100,      // solar horizon: Low 7%, Mid 0%, High 100%
-                        64, 71, 100))   // antisolar: Low 64%, Mid 71%, High 100%
+                        64, 71, 100, null))  // antisolar: Low 64%, Mid 71%, High 100%
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
@@ -221,7 +221,7 @@ class PromptRegressionTest {
                 .precipProbability(0)
                 .directionalCloud(new DirectionalCloudData(
                         0, 100, 100,    // solar horizon: Low 0%, Mid 100%, High 100%
-                        47, 2, 0))      // antisolar: Low 47%, Mid 2%, High 0%
+                        47, 2, 0, null))   // antisolar: Low 47%, Mid 2%, High 0%
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
@@ -290,7 +290,7 @@ class PromptRegressionTest {
                 .precipProbability(0)
                 .directionalCloud(new DirectionalCloudData(
                         7, 0, 88,       // solar horizon: Low 7%, Mid 0%, High 88%
-                        81, 0, 0))      // antisolar: Low 81%, Mid 0%, High 0%
+                        81, 0, 0, null))   // antisolar: Low 81%, Mid 0%, High 0%
                 .cloudApproach(new CloudApproachData(
                         new SolarCloudTrend(List.of(
                                 new SolarCloudTrend.SolarCloudSlot(3, 5),
@@ -359,7 +359,7 @@ class PromptRegressionTest {
                 .precipProbability(45)
                 .directionalCloud(new DirectionalCloudData(
                         39, 65, 0,      // solar horizon: Low 39%, Mid 65%, High 0%
-                        95, 53, 0))     // antisolar: Low 95%, Mid 53%, High 0%
+                        95, 53, 0, null))  // antisolar: Low 95%, Mid 53%, High 0%
                 .cloudApproach(new CloudApproachData(
                         new SolarCloudTrend(List.of(
                                 new SolarCloudTrend.SolarCloudSlot(3, 52),
@@ -381,6 +381,62 @@ class PromptRegressionTest {
         assertTrue(result.goldenHourPotential() <= 30,
                 "Golden Hour should be <= 30 (completely blocked) but was "
                         + result.goldenHourPotential());
+    }
+
+    /**
+     * Copt Hill, 16 Mar 2026 sunset — horizon strip scenario.
+     *
+     * <p>Solar horizon low cloud was 64% and building, but only a thin strip on the
+     * horizon: far-field (226 km) low cloud was 12%, dropping 52pp beyond the strip.
+     * High cloud above caught the warm light. Observed outcome: ~3 stars with pink/coral
+     * colour on high cloud. Previously scored 1/5 before strip detection was added.
+     *
+     * <p>Asserts: rating >= 3 and &lt;5 (strip softens the penalty)
+     */
+    @Test
+    void coptHill_16Mar2026_horizonStrip_shouldScoreAboveThreeButNotFive() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("Copt Hill")
+                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNSET)
+                .solarEventTime(LocalDateTime.of(2026, 3, 18, 18, 11))
+                .lowCloud(40)
+                .midCloud(30)
+                .highCloud(60)
+                .visibility(20000)
+                .windSpeed(new BigDecimal("5.50"))
+                .windDirection(270)
+                .precipitation(new BigDecimal("0.00"))
+                .humidity(65)
+                .weatherCode(2)
+                .boundaryLayerHeight(900)
+                .shortwaveRadiation(new BigDecimal("45.00"))
+                .pm25(new BigDecimal("4.00"))
+                .dust(new BigDecimal("0.00"))
+                .aod(new BigDecimal("0.10"))
+                .temperature(8.5)
+                .apparentTemperature(5.5)
+                .precipProbability(5)
+                .directionalCloud(new DirectionalCloudData(
+                        64, 10, 55,     // solar horizon: Low 64% (strip), Mid 10%, High 55%
+                        20, 15, 65,     // antisolar: Low 20%, Mid 15%, High 65% (canvas)
+                        12))            // far solar (226km): Low 12% — confirms thin strip
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 20),
+                                new SolarCloudTrend.SolarCloudSlot(2, 45),
+                                new SolarCloudTrend.SolarCloudSlot(1, 58),
+                                new SolarCloudTrend.SolarCloudSlot(0, 64))),
+                        null))
+                .build();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertScoresNotNull(result);
+        assertTrue(result.rating() >= 3 && result.rating() < 5,
+                "Rating should be >=3 and <5 (horizon strip + high cloud canvas) but was " + result.rating());
+        assertTrue(result.fierySkyPotential() >= 25,
+                "Fiery Sky should be >= 25 (high cloud catching warm light) but was "
+                        + result.fierySkyPotential());
     }
 
     private static void assertScoresNotNull(SunsetEvaluation result) {

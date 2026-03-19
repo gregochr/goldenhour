@@ -503,6 +503,7 @@ public class ForecastService {
                 .antisolarLowCloud(dc != null ? dc.antisolarLowCloudPercent() : null)
                 .antisolarMidCloud(dc != null ? dc.antisolarMidCloudPercent() : null)
                 .antisolarHighCloud(dc != null ? dc.antisolarHighCloudPercent() : null)
+                .farSolarLowCloud(dc != null ? dc.farSolarLowCloudPercent() : null)
                 .evaluationModel(model)
                 .rating(evaluation.rating())
                 .fierySkyPotential(evaluation.fierySkyPotential())

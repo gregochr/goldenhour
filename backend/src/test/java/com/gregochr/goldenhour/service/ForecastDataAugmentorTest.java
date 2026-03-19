@@ -51,7 +51,7 @@ class ForecastDataAugmentorTest {
     @DisplayName("augmentWithDirectionalCloud() adds directional data when fetch succeeds")
     void augmentWithDirectionalCloud_success_addsDirectionalData() {
         AtmosphericData base = TestAtmosphericData.defaults();
-        DirectionalCloudData directional = new DirectionalCloudData(10, 20, 30, 40, 50, 60);
+        DirectionalCloudData directional = new DirectionalCloudData(10, 20, 30, 40, 50, 60, null);
         when(openMeteoService.fetchDirectionalCloudData(
                 anyDouble(), anyDouble(), anyInt(), any(), any(), any()))
                 .thenReturn(directional);

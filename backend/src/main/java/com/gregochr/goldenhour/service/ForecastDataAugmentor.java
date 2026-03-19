@@ -37,7 +37,8 @@ public class ForecastDataAugmentor {
 
     /**
      * Returns a copy of {@code base} with directional cloud data from the solar/antisolar
-     * horizon points (50 km offset). Falls back gracefully to the original data if the fetch fails.
+     * horizon points (113 km offset) and far solar point (226 km) for strip detection.
+     * Falls back gracefully to the original data if the fetch fails.
      *
      * @param base         atmospheric data without directional cloud fields
      * @param lat          observer latitude

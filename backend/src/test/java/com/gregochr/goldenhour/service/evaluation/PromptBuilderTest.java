@@ -121,7 +121,7 @@ public class PromptBuilderTest {
     @DisplayName("buildUserMessage with directional cloud includes directional block")
     void buildUserMessage_withDirectionalCloud_includesDirectionalBlock() {
         AtmosphericData data = TestAtmosphericData.builder()
-                .directionalCloud(new DirectionalCloudData(65, 20, 10, 5, 45, 30))
+                .directionalCloud(new DirectionalCloudData(65, 20, 10, 5, 45, 30, null))
                 .build();
 
         String message = promptBuilder.buildUserMessage(data);

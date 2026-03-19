@@ -119,7 +119,7 @@ class ModelTest {
     @DisplayName("withDirectionalCloud returns copy with directional data attached")
     void atmosphericData_withDirectionalCloud() {
         AtmosphericData base = TestAtmosphericData.defaults();
-        DirectionalCloudData dc = new DirectionalCloudData(65, 20, 10, 5, 45, 30);
+        DirectionalCloudData dc = new DirectionalCloudData(65, 20, 10, 5, 45, 30, null);
 
         AtmosphericData result = base.withDirectionalCloud(dc);
 

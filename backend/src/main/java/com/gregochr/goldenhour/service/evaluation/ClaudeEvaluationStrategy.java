@@ -43,21 +43,21 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             Pattern.compile("(?s)\"summary\"\\s*:\\s*\"(.*)\"\\s*[,}]");
 
     /** Extracts the integer rating from Claude's response. */
-    static final Pattern RATING_PATTERN = Pattern.compile("\"rating\"\\s*:\\s*(\\d+)");
+    static final Pattern RATING_PATTERN = Pattern.compile("\"rating\"\\s*:\\s*(\\d{1,2})");
 
     /** Extracts the Fiery Sky Potential (0-100) from Claude's response. */
-    static final Pattern FIERY_SKY_PATTERN = Pattern.compile("\"fiery_sky\"\\s*:\\s*(\\d+)");
+    static final Pattern FIERY_SKY_PATTERN = Pattern.compile("\"fiery_sky\"\\s*:\\s*(\\d{1,3})");
 
     /** Extracts the Golden Hour Potential (0-100) from Claude's response. */
-    static final Pattern GOLDEN_HOUR_PATTERN = Pattern.compile("\"golden_hour\"\\s*:\\s*(\\d+)");
+    static final Pattern GOLDEN_HOUR_PATTERN = Pattern.compile("\"golden_hour\"\\s*:\\s*(\\d{1,3})");
 
     /** Extracts the basic Fiery Sky Potential (0-100) from Claude's response. */
     static final Pattern BASIC_FIERY_SKY_PATTERN =
-            Pattern.compile("\"basic_fiery_sky\"\\s*:\\s*(\\d+)");
+            Pattern.compile("\"basic_fiery_sky\"\\s*:\\s*(\\d{1,3})");
 
     /** Extracts the basic Golden Hour Potential (0-100) from Claude's response. */
     static final Pattern BASIC_GOLDEN_HOUR_PATTERN =
-            Pattern.compile("\"basic_golden_hour\"\\s*:\\s*(\\d+)");
+            Pattern.compile("\"basic_golden_hour\"\\s*:\\s*(\\d{1,3})");
 
     /** Extracts the basic summary from Claude's response. */
     static final Pattern BASIC_SUMMARY_PATTERN =
