@@ -53,7 +53,7 @@ class WeatherTriageEvaluatorTest {
     @Test
     @DisplayName("Solar low cloud > 80% triggers HIGH_CLOUD when directional data present")
     void highSolarCloud_triages() {
-        DirectionalCloudData dc = new DirectionalCloudData(90, 10, 5, 20, 10, 5);
+        DirectionalCloudData dc = new DirectionalCloudData(90, 10, 5, 20, 10, 5, null);
         AtmosphericData data = buildData(10, 0, 30000, BigDecimal.ZERO, dc);
         Optional<TriageResult> result = evaluator.evaluate(data);
         assertThat(result).isPresent();
@@ -65,7 +65,7 @@ class WeatherTriageEvaluatorTest {
     @Test
     @DisplayName("Solar low cloud exactly 80% passes triage (threshold is >80)")
     void solarCloudAtBoundary_passes() {
-        DirectionalCloudData dc = new DirectionalCloudData(80, 10, 5, 20, 10, 5);
+        DirectionalCloudData dc = new DirectionalCloudData(80, 10, 5, 20, 10, 5, null);
         AtmosphericData data = buildData(10, 0, 30000, BigDecimal.ZERO, dc);
         assertThat(evaluator.evaluate(data)).isEmpty();
     }
@@ -124,7 +124,7 @@ class WeatherTriageEvaluatorTest {
     @Test
     @DisplayName("Falls back to observer cloud when directional data has low solar cloud")
     void directionalLowSolar_usesDirectional() {
-        DirectionalCloudData dc = new DirectionalCloudData(20, 10, 5, 20, 10, 5);
+        DirectionalCloudData dc = new DirectionalCloudData(20, 10, 5, 20, 10, 5, null);
         AtmosphericData data = buildData(90, 0, 30000, BigDecimal.ZERO, dc);
         // Directional solar cloud is 20%, observer is 90%. Should use directional (20%) and pass.
         assertThat(evaluator.evaluate(data)).isEmpty();

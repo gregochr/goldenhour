@@ -62,20 +62,34 @@ public class PromptBuilder {
             + "than the observer-point cloud layers for assessing light penetration and canvas "
             + "availability. Key rules:\n"
             + "- Solar horizon low cloud >60% = light is BLOCKED; treat as overcast for scoring "
-            + "(fiery_sky 5-20, golden_hour 15-30, rating 1-2). This is non-negotiable.\n"
+            + "(fiery_sky 5-20, golden_hour 15-30, rating 1-2). This is non-negotiable — "
+            + "fiery_sky and golden_hour hard ceilings apply when solar horizon low cloud >60% "
+            + "and no THIN STRIP override applies.\n"
             + "- Solar horizon low cloud 40-60% = light partially blocked, penalise but consider "
             + "that mid/high cloud above may still catch colour if gaps exist in the low cloud\n"
             + "- Solar horizon low cloud <20% = strong light penetration likely\n"
             + "- IDEAL scenario: solar horizon low cloud <20% AND mid cloud <50%, with high cloud "
             + "present on either horizon as canvas. Score fiery_sky 70-90, rating 4-5.\n"
             + "- Solar horizon low cloud <20% with thick mid cloud (>80%) = light still penetrates "
-            + "below the mid layer, and the mid/high cloud acts as a large canvas. This is a good "
-            + "scenario (rating 4) but NOT spectacular — the uniform mid-cloud blanket limits colour "
-            + "variety. NEVER rate 5 when solar horizon mid cloud >80%.\n"
+            + "below the mid layer, and the mid/high cloud acts as a large canvas. RATE 4 (not 3, "
+            + "not 5) — the mid-cloud blanket limits colour variety. NEVER rate 5 when solar horizon "
+            + "mid cloud >80%.\n"
             + "- Antisolar mid/high cloud 20-60% = ideal canvas; >60% is still good (more canvas, "
             + "not a penalty). Antisolar LOW cloud does NOT block light — it sits near the far "
             + "horizon behind the viewer and can itself catch reflected colour. Do NOT apply the "
             + "solar horizon low-cloud blocking rules to the antisolar side.\n"
+            + "- HORIZON CLOUD STRUCTURE: when a 'Beyond horizon (226km)' low cloud figure is "
+            + "provided, compare it to the horizon value to determine spatial extent:\n"
+            + "  * THIN STRIP: solar horizon low cloud ≥50% but beyond-horizon low cloud ≤30% "
+            + "(drops by ≥30pp). A strip filters and diffuses rather than blocking — warm light "
+            + "angles up onto mid/high cloud above. Treat as equivalent to 40-60% low cloud. "
+            + "When mid/high cloud canvas is present (solar or antisolar), RATE 3-4 (not 1-2). "
+            + "The blocked-sky ceilings do NOT apply to THIN STRIP scenarios. "
+            + "If a [BUILDING] trend is also present, this means the strip is well-established "
+            + "at event time — it does NOT mean a blanket will form when far-field data confirms "
+            + "a strip structure. Still rate 3-4 when canvas is present.\n"
+            + "  * EXTENSIVE BLANKET: solar horizon low cloud ≥50% AND beyond-horizon low cloud "
+            + "also ≥50%. Full blocking penalty applies — rating 1-2, fiery_sky 5-20.\n"
             + "- When directional data is provided, ALWAYS use it instead of the observer-point "
             + "Cloud line for scoring. A clear observer point is irrelevant if the solar horizon "
             + "is blocked; equally, a clear observer point with directional cloud canvas is NOT "
@@ -113,7 +127,8 @@ public class PromptBuilder {
             + "likely reality at event time.\n"
             + "- Combined signal: when BOTH [BUILDING] trend AND high upwind cloud are present, "
             + "this is a strong approaching-cloud-bank signal. Override the snapshot entirely: "
-            + "score as if the solar horizon will be blocked (rating 1-2, fiery_sky 10-25).\n\n"
+            + "score as if the solar horizon will be blocked (rating 1-2, fiery_sky 5-20, "
+            + "golden_hour 15-25). Hard ceiling: fiery_sky ≤25, golden_hour ≤30.\n\n"
             + "Do not use double-quote characters within the summary text.";
 
     /** Prompt suffix: requests all three metrics and a summary. */
@@ -199,9 +214,22 @@ public class PromptBuilder {
             if (dc.solarMidCloudPercent() > 80) {
                 sb.append(" [THICK MID CLOUD — rate 4, not 5]");
             }
+            if (dc.farSolarLowCloudPercent() != null) {
+                int near = dc.solarLowCloudPercent();
+                int far = dc.farSolarLowCloudPercent();
+                sb.append(String.format("%nBeyond horizon (226km, solar azimuth): Low %d%%", far));
+                if (near >= 50 && (near - far) >= 30) {
+                    sb.append(" [THIN STRIP — soften low-cloud penalty]");
+                } else if (near >= 50 && far >= 50) {
+                    sb.append(" [EXTENSIVE BLANKET — full penalty applies]");
+                }
+            }
         }
 
         // Cloud approach risk block — temporal trend and upwind sample
+        boolean thinStripConfirmed = dc != null && dc.farSolarLowCloudPercent() != null
+                && dc.solarLowCloudPercent() >= 50
+                && (dc.solarLowCloudPercent() - dc.farSolarLowCloudPercent()) >= 30;
         CloudApproachData ca = data.cloudApproach();
         if (ca != null) {
             sb.append(String.format("%nCLOUD APPROACH RISK:"));
@@ -213,7 +241,13 @@ public class PromptBuilder {
                     sb.append(String.format(" %s=%d%%", label, slot.lowCloudPercent()));
                 }
                 if (trend.isBuilding()) {
-                    sb.append(" [BUILDING]");
+                    if (thinStripConfirmed) {
+                        sb.append(" [BUILDING — but THIN STRIP CONFIRMED at event time:"
+                                + " strip is well-established, not a developing blanket;"
+                                + " THIN STRIP rules take priority — rate 3-4 with canvas present]");
+                    } else {
+                        sb.append(" [BUILDING]");
+                    }
                 }
             }
             UpwindCloudSample upwind = ca.upwindSample();

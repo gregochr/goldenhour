@@ -59,7 +59,7 @@ class PromptBuilderCoptHillSimulationTest {
                 .apparentTemperature(2.8)
                 .precipProbability(0)
                 // Directional cloud — what the 13:45 run actually saw
-                .directionalCloud(new DirectionalCloudData(7, 0, 88, 81, 0, 0))
+                .directionalCloud(new DirectionalCloudData(7, 0, 88, 81, 0, 0, null))
                 // Cloud approach risk — what we believe was actually happening
                 .cloudApproach(new CloudApproachData(
                         // Solar trend: cloud was building earlier, model predicted clearing
@@ -119,7 +119,7 @@ class PromptBuilderCoptHillSimulationTest {
                 .temperature(7.6)
                 .apparentTemperature(2.8)
                 .precipProbability(0)
-                .directionalCloud(new DirectionalCloudData(7, 0, 88, 81, 0, 0))
+                .directionalCloud(new DirectionalCloudData(7, 0, 88, 81, 0, 0, null))
                 .build();
 
         String message = promptBuilder.buildUserMessage(data);

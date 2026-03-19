@@ -49,6 +49,13 @@ public class OpenMeteoService {
      */
     static final double DIRECTIONAL_OFFSET_METRES = 113_000.0;
 
+    /**
+     * Far-field distance for horizon cloud structure detection (2 × horizon distance = 226 km).
+     * Comparing low cloud at this distance to {@link #DIRECTIONAL_OFFSET_METRES} reveals whether
+     * high solar horizon low cloud is a thin strip (drops sharply) or an extensive blanket.
+     */
+    static final double FAR_SOLAR_OFFSET_METRES = 226_000.0;
+
     /** Minimum upwind distance in metres below which the upwind sample is skipped. */
     private static final double MIN_UPWIND_DISTANCE_M = 5_000.0;
 
@@ -315,11 +322,13 @@ public class OpenMeteoService {
     }
 
     /**
-     * Fetches cloud cover at the solar and antisolar horizon points (50 km offset from observer).
+     * Fetches cloud cover at the solar and antisolar horizon points (113 km from observer),
+     * plus a far-field solar sample at 226 km for horizon cloud structure detection.
      *
-     * <p>Makes two additional Open-Meteo calls (cloud layers only) — one toward the sun's
-     * azimuth, one in the opposite direction. Returns {@code null} if either call fails,
-     * so the evaluation can gracefully fall back to the single-point layer inference.
+     * <p>Makes up to five additional Open-Meteo calls (cloud layers only): three for the
+     * solar cone, one for the antisolar point, and one for the far solar point. Returns
+     * {@code null} if the core solar/antisolar fetches fail; the far fetch failing sets
+     * {@code farSolarLowCloudPercent} to {@code null} only, not the whole result.
      *
      * @param lat              observer latitude in decimal degrees
      * @param lon              observer longitude in decimal degrees
@@ -376,6 +385,20 @@ public class OpenMeteoService {
                     solarEventTime, targetType);
             OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
 
+            // Fetch far solar point (226 km) for horizon strip vs blanket detection
+            Integer farSolarLow = null;
+            try {
+                double[] farSolarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
+                        FAR_SOLAR_OFFSET_METRES);
+                OpenMeteoForecastResponse farForecast = openMeteoClient.fetchCloudOnly(
+                        farSolarPoint[0], farSolarPoint[1]);
+                int farIdx = findBestIndex(farForecast.getHourly().getTime(),
+                        solarEventTime, targetType);
+                farSolarLow = farForecast.getHourly().getCloudCoverLow().get(farIdx);
+            } catch (Exception e) {
+                LOG.warn("Far solar cloud fetch failed, strip detection unavailable: {}", e.getMessage());
+            }
+
             long durationMs = System.currentTimeMillis() - startMs;
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
@@ -384,19 +407,25 @@ public class OpenMeteoService {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
                         "GET", "directional-cloud-antisolar", null, durationMs, 200, null,
                         true, null);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "directional-cloud-far-solar", null, durationMs, 200, null,
+                        farSolarLow != null, farSolarLow == null ? "fetch failed" : null);
             }
 
             DirectionalCloudData result = new DirectionalCloudData(
                     solarLow, solarMid, solarHigh,
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
-                    ah.getCloudCoverHigh().get(antisolarIdx));
+                    ah.getCloudCoverHigh().get(antisolarIdx),
+                    farSolarLow);
 
-            LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}% ({}ms)",
+            LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}%, "
+                    + "farSolar: L{}% ({}ms)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
                     result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
-                    result.antisolarHighCloudPercent(), durationMs);
+                    result.antisolarHighCloudPercent(),
+                    result.farSolarLowCloudPercent(), durationMs);
 
             return result;
         } catch (Exception e) {
