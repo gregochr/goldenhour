@@ -147,6 +147,8 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V47–V48 | location_id FK, directional cloud columns + basic-tier scores |
 | V49–V50 | NEXT_EVENT_ONLY strategy, WATERFALL location type + reclassification |
 | V51 | Cloud approach risk columns (solar trend, upwind sample) on forecast_evaluation |
+| V52 | SENTINEL_SAMPLING optimisation strategy rows; remove stale REQUIRE_PRIOR rows |
+| V53 | far_solar_low_cloud column on forecast_evaluation (strip vs blanket detection) |
 
 ---
 
