@@ -86,6 +86,10 @@ jwt:
 turnstile:
   secret-key: YOUR_TURNSTILE_SECRET_KEY  # Cloudflare Turnstile
 
+openrouteservice:
+  api-key: YOUR_ORS_API_KEY  # https://openrouteservice.org — free tier: 2000 requests/day
+  enabled: true              # set to false to disable drive-time refresh without removing the key
+
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
 

@@ -228,6 +228,8 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     const slots = (runType === 'VERY_SHORT_TERM' || runType === 'SHORT_TERM')
       ? computeSlots(runType)
       : null;
+    // Whether any location has a cached drive time (enables the filter UI)
+    const hasDriveTimes = allLocations.some((loc) => loc.driveDurationMinutes != null);
     setConfirmDialog({
       title,
       message,
@@ -238,7 +240,9 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       slots,
       runFn,
       setRunning,
-      onConfirm: async (resolvedSlots) => {
+      hasDriveTimes,
+      driveTimeThreshold: 0,
+      onConfirm: async (resolvedSlots, threshold) => {
         setConfirmDialog(null);
         setRunning(true);
         setRunStatus(null);
@@ -246,7 +250,12 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           const excluded = resolvedSlots
             ? resolvedSlots.filter((s) => !s.selected && !s.isPast).map(({ date, targetType }) => ({ date, targetType }))
             : [];
-          const result = await runFn(excluded);
+          const excludedLocations = threshold > 0
+            ? allLocations
+                .filter((loc) => loc.driveDurationMinutes == null || loc.driveDurationMinutes > threshold)
+                .map((loc) => loc.name)
+            : [];
+          const result = await runFn(excluded, excludedLocations);
           setRunStatus({ type: 'success', message: result.status || 'Run started.' });
           if (result.jobRunId) {
             onActiveRunChange(result.jobRunId);
@@ -530,6 +539,39 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               );
             })()}
 
+            {/* Drive time threshold — only for VST/ST with cached drive times */}
+            {confirmDialog.hasDriveTimes && confirmDialog.slots && (() => {
+              const threshold = confirmDialog.driveTimeThreshold || 0;
+              const excludedCount = threshold > 0
+                ? allLocations.filter((loc) => loc.driveDurationMinutes == null || loc.driveDurationMinutes > threshold).length
+                : 0;
+              return (
+                <div data-testid="confirm-dialog-drive-time">
+                  <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Drive time limit</p>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={threshold}
+                      onChange={(e) => setConfirmDialog((prev) => ({ ...prev, driveTimeThreshold: parseInt(e.target.value, 10) }))}
+                      className="text-xs px-2 py-1 bg-plex-surface-light border border-plex-border rounded text-plex-text"
+                      data-testid="drive-time-threshold-select"
+                    >
+                      <option value={0}>All distances</option>
+                      <option value={30}>Within 30 min</option>
+                      <option value={45}>Within 45 min</option>
+                      <option value={60}>Within 60 min</option>
+                      <option value={90}>Within 90 min</option>
+                      <option value={120}>Within 2 hours</option>
+                    </select>
+                    {excludedCount > 0 && (
+                      <span className="text-xs text-amber-400">
+                        {excludedCount} location{excludedCount !== 1 ? 's' : ''} excluded
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             {confirmDialog.activeStrategies?.length > 0 && (
               <div data-testid="confirm-dialog-strategies">
                 <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Active optimisations</p>
@@ -565,7 +607,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                     ? 'bg-red-700 hover:bg-red-600 text-white'
                     : 'btn-primary'
                 }`}
-                onClick={() => confirmDialog.onConfirm(confirmDialog.slots)}
+                onClick={() => confirmDialog.onConfirm(confirmDialog.slots, confirmDialog.driveTimeThreshold || 0)}
                 data-testid="confirm-dialog-confirm"
               >
                 {confirmDialog.confirmLabel}

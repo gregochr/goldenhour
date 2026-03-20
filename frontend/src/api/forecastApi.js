@@ -103,10 +103,16 @@ export async function runForecast(date, location, targetType) {
  * Triggers an on-demand run of very-short-term forecasts (today, T+1).
  * Uses the model configured under VERY_SHORT_TERM.
  *
+ * @param {Array<{date: string, targetType: string}>} excludedSlots     slots to skip (default: none)
+ * @param {string[]}                                  excludedLocations  location names to skip (default: none)
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} Accepted status message.
  */
-export async function runVeryShortTermForecast(excludedSlots = []) {
-  const body = excludedSlots.length > 0 ? { excludedSlots } : null;
+export async function runVeryShortTermForecast(excludedSlots = [], excludedLocations = []) {
+  const hasSlots = excludedSlots.length > 0;
+  const hasLocations = excludedLocations.length > 0;
+  const body = hasSlots || hasLocations
+    ? { ...(hasSlots && { excludedSlots }), ...(hasLocations && { excludedLocations }) }
+    : null;
   const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`, body);
   return response.data;
 }
@@ -115,11 +121,16 @@ export async function runVeryShortTermForecast(excludedSlots = []) {
  * Triggers an on-demand run of near-term forecasts (today, T+1, T+2).
  * Uses the model configured under SHORT_TERM.
  *
- * @param {Array<{date: string, targetType: string}>} excludedSlots  slots to skip (default: none)
+ * @param {Array<{date: string, targetType: string}>} excludedSlots     slots to skip (default: none)
+ * @param {string[]}                                  excludedLocations  location names to skip (default: none)
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} Accepted status message.
  */
-export async function runShortTermForecast(excludedSlots = []) {
-  const body = excludedSlots.length > 0 ? { excludedSlots } : null;
+export async function runShortTermForecast(excludedSlots = [], excludedLocations = []) {
+  const hasSlots = excludedSlots.length > 0;
+  const hasLocations = excludedLocations.length > 0;
+  const body = hasSlots || hasLocations
+    ? { ...(hasSlots && { excludedSlots }), ...(hasLocations && { excludedLocations }) }
+    : null;
   const response = await axios.post(`${BASE_URL}/forecast/run/short-term`, body);
   return response.data;
 }
@@ -204,6 +215,19 @@ export async function updateLocation(id, data) {
  */
 export async function setLocationEnabled(id, enabled) {
   const response = await axios.put(`${BASE_URL}/locations/${id}/enabled`, { enabled });
+  return response.data;
+}
+
+/**
+ * Refreshes drive-time estimates from a given source position to all locations via ORS.
+ * Persists drive duration minutes on each location entity. ADMIN only.
+ *
+ * @param {number} lat - Source latitude (from browser geolocation).
+ * @param {number} lon - Source longitude.
+ * @returns {Promise<{[locationName: string]: number|null}>} Map of location name to minutes (null = unreachable).
+ */
+export async function refreshDriveTimes(lat, lon) {
+  const response = await axios.post(`${BASE_URL}/locations/drive-times`, { lat, lon });
   return response.data;
 }
 
