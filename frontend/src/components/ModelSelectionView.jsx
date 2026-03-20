@@ -90,8 +90,8 @@ const STRATEGY_INFO = {
     paramMax: 5,
   },
   TIDE_ALIGNMENT: {
-    label: 'Tide Alignment',
-    description: 'For coastal (SEASCAPE) locations with tide preferences, skip Claude evaluation when no preferred tide type (High, Mid, or Low) falls within the golden/blue hour window around the solar event. Saves cost when tide conditions are unsuitable regardless of sky conditions.',
+    label: 'Weather/Tide Triage',
+    description: 'Phase 1 pre-Claude gate — runs before Sentinel Sampling and full evaluation, so no Claude API cost is incurred for skipped slots. Four checks are applied: (1) Solar horizon low cloud > 80% — sun is fully blocked; (2) Precipitation > 2 mm — active rain or heavy drizzle at the observer location; (3) Visibility < 5 km — fog or heavy haze; (4) Tide misalignment — for SEASCAPE locations with tide preferences, no preferred tide type (High, Mid, or Low) falls within the golden/blue hour window around the solar event. Any single failing check produces a canned 1★ result. Fail-open: missing weather or tide data always passes through to Claude.',
   },
 };
 

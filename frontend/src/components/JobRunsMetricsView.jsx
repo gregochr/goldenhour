@@ -17,7 +17,7 @@ const STRATEGY_LABELS = {
   EVALUATE_ALL: 'Evaluate Everything',
   NEXT_EVENT_ONLY: 'Next Event Only',
   SENTINEL_SAMPLING: 'Sentinel Sampling',
-  TIDE_ALIGNMENT: 'Tide Alignment',
+  TIDE_ALIGNMENT: 'Weather/Tide Triage',
 };
 
 /**
