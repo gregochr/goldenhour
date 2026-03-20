@@ -11,7 +11,6 @@ RUN mvn dependency:go-offline -B
 # Layer 2: Copy config files and source code, then build
 COPY backend/checkstyle.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
 COPY backend/src src
-COPY .git .git
 RUN mvn package -DskipTests -Dspring-boot.run.profiles=prod -o
 
 # Runtime image
