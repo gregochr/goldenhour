@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 import java.util.NoSuchElementException;
 
@@ -80,6 +81,21 @@ public class GlobalExceptionHandler {
      * @return a 500 response with a structured error body
      * @throws AccessDeniedException if the exception is a security authorisation failure
      */
+    /**
+     * Silently ignores client-disconnect notifications on async/SSE responses.
+     *
+     * <p>These fire when the browser closes the connection before the response is complete
+     * (tab closed, navigation, network drop). There is no meaningful action to take and
+     * no HTTP response can be sent, so logging at ERROR would be misleading noise.
+     *
+     * @param ex the disconnect exception
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void handleClientDisconnect(AsyncRequestNotUsableException ex) {
+        LOG.debug("Client disconnected during async response: {}", ex.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) throws AccessDeniedException {
         if (ex instanceof AccessDeniedException ade) {
