@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Encapsulates everything needed to execute a forecast run.
@@ -18,11 +19,19 @@ import java.util.List;
  * @param locations          the locations to process (null means all applicable)
  * @param strategy           the evaluation strategy (null for WEATHER/TIDE)
  * @param triggeredManually  whether this was triggered manually via the API
+ * @param excludedSlots      (date|TARGETTYPE) keys to skip, e.g. "2026-03-20|SUNRISE"; null/empty = skip none
  */
 public record ForecastCommand(
         RunType runType,
         List<LocalDate> dates,
         List<LocationEntity> locations,
         EvaluationStrategy strategy,
-        boolean triggeredManually
-) {}
+        boolean triggeredManually,
+        Set<String> excludedSlots
+) {
+    /** Convenience constructor — no excluded slots. */
+    public ForecastCommand(RunType runType, List<LocalDate> dates, List<LocationEntity> locations,
+            EvaluationStrategy strategy, boolean triggeredManually) {
+        this(runType, dates, locations, strategy, triggeredManually, Set.of());
+    }
+}
