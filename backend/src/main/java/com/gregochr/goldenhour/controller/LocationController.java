@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.DriveTimesRequest;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
+import com.gregochr.goldenhour.service.DriveDurationService;
 import com.gregochr.goldenhour.service.LocationService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,14 +29,18 @@ import java.util.Map;
 public class LocationController {
 
     private final LocationService locationService;
+    private final DriveDurationService driveDurationService;
 
     /**
      * Constructs a {@code LocationController}.
      *
-     * @param locationService the service managing persisted locations
+     * @param locationService      the service managing persisted locations
+     * @param driveDurationService the service computing drive times via ORS
      */
-    public LocationController(LocationService locationService) {
+    public LocationController(LocationService locationService,
+            DriveDurationService driveDurationService) {
         this.locationService = locationService;
+        this.driveDurationService = driveDurationService;
     }
 
     /**
@@ -102,5 +108,23 @@ public class LocationController {
     @PreAuthorize("hasRole('ADMIN')")
     public LocationEntity resetLocationFailures(@RequestParam String name) {
         return locationService.resetFailures(name);
+    }
+
+    /**
+     * Refreshes drive-time estimates from the given source position to all locations via ORS.
+     *
+     * <p>The source is typically the user's current position (from browser geolocation).
+     * Results are persisted on each {@link LocationEntity} as {@code driveDurationMinutes}.
+     * The "Home" location (case-insensitive) is excluded from ORS computation and set to 0.
+     *
+     * <p>Returns a no-op empty map if ORS is not configured.
+     *
+     * @param request source latitude and longitude in decimal degrees
+     * @return map of location name to drive duration in minutes
+     */
+    @PostMapping("/drive-times")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Integer> refreshDriveTimes(@RequestBody DriveTimesRequest request) {
+        return driveDurationService.refreshDriveTimes(request.lat(), request.lon());
     }
 }

@@ -220,6 +220,7 @@ function MapView({ locations, date }) {
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
+  const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   const [tideClassifications, setTideClassifications] = useState({});
 
@@ -281,13 +282,20 @@ function MapView({ locations, date }) {
 
   const hasUnrated = typeFiltered.some((loc) => getRatingForLocation(loc) == null);
 
-  const visibleLocations = activeRatingFilters.size === 0
+
+  const ratingFiltered = activeRatingFilters.size === 0
     ? typeFiltered
     : typeFiltered.filter((loc) => {
         const rating = getRatingForLocation(loc);
         if (rating == null) return activeRatingFilters.has('unrated');
         return activeRatingFilters.has(rating);
       });
+
+  const visibleLocations = driveTimeFilter === 0
+    ? ratingFiltered
+    : ratingFiltered.filter((loc) =>
+        loc.driveDurationMinutes != null && loc.driveDurationMinutes <= driveTimeFilter,
+      );
 
   if (!date || locations.length === 0) {
     return (
@@ -363,9 +371,24 @@ function MapView({ locations, date }) {
         >
           ?
         </button>
-        {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0) && (
+        <span className="text-plex-border mx-1">|</span>
+        <select
+          value={driveTimeFilter}
+          onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
+          className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
+          data-testid="drive-time-filter-select"
+          title="Filter by drive time from last-refreshed position"
+        >
+          <option value={0}>🚗 All</option>
+          <option value={30}>🚗 ≤30 min</option>
+          <option value={45}>🚗 ≤45 min</option>
+          <option value={60}>🚗 ≤60 min</option>
+          <option value={90}>🚗 ≤90 min</option>
+          <option value={120}>🚗 ≤2 hrs</option>
+        </select>
+        {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0 || driveTimeFilter > 0) && (
           <button
-            onClick={() => { setActiveTypeFilters(new Set()); setActiveRatingFilters(new Set()); }}
+            onClick={() => { setActiveTypeFilters(new Set()); setActiveRatingFilters(new Set()); setDriveTimeFilter(0); }}
             className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
             data-testid="clear-all-filters"
           >

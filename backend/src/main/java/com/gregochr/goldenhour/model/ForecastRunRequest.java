@@ -13,25 +13,29 @@ import java.util.List;
  *   <li>If {@code location} is null, forecasts are run for all configured locations.</li>
  *   <li>If {@code targetType} is null, both SUNRISE and SUNSET are evaluated.</li>
  *   <li>If {@code excludedSlots} is null or empty, all slots are evaluated.</li>
+ *   <li>If {@code excludedLocations} is null or empty, all locations are evaluated.</li>
  * </ul>
  *
  * <p>Dates must be ISO format strings ({@code yyyy-MM-dd}), e.g. {@code ["2026-03-01","2026-03-02"]}.
  *
- * @param dates         ISO date strings to forecast (null or empty = today only)
- * @param location      the name of the location to forecast (null = all configured locations)
- * @param targetType    SUNRISE or SUNSET (null = both)
- * @param excludedSlots specific (date, targetType) slots to skip; null or empty = skip none
+ * @param dates             ISO date strings to forecast (null or empty = today only)
+ * @param location          the name of the location to forecast (null = all configured locations)
+ * @param targetType        SUNRISE or SUNSET (null = both)
+ * @param excludedSlots     specific (date, targetType) slots to skip; null or empty = skip none
+ * @param excludedLocations location names to exclude from the run (e.g. too far to drive); null or empty = skip none
  */
 public record ForecastRunRequest(
         List<String> dates,
         String location,
         TargetType targetType,
-        List<SlotFilter> excludedSlots) {
+        List<SlotFilter> excludedSlots,
+        List<String> excludedLocations) {
 
     /** Defensive copies — ensures list fields are immutable. */
     public ForecastRunRequest {
         dates = (dates != null) ? List.copyOf(dates) : null;
         excludedSlots = (excludedSlots != null) ? List.copyOf(excludedSlots) : null;
+        excludedLocations = (excludedLocations != null) ? List.copyOf(excludedLocations) : null;
     }
 
     /**

@@ -316,6 +316,64 @@ class ForecastCommandExecutorTest {
     }
 
     // -------------------------------------------------------------------------
+    // Drive-time excluded locations
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("execute() skips locations in excludedLocations set")
+    void execute_excludedLocations_skipsThoseLocations() {
+        LocationEntity whitley = LocationEntity.builder()
+                .id(3L)
+                .name("Whitley Bay")
+                .lat(55.04)
+                .lon(-1.44)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham(), whitley));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // Exclude Whitley Bay — only Durham should be processed
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                null, haikuStrategy, true, Set.of(), Set.of("Whitley Bay"));
+
+        executor.execute(cmd);
+
+        // fetchWeatherAndTriage should be called only for Durham (2 target types), not Whitley
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        any(LocalDate.class), any(TargetType.class), any(),
+                        any(EvaluationModel.class), anyBoolean(), any());
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Whitley Bay".equals(loc.getName())),
+                        any(), any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    @DisplayName("execute() with empty excludedLocations processes all locations normally")
+    void execute_emptyExcludedLocations_processesAll() {
+        LocationEntity whitley = LocationEntity.builder()
+                .id(3L)
+                .name("Whitley Bay")
+                .lat(55.04)
+                .lon(-1.44)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham(), whitley));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                null, haikuStrategy, true, Set.of(), Set.of());
+
+        executor.execute(cmd);
+
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY * 2))
+                .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
+                        any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), any());
+    }
+
+    // -------------------------------------------------------------------------
     // Optimisation skip delegation
     // -------------------------------------------------------------------------
 

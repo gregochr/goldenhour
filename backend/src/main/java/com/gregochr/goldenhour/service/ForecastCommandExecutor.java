@@ -146,6 +146,16 @@ public class ForecastCommandExecutor {
                 .filter(loc -> isWildlife ? isPureWildlife(loc) : hasColourTypes(loc))
                 .toList();
 
+        // Apply drive-time exclusions (locations the user chose to skip this run)
+        Set<String> excludedLocations = command.excludedLocations() != null
+                ? command.excludedLocations() : Set.of();
+        if (!excludedLocations.isEmpty()) {
+            locations = locations.stream()
+                    .filter(loc -> !excludedLocations.contains(loc.getName()))
+                    .toList();
+            LOG.info("Drive-time filter excluded {} location(s): {}", excludedLocations.size(), excludedLocations);
+        }
+
         List<LocalDate> dates = command.dates();
 
         LOG.info("Forecast run started — runType={}, model={}, {} location(s), {} date(s), strategies=[{}]",

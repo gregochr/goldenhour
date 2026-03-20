@@ -1,6 +1,6 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
+import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, refreshDriveTimes } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -412,6 +412,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Drive time refresh state
+  const [driveTimeRefreshing, setDriveTimeRefreshing] = useState(false);
+  const [driveTimeStatus, setDriveTimeStatus] = useState(null); // { type: 'success'|'error', message }
+
   const locationAccessors = useMemo(() => ({
     name: (loc) => loc.name,
     region: (loc) => loc.region?.name || '',
@@ -439,6 +443,26 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setLocations(data);
     } catch {
       // Keep existing list on failure
+    }
+  }
+
+  async function handleRefreshDriveTimes() {
+    setDriveTimeRefreshing(true);
+    setDriveTimeStatus(null);
+    try {
+      const position = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }),
+      );
+      const { latitude: lat, longitude: lon } = position.coords;
+      const result = await refreshDriveTimes(lat, lon);
+      const count = Object.keys(result).length;
+      setDriveTimeStatus({ type: 'success', message: `Drive times updated for ${count} location${count !== 1 ? 's' : ''}.` });
+      await refreshLocations();
+    } catch (err) {
+      const msg = err?.code === 1 ? 'Location permission denied.' : 'Drive time refresh failed.';
+      setDriveTimeStatus({ type: 'error', message: msg });
+    } finally {
+      setDriveTimeRefreshing(false);
     }
   }
 
@@ -678,14 +702,30 @@ export default function LocationManagementView({ onLocationsChanged }) {
         <>
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm font-semibold text-plex-text">Location Management</p>
-            <button
-              className="btn-secondary text-xs shrink-0"
-              onClick={handleStartAdd}
-              data-testid="add-location-btn"
-            >
-              + Add Location
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                className="btn-secondary text-xs"
+                onClick={handleRefreshDriveTimes}
+                disabled={driveTimeRefreshing}
+                title="Update drive times from your current location (uses browser GPS)"
+                data-testid="refresh-drive-times-btn"
+              >
+                {driveTimeRefreshing ? '⏳ Refreshing…' : '🚗 Refresh Drive Times'}
+              </button>
+              <button
+                className="btn-secondary text-xs"
+                onClick={handleStartAdd}
+                data-testid="add-location-btn"
+              >
+                + Add Location
+              </button>
+            </div>
           </div>
+          {driveTimeStatus && (
+            <p className={`text-xs ${driveTimeStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {driveTimeStatus.message}
+            </p>
+          )}
 
           <LocationAlerts
             locations={locations}
@@ -701,8 +741,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <table className="w-full text-sm text-left table-fixed" data-testid="locations-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Name" sortKey="name" className="w-[22%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
-                    <th className="pb-1 font-medium align-top w-[10%]">
+                    <SortableHeader label="Name" sortKey="name" className="w-[20%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('name')} onFilter={(v) => sf.setFilter('name', v)} />
+                    <th className="pb-1 font-medium align-top w-[9%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Coords</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
@@ -807,7 +847,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <SortableHeader label="Status" sortKey="status" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
+                    <th className="pb-1 font-medium align-top w-[7%]">
+                      <span className="text-xs text-plex-text-muted whitespace-nowrap">Drive</span>
+                      <div className="mt-1 h-[26px]" />
+                    </th>
+                    <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
                     <th className="pb-1 font-medium align-top w-[13%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
                       <div className="mt-1 h-[26px]" />
@@ -868,6 +912,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   onChange={(next) => setEditValues((prev) => ({ ...prev, tideTypes: next }))}
                                   disabled={editValues.locationType !== 'SEASCAPE'}
                                 />
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
                               </td>
                               <td className="py-2">
                                 <button
@@ -940,6 +987,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   readOnly
                                 />
                               </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
+                              </td>
                               <td className="py-2">
                                 <button
                                   onClick={() => handleToggleEnabled(loc)}
@@ -978,7 +1028,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         </tr>
                         {isEditing && (
                           <tr className="border-b border-plex-surface">
-                            <td colSpan={9} className="py-1.5 pl-1">
+                            <td colSpan={10} className="py-1.5 pl-1">
                               <div className="flex items-center gap-2 text-xs">
                                 <span className="text-plex-text-muted">Lat</span>
                                 <input
@@ -1004,7 +1054,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         )}
                         {isEditing && editError && (
                           <tr>
-                            <td colSpan={9} className="py-1 text-xs text-red-400 pl-1" data-testid="inline-edit-error">
+                            <td colSpan={10} className="py-1 text-xs text-red-400 pl-1" data-testid="inline-edit-error">
                               {editError}
                             </td>
                           </tr>
@@ -1014,7 +1064,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   })}
                   {filteredLocations.length === 0 && locations.length > 0 && (
                     <tr>
-                      <td colSpan={9} className="py-4 text-center text-xs text-plex-text-muted">
+                      <td colSpan={10} className="py-4 text-center text-xs text-plex-text-muted">
                         No locations match the current filters.
                       </td>
                     </tr>
@@ -1022,7 +1072,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   {pageLocations.length > 0 && pageLocations.length < pagination.pageSize && (
                     Array.from({ length: pagination.pageSize - pageLocations.length }, (_, i) => (
                       <tr key={`spacer-${i}`} aria-hidden="true">
-                        <td colSpan={8} className="py-2 text-sm">&nbsp;</td>
+                        <td colSpan={9} className="py-2 text-sm">&nbsp;</td>
                       </tr>
                     ))
                   )}

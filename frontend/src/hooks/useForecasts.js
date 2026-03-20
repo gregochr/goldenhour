@@ -43,6 +43,7 @@ export function useForecasts() {
           locationType: l.locationType ?? [],
           tideType: l.tideType ?? [],
           solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
+          driveDurationMinutes: l.driveDurationMinutes ?? null,
         }));
 
       const outcomeResults = await Promise.all(
