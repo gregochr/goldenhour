@@ -85,7 +85,9 @@ public class ForecastDataAugmentor {
                 tideData.nextHighTideHeightMetres(),
                 tideData.nextLowTideTime(),
                 tideData.nextLowTideHeightMetres(),
-                tideAligned));
+                tideAligned,
+                tideData.nearestHighTideTime(),
+                tideData.nearestLowTideTime()));
     }
 
     /**

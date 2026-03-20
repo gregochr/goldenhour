@@ -83,7 +83,8 @@ class ForecastDataAugmentorTest {
         LocalDateTime highTide = EVENT_TIME.plusHours(2);
         LocalDateTime lowTide = EVENT_TIME.minusHours(4);
         TideData tideData = new TideData(TideState.HIGH, false,
-                highTide, new BigDecimal("4.5"), lowTide, new BigDecimal("1.2"));
+                highTide, new BigDecimal("4.5"), lowTide, new BigDecimal("1.2"),
+                highTide, null);
         when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
 

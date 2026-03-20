@@ -535,13 +535,42 @@ public class TideService {
                 .findFirst()
                 .orElse(null);
 
+        LocalDateTime nearestHigh = findNearestExtreme(extremes, TideExtremeType.HIGH, eventTime);
+        LocalDateTime nearestLow = findNearestExtreme(extremes, TideExtremeType.LOW, eventTime);
+
         return new TideData(
                 state,
                 nearMid,
                 nextHigh != null ? nextHigh.getEventTime() : null,
                 nextHigh != null ? nextHigh.getHeightMetres() : null,
                 nextLow != null ? nextLow.getEventTime() : null,
-                nextLow != null ? nextLow.getHeightMetres() : null);
+                nextLow != null ? nextLow.getHeightMetres() : null,
+                nearestHigh,
+                nearestLow);
+    }
+
+    /**
+     * Finds the tide extreme of the given type that is closest in time to {@code eventTime},
+     * within a ±12-hour search window.
+     *
+     * <p>Package-private for unit testing.
+     *
+     * @param extremes  stored tide extremes in chronological order
+     * @param type      the type of extreme to search for (HIGH or LOW)
+     * @param eventTime UTC time of the solar event
+     * @return the UTC time of the nearest matching extreme within ±12 hours, or null if none found
+     */
+    LocalDateTime findNearestExtreme(List<TideExtremeEntity> extremes,
+            TideExtremeType type, LocalDateTime eventTime) {
+        final long windowMinutes = 12 * 60;
+        return extremes.stream()
+                .filter(e -> e.getType() == type)
+                .filter(e -> Math.abs(ChronoUnit.MINUTES.between(e.getEventTime(), eventTime))
+                        <= windowMinutes)
+                .min(java.util.Comparator.comparingLong(e ->
+                        Math.abs(ChronoUnit.MINUTES.between(e.getEventTime(), eventTime))))
+                .map(TideExtremeEntity::getEventTime)
+                .orElse(null);
     }
 
     /**

@@ -5,7 +5,9 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
@@ -79,6 +81,8 @@ class ForecastServiceTest {
     private ApplicationEventPublisher eventPublisher;
     @Mock
     private WeatherTriageEvaluator weatherTriageEvaluator;
+    @Mock
+    private TideAlignmentEvaluator tideAlignmentEvaluator;
 
     @InjectMocks
     private ForecastService forecastService;
@@ -93,6 +97,9 @@ class ForecastServiceTest {
                 anyInt(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithTideData(any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        // Tide alignment passes by default (non-SEASCAPE locations in most tests)
+        lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
     }
 
     @Test
@@ -347,7 +354,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, null);
+                EvaluationModel.SONNET, true, null);
 
         assertThat(result.triaged()).isFalse();
         assertThat(result.triageReason()).isNull();
@@ -376,7 +383,7 @@ class ForecastServiceTest {
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
-                EvaluationModel.SONNET, null);
+                EvaluationModel.SONNET, true, null);
 
         assertThat(result.triaged()).isTrue();
         assertThat(result.triageReason()).isEqualTo("Low cloud 85%");
@@ -395,7 +402,7 @@ class ForecastServiceTest {
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, null))
+                EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
     }
@@ -412,7 +419,7 @@ class ForecastServiceTest {
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, null))
+                EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
     }
@@ -434,10 +441,92 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, jobRun);
+                EvaluationModel.SONNET, true, jobRun);
 
         // Should publish FETCHING_WEATHER, FETCHING_CLOUD (no FETCHING_TIDES — empty tideTypes)
         verify(eventPublisher, times(2)).publishEvent(any());
+    }
+
+    // --- tide alignment optimisation strategy tests ---
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() triages SEASCAPE when tideAlignmentEnabled=true and tide misaligned")
+    void fetchWeatherAndTriage_seascapeTideAlignmentEnabled_misaligned_triages() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        LocationEntity seascape = LocationEntity.builder()
+                .id(2L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
+                .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
+                .build();
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(10L).build();
+
+        when(solarService.sunsetUtc(55.6, -1.7, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
+        when(solarService.civilDuskUtc(55.6, -1.7, date))
+                .thenReturn(sunset.plusMinutes(45));
+        when(openMeteoService.getAtmosphericData(any(), any(), any())).thenReturn(data);
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
+                .thenReturn(Optional.of(new TriageResult(
+                        "No high tide aligned with golden/blue hour window",
+                        TriageRule.TIDE_MISALIGNED)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        assertThat(result.triageReason()).contains("tide");
+        verify(repository).save(any());
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() skips tide triage when tideAlignmentEnabled=false even for SEASCAPE")
+    void fetchWeatherAndTriage_seascapeTideAlignmentDisabled_doesNotTriage() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        LocationEntity seascape = LocationEntity.builder()
+                .id(2L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .locationType(new java.util.HashSet<>(Set.of(LocationType.SEASCAPE)))
+                .tideType(new java.util.HashSet<>(Set.of(TideType.HIGH)))
+                .build();
+
+        when(solarService.sunsetUtc(55.6, -1.7, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
+        when(openMeteoService.getAtmosphericData(any(), any(), any())).thenReturn(data);
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
+                EvaluationModel.SONNET, false, null);
+
+        assertThat(result.triaged()).isFalse();
+        verify(tideAlignmentEvaluator, never()).evaluate(any(), any(), any(), any());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() does not apply tide alignment for non-SEASCAPE locations")
+    void fetchWeatherAndTriage_landscapeLocation_tideAlignmentNotApplied() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericData(any(), any(), any())).thenReturn(data);
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isFalse();
+        verify(tideAlignmentEvaluator, never()).evaluate(any(), any(), any(), any());
     }
 
     // --- evaluateAndPersist tests ---

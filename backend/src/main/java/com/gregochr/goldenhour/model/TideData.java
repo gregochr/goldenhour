@@ -16,6 +16,10 @@ import java.time.LocalDateTime;
  * @param nextHighTideHeightMetres  height of the next high tide in metres
  * @param nextLowTideTime           UTC time of the next low tide
  * @param nextLowTideHeightMetres   height of the next low tide in metres
+ * @param nearestHighTideTime       UTC time of the high tide extreme nearest to the event
+ *                                  within ±12 hours, or null if none found
+ * @param nearestLowTideTime        UTC time of the low tide extreme nearest to the event
+ *                                  within ±12 hours, or null if none found
  */
 public record TideData(
         TideState tideState,
@@ -23,5 +27,7 @@ public record TideData(
         LocalDateTime nextHighTideTime,
         BigDecimal nextHighTideHeightMetres,
         LocalDateTime nextLowTideTime,
-        BigDecimal nextLowTideHeightMetres) {
+        BigDecimal nextLowTideHeightMetres,
+        LocalDateTime nearestHighTideTime,
+        LocalDateTime nearestLowTideTime) {
 }

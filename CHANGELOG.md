@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 20, 2026) — Tide Alignment Pre-Claude Triage
+- **TIDE_ALIGNMENT run optimisation** — new `OptimisationStrategyType` enabled by default for all colour run types (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM) via V54 migration
+  - For SEASCAPE locations with tide preferences, applies a pre-Claude check: if no preferred tide type (HIGH/LOW/MID) falls within the golden/blue hour window around the solar event, skips Claude and persists a 1★ canned result
+  - Window: `[civilDawn, sunrise+60min]` for sunrise; `[sunset-60min, civilDusk]` for sunset
+  - Nearest tide extreme limited to ±12h of the solar event
+  - Fail-open: sends to Claude when no tide data or no preferences are set
+  - `TideAlignmentEvaluator` service with any-match across multiple preferred tide types
+  - `TIDE_MISALIGNED` triage rule; map popup footer detects and displays "tide not aligned" reason
+  - `TideData` + `TideSnapshot` records extended with `nearestHighTideTime` / `nearestLowTideTime`
+  - `TideService.findNearestExtreme()` helper finds closest HIGH/LOW extreme within ±12h
+- **SEASCAPE tide preference enforcement** — add/edit location forms require at least one tide preference when location type is SEASCAPE
+- **Amber warning chip** — map popup shows an amber ⚠️ chip for SEASCAPE locations with no tide preferences set
+
 ### Added (Mar 12, 2026)
 - **Spring/king tide badge pills** — map popup shows spring tide (🌊) or king tide (👑) badges when a HIGH tide exceeds the spring (125% avg) or king (P95) threshold; prominent styling when within ±90 min of the forecast solar event, muted with "outside golden/blue hours" text otherwise; king trumps spring (never both for the same tide); coexists with the existing rising tide warning badge
 - **Tide stats: spring & king tide thresholds** — `TideStats` record extended with `springTideThreshold` (125% of avg high), `kingTideThreshold` (P95), and `kingTideCount`; displayed in Location Tides modal

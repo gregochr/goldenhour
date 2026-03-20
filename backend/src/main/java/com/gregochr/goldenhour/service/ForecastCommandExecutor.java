@@ -218,9 +218,13 @@ public class ForecastCommandExecutor {
 
         List<ForecastEvaluationEntity> results = new ArrayList<>();
 
+        boolean tideAlignmentEnabled = enabledStrategies.stream()
+                .anyMatch(s -> s.getStrategyType() == OptimisationStrategyType.TIDE_ALIGNMENT);
+
         // Phase 1: TRIAGE
         progressTracker.setPhase(jobRun.getId(), RunPhase.TRIAGE);
-        List<ForecastPreEvalResult> triageResults = runTriagePhase(nonSkippedTasks, jobRun);
+        List<ForecastPreEvalResult> triageResults = runTriagePhase(nonSkippedTasks,
+                tideAlignmentEnabled, jobRun);
         List<ForecastPreEvalResult> survivors = triageResults.stream()
                 .filter(r -> !r.triaged())
                 .toList();
@@ -281,9 +285,13 @@ public class ForecastCommandExecutor {
 
     /**
      * Phase 1: Fetch weather data and apply triage heuristics to all non-skipped tasks in parallel.
+     *
+     * @param tasks                all non-skipped task descriptors
+     * @param tideAlignmentEnabled {@code true} if the TIDE_ALIGNMENT optimisation strategy is active
+     * @param jobRun               the parent job run for metrics
      */
     private List<ForecastPreEvalResult> runTriagePhase(List<TaskDescriptor> tasks,
-            JobRunEntity jobRun) {
+            boolean tideAlignmentEnabled, JobRunEntity jobRun) {
         List<CompletableFuture<ForecastPreEvalResult>> futures = new ArrayList<>();
 
         for (TaskDescriptor task : tasks) {
@@ -291,7 +299,7 @@ public class ForecastCommandExecutor {
                 try {
                     return forecastService.fetchWeatherAndTriage(
                             task.location, task.date, task.targetType,
-                            task.location.getTideType(), task.model, jobRun);
+                            task.location.getTideType(), task.model, tideAlignmentEnabled, jobRun);
                 } catch (Exception e) {
                     LOG.error("Triage failed for {} {} on {} [{}]: {}",
                             task.location.getName(), task.targetType, task.date,
