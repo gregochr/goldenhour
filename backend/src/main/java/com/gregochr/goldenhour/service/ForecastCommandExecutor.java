@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -156,8 +157,9 @@ public class ForecastCommandExecutor {
             return executeWildlife(locations, dates, jobRun);
         }
 
+        Set<String> excludedSlots = command.excludedSlots() != null ? command.excludedSlots() : Set.of();
         return executeThreePhasePipeline(locations, dates, enabledStrategies,
-                evaluationModel, runType, jobRun);
+                evaluationModel, runType, jobRun, excludedSlots);
     }
 
     // -------------------------------------------------------------------------
@@ -167,7 +169,8 @@ public class ForecastCommandExecutor {
     private List<ForecastEvaluationEntity> executeThreePhasePipeline(
             List<LocationEntity> locations, List<LocalDate> dates,
             List<OptimisationStrategyEntity> enabledStrategies,
-            EvaluationModel evaluationModel, RunType runType, JobRunEntity jobRun) {
+            EvaluationModel evaluationModel, RunType runType, JobRunEntity jobRun,
+            Set<String> excludedSlots) {
 
         AtomicInteger succeeded = new AtomicInteger(0);
         AtomicInteger failed = new AtomicInteger(0);
@@ -195,7 +198,9 @@ public class ForecastCommandExecutor {
                     allTaskKeys.add(new String[]{taskKey, location.getName(),
                             targetDate.toString(), targetType.name()});
 
-                    if (shouldSkipEvent(targetDate, targetType, location, today, now)
+                    String slotKey = targetDate + "|" + targetType.name();
+                    if (excludedSlots.contains(slotKey)
+                            || shouldSkipEvent(targetDate, targetType, location, today, now)
                             || optimisationSkipEvaluator.shouldSkip(
                                     enabledStrategies, location, targetDate, targetType)) {
                         skippedKeys.add(new String[]{taskKey, location.getName(),

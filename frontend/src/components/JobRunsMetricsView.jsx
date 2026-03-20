@@ -17,7 +17,41 @@ const STRATEGY_LABELS = {
   EVALUATE_ALL: 'Evaluate Everything',
   NEXT_EVENT_ONLY: 'Next Event Only',
   SENTINEL_SAMPLING: 'Sentinel Sampling',
+  TIDE_ALIGNMENT: 'Tide Alignment',
 };
+
+/**
+ * Builds the list of (date, targetType) slots for a given run type.
+ * Past slots (sunrise past noon UTC; sunset past 21:00 UTC) are marked disabled.
+ *
+ * @param {'VERY_SHORT_TERM'|'SHORT_TERM'} runType
+ * @returns {Array<{date: string, targetType: string, isPast: boolean, selected: boolean}>}
+ */
+function computeSlots(runType) {
+  const now = new Date();
+  const hourUtc = now.getUTCHours();
+  const days = runType === 'VERY_SHORT_TERM' ? 2 : 3;
+  const slots = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() + i);
+    const date = d.toISOString().slice(0, 10);
+    const isToday = i === 0;
+    const sunrisePast = isToday && hourUtc >= 12;
+    const sunsetPast = isToday && hourUtc >= 21;
+    slots.push({ date, targetType: 'SUNRISE', isPast: sunrisePast, selected: !sunrisePast });
+    slots.push({ date, targetType: 'SUNSET', isPast: sunsetPast, selected: !sunsetPast });
+  }
+  return slots;
+}
+
+/** Formats a slot date for display, e.g. "Today", "Tomorrow", or "Wed 25 Mar". */
+function formatSlotDate(dateStr, index) {
+  if (index === 0) return 'Today';
+  if (index === 1) return 'Tomorrow';
+  const d = new Date(dateStr + 'T12:00:00Z');
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
 
 /** Returns true if the location has LANDSCAPE, SEASCAPE, or WATERFALL (or no types — defaults to colour). */
 function hasColourTypes(loc) {
@@ -191,6 +225,9 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         param: s.paramValue,
         type: s.strategyType,
       }));
+    const slots = (runType === 'VERY_SHORT_TERM' || runType === 'SHORT_TERM')
+      ? computeSlots(runType)
+      : null;
     setConfirmDialog({
       title,
       message,
@@ -198,12 +235,18 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       destructive: false,
       locationSummary: summary,
       activeStrategies,
-      onConfirm: async () => {
+      slots,
+      runFn,
+      setRunning,
+      onConfirm: async (resolvedSlots) => {
         setConfirmDialog(null);
         setRunning(true);
         setRunStatus(null);
         try {
-          const result = await runFn();
+          const excluded = resolvedSlots
+            ? resolvedSlots.filter((s) => !s.selected && !s.isPast).map(({ date, targetType }) => ({ date, targetType }))
+            : [];
+          const result = await runFn(excluded);
           setRunStatus({ type: 'success', message: result.status || 'Run started.' });
           if (result.jobRunId) {
             onActiveRunChange(result.jobRunId);
@@ -220,7 +263,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const handleRunVeryShortTerm = () => buildConfirmDialog(
     'VERY_SHORT_TERM',
     'Run Very-Short-Term Forecast',
-    'Run very-short-term forecast (T, T+1)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+    'Run very-short-term forecast (T, T+1)?',
     'Run',
     runVeryShortTermForecast,
     setRunningVeryShortTerm,
@@ -229,7 +272,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const handleRunShortTerm = () => buildConfirmDialog(
     'SHORT_TERM',
     'Run Short-Term Forecast',
-    'Run short-term forecast (T, T+1, T+2)? This will trigger API calls to Open-Meteo and Claude (may incur costs).',
+    'Run short-term forecast (T, T+1, T+2)?',
     'Run',
     runShortTermForecast,
     setRunningShortTerm,
@@ -422,6 +465,71 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
             <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+
+            {/* Slot selector — VST and ST only */}
+            {confirmDialog.slots && (() => {
+              const slots = confirmDialog.slots;
+              const anyDeselected = slots.some((s) => !s.isPast && !s.selected);
+              const hasJfdi = confirmDialog.activeStrategies?.some((s) => s.type === 'FORCE_IMMINENT');
+              const hasNextEventOnly = confirmDialog.activeStrategies?.some((s) => s.type === 'NEXT_EVENT_ONLY');
+              const uniqueDates = [...new Set(slots.map((s) => s.date))];
+              return (
+                <div data-testid="confirm-dialog-slots">
+                  <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Slots to evaluate</p>
+                  <div className="flex flex-col gap-1.5">
+                    {uniqueDates.map((date, di) => (
+                      <div key={date} className="flex items-center gap-3">
+                        <span className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
+                        {slots.filter((s) => s.date === date).map((slot) => {
+                          const id = `slot-${slot.date}-${slot.targetType}`;
+                          return (
+                            <label
+                              key={id}
+                              htmlFor={id}
+                              className={`flex items-center gap-1.5 text-xs cursor-pointer select-none ${slot.isPast ? 'opacity-40 cursor-not-allowed' : 'text-plex-text'}`}
+                            >
+                              <input
+                                id={id}
+                                type="checkbox"
+                                checked={slot.selected}
+                                disabled={slot.isPast}
+                                data-testid={id}
+                                onChange={() => {
+                                  if (slot.isPast) return;
+                                  setConfirmDialog((prev) => ({
+                                    ...prev,
+                                    slots: prev.slots.map((s) =>
+                                      s.date === slot.date && s.targetType === slot.targetType
+                                        ? { ...s, selected: !s.selected }
+                                        : s,
+                                    ),
+                                  }));
+                                }}
+                                className="accent-blue-400"
+                              />
+                              {slot.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
+                              {slot.isPast && <span className="text-plex-text-muted italic">(past)</span>}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                  {anyDeselected && (hasJfdi || hasNextEventOnly) && (
+                    <p className="mt-2 text-xs text-amber-400" data-testid="slot-override-warning">
+                      ⚠️{' '}
+                      {hasJfdi && hasNextEventOnly
+                        ? 'JFDI and Next Event Only are'
+                        : hasJfdi
+                          ? 'JFDI (Always Evaluate Today) is'
+                          : 'Next Event Only is'}{' '}
+                      active — {hasJfdi && hasNextEventOnly ? 'they' : 'it'} will override your slot selection.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
             {confirmDialog.activeStrategies?.length > 0 && (
               <div data-testid="confirm-dialog-strategies">
                 <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Active optimisations</p>
@@ -457,7 +565,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                     ? 'bg-red-700 hover:bg-red-600 text-white'
                     : 'btn-primary'
                 }`}
-                onClick={confirmDialog.onConfirm}
+                onClick={() => confirmDialog.onConfirm(confirmDialog.slots)}
                 data-testid="confirm-dialog-confirm"
               >
                 {confirmDialog.confirmLabel}

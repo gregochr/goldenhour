@@ -39,8 +39,10 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 /**
  * REST controller for forecast evaluation data.
@@ -221,14 +223,18 @@ public class ForecastController {
      * Triggers an on-demand run of very-short-term forecasts (today, T+1). Restricted to ADMIN only.
      *
      * <p>Uses the model configured under {@code VERY_SHORT_TERM}.
+     * An optional body may carry {@code excludedSlots} to skip specific (date, targetType) combinations.
      *
+     * @param request optional slot exclusions
      * @return 202 Accepted with status message
      */
     @PostMapping("/run/very-short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> runVeryShortTermForecast() {
+    public ResponseEntity<Map<String, Object>> runVeryShortTermForecast(
+            @RequestBody(required = false) ForecastRunRequest request) {
         LOG.info("POST /api/forecast/run/very-short-term triggered by admin");
-        ForecastCommand cmd = commandFactory.create(RunType.VERY_SHORT_TERM, true);
+        Set<String> excludedSlots = toExcludedSlotKeys(request);
+        ForecastCommand cmd = commandFactory.create(RunType.VERY_SHORT_TERM, true, null, null, excludedSlots);
         JobRunEntity jobRun = jobRunService.startRun(RunType.VERY_SHORT_TERM, true, null, null);
         CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
@@ -239,14 +245,18 @@ public class ForecastController {
      * Triggers an on-demand run of short-term forecasts (today, T+1, T+2). Restricted to ADMIN only.
      *
      * <p>Uses the model configured under {@code SHORT_TERM}.
+     * An optional body may carry {@code excludedSlots} to skip specific (date, targetType) combinations.
      *
+     * @param request optional slot exclusions
      * @return 202 Accepted with status message
      */
     @PostMapping("/run/short-term")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Object>> runShortTermForecast() {
+    public ResponseEntity<Map<String, Object>> runShortTermForecast(
+            @RequestBody(required = false) ForecastRunRequest request) {
         LOG.info("POST /api/forecast/run/short-term triggered by admin");
-        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true);
+        Set<String> excludedSlots = toExcludedSlotKeys(request);
+        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, null, null, excludedSlots);
         JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
         CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
@@ -393,6 +403,20 @@ public class ForecastController {
                 runId, failedTasks.size());
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(buildRunResponse("Retry run started", "SHORT_TERM", jobRun.getId()));
+    }
+
+    /**
+     * Converts a request's {@code excludedSlots} list into a set of "date|TARGETTYPE" keys
+     * for use in {@link ForecastCommand}. Returns an empty set when the request or its
+     * excluded slots are null.
+     */
+    private Set<String> toExcludedSlotKeys(ForecastRunRequest request) {
+        if (request == null || request.excludedSlots() == null) {
+            return Set.of();
+        }
+        return request.excludedSlots().stream()
+                .map(s -> s.date() + "|" + s.targetType())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     private Map<String, Object> buildRunResponse(String status, String runType, Long jobRunId) {

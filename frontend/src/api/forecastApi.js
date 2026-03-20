@@ -105,8 +105,9 @@ export async function runForecast(date, location, targetType) {
  *
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} Accepted status message.
  */
-export async function runVeryShortTermForecast() {
-  const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`);
+export async function runVeryShortTermForecast(excludedSlots = []) {
+  const body = excludedSlots.length > 0 ? { excludedSlots } : null;
+  const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`, body);
   return response.data;
 }
 
@@ -114,10 +115,12 @@ export async function runVeryShortTermForecast() {
  * Triggers an on-demand run of near-term forecasts (today, T+1, T+2).
  * Uses the model configured under SHORT_TERM.
  *
+ * @param {Array<{date: string, targetType: string}>} excludedSlots  slots to skip (default: none)
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} Accepted status message.
  */
-export async function runShortTermForecast(dryRun = false) {
-  const response = await axios.post(`${BASE_URL}/forecast/run/short-term?dryRun=${dryRun}`);
+export async function runShortTermForecast(excludedSlots = []) {
+  const body = excludedSlots.length > 0 ? { excludedSlots } : null;
+  const response = await axios.post(`${BASE_URL}/forecast/run/short-term`, body);
   return response.data;
 }
 

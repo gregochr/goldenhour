@@ -11,6 +11,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 /**
@@ -60,9 +61,24 @@ public class ForecastCommandFactory {
      */
     public ForecastCommand create(RunType runType, boolean manual,
             List<LocationEntity> locations, List<LocalDate> dates) {
+        return create(runType, manual, locations, dates, Set.of());
+    }
+
+    /**
+     * Creates a command for the given run type with optional location, date, and slot exclusion overrides.
+     *
+     * @param runType       the type of forecast run
+     * @param manual        whether this was triggered manually
+     * @param locations     the locations to process (null = all applicable)
+     * @param dates         the target dates (null = default for the run type)
+     * @param excludedSlots (date|TARGETTYPE) keys to exclude; empty = skip none
+     * @return a fully resolved command
+     */
+    public ForecastCommand create(RunType runType, boolean manual,
+            List<LocationEntity> locations, List<LocalDate> dates, Set<String> excludedSlots) {
         List<LocalDate> resolvedDates = dates != null ? dates : defaultDates(runType);
         EvaluationStrategy strategy = resolveStrategy(runType);
-        return new ForecastCommand(runType, resolvedDates, locations, strategy, manual);
+        return new ForecastCommand(runType, resolvedDates, locations, strategy, manual, excludedSlots);
     }
 
     /**
