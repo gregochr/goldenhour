@@ -31,5 +31,9 @@ public enum OptimisationStrategyType {
 
     /** Enable sentinel sampling — evaluate geographic representatives per region first;
      *  skip remainder if all sentinels rate at or below the configured threshold (default 2). */
-    SENTINEL_SAMPLING
+    SENTINEL_SAMPLING,
+
+    /** Apply tide alignment triage for SEASCAPE locations — skip Claude when no preferred
+     *  tide type falls within the golden/blue hour window around the solar event. */
+    TIDE_ALIGNMENT
 }

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
@@ -56,6 +57,7 @@ public class ForecastService {
     private final MacOsToastNotificationService toastService;
     private final ApplicationEventPublisher eventPublisher;
     private final WeatherTriageEvaluator weatherTriageEvaluator;
+    private final TideAlignmentEvaluator tideAlignmentEvaluator;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -69,13 +71,15 @@ public class ForecastService {
      * @param pushoverService        Pushover notification channel
      * @param toastService           macOS toast notification channel
      * @param eventPublisher         publishes location task state transition events
-     * @param weatherTriageEvaluator heuristic triage evaluator for skipping unsuitable conditions
+     * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
+     * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
             PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
-            ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator) {
+            ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
+            TideAlignmentEvaluator tideAlignmentEvaluator) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -86,6 +90,7 @@ public class ForecastService {
         this.toastService = toastService;
         this.eventPublisher = eventPublisher;
         this.weatherTriageEvaluator = weatherTriageEvaluator;
+        this.tideAlignmentEvaluator = tideAlignmentEvaluator;
     }
 
     /**
@@ -211,18 +216,19 @@ public class ForecastService {
      * and the result is marked as triaged. Otherwise, the atmospheric data is returned ready for
      * Claude evaluation.
      *
-     * @param location   the location entity
-     * @param date       the forecast date
-     * @param targetType SUNRISE or SUNSET
-     * @param tideTypes  tide preferences
-     * @param model      evaluation model
-     * @param jobRun     parent job run for metrics
+     * @param location              the location entity
+     * @param date                  the forecast date
+     * @param targetType            SUNRISE or SUNSET
+     * @param tideTypes             tide preferences
+     * @param model                 evaluation model
+     * @param tideAlignmentEnabled  when {@code true}, apply tide alignment triage for SEASCAPE locations
+     * @param jobRun                parent job run for metrics
      * @return the pre-evaluation result
      */
     @ConcurrencyLimit(8)
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
-            EvaluationModel model, JobRunEntity jobRun) {
+            EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun) {
         String locationName = location.getName();
         double lat = location.getLat();
         double lon = location.getLon();
@@ -283,7 +289,7 @@ public class ForecastService {
         AtmosphericData forecastData = augmentor.augmentWithTideData(
                 withApproach, locationId, eventTime, tideTypes);
 
-        // Apply triage heuristic
+        // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
         if (triageResult.isPresent()) {
             String reason = triageResult.get().reason();
@@ -299,6 +305,35 @@ public class ForecastService {
                     date, daysAhead, reason);
             return new ForecastPreEvalResult(true, reason, forecastData, location, date,
                     targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+        }
+
+        // Apply tide alignment triage for SEASCAPE locations (when strategy is enabled)
+        boolean isSeascape = location.getLocationType() != null
+                && location.getLocationType().contains(LocationType.SEASCAPE);
+        if (tideAlignmentEnabled && isSeascape) {
+            LocalDateTime windowStart = targetType == TargetType.SUNRISE
+                    ? solarService.civilDawnUtc(lat, lon, date)
+                    : eventTime.minusHours(1);
+            LocalDateTime windowEnd = targetType == TargetType.SUNRISE
+                    ? eventTime.plusHours(1)
+                    : solarService.civilDuskUtc(lat, lon, date);
+            Optional<TriageResult> tideTriageResult = tideAlignmentEvaluator.evaluate(
+                    forecastData, tideTypes, windowStart, windowEnd);
+            if (tideTriageResult.isPresent()) {
+                String reason = tideTriageResult.get().reason();
+                SunsetEvaluation cannedEval = new SunsetEvaluation(
+                        1, 5, 5, "Conditions unsuitable — tide not aligned — " + reason);
+                ForecastEvaluationEntity entity = buildEntity(
+                        location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
+                        forecastData, cannedEval, model);
+                repository.save(entity);
+                publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
+                        LocationTaskState.TRIAGED);
+                LOG.info("Forecast triaged (tide): {} {} {} (T+{}) — {}", locationName,
+                        targetType, date, daysAhead, reason);
+                return new ForecastPreEvalResult(true, reason, forecastData, location, date,
+                        targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+            }
         }
 
         return new ForecastPreEvalResult(false, null, forecastData, location, date,

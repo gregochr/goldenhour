@@ -22,9 +22,14 @@ function buildGeneratedFooter(forecast) {
 
   const summary = forecast.summary || '';
   if (summary.startsWith('Conditions unsuitable')) {
-    const reason = summary.includes('sentinel sampling')
-      ? 'regional sentinel sampling predicted poor conditions'
-      : 'weather triage predicting poor conditions';
+    let reason;
+    if (summary.includes('tide not aligned')) {
+      reason = 'tide not aligned with location preference';
+    } else if (summary.includes('sentinel sampling')) {
+      reason = 'regional sentinel sampling predicted poor conditions';
+    } else {
+      reason = 'weather triage predicting poor conditions';
+    }
     return model
       ? `Forecast generated: ${base} (${model} run, but not evaluated by Claude due to ${reason})`
       : `Forecast generated: ${base} (not evaluated by Claude due to ${reason})`;
@@ -367,6 +372,19 @@ export default function MarkerPopupContent({
               </div>
             );
           })}
+          {(location.locationType ?? []).includes('SEASCAPE')
+            && (location.tideType == null || location.tideType.length === 0) && (
+            <div style={{ marginBottom: '6px' }} data-testid="tide-preferences-missing-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: 'rgba(245, 158, 11, 0.15)',
+                color: '#fbbf24',
+                border: '1px solid rgba(245, 158, 11, 0.4)',
+              }}>
+                ⚠️ No tide preferences set — check tide alignment before planning your shoot
+              </span>
+            </div>
+          )}
           {forecast.summary && (
             <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
               {forecast.summary}

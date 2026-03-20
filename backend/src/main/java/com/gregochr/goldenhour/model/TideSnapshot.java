@@ -14,6 +14,10 @@ import java.time.LocalDateTime;
  * @param nextLowTideTime           UTC time of next low tide, or null
  * @param nextLowTideHeightMetres   height of next low tide in metres, or null
  * @param tideAligned               true if tide state matches location preference, or null for inland
+ * @param nearestHighTideTime       UTC time of the high tide extreme nearest to the event
+ *                                  within ±12 hours, or null if none found
+ * @param nearestLowTideTime        UTC time of the low tide extreme nearest to the event
+ *                                  within ±12 hours, or null if none found
  */
 public record TideSnapshot(
         TideState tideState,
@@ -21,5 +25,7 @@ public record TideSnapshot(
         BigDecimal nextHighTideHeightMetres,
         LocalDateTime nextLowTideTime,
         BigDecimal nextLowTideHeightMetres,
-        Boolean tideAligned) {
+        Boolean tideAligned,
+        LocalDateTime nearestHighTideTime,
+        LocalDateTime nearestLowTideTime) {
 }

@@ -30,6 +30,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -132,7 +133,7 @@ class ForecastCommandExecutorTest {
         // Default: fetchWeatherAndTriage returns non-triaged result
         lenient().when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
-                any(), any(EvaluationModel.class), any(JobRunEntity.class)))
+                any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class)))
                 .thenAnswer(invocation -> {
                     LocationEntity loc = invocation.getArgument(0);
                     LocalDate date = invocation.getArgument(1);
@@ -170,7 +171,7 @@ class ForecastCommandExecutorTest {
         int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
-                        any(TargetType.class), any(), eq(EvaluationModel.HAIKU), any());
+                        any(TargetType.class), any(), eq(EvaluationModel.HAIKU), anyBoolean(), any());
     }
 
     @Test
@@ -193,7 +194,7 @@ class ForecastCommandExecutorTest {
         // All tasks triaged
         when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
-                any(), any(EvaluationModel.class), any(JobRunEntity.class)))
+                any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class)))
                 .thenAnswer(invocation -> {
                     LocationEntity loc = invocation.getArgument(0);
                     LocalDate date = invocation.getArgument(1);
@@ -357,7 +358,7 @@ class ForecastCommandExecutorTest {
 
         // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), any());
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any());
         verify(forecastService, never())
                 .evaluateAndPersist(any(), any());
     }
@@ -392,6 +393,45 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(optimisationStrategyService, never()).getEnabledStrategies(any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Tide alignment optimisation strategy
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("execute() passes tideAlignmentEnabled=true when TIDE_ALIGNMENT strategy is active")
+    void execute_tideAlignmentStrategyEnabled_passesTrue() {
+        OptimisationStrategyEntity tideAlignmentStrategy = OptimisationStrategyEntity.builder()
+                .strategyType(OptimisationStrategyType.TIDE_ALIGNMENT)
+                .enabled(true)
+                .build();
+        when(optimisationStrategyService.getEnabledStrategies(any()))
+                .thenReturn(List.of(tideAlignmentStrategy));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        verify(forecastService, org.mockito.Mockito.atLeastOnce())
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(true), any());
+    }
+
+    @Test
+    @DisplayName("execute() passes tideAlignmentEnabled=false when TIDE_ALIGNMENT strategy is inactive")
+    void execute_tideAlignmentStrategyDisabled_passesFalse() {
+        when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        verify(forecastService, org.mockito.Mockito.atLeastOnce())
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any());
     }
 
     // -------------------------------------------------------------------------

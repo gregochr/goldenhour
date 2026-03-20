@@ -516,7 +516,8 @@ class TideServiceTest {
     void calculateTideAligned_midTide_notNearMidpoint_notAligned() {
         TideData data = new TideData(TideState.MID, false,
                 LocalDateTime.of(2026, 2, 24, 14, 30), BigDecimal.valueOf(1.50),
-                LocalDateTime.of(2026, 2, 24, 20, 45), BigDecimal.valueOf(0.30));
+                LocalDateTime.of(2026, 2, 24, 20, 45), BigDecimal.valueOf(0.30),
+                null, null);
         assertFalse(tideService.calculateTideAligned(data, Set.of(TideType.MID)));
     }
 
@@ -696,6 +697,105 @@ class TideServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // findNearestExtreme
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("findNearestExtreme() returns the closest HIGH extreme within ±12h")
+    void findNearestExtreme_highWithinWindow_returnsClosest() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        // 30 min before event — within ±12h
+        LocalDateTime nearHighTime = eventTime.minusMinutes(30);
+        // 6h after event — also within ±12h but further
+        LocalDateTime farHighTime = eventTime.plusHours(6);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(nearHighTime, TideExtremeType.HIGH, 4.5),
+                extreme(farHighTime, TideExtremeType.HIGH, 4.2));
+
+        LocalDateTime result = tideService.findNearestExtreme(extremes, TideExtremeType.HIGH,
+                eventTime);
+
+        assertThat(result).isEqualTo(nearHighTime);
+    }
+
+    @Test
+    @DisplayName("findNearestExtreme() returns null when no HIGH extreme within ±12h")
+    void findNearestExtreme_highOutsideWindow_returnsNull() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        // 13h before event — outside ±12h window
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(eventTime.minusHours(13), TideExtremeType.HIGH, 4.5));
+
+        LocalDateTime result = tideService.findNearestExtreme(extremes, TideExtremeType.HIGH,
+                eventTime);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("findNearestExtreme() returns null when no extremes of the requested type exist")
+    void findNearestExtreme_wrongType_returnsNull() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(eventTime.plusHours(1), TideExtremeType.LOW, 0.5));
+
+        LocalDateTime result = tideService.findNearestExtreme(extremes, TideExtremeType.HIGH,
+                eventTime);
+
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("findNearestExtreme() includes extremes exactly at the ±12h boundary")
+    void findNearestExtreme_exactlyAtBoundary_included() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        LocalDateTime atBoundary = eventTime.minusHours(12);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(atBoundary, TideExtremeType.HIGH, 4.0));
+
+        LocalDateTime result = tideService.findNearestExtreme(extremes, TideExtremeType.HIGH,
+                eventTime);
+
+        assertThat(result).isEqualTo(atBoundary);
+    }
+
+    @Test
+    @DisplayName("buildTideData() populates nearestHighTideTime and nearestLowTideTime within ±12h")
+    void buildTideData_populatesNearestTides() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        // High tide 2h before — within ±12h
+        LocalDateTime nearHigh = eventTime.minusHours(2);
+        // Low tide 4h after — within ±12h
+        LocalDateTime nearLow = eventTime.plusHours(4);
+        // High tide 14h before — outside ±12h
+        LocalDateTime farHigh = eventTime.minusHours(14);
+
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(farHigh, TideExtremeType.HIGH, 4.8),
+                extreme(nearHigh, TideExtremeType.HIGH, 4.5),
+                extreme(eventTime.plusHours(2), TideExtremeType.HIGH, 4.3), // next high
+                extreme(nearLow, TideExtremeType.LOW, 0.5));
+
+        TideData data = tideService.buildTideData(extremes, eventTime);
+
+        assertThat(data.nearestHighTideTime()).isEqualTo(nearHigh);
+        assertThat(data.nearestLowTideTime()).isEqualTo(nearLow);
+    }
+
+    @Test
+    @DisplayName("buildTideData() sets nearestHighTideTime to null when no high within ±12h")
+    void buildTideData_noHighWithin12h_nearestHighIsNull() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(eventTime.minusHours(14), TideExtremeType.HIGH, 4.5),
+                extreme(eventTime.plusHours(1), TideExtremeType.LOW, 0.5));
+
+        TideData data = tideService.buildTideData(extremes, eventTime);
+
+        assertThat(data.nearestHighTideTime()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -717,7 +817,9 @@ class TideServiceTest {
                 LocalDateTime.of(2026, 2, 24, 14, 30),
                 BigDecimal.valueOf(1.50),
                 LocalDateTime.of(2026, 2, 24, 20, 45),
-                BigDecimal.valueOf(0.30));
+                BigDecimal.valueOf(0.30),
+                null,
+                null);
     }
 
     private LocationEntity locationEntity() {

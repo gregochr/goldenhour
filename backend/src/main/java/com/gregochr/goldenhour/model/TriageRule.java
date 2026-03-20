@@ -12,5 +12,8 @@ public enum TriageRule {
     PRECIPITATION,
 
     /** Visibility below 5 km, typically fog or heavy haze. */
-    LOW_VISIBILITY
+    LOW_VISIBILITY,
+
+    /** Tide alignment check: preferred tide type does not occur within the golden/blue hour window. */
+    TIDE_MISALIGNED
 }

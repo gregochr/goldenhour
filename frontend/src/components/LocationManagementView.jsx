@@ -529,6 +529,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setEditError('Longitude must be between -180 and 180.');
       return;
     }
+    if (editValues.locationType === 'SEASCAPE' && (!editValues.tideTypes || editValues.tideTypes.length === 0)) {
+      setEditError('Coastal locations require at least one tide preference (High, Mid, or Low).');
+      return;
+    }
     setEditSaving(true);
     setEditError('');
     try {
@@ -577,6 +581,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   function handleAddReviewConfirm() {
+    if (addLocationType === 'SEASCAPE' && (!addTideTypes || addTideTypes.length === 0)) {
+      setError('Coastal locations require at least one tide preference (High, Mid, or Low).');
+      return;
+    }
     if (manualEntry) {
       const trimmedName = manualName.trim();
       const lat = parseFloat(manualLat);

@@ -139,7 +139,9 @@ class ModelTest {
                 new BigDecimal("4.50"),
                 LocalDateTime.of(2026, 6, 22, 0, 45),
                 new BigDecimal("1.20"),
-                true);
+                true,
+                LocalDateTime.of(2026, 6, 21, 18, 30),
+                null);
 
         AtmosphericData result = base.withTide(tide);
 
