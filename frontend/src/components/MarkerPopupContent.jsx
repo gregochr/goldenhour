@@ -82,6 +82,22 @@ function DropletIcon() {
   );
 }
 
+/**
+ * Formats a drive duration in minutes as "X hr Y mins", "X hrs", or "Y mins".
+ * Returns null for 0 (Home) or null input.
+ *
+ * @param {number|null} minutes
+ * @returns {string|null}
+ */
+function formatDriveTime(minutes) {
+  if (minutes == null || minutes === 0) return null;
+  if (minutes < 60) return `${minutes} mins`;
+  const hrs = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (mins === 0) return `${hrs} hr${hrs > 1 ? 's' : ''}`;
+  return `${hrs} hr${hrs > 1 ? 's' : ''} ${mins} mins`;
+}
+
 /** Base style shared by all popup pills. */
 const POPUP_PILL = {
   display: 'inline-flex', alignItems: 'center', gap: '4px',
@@ -257,10 +273,17 @@ export default function MarkerPopupContent({
   return (
     <div style={{ fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
 
-      {/* Row 1: Title + event time pill */}
+      {/* Row 1: Title + drive time + event time pill */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '6px', marginBottom: '8px' }}>
-        <div style={{ fontWeight: '800', fontSize: '17px', color: darkMode ? '#EBEBEB' : '#0f172a' }}>
-          {location.name}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+          <div style={{ fontWeight: '800', fontSize: '17px', color: darkMode ? '#EBEBEB' : '#0f172a' }}>
+            {location.name}
+          </div>
+          {formatDriveTime(location.driveDurationMinutes) && (
+            <span style={{ fontSize: '11px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
+              🚗 {formatDriveTime(location.driveDurationMinutes)}
+            </span>
+          )}
         </div>
         {eventTime && (
           <span style={{
@@ -568,6 +591,7 @@ MarkerPopupContent.propTypes = {
     solarEventType: PropTypes.arrayOf(PropTypes.string),
     locationType: PropTypes.arrayOf(PropTypes.string),
     tideType: PropTypes.arrayOf(PropTypes.string),
+    driveDurationMinutes: PropTypes.number,
   }).isRequired,
   forecast: PropTypes.object,
   hourlyData: PropTypes.array.isRequired,

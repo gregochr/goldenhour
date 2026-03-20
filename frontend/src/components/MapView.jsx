@@ -10,17 +10,19 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
 
-// Override Leaflet popup width
-const POPUP_MAX_HEIGHT = Math.max(300, window.innerHeight - 200);
+// Override Leaflet popup width + scrolling.
+// Max-height must be less than the map container height (500px) so the popup
+// scrolls internally rather than being clipped by the container's overflow:hidden.
 const popupStyles = `
   .leaflet-popup-content-wrapper {
     width: calc(100vw - 40px) !important;
     max-width: 600px !important;
-  }
-  .leaflet-popup-content-wrapper,
-  .leaflet-popup-content {
-    max-height: ${POPUP_MAX_HEIGHT}px !important;
+    max-height: 380px !important;
     overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+  .leaflet-popup-content {
+    overflow-y: visible !important;
     overflow-x: hidden !important;
   }
 `;
@@ -40,11 +42,11 @@ function PopupResizer({ deps }) {
       map.eachLayer((layer) => {
         const popup = layer.getPopup?.();
         if (popup?.isOpen()) {
-          const wrapper = popup.getElement()?.querySelector('.leaflet-popup-content');
+          const wrapper = popup.getElement()?.querySelector('.leaflet-popup-content-wrapper');
           if (wrapper) {
-            const maxH = Math.max(300, map.getContainer().clientHeight - 150);
+            const maxH = Math.max(300, map.getContainer().clientHeight - 120);
             wrapper.style.setProperty('max-height', maxH + 'px', 'important');
-            wrapper.style.setProperty('overflow-y', 'scroll', 'important');
+            wrapper.style.setProperty('overflow-y', 'auto', 'important');
           }
         }
       });

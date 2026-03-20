@@ -17,6 +17,7 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      OPENROUTESERVICE_API_KEY: ${OPENROUTESERVICE_API_KEY}
     volumes:
       - /Users/gregochr/goldenhour-data:/data
     restart: always

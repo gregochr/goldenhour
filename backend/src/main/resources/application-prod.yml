@@ -48,6 +48,10 @@ anthropic:
 worldtides:
   api-key: ${WORLDTIDES_API_KEY}
 
+openrouteservice:
+  api-key: ${OPENROUTESERVICE_API_KEY}
+  enabled: true
+
 notifications:
   schedule:
     cron: "${NOTIFICATIONS_CRON:0 30 7 * * *}"
