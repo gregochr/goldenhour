@@ -89,6 +89,10 @@ const STRATEGY_INFO = {
     paramMin: 1,
     paramMax: 5,
   },
+  TIDE_ALIGNMENT: {
+    label: 'Tide Alignment',
+    description: 'For coastal (SEASCAPE) locations with tide preferences, skip Claude evaluation when no preferred tide type (High, Mid, or Low) falls within the golden/blue hour window around the solar event. Saves cost when tide conditions are unsuitable regardless of sky conditions.',
+  },
 };
 
 const CONFLICTS = {
