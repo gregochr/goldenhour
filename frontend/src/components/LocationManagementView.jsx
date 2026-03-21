@@ -969,7 +969,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               <td className="py-2 text-plex-text-secondary text-xs">
                                 {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
                               </td>
-                              <td className="py-2 text-plex-text-secondary text-xs">
+                              <td className="py-2 text-plex-text-secondary text-xs" data-testid={`bortle-edit-${loc.id}`}>
                                 {loc.bortleClass != null ? loc.bortleClass : '—'}
                               </td>
                               <td className="py-2">

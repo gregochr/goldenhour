@@ -549,6 +549,74 @@ describe('LocationManagementView', () => {
     });
   });
 
+  // --- Bortle column tests ---
+
+  it('shows Bortle column header in the location table', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Durham')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Bortle')).toBeInTheDocument();
+  });
+
+  it('shows — in Bortle cell when bortleClass is null', async () => {
+    // MOCK_LOCATIONS has no bortleClass → treats as null → shows '—'
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bortle-1')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('bortle-1')).toHaveTextContent('—');
+  });
+
+  it('shows numeric Bortle class in cell when bortleClass is set', async () => {
+    fetchLocations.mockResolvedValue([{ ...MOCK_LOCATIONS[0], bortleClass: 3 }]);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('bortle-1')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('bortle-1')).toHaveTextContent('3');
+  });
+
+  it('Bortle cell is read-only during inline edit — shows value as text, no input', async () => {
+    fetchLocations.mockResolvedValue([{ ...MOCK_LOCATIONS[0], bortleClass: 4 }]);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    // Edit-mode Bortle cell must exist, show the value, and contain no input
+    const bortleEditCell = screen.getByTestId('bortle-edit-1');
+    expect(bortleEditCell).toBeInTheDocument();
+    expect(bortleEditCell).toHaveTextContent('4');
+    expect(bortleEditCell.querySelector('input')).toBeNull();
+  });
+
+  it('Bortle cell shows — as read-only text when bortleClass is null during inline edit', async () => {
+    // Null bortleClass should still render '—' (not an input) in edit mode
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('edit-location-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('edit-location-1'));
+
+    const bortleEditCell = screen.getByTestId('bortle-edit-1');
+    expect(bortleEditCell).toHaveTextContent('—');
+    expect(bortleEditCell.querySelector('input')).toBeNull();
+  });
+
   it('opens tide stats modal when Tides button clicked', async () => {
     fetchLocations.mockResolvedValue(MOCK_SEASCAPE_LOCATIONS);
     fetchTideStats.mockResolvedValue({
