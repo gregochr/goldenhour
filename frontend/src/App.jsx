@@ -7,6 +7,7 @@ import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
+import AuroraBanner from './components/AuroraBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
@@ -150,6 +151,7 @@ function AppInner() {
       </header>
 
       <SessionExpiryBanner />
+      <AuroraBanner />
 
       {showRunBanner && lastCompletedRun && (
         <div

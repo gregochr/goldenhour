@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<current_status api_version="0.2">
+  <updated>
+    <datetime>2026-03-20T22:05:00+00:00</datetime>
+  </updated>
+  <expires>
+    <datetime>2026-03-20T22:15:00+00:00</datetime>
+  </expires>
+  <site_status station_id="SAMNET" station_name="SAMNET/CRK2" status_id="red">
+    <datetime>2026-03-20T22:05:00+00:00</datetime>
+    <description>Red alert: aurora likely</description>
+    <colour>#ff0000</colour>
+  </site_status>
+</current_status>

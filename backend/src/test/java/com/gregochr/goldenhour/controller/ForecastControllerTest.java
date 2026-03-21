@@ -5,6 +5,9 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
+import com.gregochr.goldenhour.model.LocationTaskSnapshot;
+import com.gregochr.goldenhour.model.LocationTaskState;
+import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -25,8 +28,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,7 +39,9 @@ import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -410,6 +417,76 @@ class ForecastControllerTest {
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 when run not found")
+    void retryFailed_nullProgress_returns404() throws Exception {
+        when(progressTracker.getProgress(anyLong())).thenReturn(null);
+
+        mockMvc.perform(post("/api/forecast/run/99/retry-failed"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 404 when run has no failures")
+    void retryFailed_emptyFailedTasks_returns404() throws Exception {
+        RunProgress progress = mock(RunProgress.class);
+        when(progress.getFailedTasks()).thenReturn(List.of());
+        when(progressTracker.getProgress(1L)).thenReturn(progress);
+
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/{runId}/retry-failed returns 202 when run has failures")
+    void retryFailed_withFailedTasks_returns202() throws Exception {
+        LocationTaskSnapshot failedTask = new LocationTaskSnapshot(
+                "Durham UK|2026-03-20|SUNSET", "Durham UK", "2026-03-20", "SUNSET",
+                LocationTaskState.FAILED, "error", "step", Instant.now());
+        RunProgress progress = mock(RunProgress.class);
+        when(progress.getFailedTasks()).thenReturn(List.of(failedTask));
+        when(progressTracker.getProgress(1L)).thenReturn(progress);
+
+        mockMvc.perform(post("/api/forecast/run/1/retry-failed"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Retry run started"))
+                .andExpect(jsonPath("$.runType").value("SHORT_TERM"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/forecast/run/{runId}/progress returns SSE stream for ADMIN")
+    void getRunProgress_asAdmin_returnsSse() throws Exception {
+        when(progressTracker.subscribe(anyLong())).thenReturn(new SseEmitter());
+
+        mockMvc.perform(get("/api/forecast/run/1/progress"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/run/notifications returns SSE stream")
+    void getRunNotifications_returnsOk() throws Exception {
+        when(progressTracker.subscribeNotifications()).thenReturn(new SseEmitter());
+
+        mockMvc.perform(get("/api/forecast/run/notifications"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run with a known location name returns 202 Accepted")
+    void runForecast_knownLocation_returns202() throws Exception {
+        mockMvc.perform(post("/api/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"location\":\"Durham UK\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Forecast run started"));
     }
 
     private ForecastEvaluationEntity buildEntity(LocationEntity location, LocalDate targetDate) {

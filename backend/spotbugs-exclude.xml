@@ -123,6 +123,19 @@
     </Match>
 
     <!--
+        HTTP client classes (AuroraWatchClient, LightPollutionClient, OpenRouteServiceClient,
+        etc.) store Spring-injected RestClient and @ConfigurationProperties beans via
+        constructor injection. Same pattern as services — EI_EXPOSE_REP2 is suppressed.
+    -->
+    <Match>
+        <Package name="com.gregochr.goldenhour.client"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
         Spring controllers store injected dependencies (Spring-managed singletons) via
         constructor injection — same pattern as services above.
         Suppressed for all controller classes.
@@ -148,6 +161,30 @@
             <Bug pattern="EI_EXPOSE_REP"/>
             <Bug pattern="EI_EXPOSE_REP2"/>
         </Or>
+    </Match>
+
+    <!--
+        AuroraForecastScore and AuroraStatusResponse are internal result records.
+        The LocationEntity field in AuroraForecastScore is a JPA entity reference —
+        defensive copying is not feasible here, same pattern as ForecastPreEvalResult.
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.model.AuroraForecastScore"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        AuroraStateCache uses volatile fields for thread-safe publication between the
+        polling thread (writer) and the REST thread (reader). SpotBugs may flag compound
+        read-check-write sequences on volatile fields, but these are intentionally
+        single-writer — only the polling job calls evaluate().
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.service.aurora.AuroraStateCache"/>
+        <Bug pattern="IS2_INCONSISTENT_SYNC"/>
     </Match>
 
 </FindBugsFilter>

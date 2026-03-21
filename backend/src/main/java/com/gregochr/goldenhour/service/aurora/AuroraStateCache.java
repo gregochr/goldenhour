@@ -1,0 +1,149 @@
+package com.gregochr.goldenhour.service.aurora;
+
+import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+/**
+ * Event-driven state machine tracking the current aurora alert lifecycle.
+ *
+ * <p>Two states: IDLE (no active event) and ACTIVE (alert in progress, locations scored).
+ * The machine emits an {@link Action} on each call to {@link #evaluate(AlertLevel)},
+ * which the polling job uses to decide whether to score locations, suppress, or clear.
+ *
+ * <p>State transitions:
+ * <ul>
+ *   <li>IDLE + GREEN/YELLOW → {@link Action#NONE} (stay IDLE)</li>
+ *   <li>IDLE + AMBER/RED → {@link Action#NOTIFY}, transition to ACTIVE</li>
+ *   <li>ACTIVE + higher severity → {@link Action#NOTIFY} (escalation), stay ACTIVE</li>
+ *   <li>ACTIVE + same or lower alertable level → {@link Action#SUPPRESS}, stay ACTIVE</li>
+ *   <li>ACTIVE + GREEN/YELLOW → {@link Action#CLEAR}, transition to IDLE</li>
+ * </ul>
+ *
+ * <p>Thread safety: {@code volatile} fields allow the REST endpoint to read state from
+ * a different thread while the polling job writes from a single background thread.
+ * Compound read-check-write in {@link #evaluate(AlertLevel)} is intentionally
+ * single-threaded — only the polling job calls it.
+ */
+@Component
+public class AuroraStateCache {
+
+    /**
+     * Actions emitted by the state machine.
+     */
+    public enum Action {
+        /** New alert — score all eligible locations and notify. */
+        NOTIFY,
+        /** Duplicate or de-escalating alert — do nothing. */
+        SUPPRESS,
+        /** Alert has ended — clear all cached scores. */
+        CLEAR,
+        /** No active alert and no change — do nothing. */
+        NONE
+    }
+
+    /**
+     * State machine evaluation result.
+     *
+     * @param action        what the polling job should do
+     * @param currentLevel  the effective current level after this transition
+     * @param previousLevel the level before this transition (null for the first NOTIFY)
+     */
+    public record Evaluation(Action action, AlertLevel currentLevel, AlertLevel previousLevel) {
+    }
+
+    private enum State { IDLE, ACTIVE }
+
+    private volatile State state = State.IDLE;
+    private volatile AlertLevel currentLevel = null;
+    private volatile List<AuroraForecastScore> cachedScores = List.of();
+
+    /**
+     * Evaluates an incoming alert level and advances the state machine.
+     *
+     * <p>This method is intended to be called only from the single polling-job thread.
+     *
+     * @param incoming the latest alert level from AuroraWatch
+     * @return the evaluation result containing the action and level context
+     */
+    public Evaluation evaluate(AlertLevel incoming) {
+        if (!incoming.isAlertWorthy()) {
+            if (state == State.ACTIVE) {
+                AlertLevel prev = currentLevel;
+                state = State.IDLE;
+                currentLevel = null;
+                cachedScores = List.of();
+                return new Evaluation(Action.CLEAR, null, prev);
+            }
+            return new Evaluation(Action.NONE, null, null);
+        }
+
+        // Incoming is AMBER or RED
+        if (state == State.IDLE) {
+            state = State.ACTIVE;
+            currentLevel = incoming;
+            return new Evaluation(Action.NOTIFY, incoming, null);
+        }
+
+        // ACTIVE state — check for escalation
+        if (incoming.severity() > currentLevel.severity()) {
+            AlertLevel prev = currentLevel;
+            currentLevel = incoming;
+            return new Evaluation(Action.NOTIFY, incoming, prev);
+        }
+
+        // Same level or de-escalation within alertable range
+        return new Evaluation(Action.SUPPRESS, currentLevel, null);
+    }
+
+    /**
+     * Stores the freshly computed scores after a NOTIFY event.
+     *
+     * @param scores scored aurora locations; must not be null
+     */
+    public void updateScores(List<AuroraForecastScore> scores) {
+        this.cachedScores = List.copyOf(scores);
+    }
+
+    /**
+     * Returns the cached aurora forecast scores from the last NOTIFY event.
+     *
+     * <p>Returns an empty list when the state machine is IDLE.
+     *
+     * @return immutable list of scored locations
+     */
+    public List<AuroraForecastScore> getCachedScores() {
+        return cachedScores;
+    }
+
+    /**
+     * Returns the current effective alert level, or {@code null} when IDLE.
+     *
+     * @return current {@link AlertLevel}, or {@code null}
+     */
+    public AlertLevel getCurrentLevel() {
+        return currentLevel;
+    }
+
+    /**
+     * Returns {@code true} when the state machine is in the ACTIVE state.
+     *
+     * @return {@code true} if an aurora event is in progress
+     */
+    public boolean isActive() {
+        return state == State.ACTIVE;
+    }
+
+    /**
+     * Resets the state machine to IDLE with no cached scores.
+     *
+     * <p>Intended for testing and admin use only.
+     */
+    public void reset() {
+        state = State.IDLE;
+        currentLevel = null;
+        cachedScores = List.of();
+    }
+}

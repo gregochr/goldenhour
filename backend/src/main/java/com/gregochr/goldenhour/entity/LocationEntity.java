@@ -136,4 +136,14 @@ public class LocationEntity {
      */
     @Column(name = "drive_duration_minutes")
     private Integer driveDurationMinutes;
+
+    /**
+     * Bortle dark-sky class at this location (1 = darkest, 9 = most light-polluted).
+     *
+     * <p>Populated by {@code BortleEnrichmentService} via the lightpollutionmap.info API.
+     * Null until enrichment has been run. Used by aurora scoring to filter candidates
+     * and adjust the star rating.
+     */
+    @Column(name = "bortle_class")
+    private Integer bortleClass;
 }

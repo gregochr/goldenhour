@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<current_status api_version="0.2">
+  <updated>
+    <datetime>2026-03-20T22:00:00+00:00</datetime>
+  </updated>
+  <expires>
+    <datetime>2026-03-20T22:10:00+00:00</datetime>
+  </expires>
+  <site_status station_id="EARLS" station_name="Earls Colne" status_id="green">
+    <datetime>2026-03-20T22:00:00+00:00</datetime>
+    <description>No significant activity</description>
+    <colour>#33ff33</colour>
+  </site_status>
+  <site_status station_id="BIRR" station_name="Birr Castle" status_id="yellow">
+    <datetime>2026-03-20T22:00:00+00:00</datetime>
+    <description>Minor geomagnetic activity</description>
+    <colour>#ffff00</colour>
+  </site_status>
+  <site_status station_id="SAMNET" station_name="SAMNET/CRK2" status_id="amber">
+    <datetime>2026-03-20T22:00:00+00:00</datetime>
+    <description>Amber alert: possible aurora</description>
+    <colour>#ff9900</colour>
+  </site_status>
+</current_status>

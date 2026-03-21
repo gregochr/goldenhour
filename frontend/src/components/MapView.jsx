@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
+import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
+import { getAuroraLocations } from '../api/auroraApi.js';
 
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
@@ -223,6 +225,9 @@ function MapView({ locations, date }) {
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
   const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
+  const [auroraFriendlyFilter, setAuroraFriendlyFilter] = useState(false);
+  const { status: auroraStatus } = useAuroraStatus();
+  const [auroraScores, setAuroraScores] = useState({});
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   const [tideClassifications, setTideClassifications] = useState({});
 
@@ -239,6 +244,25 @@ function MapView({ locations, date }) {
   useEffect(() => {
     void 0;
   }, [isMobile]);
+
+  // Fetch per-location aurora scores when an alert is active (AMBER or RED).
+  // Scores are keyed by location name for O(1) lookup in popup render.
+  useEffect(() => {
+    const ALERT_WORTHY = new Set(['AMBER', 'RED']);
+    if (!auroraStatus || !ALERT_WORTHY.has(auroraStatus.level)) {
+      setAuroraScores({});
+      return;
+    }
+    getAuroraLocations({ maxBortle: 9, minStars: 1 })
+      .then((scores) => {
+        const byName = {};
+        scores.forEach((s) => { byName[s.location.name] = s; });
+        setAuroraScores(byName);
+      })
+      .catch(() => {
+        // Non-critical — popup will simply not show the aurora section
+      });
+  }, [auroraStatus]);
 
   const lineKm = lineKmForZoom(zoom);
 
@@ -293,11 +317,20 @@ function MapView({ locations, date }) {
         return activeRatingFilters.has(rating);
       });
 
-  const visibleLocations = driveTimeFilter === 0
+  const driveFiltered = driveTimeFilter === 0
     ? ratingFiltered
     : ratingFiltered.filter((loc) =>
         loc.driveDurationMinutes != null && loc.driveDurationMinutes <= driveTimeFilter,
       );
+
+  // Aurora-friendly filter: show only locations with a Bortle class at or below threshold.
+  // Threshold is 5 (red alert) or 4 (amber / unknown level).
+  const auroraThreshold = auroraStatus?.level === 'RED' ? 5 : 4;
+  const visibleLocations = auroraFriendlyFilter
+    ? driveFiltered.filter((loc) =>
+        loc.bortleClass != null && loc.bortleClass <= auroraThreshold,
+      )
+    : driveFiltered;
 
   if (!date || locations.length === 0) {
     return (
@@ -388,9 +421,28 @@ function MapView({ locations, date }) {
           <option value={90}>🚗 ≤90 min</option>
           <option value={120}>🚗 ≤2 hrs</option>
         </select>
-        {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0 || driveTimeFilter > 0) && (
+        <span className="text-plex-border mx-1">|</span>
+        <button
+          onClick={() => setAuroraFriendlyFilter((v) => !v)}
+          data-testid="aurora-filter-toggle"
+          title={`Show only dark-sky locations suitable for aurora photography (Bortle ≤ ${auroraThreshold})`}
+          className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+            auroraFriendlyFilter
+              ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
+              : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+          }`}
+        >
+          🌌 Aurora friendly
+        </button>
+        {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0
+            || driveTimeFilter > 0 || auroraFriendlyFilter) && (
           <button
-            onClick={() => { setActiveTypeFilters(new Set()); setActiveRatingFilters(new Set()); setDriveTimeFilter(0); }}
+            onClick={() => {
+              setActiveTypeFilters(new Set());
+              setActiveRatingFilters(new Set());
+              setDriveTimeFilter(0);
+              setAuroraFriendlyFilter(false);
+            }}
             className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
             data-testid="clear-all-filters"
           >
@@ -520,6 +572,7 @@ function MapView({ locations, date }) {
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                           onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                           tideClassification={tideClassifications[loc.name] ?? null}
+                          auroraScore={auroraScores[loc.name] ?? null}
                         />
                       </div>
                     </Popup>
@@ -555,6 +608,7 @@ function MapView({ locations, date }) {
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                 onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                 tideClassification={tideClassifications[loc.name] ?? null}
+                auroraScore={auroraScores[loc.name] ?? null}
                 darkMode
               />
             </div>

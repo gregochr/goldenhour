@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (Mar 21, 2026) — Aurora Photography Feature
+- **Aurora alert status banner** — polling `AuroraWatchClient` (Scottish/English sites) via `AuroraPollingJob` (15 min, night-only); `AuroraStateCache` FSM (IDLE → MONITORING → AMBER → RED); `AuroraStatusBanner` React component shown above forecast timeline
+- **Aurora location scoring** — `AuroraScorer` computes 1–5 star ratings per location using cloud cover (35% weight), moon penalty (`LunarPosition.auroraPenalty()`), and Bortle light-pollution class; `GET /api/aurora/locations` endpoint (Bearer) with `maxBortle`/`minStars` filters; `AuroraController`
+- **Map popup aurora score section** — when alert level is AMBER or RED, `MapView` fetches scored locations and passes `auroraScore` to `MarkerPopupContent`; shows 🌌 Aurora header, star display (`★★★☆☆`), and cloud/moon/light-pollution detail breakdown
+- **Bortle enrichment admin tool** — `LightPollutionClient` queries lightpollutionmap.info QueryRaster API (wa_2015 layer); `BortleEnrichmentService` batch-enriches all unenriched locations; `POST /api/aurora/admin/enrich-bortle` (ADMIN); `POST /api/aurora/admin/reset` resets the aurora state machine to IDLE; `AuroraAdminController`
+- **Directional cloud sampling for aurora** — `AuroraTransectFetcher` samples cloud cover at 3 points along the northward transect (0°, 345°, 15° azimuth) at 113 km offset via Open-Meteo hourly cloud_cover_low; deduplicates nearby grid cells; falls back to 50% on error
+- **V55 migration** — adds `bortle_class` column to `locations` table (nullable integer)
+- **Frontend aurora API module** — `auroraApi.js` with `getAuroraStatus()` and `getAuroraLocations()`
+- **Test coverage** — `AuroraAdminControllerTest` (10), `BortleEnrichmentServiceTest` (5), `LightPollutionClientHttpTest` (6), `AuroraTransectFetcherTest` (8), `AuroraPollingJobTest` updated for solar-utils v2 API (`civilDawn`/`civilDusk` instead of `solarAltitude`); `ForecastControllerTest` extended with retry-failed, SSE endpoint, and location-filter coverage; JaCoCo ≥80% threshold maintained
+
 ### Added (Mar 20, 2026) — Tide Alignment Pre-Claude Triage
 - **TIDE_ALIGNMENT run optimisation** — new `OptimisationStrategyType` enabled by default for all colour run types (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM) via V54 migration
   - For SEASCAPE locations with tide preferences, applies a pre-Claude check: if no preferred tide type (HIGH/LOW/MID) falls within the golden/blue hour window around the solar event, skips Claude and persists a 1★ canned result

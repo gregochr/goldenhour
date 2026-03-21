@@ -250,6 +250,7 @@ export default function MarkerPopupContent({
   tideFetchedAt,
   onTideClassification,
   tideClassification,
+  auroraScore = null,
   darkMode = false,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -369,6 +370,45 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
+          {/* Aurora score section — shown when aurora is active and a score is available for this location */}
+          {auroraScore && (
+            <div
+              style={{ marginBottom: '6px' }}
+              data-testid="aurora-score-section"
+            >
+              <span style={{
+                ...POPUP_PILL,
+                display: 'inline-flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: '4px',
+                padding: '6px 10px',
+                background: auroraScore.alertLevel === 'RED'
+                  ? 'rgba(255, 0, 0, 0.12)'
+                  : 'rgba(255, 153, 0, 0.12)',
+                color: auroraScore.alertLevel === 'RED' ? '#fca5a5' : '#fbbf24',
+                border: `1px solid ${auroraScore.alertLevel === 'RED' ? 'rgba(255,0,0,0.4)' : 'rgba(255,153,0,0.4)'}`,
+                borderRadius: '8px',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', fontSize: '12px' }}>
+                  <span>🌌</span>
+                  <span>Aurora</span>
+                  <span data-testid="aurora-score-stars" style={{ color: '#a78bfa', letterSpacing: '1px' }}>
+                    {'★'.repeat(auroraScore.stars)}{'☆'.repeat(5 - auroraScore.stars)}
+                  </span>
+                  <span style={{ fontSize: '10px', fontWeight: '400', opacity: 0.8 }}>({auroraScore.stars}/5)</span>
+                </div>
+                {auroraScore.detail && (
+                  <div data-testid="aurora-score-detail" style={{ fontSize: '11px', fontWeight: '400', opacity: 0.9, lineHeight: '1.6', whiteSpace: 'pre-line' }}>
+                    {auroraScore.detail}
+                  </div>
+                )}
+              </span>
+            </div>
+          )}
+
           {tideClassification && tideClassification.map((tc) => {
             const isKing = tc.isKing;
             const near = tc.nearSolarEvent;
@@ -610,5 +650,12 @@ MarkerPopupContent.propTypes = {
     isKing: PropTypes.bool.isRequired,
     nearSolarEvent: PropTypes.bool.isRequired,
   })),
+  auroraScore: PropTypes.shape({
+    stars: PropTypes.number.isRequired,
+    alertLevel: PropTypes.string.isRequired,
+    cloudPercent: PropTypes.number.isRequired,
+    summary: PropTypes.string,
+    detail: PropTypes.string,
+  }),
   darkMode: PropTypes.bool,
 };

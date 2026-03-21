@@ -90,6 +90,16 @@ openrouteservice:
   api-key: YOUR_ORS_API_KEY  # https://openrouteservice.org — free tier: 2000 requests/day
   enabled: true              # set to false to disable drive-time refresh without removing the key
 
+aurora:
+  enabled: true
+  poll-interval-minutes: 5
+  aurorawatch-status-url: http://aurorawatch-api.lancs.ac.uk/0.2/status/current-status.xml
+  min-poll-interval-seconds: 180
+  light-pollution-api-key: ${LIGHT_POLLUTION_API_KEY}  # https://www.lightpollutionmap.info
+  bortle-threshold:
+    amber: 4   # max Bortle class for AMBER alerts (dark enough for aurora photography)
+    red: 5     # max Bortle class for RED alerts (relax threshold when strong aurora likely)
+
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
 

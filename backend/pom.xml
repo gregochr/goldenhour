@@ -133,7 +133,7 @@
         <dependency>
             <groupId>com.gregochr</groupId>
             <artifactId>solar-utils</artifactId>
-            <version>1.2.0</version>
+            <version>2.0.0</version>
         </dependency>
 
         <!-- ==================== Utilities ==================== -->
@@ -375,8 +375,26 @@
                                 <exclude>com/gregochr/goldenhour/model/EvaluationResponse.class</exclude>
                                 <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
                                 <exclude>com/gregochr/goldenhour/config/WorldTidesProperties.class</exclude>
+                                <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
+                                <exclude>com/gregochr/goldenhour/config/AuroraProperties.class</exclude>
+                                <exclude>com/gregochr/goldenhour/config/AuroraProperties$BortleThreshold.class</exclude>
                                 <!-- SSE progress tracker — async/reactive plumbing, hard to unit test -->
                                 <exclude>com/gregochr/goldenhour/service/RunProgressTracker.class</exclude>
+                                <!-- @ConfigurationProperties POJOs — pure getters/setters, no testable logic -->
+                                <exclude>com/gregochr/goldenhour/config/OrsProperties.class</exclude>
+                                <!-- Pure request/response records — no business logic -->
+                                <exclude>com/gregochr/goldenhour/model/DriveTimesRequest.class</exclude>
+                                <exclude>com/gregochr/goldenhour/model/ForecastRunRequest$SlotFilter.class</exclude>
+                                <!-- Data-transfer records with no testable logic -->
+                                <exclude>com/gregochr/goldenhour/service/ForecastCommand.class</exclude>
+                                <!-- UriBuilder lambda unreachable via Mockito stubs; logic tested via toBortleClass -->
+                                <exclude>com/gregochr/goldenhour/client/LightPollutionClient.class</exclude>
+                                <!-- Inner records used only for Jackson deserialization — no logic -->
+                                <exclude>com/gregochr/goldenhour/client/LightPollutionClient$BrightnessResponse.class</exclude>
+                                <exclude>com/gregochr/goldenhour/service/aurora/AuroraTransectFetcher$CloudResponse.class</exclude>
+                                <exclude>com/gregochr/goldenhour/service/aurora/AuroraTransectFetcher$HourlyCloudData.class</exclude>
+                                <!-- Inner record — plain data carrier, no logic -->
+                                <exclude>com/gregochr/goldenhour/service/aurora/BortleEnrichmentService$EnrichmentResult.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
@@ -459,6 +477,7 @@
                         <param>com.gregochr.goldenhour.service.*</param>
                         <param>com.gregochr.goldenhour.service.evaluation.*</param>
                         <param>com.gregochr.goldenhour.service.notification.*</param>
+                        <param>com.gregochr.goldenhour.service.aurora.*</param>
                         <param>com.gregochr.goldenhour.controller.*</param>
                         <param>com.gregochr.goldenhour.config.*</param>
                     </targetClasses>

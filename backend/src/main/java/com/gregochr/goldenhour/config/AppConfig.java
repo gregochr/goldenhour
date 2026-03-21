@@ -4,6 +4,8 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
+import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.SolarCalculator;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -76,6 +78,26 @@ public class AppConfig {
                 .maxIdleConnections(5)
                 .keepAliveDuration(Duration.ofMinutes(2))
                 .build();
+    }
+
+    /**
+     * Provides a {@link SolarCalculator} for solar altitude and twilight calculations.
+     *
+     * @return a stateless {@link SolarCalculator} instance
+     */
+    @Bean
+    public SolarCalculator solarCalculator() {
+        return new SolarCalculator();
+    }
+
+    /**
+     * Provides a {@link LunarCalculator} for aurora moon-penalty calculations.
+     *
+     * @return a stateless {@link LunarCalculator} instance
+     */
+    @Bean
+    public LunarCalculator lunarCalculator() {
+        return new LunarCalculator();
     }
 
     /**
