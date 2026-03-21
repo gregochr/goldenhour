@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.RunProgressTracker;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,13 +34,16 @@ class BortleEnrichmentServiceTest {
     @Mock private LocationRepository locationRepository;
     @Mock private LightPollutionClient lightPollutionClient;
     @Mock private JobRunService jobRunService;
+    @Mock private RunProgressTracker progressTracker;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     private BortleEnrichmentService service;
     private JobRunEntity stubJobRun;
 
     @BeforeEach
     void setUp() {
-        service = new BortleEnrichmentService(locationRepository, lightPollutionClient, jobRunService);
+        service = new BortleEnrichmentService(locationRepository, lightPollutionClient,
+                jobRunService, progressTracker, eventPublisher);
         stubJobRun = new JobRunEntity();
         stubJobRun.setId(1L);
     }

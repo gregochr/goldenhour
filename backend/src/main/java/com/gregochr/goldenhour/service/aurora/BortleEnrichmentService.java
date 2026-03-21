@@ -3,10 +3,15 @@ package com.gregochr.goldenhour.service.aurora;
 import com.gregochr.goldenhour.client.LightPollutionClient;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskState;
+import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.RunProgressTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -33,6 +38,8 @@ public class BortleEnrichmentService {
     private final LocationRepository locationRepository;
     private final LightPollutionClient lightPollutionClient;
     private final JobRunService jobRunService;
+    private final RunProgressTracker progressTracker;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Constructs the service with repository, HTTP client, and job run dependencies.
@@ -40,13 +47,19 @@ public class BortleEnrichmentService {
      * @param locationRepository   location data access
      * @param lightPollutionClient HTTP client for the light pollution API
      * @param jobRunService        job run service for tracking the enrichment run
+     * @param progressTracker      tracker for SSE progress broadcasting
+     * @param eventPublisher       Spring event publisher for per-location state transitions
      */
     public BortleEnrichmentService(LocationRepository locationRepository,
             LightPollutionClient lightPollutionClient,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            RunProgressTracker progressTracker,
+            ApplicationEventPublisher eventPublisher) {
         this.locationRepository = locationRepository;
         this.lightPollutionClient = lightPollutionClient;
         this.jobRunService = jobRunService;
+        this.progressTracker = progressTracker;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -66,10 +79,19 @@ public class BortleEnrichmentService {
         List<LocationEntity> pending = locationRepository.findByBortleClassIsNull();
         LOG.info("Bortle enrichment starting: {} location(s) to process", pending.size());
 
+        // Register all tasks as PENDING for SSE progress tracking
+        List<String[]> taskDescriptors = pending.stream()
+                .map(loc -> new String[]{taskKey(loc), loc.getName(), "–", "BORTLE"})
+                .toList();
+        progressTracker.initRun(jobRun.getId(), taskDescriptors);
+        progressTracker.setPhase(jobRun.getId(), RunPhase.FULL_EVALUATION);
+
         int enriched = 0;
         List<String> failed = new ArrayList<>();
 
         for (LocationEntity location : pending) {
+            publishEvent(jobRun.getId(), location, LocationTaskState.EVALUATING, null);
+
             Integer bortleClass = lightPollutionClient.queryBortleClass(
                     location.getLat(), location.getLon(), apiKey);
 
@@ -77,9 +99,11 @@ public class BortleEnrichmentService {
                 location.setBortleClass(bortleClass);
                 locationRepository.save(location);
                 enriched++;
+                publishEvent(jobRun.getId(), location, LocationTaskState.COMPLETE, null);
                 LOG.debug("Enriched '{}': Bortle {}", location.getName(), bortleClass);
             } else {
                 failed.add(location.getName());
+                publishEvent(jobRun.getId(), location, LocationTaskState.FAILED, "API returned no data");
                 LOG.warn("Failed to enrich '{}' — will remain null", location.getName());
             }
 
@@ -89,7 +113,20 @@ public class BortleEnrichmentService {
         LOG.info("Bortle enrichment complete: {} enriched, {} failed", enriched, failed.size());
         EnrichmentResult result = new EnrichmentResult(enriched, failed);
         jobRunService.completeRun(jobRun, enriched, failed.size());
+        progressTracker.completeRun(jobRun.getId());
         return result;
+    }
+
+    private String taskKey(LocationEntity location) {
+        return location.getName() + "|–|BORTLE";
+    }
+
+    private void publishEvent(long jobRunId, LocationEntity location,
+            LocationTaskState state, String errorMessage) {
+        String key = taskKey(location);
+        eventPublisher.publishEvent(new LocationTaskEvent(
+                this, jobRunId, key, location.getName(), "–", "BORTLE",
+                state, errorMessage, null));
     }
 
     /**
