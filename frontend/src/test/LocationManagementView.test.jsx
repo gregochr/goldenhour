@@ -20,6 +20,14 @@ vi.mock('../api/tideApi', () => ({
   fetchTidesForDate: vi.fn(),
 }));
 
+vi.mock('../api/auroraApi', () => ({
+  enrichBortle: vi.fn(),
+}));
+
+vi.mock('../context/AuthContext.jsx', () => ({
+  useAuth: () => ({ isAdmin: true }),
+}));
+
 import { fetchLocations, updateLocation, geocodePlace } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { fetchTideStats } from '../api/tideApi';

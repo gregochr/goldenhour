@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, refreshDriveTimes } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
+import { enrichBortle } from '../api/auroraApi.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
 import Pagination from './Pagination.jsx';
@@ -412,9 +414,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const { isAdmin } = useAuth();
+
   // Drive time refresh state
   const [driveTimeRefreshing, setDriveTimeRefreshing] = useState(false);
   const [driveTimeStatus, setDriveTimeStatus] = useState(null); // { type: 'success'|'error', message }
+
+  // Light pollution enrichment state
+  const [lightPollutionRefreshing, setLightPollutionRefreshing] = useState(false);
+  const [lightPollutionStatus, setLightPollutionStatus] = useState(null); // { type: 'success'|'error', message }
 
   const locationAccessors = useMemo(() => ({
     name: (loc) => loc.name,
@@ -463,6 +471,25 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setDriveTimeStatus({ type: 'error', message: msg });
     } finally {
       setDriveTimeRefreshing(false);
+    }
+  }
+
+  async function handleEnrichLightPollution() {
+    setLightPollutionRefreshing(true);
+    setLightPollutionStatus(null);
+    try {
+      const result = await enrichBortle();
+      const msg = `Light pollution enriched: ${result.enriched} updated` +
+        (result.failed > 0 ? `, ${result.failed} failed` : '') + '.';
+      setLightPollutionStatus({ type: result.failed > 0 ? 'error' : 'success', message: msg });
+      await refreshLocations();
+    } catch (err) {
+      const msg = err.response?.status === 400
+        ? 'Light pollution API key not configured.'
+        : 'Light pollution refresh failed.';
+      setLightPollutionStatus({ type: 'error', message: msg });
+    } finally {
+      setLightPollutionRefreshing(false);
     }
   }
 
@@ -703,15 +730,28 @@ export default function LocationManagementView({ onLocationsChanged }) {
           <div className="flex items-center justify-between gap-4">
             <p className="text-sm font-semibold text-plex-text">Location Management</p>
             <div className="flex items-center gap-2 shrink-0">
-              <button
-                className="btn-secondary text-xs"
-                onClick={handleRefreshDriveTimes}
-                disabled={driveTimeRefreshing}
-                title="Update drive times from your current location (uses browser GPS)"
-                data-testid="refresh-drive-times-btn"
-              >
-                {driveTimeRefreshing ? '⏳ Refreshing…' : '🚗 Refresh Drive Times'}
-              </button>
+              {isAdmin && (
+                <button
+                  className="btn-secondary text-xs"
+                  onClick={handleRefreshDriveTimes}
+                  disabled={driveTimeRefreshing}
+                  title="Update drive times from your current location (uses browser GPS)"
+                  data-testid="refresh-drive-times-btn"
+                >
+                  {driveTimeRefreshing ? '⏳ Refreshing…' : '🚗 Refresh Drive Times'}
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  className="btn-secondary text-xs"
+                  onClick={handleEnrichLightPollution}
+                  disabled={lightPollutionRefreshing}
+                  title="Enrich all unenriched locations with Bortle light-pollution class"
+                  data-testid="refresh-light-pollution-btn"
+                >
+                  {lightPollutionRefreshing ? '⏳ Enriching…' : '🌌 Refresh Light Pollution'}
+                </button>
+              )}
               <button
                 className="btn-secondary text-xs"
                 onClick={handleStartAdd}
@@ -724,6 +764,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
           {driveTimeStatus && (
             <p className={`text-xs ${driveTimeStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
               {driveTimeStatus.message}
+            </p>
+          )}
+          {lightPollutionStatus && (
+            <p className={`text-xs ${lightPollutionStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {lightPollutionStatus.message}
             </p>
           )}
 

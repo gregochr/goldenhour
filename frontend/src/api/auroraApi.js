@@ -22,6 +22,17 @@ export async function getAuroraStatus() {
 }
 
 /**
+ * Triggers a Bortle light-pollution enrichment run for all unenriched locations.
+ * ADMIN only.
+ *
+ * @returns {Promise<object>} enrichment summary { enriched, failed, failedLocations }
+ */
+export async function enrichBortle() {
+  const response = await axios.post(`${BASE_URL}/admin/enrich-bortle`);
+  return response.data;
+}
+
+/**
  * Fetches scored aurora-eligible locations, filtered by Bortle class and star rating.
  *
  * @param {object} [params]
