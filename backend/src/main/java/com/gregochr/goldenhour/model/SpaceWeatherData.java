@@ -19,4 +19,15 @@ public record SpaceWeatherData(
         List<KpForecast> kpForecast,
         OvationReading ovation,
         List<SolarWindReading> recentSolarWind,
-        List<SpaceWeatherAlert> activeAlerts) {}
+        List<SpaceWeatherAlert> activeAlerts) {
+
+    /**
+     * Compact constructor that defensively copies all mutable lists.
+     */
+    public SpaceWeatherData {
+        recentKp = List.copyOf(recentKp);
+        kpForecast = List.copyOf(kpForecast);
+        recentSolarWind = List.copyOf(recentSolarWind);
+        activeAlerts = List.copyOf(activeAlerts);
+    }
+}

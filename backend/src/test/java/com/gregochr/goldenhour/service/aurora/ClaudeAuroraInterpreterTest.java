@@ -3,7 +3,6 @@ package com.gregochr.goldenhour.service.aurora;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
-import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
@@ -61,7 +60,8 @@ class ClaudeAuroraInterpreterTest {
         LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
-        String jsonResponse = "[{\"name\":\"Galloway\",\"stars\":4,\"summary\":\"Strong aurora\",\"detail\":\"✓ Kp 6\"}]";
+        String jsonResponse = "[{\"name\":\"Galloway\",\"stars\":4,"
+                + "\"summary\":\"Strong aurora\",\"detail\":\"✓ Kp 6\"}]";
 
         // Mock the Anthropic SDK chain
         Message mockMessage = mock(Message.class);

@@ -375,8 +375,8 @@ public class NoaaSwpcClient {
             double speed = parseDouble(row.get(2));
             if (!Double.isNaN(density) || !Double.isNaN(speed)) {
                 plasmaByTime.put(timeTag, new double[]{
-                    Double.isNaN(speed) ? 0.0 : speed,
-                    Double.isNaN(density) ? 0.0 : density
+                        Double.isNaN(speed) ? 0.0 : speed,
+                        Double.isNaN(density) ? 0.0 : density
                 });
             }
         }

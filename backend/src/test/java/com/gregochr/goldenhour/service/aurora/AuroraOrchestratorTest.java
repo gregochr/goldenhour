@@ -144,8 +144,8 @@ class AuroraOrchestratorTest {
     void run_suppressAction_noScoring() {
         SpaceWeatherData data = spaceWeather(5.5, 0.0, List.of());
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(stateCache.evaluate(AlertLevel.MODERATE))
-                .thenReturn(new AuroraStateCache.Evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE, null));
+        var eval = new AuroraStateCache.Evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE, null);
+        when(stateCache.evaluate(AlertLevel.MODERATE)).thenReturn(eval);
 
         AuroraStateCache.Action action = orchestrator.run();
 

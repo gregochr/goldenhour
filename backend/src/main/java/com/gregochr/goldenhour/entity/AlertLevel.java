@@ -73,9 +73,15 @@ public enum AlertLevel {
      * @return corresponding {@link AlertLevel}
      */
     public static AlertLevel fromKp(double kp) {
-        if (kp >= 7) return STRONG;
-        if (kp >= 5) return MODERATE;
-        if (kp >= 4) return MINOR;
+        if (kp >= 7) {
+            return STRONG;
+        }
+        if (kp >= 5) {
+            return MODERATE;
+        }
+        if (kp >= 4) {
+            return MINOR;
+        }
         return QUIET;
     }
 }

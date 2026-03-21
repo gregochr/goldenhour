@@ -6,6 +6,8 @@ WORKDIR /app
 # Layer 1: Copy POM + settings and resolve dependencies (cached until pom.xml changes)
 COPY backend/pom.xml pom.xml
 COPY backend/.m2/settings.xml /root/.m2/settings.xml
+# Pre-install solar-utils from vendored artifacts so GitHub Packages auth is not required
+COPY backend/.m2/repository/com/gregochr/solar-utils /root/.m2/repository/com/gregochr/solar-utils
 RUN mvn dependency:go-offline -B
 
 # Layer 2: Copy config files and source code, then build

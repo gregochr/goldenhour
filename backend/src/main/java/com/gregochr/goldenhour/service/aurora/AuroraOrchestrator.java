@@ -198,7 +198,9 @@ public class AuroraOrchestrator {
      */
     private double latestKp(SpaceWeatherData data) {
         List<KpReading> readings = data.recentKp();
-        if (readings.isEmpty()) return 0.0;
+        if (readings.isEmpty()) {
+            return 0.0;
+        }
         return readings.get(readings.size() - 1).kp();
     }
 

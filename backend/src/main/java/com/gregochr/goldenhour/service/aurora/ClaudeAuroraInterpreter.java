@@ -167,8 +167,12 @@ public class ClaudeAuroraInterpreter {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         ZonedDateTime cutoff = now.plusHours(24);
         for (KpForecast f : spaceWeather.kpForecast()) {
-            if (f.from().isAfter(cutoff)) break;
-            if (f.to().isBefore(now)) continue;
+            if (f.from().isAfter(cutoff)) {
+                break;
+            }
+            if (f.to().isBefore(now)) {
+                continue;
+            }
             sb.append(String.format("  %s–%s  Kp=%.1f%n",
                     f.from().withZoneSameInstant(ZoneOffset.UTC).toLocalTime(),
                     f.to().withZoneSameInstant(ZoneOffset.UTC).toLocalTime(),

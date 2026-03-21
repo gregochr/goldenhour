@@ -47,3 +47,4 @@ backend/target/
 backend/data/
 .claude/
 backend/.claude/
+backend/.m2/repository

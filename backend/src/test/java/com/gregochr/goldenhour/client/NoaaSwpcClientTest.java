@@ -19,7 +19,6 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -214,7 +213,9 @@ class NoaaSwpcClientTest {
     void parseSolarWind_limitsTo60Readings() throws Exception {
         StringBuilder magSb = new StringBuilder("[[\"time_tag\",\"bx\",\"by\",\"bz\",\"lon\",\"lat\",\"bt\"]");
         for (int i = 0; i < 100; i++) {
-            magSb.append(String.format(",[\"%04d-01-01 00:%02d:00.000\",\"0\",\"0\",\"-1.0\",\"0\",\"0\",\"1\"]", 2025, i % 60));
+            String row = String.format(
+                    ",[\"%04d-01-01 00:%02d:00.000\",\"0\",\"0\",\"-1.0\",\"0\",\"0\",\"1\"]", 2025, i % 60);
+            magSb.append(row);
         }
         magSb.append("]");
 
@@ -377,11 +378,15 @@ class NoaaSwpcClientTest {
     @SuppressWarnings("unchecked")
     void fetchAll_returnsSpaceWeatherData() {
         // Stub all 5 HTTP calls with appropriate JSON payloads
-        String kpJson = "[[\"time_tag\",\"Kp\",\"Kp_fraction\",\"Kp_int\"],[\"2025-08-01 00:00:00\",\"2.0\",\"2.0\",\"2\"]]";
-        String forecastJson = "[[\"time_tag\",\"Kp\",\"observed\",\"noaa_scale\"],[\"2025-08-01 00:00:00\",\"2.0\",\"observed\",\"None\"]]";
+        String kpJson = "[[\"time_tag\",\"Kp\",\"Kp_fraction\",\"Kp_int\"],"
+                + "[\"2025-08-01 00:00:00\",\"2.0\",\"2.0\",\"2\"]]";
+        String forecastJson = "[[\"time_tag\",\"Kp\",\"observed\",\"noaa_scale\"],"
+                + "[\"2025-08-01 00:00:00\",\"2.0\",\"observed\",\"None\"]]";
         String ovationJson = "{\"Forecast Time\":\"2025-08-01T12:00:00Z\",\"coordinates\":[[0,55,10]]}";
-        String magJson = "[[\"time_tag\",\"bx\",\"by\",\"bz\",\"lon\",\"lat\",\"bt\"],[\"2025-08-01 00:00:00.000\",\"0\",\"0\",\"-2.0\",\"0\",\"0\",\"2\"]]";
-        String plasmaJson = "[[\"time_tag\",\"density\",\"speed\",\"temperature\"],[\"2025-08-01 00:00:00.000\",\"5.0\",\"400.0\",\"50000\"]]";
+        String magJson = "[[\"time_tag\",\"bx\",\"by\",\"bz\",\"lon\",\"lat\",\"bt\"],"
+                + "[\"2025-08-01 00:00:00.000\",\"0\",\"0\",\"-2.0\",\"0\",\"0\",\"2\"]]";
+        String plasmaJson = "[[\"time_tag\",\"density\",\"speed\",\"temperature\"],"
+                + "[\"2025-08-01 00:00:00.000\",\"5.0\",\"400.0\",\"50000\"]]";
         String alertsJson = "[]";
 
         when(restClient.get()).thenReturn(uriSpec);

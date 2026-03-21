@@ -224,9 +224,13 @@ public class WeatherTriageService {
     }
 
     private int averageCloud(int[] hourlyCloud) {
-        if (hourlyCloud.length == 0) return OVERCAST_THRESHOLD_PERCENT;
+        if (hourlyCloud.length == 0) {
+            return OVERCAST_THRESHOLD_PERCENT;
+        }
         int sum = 0;
-        for (int v : hourlyCloud) sum += v;
+        for (int v : hourlyCloud) {
+            sum += v;
+        }
         return sum / hourlyCloud.length;
     }
 
