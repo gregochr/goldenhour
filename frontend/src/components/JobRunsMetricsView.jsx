@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
+import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations, refreshDriveTimes } from '../api/forecastApi';
+import { enrichBortle } from '../api/auroraApi';
 import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
@@ -156,6 +157,8 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runningTide, setRunningTide] = useState(false);
   const [runningBackfill, setRunningBackfill] = useState(false);
+  const [runningDriveTimes, setRunningDriveTimes] = useState(false);
+  const [runningLightPollution, setRunningLightPollution] = useState(false);
   const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
@@ -214,7 +217,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     loadJobRuns(page);
   };
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill;
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningDriveTimes || runningLightPollution;
 
   const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
     const summary = getLocationSummary(allLocations, runType);
@@ -267,6 +270,47 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         }
       },
     });
+  };
+
+  const handleRefreshDriveTimes = async () => {
+    setRunningDriveTimes(true);
+    setRunStatus(null);
+    try {
+      const position = await new Promise((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }),
+      );
+      const { latitude: lat, longitude: lon } = position.coords;
+      const result = await refreshDriveTimes(lat, lon);
+      const count = Object.keys(result).length;
+      setRunStatus({ type: 'success', message: `Drive times updated for ${count} location${count !== 1 ? 's' : ''}.` });
+    } catch (err) {
+      const msg = err?.code === 1 ? 'Location permission denied.' : 'Drive time refresh failed.';
+      setRunStatus({ type: 'error', message: msg });
+    } finally {
+      setRunningDriveTimes(false);
+    }
+  };
+
+  const handleEnrichLightPollution = async () => {
+    setRunningLightPollution(true);
+    setRunStatus(null);
+    try {
+      const result = await enrichBortle();
+      const msg = result.jobRunId
+        ? `Light pollution enrichment started (job #${result.jobRunId}).`
+        : 'Light pollution enrichment started.';
+      setRunStatus({ type: 'success', message: msg });
+      if (result.jobRunId) {
+        onActiveRunChange(result.jobRunId);
+      }
+    } catch (err) {
+      const msg = err?.response?.status === 400
+        ? 'Light pollution API key not configured.'
+        : 'Light pollution refresh failed.';
+      setRunStatus({ type: 'error', message: msg });
+    } finally {
+      setRunningLightPollution(false);
+    }
   };
 
   const handleRunVeryShortTerm = () => buildConfirmDialog(
@@ -398,6 +442,24 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 data-testid="backfill-tide-btn"
               >
                 {runningBackfill ? '\u27F3 Running\u2026' : '\u27F3 Backfill Tide History (12 mo)'}
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRefreshDriveTimes}
+                disabled={anyRunning}
+                title="Update drive times from your current location (uses browser GPS)"
+                data-testid="refresh-drive-times-btn"
+              >
+                {runningDriveTimes ? '\u27F3 Running\u2026' : '🚗 Refresh Drive Times'}
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleEnrichLightPollution}
+                disabled={anyRunning}
+                title="Enrich all unenriched locations with Bortle light-pollution class"
+                data-testid="refresh-light-pollution-btn"
+              >
+                {runningLightPollution ? '\u27F3 Running\u2026' : '🌌 Refresh Light Pollution'}
               </button>
             </div>
           </div>
