@@ -17,7 +17,13 @@ import java.time.ZonedDateTime;
  * @param active             {@code true} when the state machine is in the ACTIVE state
  *                           (aurora event in progress)
  * @param eligibleLocations  number of locations with aurora scores from the last NOTIFY
- * @param kp                 most recent Kp index value, or {@code null} if unavailable
+ * @param kp                 most recent real-time Kp index value, or {@code null} if unavailable
+ * @param forecastKp         the Kp value that triggered the current alert (forecast max Kp
+ *                           for lookahead alerts, latest Kp for real-time alerts), or
+ *                           {@code null} if the state machine is IDLE
+ * @param triggerType        {@code "forecast"} when the alert was raised by the daytime forecast
+ *                           lookahead path, {@code "realtime"} when raised by the night-time
+ *                           real-time path, or {@code null} when IDLE
  * @param ovationProbability OVATION aurora probability at 55°N, or {@code null} if unavailable
  * @param dataSource         source of the space weather data (e.g. {@code "NOAA SWPC"})
  * @param updatedAt          when the most recent NOAA data was fetched
@@ -29,6 +35,8 @@ public record AuroraStatusResponse(
         boolean active,
         int eligibleLocations,
         Double kp,
+        Double forecastKp,
+        String triggerType,
         Double ovationProbability,
         String dataSource,
         ZonedDateTime updatedAt) {

@@ -31,7 +31,12 @@ export default function AuroraBanner() {
     ? `${count} location${count !== 1 ? 's' : ''} available`
     : null;
 
-  const kpText = status.kp != null ? `Kp ${status.kp.toFixed(1)}` : null;
+  const displayKp = status.forecastKp ?? status.kp;
+  const kpText = displayKp != null
+    ? (status.triggerType === 'forecast'
+        ? `Kp ${Math.round(displayKp)} forecast tonight`
+        : `Kp ${Math.round(displayKp)}`)
+    : null;
   const subtitleParts = [kpText, locationText ? `${locationText} · Tap to view on map` : null]
     .filter(Boolean);
 

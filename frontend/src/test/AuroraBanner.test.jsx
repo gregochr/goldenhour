@@ -240,4 +240,49 @@ describe('AuroraBanner', () => {
     });
     expect(screen.getByLabelText(/dismiss aurora banner/i)).toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------------------
+  // Kp display — trigger type
+  // ---------------------------------------------------------------------------
+
+  it('shows "Kp N forecast tonight" when triggerType is forecast', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      forecastKp: 6.0,
+      triggerType: 'forecast',
+    });
+    expect(screen.getByText(/Kp 6 forecast tonight/i)).toBeInTheDocument();
+  });
+
+  it('shows plain "Kp N" when triggerType is realtime', () => {
+    renderBanner({
+      level: 'STRONG',
+      hexColour: '#ff0000',
+      description: 'Red alert',
+      active: true,
+      eligibleLocations: 5,
+      forecastKp: 7.3,
+      triggerType: 'realtime',
+    });
+    expect(screen.getByText(/Kp 7\b/i)).toBeInTheDocument();
+    expect(screen.queryByText(/forecast tonight/i)).not.toBeInTheDocument();
+  });
+
+  it('falls back to kp field when forecastKp is absent', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 2,
+      kp: 5.0,
+      forecastKp: null,
+      triggerType: 'realtime',
+    });
+    expect(screen.getByText(/Kp 5\b/i)).toBeInTheDocument();
+  });
 });

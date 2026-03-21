@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Aurora banner shows trigger Kp, not current Kp
+
+**Backend:**
+- `AuroraStateCache` — new `updateTrigger(TriggerType, double kp)` method + `getLastTriggerType()` / `getLastTriggerKp()` getters; `reset()` clears trigger metadata
+- `AuroraOrchestrator.scoreAndCache()` — new `triggerKp` param; calls `stateCache.updateTrigger()` on every NOTIFY. `runForecastLookahead()` passes `maxKpTonight`; `run()` passes `latestKp(spaceWeather)` (the most recent real-time Kp reading)
+- `AuroraStatusResponse` — two new fields: `Double forecastKp` (the Kp that triggered the alert), `String triggerType` (`"forecast"` or `"realtime"`, null when IDLE)
+- `AuroraController` — populates `forecastKp` from `stateCache.getLastTriggerKp()`, `triggerType` derived from `stateCache.getLastTriggerType()`
+
+**Frontend:**
+- `AuroraBanner` — `kpText` prefers `forecastKp` over `kp`; uses `Math.round()` (not `toFixed(1)`); appends `"forecast tonight"` suffix when `triggerType === "forecast"`. Examples: `"Kp 6 forecast tonight"` (lookahead) or `"Kp 6"` (realtime)
+
+**Tests:**
+- `AuroraStateCacheTest` — 2 new tests: `updateTrigger` stores type + kp; `reset()` clears them
+- `AuroraBanner.test.jsx` — 3 new tests: forecast trigger shows suffix, realtime shows plain Kp, falls back to `kp` when `forecastKp` absent
+
 ### Added — Aurora: daytime forecast lookahead + map aurora mode
 
 **Backend — dual-path aurora polling:**

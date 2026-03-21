@@ -249,6 +249,45 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 
 ---
 
+## Speeding Up the Dev Build Cycle
+
+`./mvnw clean verify` runs Checkstyle → compile → test → JaCoCo → SpotBugs → repackage — ~6–7 min. Use targeted commands instead:
+
+```bash
+# Compile only — catches import/signature errors in seconds
+cd backend && ./mvnw compile -q
+
+# Run a single test class — fastest inner loop
+cd backend && ./mvnw test -pl . -Dtest=AuroraStateCacheTest -q
+
+# Run all aurora-related tests only
+cd backend && ./mvnw test -Dtest="Aurora*,ClaudeAuroraInterpreter*" -q
+
+# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)
+cd backend && ./mvnw verify -Dcheckstyle.skip=true -Dspotbugs.skip=true -q
+
+# Full verify but skip clean (reuses compiled classes — shaves ~30s)
+cd backend && ./mvnw verify -q
+```
+
+**Checkstyle pre-flight before full verify** — run Checkstyle alone first; it fails fast (~15s) and catches line-length / unused-import violations before wasting 6 min:
+
+```bash
+cd backend && ./mvnw checkstyle:check -q
+```
+
+**Don't use background Bash tasks for long Maven builds** — the background task output files are unreliable (often 0 bytes until the process finishes writing). Always run `./mvnw` in the foreground with an explicit `timeout` parameter so results come back immediately.
+
+**Frontend tests are fast — run them separately:**
+
+```bash
+cd frontend && npm run test -- --reporter=dot   # ~90s, much faster than backend
+```
+
+The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean.
+
+---
+
 ## solar-utils
 
 Shared library on GitHub Packages (`~/.m2/settings.xml` needs `read:packages` token).

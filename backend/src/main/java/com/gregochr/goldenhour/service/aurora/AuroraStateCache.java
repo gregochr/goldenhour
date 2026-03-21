@@ -59,6 +59,8 @@ public class AuroraStateCache {
     private volatile State state = State.IDLE;
     private volatile AlertLevel currentLevel = null;
     private volatile List<AuroraForecastScore> cachedScores = List.of();
+    private volatile TriggerType lastTriggerType = null;
+    private volatile Double lastTriggerKp = null;
 
     /**
      * Evaluates an incoming alert level and advances the state machine.
@@ -108,6 +110,38 @@ public class AuroraStateCache {
     }
 
     /**
+     * Records which trigger path fired the last NOTIFY and the Kp value that drove it.
+     *
+     * <p>For {@link TriggerType#FORECAST_LOOKAHEAD} this is the max forecast Kp tonight;
+     * for {@link TriggerType#REALTIME} this is the most recent Kp index reading.
+     *
+     * @param triggerType the path that produced the NOTIFY
+     * @param kp          the Kp value that triggered the alert
+     */
+    public void updateTrigger(TriggerType triggerType, double kp) {
+        this.lastTriggerType = triggerType;
+        this.lastTriggerKp = kp;
+    }
+
+    /**
+     * Returns the trigger type of the last NOTIFY, or {@code null} when IDLE.
+     *
+     * @return last {@link TriggerType}, or {@code null}
+     */
+    public TriggerType getLastTriggerType() {
+        return lastTriggerType;
+    }
+
+    /**
+     * Returns the Kp value that drove the last NOTIFY, or {@code null} when IDLE.
+     *
+     * @return last trigger Kp, or {@code null}
+     */
+    public Double getLastTriggerKp() {
+        return lastTriggerKp;
+    }
+
+    /**
      * Returns the cached aurora forecast scores from the last NOTIFY event.
      *
      * <p>Returns an empty list when the state machine is IDLE.
@@ -145,5 +179,7 @@ public class AuroraStateCache {
         state = State.IDLE;
         currentLevel = null;
         cachedScores = List.of();
+        lastTriggerType = null;
+        lastTriggerKp = null;
     }
 }

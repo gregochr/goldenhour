@@ -131,7 +131,8 @@ public class AuroraOrchestrator {
                         e.getMessage());
                 return AuroraStateCache.Action.NONE;
             }
-            scoreAndCache(level, spaceWeather, TriggerType.FORECAST_LOOKAHEAD, tonightWindow);
+            scoreAndCache(level, spaceWeather, TriggerType.FORECAST_LOOKAHEAD, tonightWindow,
+                    maxKpTonight);
         }
 
         return eval.action();
@@ -156,12 +157,13 @@ public class AuroraOrchestrator {
             return AuroraStateCache.Action.NONE;
         }
 
+        double currentKp = latestKp(spaceWeather);
         AlertLevel level = deriveAlertLevel(spaceWeather);
         AuroraStateCache.Evaluation eval = stateCache.evaluate(level);
         LOG.info("Aurora real-time: level={} action={}", level, eval.action());
 
         if (eval.action() == AuroraStateCache.Action.NOTIFY) {
-            scoreAndCache(level, spaceWeather, TriggerType.REALTIME, null);
+            scoreAndCache(level, spaceWeather, TriggerType.REALTIME, null, currentKp);
         } else if (eval.action() == AuroraStateCache.Action.CLEAR) {
             LOG.info("Aurora event ended — cached scores cleared");
         }
@@ -210,9 +212,12 @@ public class AuroraOrchestrator {
     /**
      * Scores viable locations via Claude and caches results (including auto-1★ for
      * weather-rejected locations).
+     *
+     * @param triggerKp the Kp value that drove the NOTIFY (forecast max or current real-time Kp)
      */
     private void scoreAndCache(AlertLevel level, SpaceWeatherData spaceWeather,
-            TriggerType triggerType, TonightWindow tonightWindow) {
+            TriggerType triggerType, TonightWindow tonightWindow, double triggerKp) {
+        stateCache.updateTrigger(triggerType, triggerKp);
         int threshold = (level == AlertLevel.STRONG)
                 ? properties.getBortleThreshold().getStrong()
                 : properties.getBortleThreshold().getModerate();

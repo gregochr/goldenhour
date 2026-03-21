@@ -264,6 +264,29 @@ class AuroraStateCacheTest {
     }
 
     // -------------------------------------------------------------------------
+    // Trigger metadata
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("updateTrigger stores trigger type and kp; getters return them")
+    void updateTrigger_storesTypeAndKp() {
+        cache.updateTrigger(TriggerType.FORECAST_LOOKAHEAD, 6.0);
+
+        assertThat(cache.getLastTriggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
+        assertThat(cache.getLastTriggerKp()).isEqualTo(6.0);
+    }
+
+    @Test
+    @DisplayName("reset() clears trigger metadata")
+    void reset_clearsTriggerMetadata() {
+        cache.updateTrigger(TriggerType.REALTIME, 5.0);
+        cache.reset();
+
+        assertThat(cache.getLastTriggerType()).isNull();
+        assertThat(cache.getLastTriggerKp()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

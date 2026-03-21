@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.AuroraStatusResponse;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.aurora.TriggerType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -78,6 +79,10 @@ public class AuroraController {
             // Best-effort enrichment — don't fail the status endpoint over cached data
         }
 
+        TriggerType lastTrigger = stateCache.getLastTriggerType();
+        String triggerTypeStr = lastTrigger == null ? null
+                : (lastTrigger == TriggerType.FORECAST_LOOKAHEAD ? "forecast" : "realtime");
+
         return ResponseEntity.ok(new AuroraStatusResponse(
                 level,
                 level.hexColour(),
@@ -85,6 +90,8 @@ public class AuroraController {
                 stateCache.isActive(),
                 stateCache.getCachedScores().size(),
                 kp,
+                stateCache.getLastTriggerKp(),
+                triggerTypeStr,
                 ovation,
                 DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC)));
