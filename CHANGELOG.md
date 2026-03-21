@@ -3,17 +3,29 @@
 All notable changes to PhotoCast are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [v2.4.0] - 2026-03-21
 
-### Added (Mar 21, 2026) — Aurora Photography Feature
+### Added — Aurora Photography Feature
 - **Aurora alert status banner** — polling `AuroraWatchClient` (Scottish/English sites) via `AuroraPollingJob` (15 min, night-only); `AuroraStateCache` FSM (IDLE → MONITORING → AMBER → RED); `AuroraStatusBanner` React component shown above forecast timeline
 - **Aurora location scoring** — `AuroraScorer` computes 1–5 star ratings per location using cloud cover (35% weight), moon penalty (`LunarPosition.auroraPenalty()`), and Bortle light-pollution class; `GET /api/aurora/locations` endpoint (Bearer) with `maxBortle`/`minStars` filters; `AuroraController`
 - **Map popup aurora score section** — when alert level is AMBER or RED, `MapView` fetches scored locations and passes `auroraScore` to `MarkerPopupContent`; shows 🌌 Aurora header, star display (`★★★☆☆`), and cloud/moon/light-pollution detail breakdown
-- **Bortle enrichment admin tool** — `LightPollutionClient` queries lightpollutionmap.info QueryRaster API (wa_2015 layer); `BortleEnrichmentService` batch-enriches all unenriched locations; `POST /api/aurora/admin/enrich-bortle` (ADMIN); `POST /api/aurora/admin/reset` resets the aurora state machine to IDLE; `AuroraAdminController`
+- **Bortle enrichment** — `LightPollutionClient` queries lightpollutionmap.info QueryRaster API (wa_2015 layer); `BortleEnrichmentService` batch-enriches all unenriched locations with SSE per-location progress (PENDING → EVALUATING → COMPLETE/FAILED); `LIGHT_POLLUTION` RunType; `POST /api/aurora/admin/enrich-bortle` returns 202 with `jobRunId` and appears in Job Runs page; `POST /api/aurora/admin/reset` resets the aurora state machine to IDLE
 - **Directional cloud sampling for aurora** — `AuroraTransectFetcher` samples cloud cover at 3 points along the northward transect (0°, 345°, 15° azimuth) at 113 km offset via Open-Meteo hourly cloud_cover_low; deduplicates nearby grid cells; falls back to 50% on error
 - **V55 migration** — adds `bortle_class` column to `locations` table (nullable integer)
-- **Frontend aurora API module** — `auroraApi.js` with `getAuroraStatus()` and `getAuroraLocations()`
-- **Test coverage** — `AuroraAdminControllerTest` (10), `BortleEnrichmentServiceTest` (5), `LightPollutionClientHttpTest` (6), `AuroraTransectFetcherTest` (8), `AuroraPollingJobTest` updated for solar-utils v2 API (`civilDawn`/`civilDusk` instead of `solarAltitude`); `ForecastControllerTest` extended with retry-failed, SSE endpoint, and location-filter coverage; JaCoCo ≥80% threshold maintained
+- **Frontend aurora API module** — `auroraApi.js` with `getAuroraStatus()`, `getAuroraLocations()`, and `enrichBortle()`
+- **Bortle column in Location Management** — read-only in both view and edit modes; InfoTip explaining 1–9 scale
+- **Aurora filter InfoTip** — click-to-reveal tooltip on the 🌌 Aurora friendly map filter button explaining scoring criteria (alert level, cloud, moon, Bortle factors)
+- **Drive Times + Light Pollution buttons moved** — from Location Management panel to Operations → Job Runs → Data Refresh section; Light Pollution enrichment triggers the live SSE progress panel
+
+### Fixed
+- **InfoTip line breaks** — changed `whitespace-normal` to `whitespace-pre-line` so `\n` in tooltip text renders as actual line breaks across all InfoTip instances
+
+### Tests
+- `AuroraAdminControllerTest` (10), `BortleEnrichmentServiceTest` (5), `LightPollutionClientHttpTest` (6), `AuroraTransectFetcherTest` (8)
+- `AuroraPollingJobTest` updated for solar-utils v2 API (`civilDawn`/`civilDusk`)
+- `ForecastControllerTest` extended with retry-failed, SSE endpoint, and location-filter coverage
+- `LocationManagementView.test.jsx` — Bortle column: header renders, null shows `—`, value renders, read-only in edit mode (5 tests)
+- JaCoCo ≥80% threshold maintained; `LightPollutionClient` JaCoCo-excluded (untestable UriBuilder lambda)
 
 ### Added (Mar 20, 2026) — Tide Alignment Pre-Claude Triage
 - **TIDE_ALIGNMENT run optimisation** — new `OptimisationStrategyType` enabled by default for all colour run types (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM) via V54 migration

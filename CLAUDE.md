@@ -17,9 +17,11 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Evaluation**: Single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel` | `PromptBuilder` + `MetricsLoggingDecorator` (GoF Decorator) | `NoOpEvaluationStrategy` for wildlife | `AnthropicApiClient` with `@Retryable` | Composable `AtmosphericData` (5 sub-records + `DirectionalCloudData` + `CloudApproachData`)
 
-**Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
+**Aurora photography**: AuroraWatch polling (`AuroraPollingJob`, 15 min, night-only) | `AuroraStateCache` FSM (IDLE → MONITORING → AMBER → RED) | `AuroraScorer` (1–5★ from alert level + cloud + moon + Bortle) | `AuroraTransectFetcher` (3-point northward cloud transect) | Bortle enrichment via lightpollutionmap.info (`LightPollutionClient`, `BortleEnrichmentService`) | Map filter + popup aurora section | `AuroraBanner` React component
 
-**Optimisation strategies**: 6 toggleable strategies (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL, NEXT_EVENT_ONLY) per run type | `OptimisationSkipEvaluator` | Mutual exclusion validation | Active strategies snapshot on each `job_run`
+**Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE, LIGHT_POLLUTION) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
+
+**Optimisation strategies**: 7 toggleable strategies (SKIP_LOW_RATED, SKIP_EXISTING, FORCE_IMMINENT, FORCE_STALE, EVALUATE_ALL, NEXT_EVENT_ONLY, TIDE_ALIGNMENT) per run type | `OptimisationSkipEvaluator` | Mutual exclusion validation | Active strategies snapshot on each `job_run`
 
 **Cost tracking**: Token-based micro-dollar pricing from Anthropic SDK | `ExchangeRateService` (Frankfurter API, ECB data) | `CostCalculator` with cache/batch discount | Frontend shows GBP + USD costs
 
@@ -62,7 +64,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V51 Flyway migrations
+│       └── db/migration/            V1–V55 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -125,11 +127,11 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 
 Never commit `application.yml`. Only `application-example.yml` is committed.
 
-Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`.
+Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`, `aurora` (enabled, poll-interval-minutes, light-pollution-api-key, bortle-threshold.amber/red).
 
 ---
 
-## Database Migrations (V1–V51)
+## Database Migrations (V1–V55)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -149,6 +151,8 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V51 | Cloud approach risk columns (solar trend, upwind sample) on forecast_evaluation |
 | V52 | SENTINEL_SAMPLING optimisation strategy rows; remove stale REQUIRE_PRIOR rows |
 | V53 | far_solar_low_cloud column on forecast_evaluation (strip vs blanket detection) |
+| V54 | TIDE_ALIGNMENT optimisation strategy rows for all colour run types |
+| V55 | bortle_class column on locations (nullable integer) |
 
 ---
 
@@ -187,6 +191,9 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ### Admin tools (ADMIN)
 `GET /api/metrics/job-runs|api-calls` | `GET|PUT /api/models` | `PUT /api/models/active|optimisation` | `POST /api/model-test/run|run-location|rerun` | `GET /api/model-test/runs|results` | `POST /api/prompt-test/run|replay` | `GET /api/prompt-test/runs|runs/{id}|results|git-info`
+
+### Aurora (Bearer / ADMIN for writes)
+`GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/reset` (ADMIN)
 
 ### Tides (ADMIN)
 `GET /api/tides` | `GET /api/tides/stats`
