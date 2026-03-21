@@ -434,7 +434,7 @@ function MapView({ locations, date }) {
         >
           🌌 Aurora friendly
         </button>
-        <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nShown when AuroraWatch reports AMBER or RED activity. Locations with Bortle ≤ 4 (AMBER) or ≤ 5 (RED) are included.\n\nStar rating (1–5) combines four factors:\n• Alert level — AMBER starts at 3★, RED at 4★\n• Cloud cover (northward transect) — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe interference −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+        <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when AuroraWatch reports AMBER or RED. Locations with Bortle ≤ 4 (AMBER) or ≤ 5 (RED) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — AMBER = 3★ base, RED = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
         {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0
             || driveTimeFilter > 0 || auroraFriendlyFilter) && (
           <button
