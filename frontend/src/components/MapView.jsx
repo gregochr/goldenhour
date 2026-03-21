@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -100,6 +100,23 @@ function ZoomTracker({ onZoom }) {
 
 ZoomTracker.propTypes = {
   onZoom: PropTypes.func.isRequired,
+};
+
+/**
+ * Programmatically flies the map to a target lat/lon when `target` changes.
+ */
+function FlyToController({ target }) {
+  const map = useMap();
+  useEffect(() => {
+    if (target) {
+      map.flyTo([target.lat, target.lon], Math.max(map.getZoom(), 11));
+    }
+  }, [target, map]);
+  return null;
+}
+
+FlyToController.propTypes = {
+  target: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
 };
 
 /**
@@ -228,7 +245,19 @@ function MapView({ locations, date }) {
   const [auroraFriendlyFilter, setAuroraFriendlyFilter] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
   const [auroraScores, setAuroraScores] = useState({});
+  const [flyTarget, setFlyTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
+
+  // Aurora is available when the user is ADMIN/PRO and the state machine is active.
+  const auroraAvailable = role !== 'LITE_USER' && auroraStatus?.active === true;
+
+  // Auto-reset to SUNSET when aurora mode becomes unavailable.
+  useEffect(() => {
+    if (eventType === 'AURORA' && !auroraAvailable) {
+      setEventType('SUNSET');
+      setActiveRatingFilters(new Set());
+    }
+  }, [auroraAvailable, eventType]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -292,6 +321,9 @@ function MapView({ locations, date }) {
 
   /** Get the forecast rating for a location on the current date/event. */
   function getRatingForLocation(loc) {
+    if (eventType === 'AURORA') {
+      return auroraScores[loc.name]?.stars ?? null;
+    }
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     return forecast?.rating ?? null;
@@ -332,6 +364,16 @@ function MapView({ locations, date }) {
       )
     : driveFiltered;
 
+  const isAuroraMode = eventType === 'AURORA';
+
+  // Best aurora location — highest-starred entry from current aurora scores.
+  const bestAuroraLocation = useMemo(() => {
+    if (!isAuroraMode) return null;
+    const entries = Object.values(auroraScores);
+    if (entries.length === 0) return null;
+    return entries.reduce((best, curr) => (curr.stars > best.stars ? curr : best), entries[0]);
+  }, [isAuroraMode, auroraScores]);
+
   if (!date || locations.length === 0) {
     return (
       <p className="text-plex-text-muted text-sm text-center py-8">
@@ -350,7 +392,9 @@ function MapView({ locations, date }) {
   /** Derive popup content props for a location. */
   function getContentProps(loc) {
     const dayData = loc.forecastsByDate.get(date);
-    const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
+    // Aurora mode: use sunset as background weather context (aurora is an evening/night event)
+    const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+    const forecast = dayData?.[solarType];
     const hourlyData = dayData?.hourly ?? [];
     const types = loc.locationType ?? [];
     const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
@@ -360,6 +404,30 @@ function MapView({ locations, date }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Forecast type selector: Sunrise | Sunset | Aurora (Aurora only for ADMIN/PRO when active) */}
+      <div className="flex items-center gap-1" data-testid="forecast-type-selector">
+        {[
+          { value: 'SUNRISE', label: '☀️ Sunrise' },
+          { value: 'SUNSET',  label: '🌇 Sunset' },
+          ...(auroraAvailable ? [{ value: 'AURORA', label: '🌌 Aurora' }] : []),
+        ].map(({ value, label }) => (
+          <button
+            key={value}
+            data-testid={`forecast-type-${value.toLowerCase()}`}
+            onClick={() => { setEventType(value); setActiveRatingFilters(new Set()); }}
+            className={`px-4 py-1.5 text-sm font-medium rounded-full border transition-colors ${
+              eventType === value
+                ? value === 'AURORA'
+                  ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-200'
+                  : 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
+                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Location type + star rating filter toggles */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
@@ -452,31 +520,30 @@ function MapView({ locations, date }) {
         )}
       </div>
 
-      {/* Sunrise / Sunset radio toggle */}
-      <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer select-none">
-          <input
-            type="radio"
-            name="map-event-type"
-            value="SUNRISE"
-            checked={eventType === 'SUNRISE'}
-            onChange={() => setEventType('SUNRISE')}
-            className="accent-[#E5A00D]"
-          />
-          🌅 Sunrise
-        </label>
-        <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer select-none">
-          <input
-            type="radio"
-            name="map-event-type"
-            value="SUNSET"
-            checked={eventType === 'SUNSET'}
-            onChange={() => setEventType('SUNSET')}
-            className="accent-purple-400"
-          />
-          🌇 Sunset
-        </label>
-      </div>
+      {/* Best aurora location card — visible only in aurora mode */}
+      {isAuroraMode && bestAuroraLocation && (
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-900/20 text-sm"
+          data-testid="aurora-best-location-card"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-indigo-300 shrink-0">🏆</span>
+            <div className="min-w-0">
+              <span className="text-indigo-200 font-medium">{bestAuroraLocation.location.name}</span>
+              <span className="text-indigo-400 ml-2">{'★'.repeat(bestAuroraLocation.stars)}{'☆'.repeat(5 - bestAuroraLocation.stars)}</span>
+              {bestAuroraLocation.summary && (
+                <p className="text-indigo-400 text-xs mt-0.5 truncate">{bestAuroraLocation.summary}</p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setFlyTarget({ lat: bestAuroraLocation.location.lat, lon: bestAuroraLocation.location.lon })}
+            className="shrink-0 px-3 py-1 text-xs font-medium rounded-full border border-indigo-500/40 text-indigo-300 bg-indigo-900/40 hover:bg-indigo-800/40 transition-colors"
+          >
+            Centre map
+          </button>
+        </div>
+      )}
 
       {/* Map */}
       <div
@@ -496,6 +563,7 @@ function MapView({ locations, date }) {
             maxZoom={19}
           />
           <ZoomTracker onZoom={setZoom} />
+          <FlyToController target={flyTarget} />
 
           {/* Azimuth lines for the selected location */}
           {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
@@ -535,10 +603,20 @@ function MapView({ locations, date }) {
           >
             {visibleLocations.map((loc) => {
               const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+              const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
+              const markerRating = isAuroraMode
+                ? (locAuroraScore?.stars ?? null)
+                : (forecast?.rating ?? null);
+              const markerFiery = (!isAuroraMode && role !== 'LITE_USER')
+                ? (forecast?.fierySkyPotential ?? null)
+                : null;
+              const markerGolden = (!isAuroraMode && role !== 'LITE_USER')
+                ? (forecast?.goldenHourPotential ?? null)
+                : null;
               const icon = makeMarkerIcon(
-                forecast?.rating ?? null,
-                role !== 'LITE_USER' ? (forecast?.fierySkyPotential ?? null) : null,
-                role !== 'LITE_USER' ? (forecast?.goldenHourPotential ?? null) : null,
+                markerRating,
+                markerFiery,
+                markerGolden,
                 loc.name,
                 isPureWildlife,
                 isWaterfall,
@@ -564,7 +642,7 @@ function MapView({ locations, date }) {
                           location={loc}
                           forecast={forecast}
                           hourlyData={hourlyData}
-                          eventType={eventType}
+                          eventType={isAuroraMode ? 'SUNSET' : eventType}
                           isPureWildlife={isPureWildlife}
                           showComfortRows={isWaterfall}
                           role={role}
@@ -574,6 +652,7 @@ function MapView({ locations, date }) {
                           onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                           tideClassification={tideClassifications[loc.name] ?? null}
                           auroraScore={auroraScores[loc.name] ?? null}
+                          isAuroraMode={isAuroraMode}
                         />
                       </div>
                     </Popup>
@@ -600,7 +679,7 @@ function MapView({ locations, date }) {
                 location={loc}
                 forecast={forecast}
                 hourlyData={hourlyData}
-                eventType={eventType}
+                eventType={isAuroraMode ? 'SUNSET' : eventType}
                 isPureWildlife={isPureWildlife}
                 showComfortRows={isWaterfall}
                 role={role}
@@ -610,6 +689,7 @@ function MapView({ locations, date }) {
                 onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                 tideClassification={tideClassifications[loc.name] ?? null}
                 auroraScore={auroraScores[loc.name] ?? null}
+                isAuroraMode={isAuroraMode}
                 darkMode
               />
             </div>

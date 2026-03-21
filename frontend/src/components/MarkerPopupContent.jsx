@@ -251,6 +251,7 @@ export default function MarkerPopupContent({
   onTideClassification,
   tideClassification,
   auroraScore = null,
+  isAuroraMode = false,
   darkMode = false,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -370,6 +371,24 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
+          {/* Aurora mode: no score means location is not aurora-eligible */}
+          {isAuroraMode && !auroraScore && (
+            <div style={{ marginBottom: '6px' }} data-testid="aurora-not-eligible">
+              <span style={{
+                ...POPUP_PILL,
+                display: 'block',
+                background: 'rgba(30,30,50,0.5)',
+                color: '#6b7280',
+                border: '1px solid rgba(107,114,128,0.3)',
+                fontSize: '11px',
+                padding: '6px 10px',
+              }}>
+                🌌 Not suitable for aurora photography
+                {location.bortleClass ? ` (Bortle ${location.bortleClass})` : ''}
+              </span>
+            </div>
+          )}
+
           {/* Aurora score section — shown when aurora is active and a score is available for this location */}
           {auroraScore && (
             <div
@@ -657,5 +676,6 @@ MarkerPopupContent.propTypes = {
     summary: PropTypes.string,
     detail: PropTypes.string,
   }),
+  isAuroraMode: PropTypes.bool,
   darkMode: PropTypes.bool,
 };
