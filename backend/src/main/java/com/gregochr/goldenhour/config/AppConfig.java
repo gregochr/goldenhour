@@ -68,6 +68,9 @@ public class AppConfig {
      * Connection pool sized to support parallel evaluation runs (5 idle connections,
      * 2-minute keep-alive).
      *
+     * <p>A 90-second call timeout prevents OkHttp HTTP/2 threads from pinning virtual-thread
+     * carrier threads indefinitely when the Anthropic API hangs mid-response.
+     *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}
      */
@@ -77,6 +80,7 @@ public class AppConfig {
                 .apiKey(properties.getApiKey())
                 .maxIdleConnections(5)
                 .keepAliveDuration(Duration.ofMinutes(2))
+                .timeout(Duration.ofSeconds(90))
                 .build();
     }
 

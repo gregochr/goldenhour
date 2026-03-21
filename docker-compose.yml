@@ -47,6 +47,9 @@ services:
       SPRING_DATASOURCE_USERNAME: goldenhour
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_PROFILES_ACTIVE: prod
+      JAVA_TOOL_OPTIONS: >-
+        -Djdk.virtualThreadScheduler.maxPoolSize=256
+        -Djdk.tracePinnedThreads=short
     depends_on:
       goldenhour-db:
         condition: service_healthy
