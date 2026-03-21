@@ -897,6 +897,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Drive</span>
                       <div className="mt-1 h-[26px]" />
                     </th>
+                    <th className="pb-1 font-medium align-top w-[6%]">
+                      <span className="flex items-center gap-1 text-xs text-plex-text-muted whitespace-nowrap">
+                        Bortle
+                        <InfoTip text={"Bortle class (1–9) measures light pollution.\n1–2: Excellent dark sky\n3–4: Moderate — aurora-friendly\n5–9: Light-polluted\n\nRun Refresh Light Pollution to populate."} />
+                      </span>
+                      <div className="mt-1 h-[26px]" />
+                    </th>
                     <SortableHeader label="Status" sortKey="status" className="w-[9%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
                     <th className="pb-1 font-medium align-top w-[13%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
@@ -961,6 +968,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs">
                                 {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs">
+                                {loc.bortleClass != null ? loc.bortleClass : '—'}
                               </td>
                               <td className="py-2">
                                 <button
@@ -1035,6 +1045,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs">
                                 {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
+                              </td>
+                              <td className="py-2 text-plex-text-secondary text-xs" data-testid={`bortle-${loc.id}`}>
+                                {loc.bortleClass != null ? loc.bortleClass : '—'}
                               </td>
                               <td className="py-2">
                                 <button
