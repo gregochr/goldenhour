@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.solarutils.SolarCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,12 +10,15 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -40,28 +44,43 @@ class AuroraPollingJobTest {
     }
 
     // -------------------------------------------------------------------------
-    // Daylight skip
+    // executePoll — dual-path behaviour
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("executePoll skips orchestrator when it is daylight")
-    void executePoll_daylight_skipsOrchestrator() {
+    @DisplayName("executePoll always runs forecast lookahead, even during daylight")
+    void executePoll_daylight_runsForecastLookaheadOnly() {
         goDay();
+        when(orchestrator.runForecastLookahead(any())).thenReturn(AuroraStateCache.Action.NONE);
 
         job.executePoll();
 
+        verify(orchestrator, times(1)).runForecastLookahead(any());
         verify(orchestrator, never()).run();
     }
 
     @Test
-    @DisplayName("executePoll invokes orchestrator when it is dark")
-    void executePoll_darkness_invokesOrchestrator() {
+    @DisplayName("executePoll runs both paths at night")
+    void executePoll_darkness_runsBothPaths() {
         goNight();
+        when(orchestrator.runForecastLookahead(any())).thenReturn(AuroraStateCache.Action.NONE);
         when(orchestrator.run()).thenReturn(AuroraStateCache.Action.NONE);
 
         job.executePoll();
 
+        verify(orchestrator, times(1)).runForecastLookahead(any());
         verify(orchestrator, times(1)).run();
+    }
+
+    @Test
+    @DisplayName("executePoll skips real-time path during daylight regardless of forecast result")
+    void executePoll_daylight_skipsRealTimePath() {
+        goDay();
+        when(orchestrator.runForecastLookahead(any())).thenReturn(AuroraStateCache.Action.NOTIFY);
+
+        job.executePoll();
+
+        verify(orchestrator, never()).run();
     }
 
     // -------------------------------------------------------------------------
@@ -102,6 +121,87 @@ class AuroraPollingJobTest {
         when(solarCalculator.civilDawn(anyDouble(), anyDouble(), any(), any())).thenReturn(dawn);
         when(solarCalculator.civilDusk(anyDouble(), anyDouble(), any(), any())).thenReturn(dusk);
         assertThat(job.isDaylight()).isTrue();
+    }
+
+    // -------------------------------------------------------------------------
+    // calculateTonightWindow
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("calculateTonightWindow returns today-dusk to tomorrow-dawn when it is daytime")
+    void calculateTonightWindow_daytime_returnsTodayDuskToTomorrowDawn() {
+        // Simulate daytime: today's dawn was 6 hours ago, dusk is in 6 hours
+        ZoneId utc = ZoneId.of("UTC");
+        LocalDate today = LocalDate.now(utc);
+        LocalDateTime now = LocalDateTime.now(utc);
+
+        LocalDateTime todayDawn = now.minusHours(6);
+        LocalDateTime todayDusk = now.plusHours(6);
+        LocalDateTime tomorrowDawn = now.plusHours(20);
+
+        // civilDawn(today) → todayDawn, civilDawn(today+1) → tomorrowDawn
+        // civilDusk(today) → todayDusk
+        when(solarCalculator.civilDawn(anyDouble(), anyDouble(), eq(today), any()))
+                .thenReturn(todayDawn);
+        when(solarCalculator.civilDawn(anyDouble(), anyDouble(), eq(today.plusDays(1)), any()))
+                .thenReturn(tomorrowDawn);
+        when(solarCalculator.civilDusk(anyDouble(), anyDouble(), eq(today), any()))
+                .thenReturn(todayDusk);
+
+        TonightWindow window = job.calculateTonightWindow();
+
+        // Dusk = todayDusk + NAUTICAL_BUFFER, Dawn = tomorrowDawn - NAUTICAL_BUFFER
+        ZonedDateTime expectedDusk = todayDusk.plusMinutes(AuroraPollingJob.NAUTICAL_BUFFER_MINUTES).atZone(utc);
+        ZonedDateTime expectedDawn = tomorrowDawn.minusMinutes(AuroraPollingJob.NAUTICAL_BUFFER_MINUTES).atZone(utc);
+
+        assertThat(window.dusk()).isEqualTo(expectedDusk);
+        assertThat(window.dawn()).isEqualTo(expectedDawn);
+        assertThat(window.dusk()).isBefore(window.dawn());
+    }
+
+    @Test
+    @DisplayName("calculateTonightWindow returns yesterday-dusk to today-dawn when it is post-midnight")
+    void calculateTonightWindow_postMidnight_returnsCurrentDarkPeriod() {
+        // Simulate post-midnight: today's dawn is 3 hours from now (we are in the overnight period)
+        ZoneId utc = ZoneId.of("UTC");
+        LocalDate today = LocalDate.now(utc);
+        LocalDateTime now = LocalDateTime.now(utc);
+
+        LocalDateTime todayDawn = now.plusHours(3);    // dawn hasn't happened yet
+        LocalDateTime yesterdayDusk = now.minusHours(5); // dusk was 5 hours ago
+
+        when(solarCalculator.civilDawn(anyDouble(), anyDouble(), eq(today), any()))
+                .thenReturn(todayDawn);
+        when(solarCalculator.civilDusk(anyDouble(), anyDouble(), eq(today.minusDays(1)), any()))
+                .thenReturn(yesterdayDusk);
+
+        TonightWindow window = job.calculateTonightWindow();
+
+        ZonedDateTime expectedDusk = yesterdayDusk.plusMinutes(AuroraPollingJob.NAUTICAL_BUFFER_MINUTES).atZone(utc);
+        ZonedDateTime expectedDawn = todayDawn.minusMinutes(AuroraPollingJob.NAUTICAL_BUFFER_MINUTES).atZone(utc);
+
+        assertThat(window.dusk()).isEqualTo(expectedDusk);
+        assertThat(window.dawn()).isEqualTo(expectedDawn);
+    }
+
+    @Test
+    @DisplayName("tonight window dusk is always before dawn")
+    void calculateTonightWindow_duskAlwaysBeforeDawn() {
+        // Simulate midday: dawn 8h ago, dusk in 8h, tomorrow dawn in 20h
+        ZoneId utc = ZoneId.of("UTC");
+        LocalDate today = LocalDate.now(utc);
+        LocalDateTime now = LocalDateTime.now(utc);
+
+        when(solarCalculator.civilDawn(anyDouble(), anyDouble(), eq(today), any()))
+                .thenReturn(now.minusHours(8));
+        when(solarCalculator.civilDusk(anyDouble(), anyDouble(), eq(today), any()))
+                .thenReturn(now.plusHours(8));
+        when(solarCalculator.civilDawn(anyDouble(), anyDouble(), eq(today.plusDays(1)), any()))
+                .thenReturn(now.plusHours(20));
+
+        TonightWindow window = job.calculateTonightWindow();
+
+        assertThat(window.dusk()).isBefore(window.dawn());
     }
 
     // -------------------------------------------------------------------------

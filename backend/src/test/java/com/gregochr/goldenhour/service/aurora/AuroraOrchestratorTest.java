@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
+import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -125,7 +126,7 @@ class AuroraOrchestratorTest {
     }
 
     // -------------------------------------------------------------------------
-    // run() — pipeline control flow
+    // run() — real-time pipeline control flow
     // -------------------------------------------------------------------------
 
     @Test
@@ -172,14 +173,40 @@ class AuroraOrchestratorTest {
         AuroraForecastScore score = new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 30,
                 "Good aurora conditions", "✓ Active geomagnetic storm");
         when(metOfficeScraper.getForecastText()).thenReturn("Active G2 storm");
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(score));
 
         AuroraStateCache.Action action = orchestrator.run();
 
         assertThat(action).isEqualTo(AuroraStateCache.Action.NOTIFY);
-        verify(claudeInterpreter).interpret(any(), any(), any(), any(), any());
+        verify(claudeInterpreter).interpret(any(), any(), any(), any(), any(), any(), any());
         verify(stateCache).updateScores(any());
+    }
+
+    @Test
+    @DisplayName("run passes TriggerType.REALTIME to Claude interpreter")
+    void run_notifyAction_passesRealtimeTriggerType() {
+        SpaceWeatherData data = spaceWeather(6.0, 0.0, List.of());
+        when(noaaClient.fetchAll()).thenReturn(data);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(new AuroraStateCache.Evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE, null));
+
+        LocationEntity loc = buildLocation(1L, "Embleton", 55.5, -1.6, 2);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(loc));
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(loc), List.of(), Map.of(loc, 20));
+        when(weatherTriage.triage(any())).thenReturn(triage);
+        when(metOfficeScraper.getForecastText()).thenReturn(null);
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 20, "ok", "")));
+
+        orchestrator.run();
+
+        verify(claudeInterpreter).interpret(
+                any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TriggerType.REALTIME),
+                org.mockito.ArgumentMatchers.isNull());
     }
 
     @Test
@@ -203,7 +230,7 @@ class AuroraOrchestratorTest {
         verify(stateCache).updateScores(
                 org.mockito.ArgumentMatchers.argThat(scores ->
                         scores.size() == 1 && scores.get(0).stars() == 1));
-        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any());
+        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -218,6 +245,140 @@ class AuroraOrchestratorTest {
 
         assertThat(action).isEqualTo(AuroraStateCache.Action.CLEAR);
         verify(locationRepository, never()).findByBortleClassLessThanEqualAndEnabledTrue(anyInt());
+    }
+
+    // -------------------------------------------------------------------------
+    // runForecastLookahead() — forecast-lookahead path
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("runForecastLookahead returns NONE when Kp forecast is below threshold for tonight")
+    void runForecastLookahead_belowThreshold_returnsNone() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
+        KpForecast forecast = new KpForecast(now.plusHours(7), now.plusHours(10), 3.5);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(forecast));
+
+        AuroraStateCache.Action action = orchestrator.runForecastLookahead(window);
+
+        assertThat(action).isEqualTo(AuroraStateCache.Action.NONE);
+        verify(stateCache, never()).evaluate(any());
+    }
+
+    @Test
+    @DisplayName("runForecastLookahead fires NOTIFY during daylight when Kp >= 5 forecast tonight")
+    void runForecastLookahead_kp5ForecastTonight_firesNotify() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
+        KpForecast forecast = new KpForecast(now.plusHours(7), now.plusHours(10), 6.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(forecast));
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(new AuroraStateCache.Evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE, null));
+        when(noaaClient.fetchAll()).thenReturn(spaceWeather(2.0, 0.0, List.of()));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of());
+
+        AuroraStateCache.Action action = orchestrator.runForecastLookahead(window);
+
+        assertThat(action).isEqualTo(AuroraStateCache.Action.NOTIFY);
+    }
+
+    @Test
+    @DisplayName("runForecastLookahead passes TriggerType.FORECAST_LOOKAHEAD and window to Claude")
+    void runForecastLookahead_notify_passesForecastTriggerTypeAndWindow() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
+        KpForecast forecast = new KpForecast(now.plusHours(7), now.plusHours(10), 7.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(forecast));
+        when(stateCache.evaluate(AlertLevel.STRONG))
+                .thenReturn(new AuroraStateCache.Evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.STRONG, null));
+
+        SpaceWeatherData spaceWeather = spaceWeather(2.0, 0.0, List.of());
+        when(noaaClient.fetchAll()).thenReturn(spaceWeather);
+
+        LocationEntity loc = buildLocation(1L, "Kielder", 55.2, -2.6, 2);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(any(Integer.class)))
+                .thenReturn(List.of(loc));
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(loc), List.of(), Map.of(loc, 10));
+        when(weatherTriage.triage(any())).thenReturn(triage);
+        when(metOfficeScraper.getForecastText()).thenReturn(null);
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(loc, 5, AlertLevel.STRONG, 10,
+                        "Forecast strong aurora tonight", "")));
+
+        orchestrator.runForecastLookahead(window);
+
+        verify(claudeInterpreter).interpret(
+                any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(TriggerType.FORECAST_LOOKAHEAD),
+                org.mockito.ArgumentMatchers.eq(window));
+    }
+
+    @Test
+    @DisplayName("runForecastLookahead returns SUPPRESS when state machine already active at same level")
+    void runForecastLookahead_alreadyActive_returnsSuppressWithoutScoring() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
+        KpForecast forecast = new KpForecast(now.plusHours(7), now.plusHours(10), 5.5);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(forecast));
+        AuroraStateCache.Evaluation suppress =
+                new AuroraStateCache.Evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE, null);
+        when(stateCache.evaluate(AlertLevel.MODERATE)).thenReturn(suppress);
+
+        AuroraStateCache.Action action = orchestrator.runForecastLookahead(window);
+
+        assertThat(action).isEqualTo(AuroraStateCache.Action.SUPPRESS);
+        verify(noaaClient, never()).fetchAll();
+        verify(locationRepository, never()).findByBortleClassLessThanEqualAndEnabledTrue(anyInt());
+    }
+
+    @Test
+    @DisplayName("runForecastLookahead ignores forecast windows outside tonight's dark period")
+    void runForecastLookahead_forecastOutsideTonightWindow_returnsNone() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        // Tonight: 8h from now to 16h from now
+        TonightWindow window = new TonightWindow(now.plusHours(8), now.plusHours(16));
+        // Forecast is 2h from now — before dusk, outside the dark window
+        KpForecast daytimeForecast = new KpForecast(now.plusHours(2), now.plusHours(5), 7.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(daytimeForecast));
+
+        AuroraStateCache.Action action = orchestrator.runForecastLookahead(window);
+
+        assertThat(action).isEqualTo(AuroraStateCache.Action.NONE);
+        verify(stateCache, never()).evaluate(any());
+    }
+
+    @Test
+    @DisplayName("runForecastLookahead returns NONE when NOAA forecast fetch fails")
+    void runForecastLookahead_fetchFails_returnsNone() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
+        when(noaaClient.fetchKpForecast()).thenThrow(new RuntimeException("network error"));
+
+        AuroraStateCache.Action action = orchestrator.runForecastLookahead(window);
+
+        assertThat(action).isEqualTo(AuroraStateCache.Action.NONE);
+        verify(stateCache, never()).evaluate(any());
+    }
+
+    @Test
+    @DisplayName("runForecastLookahead returns NOTIFY for Kp 7+ forecast → STRONG alert level")
+    void runForecastLookahead_kp7ForecastTonight_firesStrongNotify() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
+        KpForecast forecast = new KpForecast(now.plusHours(8), now.plusHours(11), 8.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(forecast));
+        when(stateCache.evaluate(AlertLevel.STRONG))
+                .thenReturn(new AuroraStateCache.Evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.STRONG, null));
+        when(noaaClient.fetchAll()).thenReturn(spaceWeather(2.0, 0.0, List.of()));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(any(Integer.class)))
+                .thenReturn(List.of());
+
+        AuroraStateCache.Action action = orchestrator.runForecastLookahead(window);
+
+        assertThat(action).isEqualTo(AuroraStateCache.Action.NOTIFY);
+        verify(stateCache).evaluate(AlertLevel.STRONG);
     }
 
     // -------------------------------------------------------------------------

@@ -3,6 +3,31 @@
 All notable changes to PhotoCast are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added — Aurora: daytime forecast lookahead + map aurora mode
+
+**Backend — dual-path aurora polling:**
+- `AuroraPollingJob` — split into two independent paths: (1) forecast lookahead (no daylight gate, runs every poll cycle); (2) real-time check (daylight-gated, unchanged). `executePoll()` always runs forecast lookahead first, then real-time only if `!isDaylight()`. New `calculateTonightWindow()` handles daytime (today dusk → tomorrow dawn) and post-midnight (yesterday dusk → today dawn) cases. `NAUTICAL_BUFFER_MINUTES` made package-visible for tests.
+- `TonightWindow` — new record (`dusk`, `dawn` as `ZonedDateTime`); `overlaps(from, to)` half-open interval check
+- `TriggerType` — new enum (`FORECAST_LOOKAHEAD`, `REALTIME`) driving Claude prompt tone
+- `AuroraOrchestrator.runForecastLookahead(TonightWindow)` — new method; fetches Kp forecast cheaply via `fetchKpForecast()`, checks if any window overlaps tonight and meets threshold, calls `scoreAndCache()` with `FORECAST_LOOKAHEAD` trigger type only on NOTIFY. `run()` now passes `TriggerType.REALTIME, null` to `scoreAndCache()`.
+- `ClaudeAuroraInterpreter` — `interpret()` and `buildUserMessage()` updated to 7 args (added `TriggerType`, `TonightWindow`). System prompt gains tone guidance: `forecast_lookahead` → planning language ("forecast tonight", "plan your evening"); `realtime` → urgent language ("happening now", "get out there"). User message header includes trigger type, current UTC time, and tonight's dark window when provided.
+
+**Frontend — aurora mode in map:**
+- Forecast type selector — button row (☀️ Sunrise | 🌇 Sunset | 🌌 Aurora) above star filter chips; Aurora option visible only for ADMIN/PRO when `auroraStatus.active === true`; switching resets active star filters
+- Aurora marker mode — markers show aurora stars (no fiery/golden arcs) when Aurora selected; null star = unrated marker
+- Best Location card — banner between filter row and map showing highest-starred aurora location + "Centre map" flyTo button (`FlyToController` inner component)
+- `MarkerPopupContent` — `isAuroraMode` prop; ineligible locations (no aurora score) show "🌌 Not suitable for aurora photography" pill
+
+**Tests:**
+- `AuroraPollingJobTest` — 3 new dual-path `executePoll` tests; 3 new `calculateTonightWindow` tests (daytime, post-midnight, dusk-always-before-dawn)
+- `AuroraOrchestratorTest` — 6 new `runForecastLookahead` tests (threshold check, NOTIFY, SUPPRESS, outside window, fetch failure, Kp 7+ STRONG); real-time NOTIFY updated to verify `TriggerType.REALTIME`
+- `ClaudeAuroraInterpreterTest` — 3 new trigger-type tests (`buildUserMessage` includes realtime context, forecast context, omits window section when null); all `interpret()`/`buildUserMessage()` calls updated to 7-arg signatures
+- Total: 1009 backend tests passing
+
+---
+
 ## [v2.5.0] - 2026-03-21
 
 ### Changed — Aurora: NOAA SWPC replaces AuroraWatch UK

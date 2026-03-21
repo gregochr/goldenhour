@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
+import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,18 +23,24 @@ import java.util.List;
 /**
  * Orchestrates the full aurora alerting pipeline using NOAA SWPC data.
  *
- * <p>One orchestration cycle:
+ * <p>Two entry points:
+ * <ul>
+ *   <li>{@link #runForecastLookahead(TonightWindow)} — checks Kp forecast for tonight's dark
+ *       window. Runs without a daylight gate, giving the user advance warning during the day.</li>
+ *   <li>{@link #run()} — checks current Kp and OVATION. Runs only at night to confirm,
+ *       escalate, or clear an alert once conditions are actually happening.</li>
+ * </ul>
+ *
+ * <p>Both paths share the same {@link AuroraStateCache} so daytime forecast NOTIFYs suppress
+ * duplicate evening real-time NOTIFYs; real-time escalations still produce a second NOTIFY.
+ *
+ * <p>On any NOTIFY action, the pipeline:
  * <ol>
- *   <li>Fetch live NOAA SWPC data (Kp, forecast, OVATION, solar wind, alerts).</li>
- *   <li>Derive the current {@link AlertLevel} using dual-condition logic:
- *       CLEAR requires BOTH Kp below threshold AND OVATION below threshold.</li>
- *   <li>Feed the level to {@link AuroraStateCache} to obtain an action.</li>
- *   <li>On {@link AuroraStateCache.Action#NOTIFY}: filter Bortle-eligible locations,
- *       triage by cloud cover, call Claude once for viable locations, assign 1★ to
- *       rejected (overcast) locations, and cache all results.</li>
- *   <li>On {@link AuroraStateCache.Action#CLEAR}: the state machine clears scores.</li>
- *   <li>On {@link AuroraStateCache.Action#SUPPRESS} or {@link AuroraStateCache.Action#NONE}:
- *       do nothing.</li>
+ *   <li>Filters locations by Bortle threshold.</li>
+ *   <li>Triages locations by cloud cover.</li>
+ *   <li>Calls Claude once for all viable locations.</li>
+ *   <li>Assigns 1★ to overcast-rejected locations.</li>
+ *   <li>Caches all results in the state machine.</li>
  * </ol>
  */
 @Component
@@ -77,7 +84,66 @@ public class AuroraOrchestrator {
     }
 
     /**
-     * Runs one full orchestration cycle and returns the state machine action taken.
+     * Forecast-lookahead path — runs any time, day or night.
+     *
+     * <p>Fetches the NOAA 3-day Kp forecast and checks whether any window within
+     * {@code tonightWindow} reaches the alert threshold. If so, evaluates the state machine
+     * and (on NOTIFY) runs the full location scoring pipeline with
+     * {@link TriggerType#FORECAST_LOOKAHEAD} context so Claude uses planning language.
+     *
+     * @param tonightWindow tonight's dark period (nautical dusk → nautical dawn)
+     * @return the state machine action taken (NOTIFY, SUPPRESS, CLEAR, or NONE)
+     */
+    public AuroraStateCache.Action runForecastLookahead(TonightWindow tonightWindow) {
+        List<KpForecast> forecast;
+        try {
+            forecast = noaaClient.fetchKpForecast();
+        } catch (Exception e) {
+            LOG.warn("NOAA Kp forecast fetch failed — skipping forecast lookahead: {}",
+                    e.getMessage());
+            return AuroraStateCache.Action.NONE;
+        }
+
+        double maxKpTonight = forecast.stream()
+                .filter(f -> tonightWindow.overlaps(f.from(), f.to()))
+                .mapToDouble(KpForecast::kp)
+                .max()
+                .orElse(0.0);
+
+        double threshold = properties.getTriggers().getKpThreshold();
+        if (maxKpTonight < threshold) {
+            LOG.debug("Forecast lookahead: max Kp tonight = {} — below threshold {}",
+                    maxKpTonight, threshold);
+            return AuroraStateCache.Action.NONE;
+        }
+
+        AlertLevel level = AlertLevel.fromKp(maxKpTonight);
+        AuroraStateCache.Evaluation eval = stateCache.evaluate(level);
+        LOG.info("Forecast lookahead: maxKp={} level={} action={}", maxKpTonight, level,
+                eval.action());
+
+        if (eval.action() == AuroraStateCache.Action.NOTIFY) {
+            SpaceWeatherData spaceWeather;
+            try {
+                spaceWeather = noaaClient.fetchAll();
+            } catch (Exception e) {
+                LOG.warn("Full NOAA fetch failed during forecast-lookahead scoring: {}",
+                        e.getMessage());
+                return AuroraStateCache.Action.NONE;
+            }
+            scoreAndCache(level, spaceWeather, TriggerType.FORECAST_LOOKAHEAD, tonightWindow);
+        }
+
+        return eval.action();
+    }
+
+    /**
+     * Real-time path — intended to run only after nautical twilight.
+     *
+     * <p>Fetches current Kp, OVATION probability, and all other NOAA signals.
+     * Derives {@link AlertLevel} using dual-condition logic (Kp + OVATION + short-horizon
+     * forecast), evaluates the state machine, and (on NOTIFY) runs the full scoring pipeline
+     * with {@link TriggerType#REALTIME} context so Claude uses urgent action language.
      *
      * @return the action from the state machine (NOTIFY, SUPPRESS, CLEAR, or NONE)
      */
@@ -92,10 +158,10 @@ public class AuroraOrchestrator {
 
         AlertLevel level = deriveAlertLevel(spaceWeather);
         AuroraStateCache.Evaluation eval = stateCache.evaluate(level);
-        LOG.info("Aurora orchestration: level={} action={}", level, eval.action());
+        LOG.info("Aurora real-time: level={} action={}", level, eval.action());
 
         if (eval.action() == AuroraStateCache.Action.NOTIFY) {
-            scoreAndCache(level, spaceWeather);
+            scoreAndCache(level, spaceWeather, TriggerType.REALTIME, null);
         } else if (eval.action() == AuroraStateCache.Action.CLEAR) {
             LOG.info("Aurora event ended — cached scores cleared");
         }
@@ -145,7 +211,8 @@ public class AuroraOrchestrator {
      * Scores viable locations via Claude and caches results (including auto-1★ for
      * weather-rejected locations).
      */
-    private void scoreAndCache(AlertLevel level, SpaceWeatherData spaceWeather) {
+    private void scoreAndCache(AlertLevel level, SpaceWeatherData spaceWeather,
+            TriggerType triggerType, TonightWindow tonightWindow) {
         int threshold = (level == AlertLevel.STRONG)
                 ? properties.getBortleThreshold().getStrong()
                 : properties.getBortleThreshold().getModerate();
@@ -179,7 +246,8 @@ public class AuroraOrchestrator {
         if (!triage.viable().isEmpty()) {
             String metOfficeText = metOfficeScraper.getForecastText();
             List<AuroraForecastScore> claudeScores = claudeInterpreter.interpret(
-                    level, triage.viable(), triage.cloudByLocation(), spaceWeather, metOfficeText);
+                    level, triage.viable(), triage.cloudByLocation(), spaceWeather, metOfficeText,
+                    triggerType, tonightWindow);
             allScores.addAll(claudeScores);
         }
 

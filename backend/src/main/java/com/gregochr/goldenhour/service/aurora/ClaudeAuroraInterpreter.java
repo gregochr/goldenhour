@@ -15,13 +15,16 @@ import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
+import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +37,10 @@ import java.util.Map;
  * probability, solar wind Bz, active alerts) with per-location cloud cover and dark-sky
  * data. Claude rates each viable location on a 1–5 star scale with a one-line summary
  * and a multi-factor detail breakdown.
+ *
+ * <p>The prompt includes a {@link TriggerType} context so Claude uses planning language
+ * ("forecast tonight — plan your evening") for daytime forecast alerts vs urgent language
+ * ("happening now — get out there") for real-time alerts.
  *
  * <p>Aurora is an inherently qualitative, multi-signal assessment — Claude is well-suited
  * to integrating Kp, Bz trend, OVATION probability, cloud, and lunar interference into a
@@ -50,11 +57,14 @@ public class ClaudeAuroraInterpreter {
     /** Maximum tokens for the aurora scoring response. */
     private static final int MAX_TOKENS = 1024;
 
+    private static final DateTimeFormatter TIME_FMT =
+            DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Europe/London"));
+
     private static final String SYSTEM_PROMPT = """
-            You are an expert aurora photography advisor. You will receive real-time space
-            weather data and a list of photography locations. For each location, produce a
-            1–5 star rating for aurora photography conditions tonight, with a one-line
-            summary and a brief multi-factor detail.
+            You are an expert aurora photography advisor. You will receive space weather data
+            and a list of photography locations. For each location, produce a 1–5 star rating
+            for aurora photography conditions, with a one-line summary and a brief multi-factor
+            detail.
 
             Output ONLY valid JSON — no prose, no code fences, no markdown.
             The JSON must be an array of objects, one per location, in the same order as
@@ -77,6 +87,15 @@ public class ClaudeAuroraInterpreter {
             - Moon below horizon or < 20% illuminated: +0.5. Severe moonlight: −1.
             - Bortle 1–2: +0.5. Bortle 3–4: 0. Bortle 5+: −0.5.
             - Clamp final score to 1–5 inclusive.
+
+            Tone guidance based on trigger_type in the payload:
+            - "forecast_lookahead": conditions are forecast, not yet happening. The user has
+              hours to prepare. Use planning language in summary: "forecast tonight", "expected
+              from HH:MM", "plan your evening", "charge your batteries". Do NOT say "happening
+              now" or imply urgency.
+            - "realtime": aurora is happening RIGHT NOW. The user must act immediately. Use
+              urgent language: "happening now", "get out there", "don't wait", "conditions
+              peaking". Do NOT use hedging future language.
 
             Be concise and factual. Do not invent or hallucinate data not provided.
             """;
@@ -102,23 +121,28 @@ public class ClaudeAuroraInterpreter {
      * @param level            the current alert level (MODERATE or STRONG)
      * @param viableLocations  locations that passed weather triage
      * @param cloudByLocation  average cloud cover (0–100) per location
-     * @param spaceWeather     live NOAA SWPC data for context
+     * @param spaceWeather     NOAA SWPC data for context
      * @param metOfficeText    Met Office space weather narrative (may be null)
+     * @param triggerType      whether this alert is forecast-based or real-time
+     * @param tonightWindow    tonight's dark period (may be null for real-time alerts)
      * @return scored aurora forecast results, one per viable location
      */
     public List<AuroraForecastScore> interpret(AlertLevel level,
             List<LocationEntity> viableLocations,
             Map<LocationEntity, Integer> cloudByLocation,
             SpaceWeatherData spaceWeather,
-            String metOfficeText) {
+            String metOfficeText,
+            TriggerType triggerType,
+            TonightWindow tonightWindow) {
         if (viableLocations.isEmpty()) {
             return List.of();
         }
 
         String userMessage = buildUserMessage(level, viableLocations, cloudByLocation,
-                spaceWeather, metOfficeText);
+                spaceWeather, metOfficeText, triggerType, tonightWindow);
 
-        LOG.info("Aurora Claude call: {} locations, level={}", viableLocations.size(), level);
+        LOG.info("Aurora Claude call: {} locations, level={}, trigger={}",
+                viableLocations.size(), level, triggerType);
 
         Message response = anthropicApiClient.createMessage(
                 MessageCreateParams.builder()
@@ -140,14 +164,31 @@ public class ClaudeAuroraInterpreter {
     }
 
     /**
-     * Builds the user message with all space weather data and location details.
+     * Builds the user message with all space weather data, trigger context, and location details.
      */
     String buildUserMessage(AlertLevel level,
             List<LocationEntity> locations,
             Map<LocationEntity, Integer> cloudByLocation,
             SpaceWeatherData spaceWeather,
-            String metOfficeText) {
+            String metOfficeText,
+            TriggerType triggerType,
+            TonightWindow tonightWindow) {
         StringBuilder sb = new StringBuilder();
+
+        // Trigger type context — tells Claude whether to use planning or urgent language
+        sb.append("TRIGGER TYPE: ").append(triggerType.name().toLowerCase()).append("\n");
+        sb.append("CURRENT TIME (UTC): ").append(
+                ZonedDateTime.now(ZoneOffset.UTC).toLocalDateTime().format(
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))).append("\n");
+
+        if (tonightWindow != null) {
+            sb.append("TONIGHT'S DARK WINDOW (UK): ")
+                    .append(TIME_FMT.format(tonightWindow.dusk()))
+                    .append(" – ")
+                    .append(TIME_FMT.format(tonightWindow.dawn()))
+                    .append(" (nautical dusk to dawn)\n");
+        }
+        sb.append("\n");
 
         sb.append("CURRENT ALERT LEVEL: ").append(level.name())
                 .append(" — ").append(level.description()).append("\n\n");
