@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.client.LightPollutionClient;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,12 +31,16 @@ class BortleEnrichmentServiceTest {
 
     @Mock private LocationRepository locationRepository;
     @Mock private LightPollutionClient lightPollutionClient;
+    @Mock private JobRunService jobRunService;
 
     private BortleEnrichmentService service;
+    private JobRunEntity stubJobRun;
 
     @BeforeEach
     void setUp() {
-        service = new BortleEnrichmentService(locationRepository, lightPollutionClient);
+        service = new BortleEnrichmentService(locationRepository, lightPollutionClient, jobRunService);
+        stubJobRun = new JobRunEntity();
+        stubJobRun.setId(1L);
     }
 
     @Test
@@ -42,7 +48,7 @@ class BortleEnrichmentServiceTest {
     void enrichAll_noPendingLocations_returnsZeroCounts() {
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of());
 
-        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("test-key");
+        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("test-key", stubJobRun);
 
         assertThat(result.enriched()).isZero();
         assertThat(result.failed()).isEmpty();
@@ -56,7 +62,7 @@ class BortleEnrichmentServiceTest {
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc));
         when(lightPollutionClient.queryBortleClass(55.6, -1.7, "key")).thenReturn(3);
 
-        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key");
+        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
 
         assertThat(result.enriched()).isEqualTo(1);
         assertThat(result.failed()).isEmpty();
@@ -72,7 +78,7 @@ class BortleEnrichmentServiceTest {
         when(lightPollutionClient.queryBortleClass(anyDouble(), anyDouble(), anyString()))
                 .thenReturn(null);
 
-        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key");
+        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
 
         assertThat(result.enriched()).isZero();
         assertThat(result.failed()).containsExactly("Urban Site");
@@ -90,7 +96,7 @@ class BortleEnrichmentServiceTest {
         when(lightPollutionClient.queryBortleClass(eq(53.5), eq(-2.2), anyString())).thenReturn(null);
         when(lightPollutionClient.queryBortleClass(eq(55.7), eq(-1.5), anyString())).thenReturn(2);
 
-        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key");
+        BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
 
         assertThat(result.enriched()).isEqualTo(2);
         assertThat(result.failed()).containsExactly("City Centre");
@@ -104,7 +110,7 @@ class BortleEnrichmentServiceTest {
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc1, loc2));
         when(lightPollutionClient.queryBortleClass(anyDouble(), anyDouble(), anyString())).thenReturn(5);
 
-        service.enrichAll("key");
+        service.enrichAll("key", stubJobRun);
 
         verify(lightPollutionClient, times(1)).queryBortleClass(54.0, -1.0, "key");
         verify(lightPollutionClient, times(1)).queryBortleClass(55.0, -2.0, "key");

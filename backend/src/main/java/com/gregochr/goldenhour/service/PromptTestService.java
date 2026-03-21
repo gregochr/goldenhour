@@ -457,7 +457,7 @@ public class PromptTestService {
                 }
                 yield List.copyOf(dates);
             }
-            case WEATHER, TIDE -> throw new IllegalArgumentException(
+            case WEATHER, TIDE, LIGHT_POLLUTION -> throw new IllegalArgumentException(
                     "RunType " + runType + " is not supported for prompt tests");
         };
     }

@@ -479,9 +479,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setLightPollutionStatus(null);
     try {
       const result = await enrichBortle();
-      const msg = `Light pollution enriched: ${result.enriched} updated` +
-        (result.failed > 0 ? `, ${result.failed} failed` : '') + '.';
-      setLightPollutionStatus({ type: result.failed > 0 ? 'error' : 'success', message: msg });
+      const msg = result.jobRunId
+        ? `Light pollution enrichment started (job #${result.jobRunId}).`
+        : 'Light pollution enrichment started.';
+      setLightPollutionStatus({ type: 'success', message: msg });
       await refreshLocations();
     } catch (err) {
       const msg = err.response?.status === 400

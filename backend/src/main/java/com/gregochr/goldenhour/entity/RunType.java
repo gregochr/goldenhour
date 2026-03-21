@@ -21,5 +21,8 @@ public enum RunType {
     WEATHER,
 
     /** Tide extremes refresh. */
-    TIDE
+    TIDE,
+
+    /** Light pollution (Bortle class) enrichment. */
+    LIGHT_POLLUTION
 }

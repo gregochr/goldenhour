@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.client.LightPollutionClient;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.JobRunService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,21 +32,26 @@ public class BortleEnrichmentService {
 
     private final LocationRepository locationRepository;
     private final LightPollutionClient lightPollutionClient;
+    private final JobRunService jobRunService;
 
     /**
-     * Constructs the service with repository and HTTP client dependencies.
+     * Constructs the service with repository, HTTP client, and job run dependencies.
      *
      * @param locationRepository   location data access
      * @param lightPollutionClient HTTP client for the light pollution API
+     * @param jobRunService        job run service for tracking the enrichment run
      */
     public BortleEnrichmentService(LocationRepository locationRepository,
-            LightPollutionClient lightPollutionClient) {
+            LightPollutionClient lightPollutionClient,
+            JobRunService jobRunService) {
         this.locationRepository = locationRepository;
         this.lightPollutionClient = lightPollutionClient;
+        this.jobRunService = jobRunService;
     }
 
     /**
-     * Enriches all locations with a {@code null} Bortle class.
+     * Enriches all locations with a {@code null} Bortle class and records the run in
+     * the job run log.
      *
      * <p>Fetches the sky brightness for each location, converts to Bortle class, and
      * saves the result. Locations where the API call fails are skipped and logged —
@@ -52,9 +59,10 @@ public class BortleEnrichmentService {
      * this method again.
      *
      * @param apiKey lightpollutionmap.info API key
+     * @param jobRun the job run entity to update on completion
      * @return a summary of results
      */
-    public EnrichmentResult enrichAll(String apiKey) {
+    public EnrichmentResult enrichAll(String apiKey, JobRunEntity jobRun) {
         List<LocationEntity> pending = locationRepository.findByBortleClassIsNull();
         LOG.info("Bortle enrichment starting: {} location(s) to process", pending.size());
 
@@ -79,7 +87,9 @@ public class BortleEnrichmentService {
         }
 
         LOG.info("Bortle enrichment complete: {} enriched, {} failed", enriched, failed.size());
-        return new EnrichmentResult(enriched, failed);
+        EnrichmentResult result = new EnrichmentResult(enriched, failed);
+        jobRunService.completeRun(jobRun, enriched, failed.size());
+        return result;
     }
 
     /**

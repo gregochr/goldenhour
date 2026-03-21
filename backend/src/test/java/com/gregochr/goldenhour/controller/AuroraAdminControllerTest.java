@@ -1,8 +1,11 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,9 +15,8 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.List;
-
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -39,6 +41,17 @@ class AuroraAdminControllerTest {
 
     @MockitoBean
     private AuroraStateCache stateCache;
+
+    @MockitoBean
+    private JobRunService jobRunService;
+
+    @BeforeEach
+    void setUp() {
+        JobRunEntity stubJobRun = new JobRunEntity();
+        stubJobRun.setId(42L);
+        when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
+                .thenReturn(stubJobRun);
+    }
 
     // -------------------------------------------------------------------------
     // Role-based access
@@ -94,33 +107,30 @@ class AuroraAdminControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/aurora/admin/enrich-bortle returns 200 with enrichment summary")
+    @DisplayName("POST /api/aurora/admin/enrich-bortle returns 202 Accepted with jobRunId")
     @WithMockUser(roles = {"ADMIN"})
-    void enrichBortle_validApiKey_returns200WithSummary() throws Exception {
+    void enrichBortle_validApiKey_returns202() throws Exception {
         when(auroraProperties.getLightPollutionApiKey()).thenReturn("valid-key");
-        when(enrichmentService.enrichAll(anyString()))
-                .thenReturn(new BortleEnrichmentService.EnrichmentResult(5, List.of()));
 
         mockMvc.perform(post("/api/aurora/admin/enrich-bortle"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enriched").value(5))
-                .andExpect(jsonPath("$.failed").value(0))
-                .andExpect(jsonPath("$.failedLocations").isArray());
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("Light pollution enrichment started"))
+                .andExpect(jsonPath("$.runType").value("LIGHT_POLLUTION"))
+                .andExpect(jsonPath("$.jobRunId").value(42));
     }
 
     @Test
-    @DisplayName("POST /api/aurora/admin/enrich-bortle includes failed location names in response")
+    @DisplayName("POST /api/aurora/admin/enrich-bortle calls jobRunService.startRun with LIGHT_POLLUTION")
     @WithMockUser(roles = {"ADMIN"})
-    void enrichBortle_withFailures_includesFailedNames() throws Exception {
+    void enrichBortle_validApiKey_startsJobRun() throws Exception {
         when(auroraProperties.getLightPollutionApiKey()).thenReturn("valid-key");
-        when(enrichmentService.enrichAll(anyString()))
-                .thenReturn(new BortleEnrichmentService.EnrichmentResult(
-                        3, List.of("Urban Site", "Industrial Zone")));
 
         mockMvc.perform(post("/api/aurora/admin/enrich-bortle"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.enriched").value(3))
-                .andExpect(jsonPath("$.failed").value(2));
+                .andExpect(status().isAccepted());
+
+        verify(jobRunService).startRun(
+                any(com.gregochr.goldenhour.entity.RunType.class),
+                anyBoolean(), any(), any());
     }
 
     // -------------------------------------------------------------------------
