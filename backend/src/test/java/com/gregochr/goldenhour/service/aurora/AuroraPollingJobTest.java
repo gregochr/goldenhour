@@ -1,12 +1,6 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.client.AuroraWatchClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
-import com.gregochr.goldenhour.entity.AlertLevel;
-import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.model.AuroraForecastScore;
-import com.gregochr.goldenhour.model.AuroraStatus;
-import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.solarutils.SolarCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -17,14 +11,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -36,11 +26,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AuroraPollingJobTest {
 
-    @Mock private AuroraWatchClient auroraWatchClient;
-    @Mock private AuroraStateCache stateCache;
-    @Mock private AuroraScorer scorer;
-    @Mock private AuroraTransectFetcher transectFetcher;
-    @Mock private LocationRepository locationRepository;
+    @Mock private AuroraOrchestrator orchestrator;
     @Mock private SolarCalculator solarCalculator;
 
     private AuroraPollingJob job;
@@ -50,9 +36,7 @@ class AuroraPollingJobTest {
     void setUp() {
         properties = new AuroraProperties();
         properties.setEnabled(true);
-        job = new AuroraPollingJob(
-                auroraWatchClient, stateCache, scorer, transectFetcher,
-                locationRepository, properties, solarCalculator);
+        job = new AuroraPollingJob(orchestrator, properties, solarCalculator);
     }
 
     // -------------------------------------------------------------------------
@@ -60,128 +44,24 @@ class AuroraPollingJobTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("executePoll skips when it is daylight (civil dawn recent, civil dusk upcoming)")
-    void executePoll_daylight_skips() {
+    @DisplayName("executePoll skips orchestrator when it is daylight")
+    void executePoll_daylight_skipsOrchestrator() {
         goDay();
 
         job.executePoll();
 
-        verify(auroraWatchClient, never()).fetchStatus();
+        verify(orchestrator, never()).run();
     }
 
     @Test
-    @DisplayName("executePoll proceeds when it is properly dark (civil dusk several hours ago)")
-    void executePoll_darkness_proceeds() {
+    @DisplayName("executePoll invokes orchestrator when it is dark")
+    void executePoll_darkness_invokesOrchestrator() {
         goNight();
-        when(auroraWatchClient.fetchStatus()).thenReturn(null);
+        when(orchestrator.run()).thenReturn(AuroraStateCache.Action.NONE);
 
         job.executePoll();
 
-        verify(auroraWatchClient, times(1)).fetchStatus();
-    }
-
-    // -------------------------------------------------------------------------
-    // Null status handling
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("executePoll does nothing when status is null (first-call failure)")
-    void executePoll_nullStatus_doesNothing() {
-        goNight();
-        when(auroraWatchClient.fetchStatus()).thenReturn(null);
-
-        job.executePoll();
-
-        verify(stateCache, never()).evaluate(any());
-    }
-
-    // -------------------------------------------------------------------------
-    // Action routing
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("NOTIFY action triggers location scoring and cache update")
-    void executePoll_notify_scoresAndCaches() {
-        goNight();
-        stubStatus(AlertLevel.AMBER);
-        when(stateCache.evaluate(AlertLevel.AMBER))
-                .thenReturn(new AuroraStateCache.Evaluation(
-                        AuroraStateCache.Action.NOTIFY, AlertLevel.AMBER, null));
-
-        var candidate = locationWithBortle(3);
-        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
-                .thenReturn(List.of(candidate));
-        when(transectFetcher.fetchTransectCloud(any()))
-                .thenReturn(Map.of("Test", 20));
-        var scores = List.of(new AuroraForecastScore(
-                candidate, 4, AlertLevel.AMBER, 20, "★★★★ Good", "detail"));
-        when(scorer.score(any(), any(), any())).thenReturn(scores);
-
-        job.executePoll();
-
-        verify(scorer, times(1)).score(any(), any(), any());
-        verify(stateCache, times(1)).updateScores(scores);
-    }
-
-    @Test
-    @DisplayName("NOTIFY with no eligible locations updates cache with empty list")
-    void executePoll_notify_noEligibleLocations() {
-        goNight();
-        stubStatus(AlertLevel.AMBER);
-        when(stateCache.evaluate(AlertLevel.AMBER))
-                .thenReturn(new AuroraStateCache.Evaluation(
-                        AuroraStateCache.Action.NOTIFY, AlertLevel.AMBER, null));
-        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
-                .thenReturn(List.of());
-
-        job.executePoll();
-
-        verify(scorer, never()).score(any(), any(), any());
-        verify(stateCache, times(1)).updateScores(List.of());
-    }
-
-    @Test
-    @DisplayName("SUPPRESS action does not trigger scoring")
-    void executePoll_suppress_noScoring() {
-        goNight();
-        stubStatus(AlertLevel.AMBER);
-        when(stateCache.evaluate(AlertLevel.AMBER))
-                .thenReturn(new AuroraStateCache.Evaluation(
-                        AuroraStateCache.Action.SUPPRESS, AlertLevel.AMBER, null));
-
-        job.executePoll();
-
-        verify(scorer, never()).score(any(), any(), any());
-        verify(stateCache, never()).updateScores(any());
-    }
-
-    @Test
-    @DisplayName("CLEAR action does not trigger scoring (state machine handles clearing)")
-    void executePoll_clear_noScoring() {
-        goNight();
-        stubStatus(AlertLevel.GREEN);
-        when(stateCache.evaluate(AlertLevel.GREEN))
-                .thenReturn(new AuroraStateCache.Evaluation(
-                        AuroraStateCache.Action.CLEAR, null, AlertLevel.AMBER));
-
-        job.executePoll();
-
-        verify(scorer, never()).score(any(), any(), any());
-        verify(stateCache, never()).updateScores(any());
-    }
-
-    @Test
-    @DisplayName("NONE action does nothing")
-    void executePoll_none_doesNothing() {
-        goNight();
-        stubStatus(AlertLevel.GREEN);
-        when(stateCache.evaluate(AlertLevel.GREEN))
-                .thenReturn(new AuroraStateCache.Evaluation(
-                        AuroraStateCache.Action.NONE, null, null));
-
-        job.executePoll();
-
-        verify(scorer, never()).score(any(), any(), any());
+        verify(orchestrator, times(1)).run();
     }
 
     // -------------------------------------------------------------------------
@@ -244,17 +124,5 @@ class AuroraPollingJobTest {
         LocalDateTime dusk = LocalDateTime.now(ZoneId.of("UTC")).plusHours(6);
         when(solarCalculator.civilDawn(anyDouble(), anyDouble(), any(), any())).thenReturn(dawn);
         when(solarCalculator.civilDusk(anyDouble(), anyDouble(), any(), any())).thenReturn(dusk);
-    }
-
-    private void stubStatus(AlertLevel level) {
-        var status = new AuroraStatus(level, ZonedDateTime.now(),
-                "Test Station", ZonedDateTime.now().plusMinutes(10));
-        when(auroraWatchClient.fetchStatus()).thenReturn(status);
-    }
-
-    private LocationEntity locationWithBortle(int bortleClass) {
-        return LocationEntity.builder()
-                .id(1L).name("Test").lat(54.78).lon(-1.58)
-                .enabled(true).bortleClass(bortleClass).build();
     }
 }

@@ -15,11 +15,11 @@ import java.util.List;
  *
  * <p>State transitions:
  * <ul>
- *   <li>IDLE + GREEN/YELLOW → {@link Action#NONE} (stay IDLE)</li>
- *   <li>IDLE + AMBER/RED → {@link Action#NOTIFY}, transition to ACTIVE</li>
+ *   <li>IDLE + QUIET/MINOR → {@link Action#NONE} (stay IDLE)</li>
+ *   <li>IDLE + MODERATE/STRONG → {@link Action#NOTIFY}, transition to ACTIVE</li>
  *   <li>ACTIVE + higher severity → {@link Action#NOTIFY} (escalation), stay ACTIVE</li>
  *   <li>ACTIVE + same or lower alertable level → {@link Action#SUPPRESS}, stay ACTIVE</li>
- *   <li>ACTIVE + GREEN/YELLOW → {@link Action#CLEAR}, transition to IDLE</li>
+ *   <li>ACTIVE + QUIET/MINOR → {@link Action#CLEAR}, transition to IDLE</li>
  * </ul>
  *
  * <p>Thread safety: {@code volatile} fields allow the REST endpoint to read state from

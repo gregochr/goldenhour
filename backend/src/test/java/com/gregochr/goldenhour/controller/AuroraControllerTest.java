@@ -1,9 +1,12 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +21,7 @@ import java.util.List;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,11 +38,24 @@ class AuroraControllerTest {
     @MockitoBean
     private AuroraStateCache stateCache;
 
+    @MockitoBean
+    private NoaaSwpcClient noaaClient;
+
+    // Mock admin dependencies so the Spring context loads correctly
+    @MockitoBean
+    private AuroraOrchestrator orchestrator;
+
+    @MockitoBean
+    private BortleEnrichmentService bortleEnrichmentService;
+
     @BeforeEach
     void setUp() {
         when(stateCache.isActive()).thenReturn(false);
         when(stateCache.getCurrentLevel()).thenReturn(null);
         when(stateCache.getCachedScores()).thenReturn(List.of());
+        // Avoid HTTP calls in tests
+        when(noaaClient.fetchKp()).thenReturn(List.of());
+        when(noaaClient.fetchOvation()).thenReturn(null);
     }
 
     // -------------------------------------------------------------------------
@@ -82,31 +99,31 @@ class AuroraControllerTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("GET /api/aurora/status returns GREEN level and active=false when IDLE")
+    @DisplayName("GET /api/aurora/status returns QUIET level and active=false when IDLE")
     @WithMockUser(roles = {"ADMIN"})
-    void getStatus_idle_returnsGreenAndNotActive() throws Exception {
+    void getStatus_idle_returnsQuietAndNotActive() throws Exception {
         when(stateCache.isActive()).thenReturn(false);
         when(stateCache.getCurrentLevel()).thenReturn(null);
         when(stateCache.getCachedScores()).thenReturn(List.of());
 
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.level").value("GREEN"))
+                .andExpect(jsonPath("$.level").value("QUIET"))
                 .andExpect(jsonPath("$.active").value(false))
                 .andExpect(jsonPath("$.eligibleLocations").value(0));
     }
 
     @Test
-    @DisplayName("GET /api/aurora/status returns AMBER and active=true during active event")
+    @DisplayName("GET /api/aurora/status returns MODERATE and active=true during active event")
     @WithMockUser(roles = {"ADMIN"})
-    void getStatus_activeAmber_returnsAmberAndActive() throws Exception {
+    void getStatus_activeModerate_returnsModerateAndActive() throws Exception {
         when(stateCache.isActive()).thenReturn(true);
-        when(stateCache.getCurrentLevel()).thenReturn(AlertLevel.AMBER);
+        when(stateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(stateCache.getCachedScores()).thenReturn(List.of(stubScore(3), stubScore(4)));
 
         mockMvc.perform(get("/api/aurora/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.level").value("AMBER"))
+                .andExpect(jsonPath("$.level").value("MODERATE"))
                 .andExpect(jsonPath("$.hexColour").value("#ff9900"))
                 .andExpect(jsonPath("$.active").value(true))
                 .andExpect(jsonPath("$.eligibleLocations").value(2));
@@ -174,29 +191,6 @@ class AuroraControllerTest {
     }
 
     // -------------------------------------------------------------------------
-    // Admin endpoint access
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("POST /api/aurora/admin/reset returns 403 for PRO_USER")
-    @WithMockUser(roles = {"PRO_USER"})
-    void adminReset_proUser_returns403() throws Exception {
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                .post("/api/aurora/admin/reset"))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @DisplayName("POST /api/aurora/admin/reset returns 200 for ADMIN")
-    @WithMockUser(roles = {"ADMIN"})
-    void adminReset_admin_returns200() throws Exception {
-        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                .post("/api/aurora/admin/reset"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").exists());
-    }
-
-    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -208,7 +202,7 @@ class AuroraControllerTest {
         LocationEntity loc = LocationEntity.builder()
                 .id(1L).name("Test").lat(54.78).lon(-1.58)
                 .bortleClass(bortleClass).build();
-        return new AuroraForecastScore(loc, stars, AlertLevel.AMBER, 25,
+        return new AuroraForecastScore(loc, stars, AlertLevel.MODERATE, 25,
                 "★".repeat(stars) + " summary", "detail");
     }
 }

@@ -383,11 +383,11 @@ export default function MarkerPopupContent({
                 alignItems: 'flex-start',
                 gap: '4px',
                 padding: '6px 10px',
-                background: auroraScore.alertLevel === 'RED'
+                background: auroraScore.alertLevel === 'STRONG'
                   ? 'rgba(255, 0, 0, 0.12)'
                   : 'rgba(255, 153, 0, 0.12)',
-                color: auroraScore.alertLevel === 'RED' ? '#fca5a5' : '#fbbf24',
-                border: `1px solid ${auroraScore.alertLevel === 'RED' ? 'rgba(255,0,0,0.4)' : 'rgba(255,153,0,0.4)'}`,
+                color: auroraScore.alertLevel === 'STRONG' ? '#fca5a5' : '#fbbf24',
+                border: `1px solid ${auroraScore.alertLevel === 'STRONG' ? 'rgba(255,0,0,0.4)' : 'rgba(255,153,0,0.4)'}`,
                 borderRadius: '8px',
                 width: '100%',
                 boxSizing: 'border-box',

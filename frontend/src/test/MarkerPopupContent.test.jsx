@@ -470,17 +470,17 @@ describe('MarkerPopupContent', () => {
   });
 
   describe('aurora score section', () => {
-    const AMBER_SCORE = {
+    const MODERATE_SCORE = {
       stars: 3,
-      alertLevel: 'AMBER',
+      alertLevel: 'MODERATE',
       cloudPercent: 20,
       summary: 'Good aurora conditions — partly clear',
       detail: 'Cloud: ✓ Clear (20%) — good\nMoon: ✓ below horizon\nLight pollution: — Bortle 3\nAlert: 🟠 Amber',
     };
 
-    const RED_SCORE = {
+    const STRONG_SCORE = {
       stars: 5,
-      alertLevel: 'RED',
+      alertLevel: 'STRONG',
       cloudPercent: 5,
       summary: 'Excellent aurora conditions',
       detail: 'Cloud: ✓ Clear (5%) — excellent\nMoon: ✓ below horizon\nLight pollution: ✓ Bortle 2\nAlert: 🔴 Red',
@@ -496,35 +496,35 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('aurora-score-section')).not.toBeInTheDocument();
     });
 
-    it('renders aurora section for PRO_USER with AMBER score', () => {
-      renderPopup({ role: 'PRO_USER', auroraScore: AMBER_SCORE });
+    it('renders aurora section for PRO_USER with MODERATE score', () => {
+      renderPopup({ role: 'PRO_USER', auroraScore: MODERATE_SCORE });
       expect(screen.getByTestId('aurora-score-section')).toBeInTheDocument();
     });
 
-    it('renders aurora section for ADMIN with RED score', () => {
-      renderPopup({ role: 'ADMIN', auroraScore: RED_SCORE });
+    it('renders aurora section for ADMIN with STRONG score', () => {
+      renderPopup({ role: 'ADMIN', auroraScore: STRONG_SCORE });
       expect(screen.getByTestId('aurora-score-section')).toBeInTheDocument();
     });
 
     it('renders aurora section for LITE_USER when score is provided', () => {
-      renderPopup({ role: 'LITE_USER', auroraScore: AMBER_SCORE });
+      renderPopup({ role: 'LITE_USER', auroraScore: MODERATE_SCORE });
       expect(screen.getByTestId('aurora-score-section')).toBeInTheDocument();
     });
 
     it('shows correct star count for 3-star amber score', () => {
-      renderPopup({ role: 'PRO_USER', auroraScore: AMBER_SCORE });
+      renderPopup({ role: 'PRO_USER', auroraScore: MODERATE_SCORE });
       const starsEl = screen.getByTestId('aurora-score-stars');
       expect(starsEl).toHaveTextContent('★★★☆☆');
     });
 
     it('shows correct star count for 5-star red score', () => {
-      renderPopup({ role: 'PRO_USER', auroraScore: RED_SCORE });
+      renderPopup({ role: 'PRO_USER', auroraScore: STRONG_SCORE });
       const starsEl = screen.getByTestId('aurora-score-stars');
       expect(starsEl).toHaveTextContent('★★★★★');
     });
 
     it('renders the detail factor breakdown text', () => {
-      renderPopup({ role: 'PRO_USER', auroraScore: AMBER_SCORE });
+      renderPopup({ role: 'PRO_USER', auroraScore: MODERATE_SCORE });
       const detail = screen.getByTestId('aurora-score-detail');
       expect(detail).toBeInTheDocument();
       expect(detail).toHaveTextContent('Cloud:');
@@ -533,7 +533,7 @@ describe('MarkerPopupContent', () => {
     });
 
     it('renders aurora section above tide badges (before More details)', () => {
-      renderPopup({ role: 'PRO_USER', auroraScore: AMBER_SCORE });
+      renderPopup({ role: 'PRO_USER', auroraScore: MODERATE_SCORE });
       const section = screen.getByTestId('aurora-score-section');
       const toggle = screen.getByTestId('more-details-toggle');
       // aurora section should appear before the toggle in DOM
@@ -541,7 +541,7 @@ describe('MarkerPopupContent', () => {
     });
 
     it('does not render aurora section when forecast is null', () => {
-      renderPopup({ role: 'PRO_USER', forecast: null, auroraScore: AMBER_SCORE });
+      renderPopup({ role: 'PRO_USER', forecast: null, auroraScore: MODERATE_SCORE });
       expect(screen.queryByTestId('aurora-score-section')).not.toBeInTheDocument();
     });
   });

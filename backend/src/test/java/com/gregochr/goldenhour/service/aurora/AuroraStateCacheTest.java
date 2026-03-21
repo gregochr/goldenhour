@@ -41,22 +41,22 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("IDLE + AMBER → NOTIFY, transitions to ACTIVE")
     void idle_amber_emitsNotify() {
-        var eval = cache.evaluate(AlertLevel.AMBER);
+        var eval = cache.evaluate(AlertLevel.MODERATE);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
-        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.AMBER);
+        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.MODERATE);
         assertThat(eval.previousLevel()).isNull();
         assertThat(cache.isActive()).isTrue();
-        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.AMBER);
+        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.MODERATE);
     }
 
     @Test
     @DisplayName("IDLE + RED → NOTIFY, transitions to ACTIVE")
     void idle_red_emitsNotify() {
-        var eval = cache.evaluate(AlertLevel.RED);
+        var eval = cache.evaluate(AlertLevel.STRONG);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
-        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.RED);
+        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.STRONG);
         assertThat(cache.isActive()).isTrue();
     }
 
@@ -67,7 +67,7 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("IDLE + GREEN → NONE, stays IDLE")
     void idle_green_emitsNone() {
-        var eval = cache.evaluate(AlertLevel.GREEN);
+        var eval = cache.evaluate(AlertLevel.QUIET);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.NONE);
         assertThat(cache.isActive()).isFalse();
@@ -76,7 +76,7 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("IDLE + YELLOW → NONE, stays IDLE")
     void idle_yellow_emitsNone() {
-        var eval = cache.evaluate(AlertLevel.YELLOW);
+        var eval = cache.evaluate(AlertLevel.MINOR);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.NONE);
         assertThat(cache.isActive()).isFalse();
@@ -89,12 +89,12 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("ACTIVE (AMBER) + AMBER → SUPPRESS, stays ACTIVE at AMBER")
     void active_amber_sameLevel_emitsSuppressed() {
-        cache.evaluate(AlertLevel.AMBER);
+        cache.evaluate(AlertLevel.MODERATE);
 
-        var eval = cache.evaluate(AlertLevel.AMBER);
+        var eval = cache.evaluate(AlertLevel.MODERATE);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
-        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.AMBER);
+        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.MODERATE);
         assertThat(cache.isActive()).isTrue();
     }
 
@@ -105,14 +105,14 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("ACTIVE (AMBER) + RED → NOTIFY (escalation), currentLevel updates to RED")
     void active_amber_red_emitsNotify_escalation() {
-        cache.evaluate(AlertLevel.AMBER);
+        cache.evaluate(AlertLevel.MODERATE);
 
-        var eval = cache.evaluate(AlertLevel.RED);
+        var eval = cache.evaluate(AlertLevel.STRONG);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
-        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.RED);
-        assertThat(eval.previousLevel()).isEqualTo(AlertLevel.AMBER);
-        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.RED);
+        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.STRONG);
+        assertThat(eval.previousLevel()).isEqualTo(AlertLevel.MODERATE);
+        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.STRONG);
         assertThat(cache.isActive()).isTrue();
     }
 
@@ -123,12 +123,12 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("ACTIVE (RED) + AMBER → SUPPRESS (de-escalation within alertable)")
     void active_red_amber_emitsSuppressed() {
-        cache.evaluate(AlertLevel.RED);
+        cache.evaluate(AlertLevel.STRONG);
 
-        var eval = cache.evaluate(AlertLevel.AMBER);
+        var eval = cache.evaluate(AlertLevel.MODERATE);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
-        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.RED);
+        assertThat(eval.currentLevel()).isEqualTo(AlertLevel.STRONG);
         assertThat(cache.isActive()).isTrue();
     }
 
@@ -139,12 +139,12 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("ACTIVE (AMBER) + GREEN → CLEAR, transitions to IDLE")
     void active_amber_green_emitsClear() {
-        cache.evaluate(AlertLevel.AMBER);
+        cache.evaluate(AlertLevel.MODERATE);
 
-        var eval = cache.evaluate(AlertLevel.GREEN);
+        var eval = cache.evaluate(AlertLevel.QUIET);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
-        assertThat(eval.previousLevel()).isEqualTo(AlertLevel.AMBER);
+        assertThat(eval.previousLevel()).isEqualTo(AlertLevel.MODERATE);
         assertThat(cache.isActive()).isFalse();
         assertThat(cache.getCurrentLevel()).isNull();
         assertThat(cache.getCachedScores()).isEmpty();
@@ -153,9 +153,9 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("ACTIVE (RED) + YELLOW → CLEAR, transitions to IDLE")
     void active_red_yellow_emitsClear() {
-        cache.evaluate(AlertLevel.RED);
+        cache.evaluate(AlertLevel.STRONG);
 
-        var eval = cache.evaluate(AlertLevel.YELLOW);
+        var eval = cache.evaluate(AlertLevel.MINOR);
 
         assertThat(eval.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
         assertThat(cache.isActive()).isFalse();
@@ -169,39 +169,39 @@ class AuroraStateCacheTest {
     @DisplayName("Full lifecycle: GREEN → AMBER → AMBER → RED → AMBER → YELLOW → GREEN → AMBER")
     void fullLifecycle() {
         // Quiescent
-        assertThat(cache.evaluate(AlertLevel.GREEN).action())
+        assertThat(cache.evaluate(AlertLevel.QUIET).action())
                 .isEqualTo(AuroraStateCache.Action.NONE);
 
         // First alert
-        assertThat(cache.evaluate(AlertLevel.AMBER).action())
+        assertThat(cache.evaluate(AlertLevel.MODERATE).action())
                 .isEqualTo(AuroraStateCache.Action.NOTIFY);
         assertThat(cache.isActive()).isTrue();
 
         // Duplicate — suppress
-        assertThat(cache.evaluate(AlertLevel.AMBER).action())
+        assertThat(cache.evaluate(AlertLevel.MODERATE).action())
                 .isEqualTo(AuroraStateCache.Action.SUPPRESS);
 
         // Escalation — notify again
-        assertThat(cache.evaluate(AlertLevel.RED).action())
+        assertThat(cache.evaluate(AlertLevel.STRONG).action())
                 .isEqualTo(AuroraStateCache.Action.NOTIFY);
-        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.RED);
+        assertThat(cache.getCurrentLevel()).isEqualTo(AlertLevel.STRONG);
 
         // De-escalation within alertable — suppress
-        assertThat(cache.evaluate(AlertLevel.AMBER).action())
+        assertThat(cache.evaluate(AlertLevel.MODERATE).action())
                 .isEqualTo(AuroraStateCache.Action.SUPPRESS);
         assertThat(cache.isActive()).isTrue();
 
         // Event ends
-        assertThat(cache.evaluate(AlertLevel.YELLOW).action())
+        assertThat(cache.evaluate(AlertLevel.MINOR).action())
                 .isEqualTo(AuroraStateCache.Action.CLEAR);
         assertThat(cache.isActive()).isFalse();
 
         // Quiet again
-        assertThat(cache.evaluate(AlertLevel.GREEN).action())
+        assertThat(cache.evaluate(AlertLevel.QUIET).action())
                 .isEqualTo(AuroraStateCache.Action.NONE);
 
         // New event
-        assertThat(cache.evaluate(AlertLevel.AMBER).action())
+        assertThat(cache.evaluate(AlertLevel.MODERATE).action())
                 .isEqualTo(AuroraStateCache.Action.NOTIFY);
         assertThat(cache.isActive()).isTrue();
     }
@@ -209,13 +209,13 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("Brief spike: AMBER → GREEN → AMBER produces two separate NOTIFYs")
     void briefSpike_twoSeparateNotifies() {
-        var first = cache.evaluate(AlertLevel.AMBER);
+        var first = cache.evaluate(AlertLevel.MODERATE);
         assertThat(first.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
 
-        cache.evaluate(AlertLevel.GREEN);   // CLEAR
+        cache.evaluate(AlertLevel.QUIET);   // CLEAR
         assertThat(cache.isActive()).isFalse();
 
-        var second = cache.evaluate(AlertLevel.AMBER);
+        var second = cache.evaluate(AlertLevel.MODERATE);
         assertThat(second.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
         assertThat(cache.isActive()).isTrue();
     }
@@ -227,13 +227,13 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("updateScores stores scores; CLEAR wipes them")
     void scoresCachedAndCleared() {
-        cache.evaluate(AlertLevel.AMBER);
+        cache.evaluate(AlertLevel.MODERATE);
         var scores = List.of(stubScore(), stubScore());
         cache.updateScores(scores);
 
         assertThat(cache.getCachedScores()).hasSize(2);
 
-        cache.evaluate(AlertLevel.GREEN);
+        cache.evaluate(AlertLevel.QUIET);
         assertThat(cache.getCachedScores()).isEmpty();
     }
 
@@ -244,7 +244,7 @@ class AuroraStateCacheTest {
     @Test
     @DisplayName("reset() returns state machine to IDLE regardless of current state")
     void reset_fromActive_returnsToIdle() {
-        cache.evaluate(AlertLevel.RED);
+        cache.evaluate(AlertLevel.STRONG);
         cache.updateScores(List.of(stubScore()));
 
         cache.reset();
@@ -268,6 +268,6 @@ class AuroraStateCacheTest {
     // -------------------------------------------------------------------------
 
     private AuroraForecastScore stubScore() {
-        return new AuroraForecastScore(null, 3, AlertLevel.AMBER, 30, "★★★ Moderate", "detail");
+        return new AuroraForecastScore(null, 3, AlertLevel.MODERATE, 30, "★★★ Moderate", "detail");
     }
 }

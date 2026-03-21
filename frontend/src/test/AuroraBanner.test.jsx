@@ -30,13 +30,13 @@ describe('AuroraBanner', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('returns null when level is GREEN', () => {
-    const { container } = renderBanner({ level: 'GREEN', active: false, eligibleLocations: 0 });
+  it('returns null when level is QUIET', () => {
+    const { container } = renderBanner({ level: 'QUIET', active: false, eligibleLocations: 0 });
     expect(container.firstChild).toBeNull();
   });
 
-  it('returns null when level is YELLOW', () => {
-    const { container } = renderBanner({ level: 'YELLOW', active: false, eligibleLocations: 0 });
+  it('returns null when level is MINOR', () => {
+    const { container } = renderBanner({ level: 'MINOR', active: false, eligibleLocations: 0 });
     expect(container.firstChild).toBeNull();
   });
 
@@ -44,9 +44,9 @@ describe('AuroraBanner', () => {
   // Rendered cases
   // ---------------------------------------------------------------------------
 
-  it('renders for AMBER level', () => {
+  it('renders for MODERATE level', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
@@ -55,9 +55,9 @@ describe('AuroraBanner', () => {
     expect(screen.getByTestId('aurora-banner')).toBeInTheDocument();
   });
 
-  it('renders for RED level', () => {
+  it('renders for STRONG level', () => {
     renderBanner({
-      level: 'RED',
+      level: 'STRONG',
       hexColour: '#ff0000',
       description: 'Red alert: aurora likely',
       active: true,
@@ -68,7 +68,7 @@ describe('AuroraBanner', () => {
 
   it('displays the alert description text', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
@@ -79,7 +79,7 @@ describe('AuroraBanner', () => {
 
   it('shows location count when eligible locations > 0', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
@@ -90,7 +90,7 @@ describe('AuroraBanner', () => {
 
   it('shows singular "location" when eligibleLocations is 1', () => {
     renderBanner({
-      level: 'RED',
+      level: 'STRONG',
       hexColour: '#ff0000',
       description: 'Red alert: aurora likely',
       active: true,
@@ -101,7 +101,7 @@ describe('AuroraBanner', () => {
 
   it('does not show location count when eligibleLocations is 0', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
@@ -112,7 +112,7 @@ describe('AuroraBanner', () => {
 
   it('uses hexColour from API as background style', () => {
     renderBanner({
-      level: 'RED',
+      level: 'STRONG',
       hexColour: '#ff0000',
       description: 'Red alert',
       active: true,
@@ -128,7 +128,7 @@ describe('AuroraBanner', () => {
 
   it('dismiss button hides the banner at the current level', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
@@ -144,7 +144,7 @@ describe('AuroraBanner', () => {
   it('dismiss button click does not propagate to banner (no hash navigation)', () => {
     const originalHash = window.location.hash;
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert',
       active: true,
@@ -158,9 +158,9 @@ describe('AuroraBanner', () => {
     expect(window.location.hash).toBe(originalHash);
   });
 
-  it('re-shows after dismissal when level escalates (AMBER → RED)', () => {
+  it('re-shows after dismissal when level escalates (MODERATE → STRONG)', () => {
     const { rerender } = renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert',
       active: true,
@@ -174,7 +174,7 @@ describe('AuroraBanner', () => {
     // Escalate to RED
     useAuroraStatus.mockReturnValue({
       status: {
-        level: 'RED',
+        level: 'STRONG',
         hexColour: '#ff0000',
         description: 'Red alert: aurora likely',
         active: true,
@@ -190,7 +190,7 @@ describe('AuroraBanner', () => {
 
   it('stays hidden after dismiss when the level remains the same', () => {
     const { rerender } = renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert',
       active: true,
@@ -202,7 +202,7 @@ describe('AuroraBanner', () => {
     // Same AMBER level returned
     useAuroraStatus.mockReturnValue({
       status: {
-        level: 'AMBER',
+        level: 'MODERATE',
         hexColour: '#ff9900',
         description: 'Amber alert',
         active: true,
@@ -221,7 +221,7 @@ describe('AuroraBanner', () => {
 
   it('has role="alert" for screen reader support', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert',
       active: true,
@@ -232,7 +232,7 @@ describe('AuroraBanner', () => {
 
   it('dismiss button has an accessible label', () => {
     renderBanner({
-      level: 'AMBER',
+      level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert',
       active: true,

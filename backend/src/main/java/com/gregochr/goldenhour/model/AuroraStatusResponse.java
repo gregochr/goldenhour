@@ -7,24 +7,29 @@ import java.time.ZonedDateTime;
 /**
  * REST response for {@code GET /api/aurora/status}.
  *
- * <p>Exposes the current AuroraWatch alert level plus state-machine state to the frontend.
- * Only returned to users with {@code ADMIN} or {@code PRO_USER} roles.
+ * <p>Exposes the current derived alert level (from NOAA SWPC Kp + OVATION data)
+ * plus the state-machine state to the frontend. Only returned to users with
+ * {@code ADMIN} or {@code PRO_USER} roles.
  *
- * @param level              current AuroraWatch alert level
- * @param hexColour          AuroraWatch colour code for this level (e.g. {@code "#ff9900"})
+ * @param level              current alert level derived from NOAA SWPC data
+ * @param hexColour          colour code for this level (e.g. {@code "#ff9900"})
  * @param description        human-readable level description
- * @param station            AuroraWatch station name
  * @param active             {@code true} when the state machine is in the ACTIVE state
  *                           (aurora event in progress)
  * @param eligibleLocations  number of locations with aurora scores from the last NOTIFY
- * @param updatedAt          when AuroraWatch last updated the status
+ * @param kp                 most recent Kp index value, or {@code null} if unavailable
+ * @param ovationProbability OVATION aurora probability at 55°N, or {@code null} if unavailable
+ * @param dataSource         source of the space weather data (e.g. {@code "NOAA SWPC"})
+ * @param updatedAt          when the most recent NOAA data was fetched
  */
 public record AuroraStatusResponse(
         AlertLevel level,
         String hexColour,
         String description,
-        String station,
         boolean active,
         int eligibleLocations,
+        Double kp,
+        Double ovationProbability,
+        String dataSource,
         ZonedDateTime updatedAt) {
 }

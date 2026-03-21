@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 
-// Alert levels that should show the banner (AMBER or RED)
-const ALERT_WORTHY = new Set(['AMBER', 'RED']);
+// Alert levels that should show the banner (MODERATE or STRONG)
+const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
 
 /**
- * Full-width aurora alert banner displayed when AuroraWatch reports an amber or red alert.
+ * Full-width aurora alert banner displayed when NOAA SWPC reports a moderate or strong alert.
  *
  * Behaviour:
  * - Not rendered for free-tier users (403 from the API → status is null)
- * - Not rendered for GREEN or YELLOW status
- * - Shows for AMBER or RED with the AuroraWatch colour as background
+ * - Not rendered for QUIET or MINOR status
+ * - Shows for MODERATE or STRONG with the alert colour as background
  * - Dismissible per session; re-appears if the level escalates
  */
 export default function AuroraBanner() {
@@ -30,6 +30,10 @@ export default function AuroraBanner() {
   const locationText = count > 0
     ? `${count} location${count !== 1 ? 's' : ''} available`
     : null;
+
+  const kpText = status.kp != null ? `Kp ${status.kp.toFixed(1)}` : null;
+  const subtitleParts = [kpText, locationText ? `${locationText} · Tap to view on map` : null]
+    .filter(Boolean);
 
   function handleDismiss(e) {
     e.stopPropagation();
@@ -54,8 +58,8 @@ export default function AuroraBanner() {
             <p className="text-sm font-bold leading-tight">
               Aurora Alert — {status.description}
             </p>
-            {locationText && (
-              <p className="text-xs opacity-90 mt-0.5">{locationText} · Tap to view on map</p>
+            {subtitleParts.length > 0 && (
+              <p className="text-xs opacity-90 mt-0.5">{subtitleParts.join(' · ')}</p>
             )}
           </div>
         </div>

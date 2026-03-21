@@ -17,7 +17,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Evaluation**: Single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel` | `PromptBuilder` + `MetricsLoggingDecorator` (GoF Decorator) | `NoOpEvaluationStrategy` for wildlife | `AnthropicApiClient` with `@Retryable` | Composable `AtmosphericData` (5 sub-records + `DirectionalCloudData` + `CloudApproachData`)
 
-**Aurora photography**: AuroraWatch polling (`AuroraPollingJob`, 15 min, night-only) | `AuroraStateCache` FSM (IDLE → MONITORING → AMBER → RED) | `AuroraScorer` (1–5★ from alert level + cloud + moon + Bortle) | `AuroraTransectFetcher` (3-point northward cloud transect) | Bortle enrichment via lightpollutionmap.info (`LightPollutionClient`, `BortleEnrichmentService`) | Map filter + popup aurora section | `AuroraBanner` React component
+**Aurora photography**: NOAA SWPC polling (`AuroraPollingJob`, 5 min, night-only) via `NoaaSwpcClient` (Kp, forecast, OVATION, solar wind Bz, G-scale alerts; per-endpoint caching) | `AuroraStateCache` FSM (IDLE → MONITORING → MODERATE/STRONG) | `WeatherTriageService` (3-point northward transect triage, any-clear-hour pass at < 75% overcast) | `ClaudeAuroraInterpreter` (single `claude-haiku-4-5` call for all viable locations; returns 1–5★ + summary + detail) | `AuroraOrchestrator` (orchestrates full pipeline; dual-signal `deriveAlertLevel()` using Kp + OVATION) | `MetOfficeSpaceWeatherScraper` (Jsoup scraper, 60 min refresh) | Bortle enrichment via lightpollutionmap.info (`LightPollutionClient`, `BortleEnrichmentService`) | Map filter + popup aurora section | `AuroraBanner` React component (shows Kp reading) | Alert levels: QUIET/MINOR/MODERATE/STRONG
 
 **Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE, LIGHT_POLLUTION) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
 
@@ -127,7 +127,7 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 
 Never commit `application.yml`. Only `application-example.yml` is committed.
 
-Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`, `aurora` (enabled, poll-interval-minutes, light-pollution-api-key, bortle-threshold.amber/red).
+Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `spring.mail`, `notifications`, `forecast.locations`, `jwt`, `server.port`, `aurora` (enabled, poll-interval-minutes, light-pollution-api-key, noaa.*, met-office.*, triggers.*, bortle-threshold.moderate/strong).
 
 ---
 
@@ -193,7 +193,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 `GET /api/metrics/job-runs|api-calls` | `GET|PUT /api/models` | `PUT /api/models/active|optimisation` | `POST /api/model-test/run|run-location|rerun` | `GET /api/model-test/runs|results` | `POST /api/prompt-test/run|replay` | `GET /api/prompt-test/runs|runs/{id}|results|git-info`
 
 ### Aurora (Bearer / ADMIN for writes)
-`GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/reset` (ADMIN)
+`GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN)
 
 ### Tides (ADMIN)
 `GET /api/tides` | `GET /api/tides/stats`

@@ -6,7 +6,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link AlertLevel}.
@@ -14,54 +13,44 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AlertLevelTest {
 
     @Test
-    @DisplayName("Severity ordering: GREEN < YELLOW < AMBER < RED")
+    @DisplayName("Severity ordering: QUIET < MINOR < MODERATE < STRONG")
     void severityOrdering() {
-        assertThat(AlertLevel.GREEN.severity()).isLessThan(AlertLevel.YELLOW.severity());
-        assertThat(AlertLevel.YELLOW.severity()).isLessThan(AlertLevel.AMBER.severity());
-        assertThat(AlertLevel.AMBER.severity()).isLessThan(AlertLevel.RED.severity());
+        assertThat(AlertLevel.QUIET.severity()).isLessThan(AlertLevel.MINOR.severity());
+        assertThat(AlertLevel.MINOR.severity()).isLessThan(AlertLevel.MODERATE.severity());
+        assertThat(AlertLevel.MODERATE.severity()).isLessThan(AlertLevel.STRONG.severity());
     }
 
     @Test
-    @DisplayName("Only AMBER and RED are alert-worthy")
+    @DisplayName("Only MODERATE and STRONG are alert-worthy")
     void alertWorthy() {
-        assertThat(AlertLevel.GREEN.isAlertWorthy()).isFalse();
-        assertThat(AlertLevel.YELLOW.isAlertWorthy()).isFalse();
-        assertThat(AlertLevel.AMBER.isAlertWorthy()).isTrue();
-        assertThat(AlertLevel.RED.isAlertWorthy()).isTrue();
+        assertThat(AlertLevel.QUIET.isAlertWorthy()).isFalse();
+        assertThat(AlertLevel.MINOR.isAlertWorthy()).isFalse();
+        assertThat(AlertLevel.MODERATE.isAlertWorthy()).isTrue();
+        assertThat(AlertLevel.STRONG.isAlertWorthy()).isTrue();
     }
 
-    @ParameterizedTest(name = "fromStatusId(\"{0}\") = {1}")
+    @ParameterizedTest(name = "fromKp({0}) = {1}")
     @CsvSource({
-        "green,  GREEN",
-        "yellow, YELLOW",
-        "amber,  AMBER",
-        "red,    RED",
-        "GREEN,  GREEN",
-        "AMBER,  AMBER"
+        "0.0, QUIET",
+        "3.9, QUIET",
+        "4.0, MINOR",
+        "4.9, MINOR",
+        "5.0, MODERATE",
+        "6.9, MODERATE",
+        "7.0, STRONG",
+        "9.0, STRONG"
     })
-    @DisplayName("fromStatusId parses all known values case-insensitively")
-    void fromStatusId_knownValues(String input, AlertLevel expected) {
-        assertThat(AlertLevel.fromStatusId(input.trim())).isEqualTo(expected);
+    @DisplayName("fromKp maps Kp values to correct levels")
+    void fromKp_mapping(double kp, AlertLevel expected) {
+        assertThat(AlertLevel.fromKp(kp)).isEqualTo(expected);
     }
 
     @Test
-    @DisplayName("fromStatusId throws for unknown values")
-    void fromStatusId_unknownValue_throws() {
-        assertThatThrownBy(() -> AlertLevel.fromStatusId("purple"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("purple");
-    }
-
-    @ParameterizedTest(name = "{0} hexColour matches AuroraWatch spec")
-    @CsvSource({
-        "GREEN,  #33ff33",
-        "YELLOW, #ffff00",
-        "AMBER,  #ff9900",
-        "RED,    #ff0000"
-    })
-    @DisplayName("hexColour matches AuroraWatch specification")
-    void hexColourMatchesSpec(AlertLevel level, String expectedHex) {
-        assertThat(level.hexColour()).isEqualTo(expectedHex.trim());
+    @DisplayName("hexColour is non-blank for all levels")
+    void hexColourNonBlank() {
+        for (AlertLevel level : AlertLevel.values()) {
+            assertThat(level.hexColour()).isNotBlank();
+        }
     }
 
     @Test
@@ -70,5 +59,17 @@ class AlertLevelTest {
         for (AlertLevel level : AlertLevel.values()) {
             assertThat(level.description()).isNotBlank();
         }
+    }
+
+    @Test
+    @DisplayName("STRONG has hex #ff0000 (red)")
+    void strongHexIsRed() {
+        assertThat(AlertLevel.STRONG.hexColour()).isEqualTo("#ff0000");
+    }
+
+    @Test
+    @DisplayName("MODERATE has hex #ff9900 (orange)")
+    void moderateHexIsOrange() {
+        assertThat(AlertLevel.MODERATE.hexColour()).isEqualTo("#ff9900");
     }
 }

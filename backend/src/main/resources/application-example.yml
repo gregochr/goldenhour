@@ -93,12 +93,26 @@ openrouteservice:
 aurora:
   enabled: true
   poll-interval-minutes: 5
-  aurorawatch-status-url: http://aurorawatch-api.lancs.ac.uk/0.2/status/current-status.xml
-  min-poll-interval-seconds: 180
   light-pollution-api-key: ${LIGHT_POLLUTION_API_KEY}  # https://www.lightpollutionmap.info
+  noaa:
+    kp-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json
+    kp-forecast-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json
+    ovation-url: https://services.swpc.noaa.gov/json/ovation_aurora_latest.json
+    solar-wind-url: https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json
+    solar-wind-plasma-url: https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json
+    alerts-url: https://services.swpc.noaa.gov/products/alerts.json
+  met-office:
+    space-weather-url: https://weather.metoffice.gov.uk/specialist-forecasts/space-weather/
+    scrape-interval-minutes: 60
+  triggers:
+    kp-threshold: 5.0
+    ovation-probability-threshold: 20.0
+    kp-forecast-lookahead-hours: 6
+    kp-clear-threshold: 5.0
+    ovation-clear-threshold: 15.0
   bortle-threshold:
-    amber: 4   # max Bortle class for AMBER alerts (dark enough for aurora photography)
-    red: 5     # max Bortle class for RED alerts (relax threshold when strong aurora likely)
+    moderate: 4   # max Bortle class for MODERATE alerts
+    strong: 5     # max Bortle class for STRONG alerts (relax threshold for bright displays)
 
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list

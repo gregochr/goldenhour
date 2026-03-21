@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import org.slf4j.Logger;
@@ -35,26 +36,30 @@ public class AuroraAdminController {
     private final BortleEnrichmentService enrichmentService;
     private final AuroraProperties properties;
     private final AuroraStateCache stateCache;
+    private final AuroraOrchestrator orchestrator;
     private final JobRunService jobRunService;
     private final Executor forecastExecutor;
 
     /**
-     * Constructs the admin controller with enrichment, config, state cache, and job run dependencies.
+     * Constructs the admin controller with all aurora management dependencies.
      *
      * @param enrichmentService enrichment service for populating Bortle classes
      * @param properties        aurora configuration (provides the API key)
      * @param stateCache        aurora state machine
+     * @param orchestrator      aurora orchestrator for on-demand NOAA poll cycles
      * @param jobRunService     job run service for tracking enrichment runs
      * @param forecastExecutor  executor for running enrichment asynchronously
      */
     public AuroraAdminController(BortleEnrichmentService enrichmentService,
             AuroraProperties properties,
             AuroraStateCache stateCache,
+            AuroraOrchestrator orchestrator,
             JobRunService jobRunService,
             Executor forecastExecutor) {
         this.enrichmentService = enrichmentService;
         this.properties = properties;
         this.stateCache = stateCache;
+        this.orchestrator = orchestrator;
         this.jobRunService = jobRunService;
         this.forecastExecutor = forecastExecutor;
     }
@@ -85,6 +90,19 @@ public class AuroraAdminController {
                 .body(Map.of("status", "Light pollution enrichment started",
                         "runType", "LIGHT_POLLUTION",
                         "jobRunId", jobRun.getId()));
+    }
+
+    /**
+     * Triggers an immediate aurora orchestration cycle, fetching live NOAA SWPC data
+     * and scoring eligible locations if the alert level warrants it.
+     *
+     * @return the state machine action taken
+     */
+    @PostMapping("/run")
+    public ResponseEntity<Map<String, String>> triggerRun() {
+        AuroraStateCache.Action action = orchestrator.run();
+        LOG.info("Admin triggered aurora orchestration cycle — action={}", action);
+        return ResponseEntity.ok(Map.of("status", "Aurora cycle complete", "action", action.name()));
     }
 
     /**

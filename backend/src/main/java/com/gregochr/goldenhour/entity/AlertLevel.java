@@ -1,24 +1,24 @@
 package com.gregochr.goldenhour.entity;
 
 /**
- * AuroraWatch UK alert levels, in ascending severity order.
+ * Geomagnetic alert levels derived from NOAA SWPC data (Kp index + OVATION probability).
  *
- * <p>Mirrors the four status levels defined by the AuroraWatch UK API.
- * Colours match the AuroraWatch UI specification exactly.
+ * <p>Levels are in ascending severity order. Colours follow the convention used by
+ * aurora photography apps and the existing UI palette.
  */
 public enum AlertLevel {
 
-    /** No significant geomagnetic activity. */
-    GREEN(0, "#33ff33", "No significant activity"),
+    /** Kp 0–3 — no significant geomagnetic activity. */
+    QUIET(0, "#33ff33", "No significant activity"),
 
-    /** Minor geomagnetic activity — aurora unlikely but possible at high latitudes. */
-    YELLOW(1, "#ffff00", "Minor geomagnetic activity"),
+    /** Kp 4 — minor geomagnetic activity, aurora unlikely from northern England. */
+    MINOR(1, "#ffff00", "Minor geomagnetic activity"),
 
-    /** Possible aurora visible from northern England and Scotland. */
-    AMBER(2, "#ff9900", "Amber alert: possible aurora"),
+    /** Kp 5–6 (G1–G2) — moderate storm, aurora possible from northern England/Scotland. */
+    MODERATE(2, "#ff9900", "Moderate storm — aurora possible from northern England"),
 
-    /** Aurora likely visible across much of the UK. */
-    RED(3, "#ff0000", "Red alert: aurora likely");
+    /** Kp 7+ (G3+) — strong storm, aurora likely across the UK. */
+    STRONG(3, "#ff0000", "Strong storm — aurora likely across the UK");
 
     private final int severity;
     private final String hexColour;
@@ -40,7 +40,7 @@ public enum AlertLevel {
     }
 
     /**
-     * AuroraWatch-defined hex colour for this alert level.
+     * Hex colour for this alert level (UI display).
      *
      * @return hex colour string, e.g. {@code "#ff9900"}
      */
@@ -58,30 +58,24 @@ public enum AlertLevel {
     }
 
     /**
-     * Returns {@code true} for levels that warrant aurora notifications (AMBER or RED).
+     * Returns {@code true} for levels that warrant aurora notifications (MODERATE or STRONG).
      *
      * @return {@code true} if this level is actionable
      */
     public boolean isAlertWorthy() {
-        return this == AMBER || this == RED;
+        return this == MODERATE || this == STRONG;
     }
 
     /**
-     * Parses an AuroraWatch {@code status_id} attribute value into an {@link AlertLevel}.
+     * Derives the alert level from a NOAA Kp index value.
      *
-     * @param statusId the raw value from the XML attribute (e.g. {@code "amber"})
-     * @return the corresponding {@link AlertLevel}
-     * @throws IllegalArgumentException if {@code statusId} is unrecognised — this indicates an
-     *         API change that must be handled explicitly
+     * @param kp Kp index (0–9)
+     * @return corresponding {@link AlertLevel}
      */
-    public static AlertLevel fromStatusId(String statusId) {
-        return switch (statusId.toLowerCase()) {
-            case "green"  -> GREEN;
-            case "yellow" -> YELLOW;
-            case "amber"  -> AMBER;
-            case "red"    -> RED;
-            default -> throw new IllegalArgumentException(
-                    "Unknown AuroraWatch status_id: '" + statusId + "' — API may have changed");
-        };
+    public static AlertLevel fromKp(double kp) {
+        if (kp >= 7) return STRONG;
+        if (kp >= 5) return MODERATE;
+        if (kp >= 4) return MINOR;
+        return QUIET;
     }
 }

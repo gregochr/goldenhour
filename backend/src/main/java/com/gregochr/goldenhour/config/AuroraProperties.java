@@ -8,8 +8,9 @@ import org.springframework.stereotype.Component;
 /**
  * Bound to the {@code aurora} section of {@code application.yml}.
  *
- * <p>Controls AuroraWatch polling, Bortle thresholds for candidate filtering,
- * and the light-pollution enrichment API key.
+ * <p>Controls aurora polling, NOAA SWPC endpoint URLs, Met Office scraping,
+ * geomagnetic trigger thresholds, Bortle filtering, and the light-pollution
+ * enrichment API key.
  */
 @Component
 @ConfigurationProperties(prefix = "aurora")
@@ -20,21 +21,93 @@ public class AuroraProperties {
     /** Whether the aurora polling job is active. Defaults to {@code true}. */
     private boolean enabled = true;
 
-    /** Minutes between AuroraWatch polls. Defaults to 5. */
+    /** Minutes between aurora polls. Defaults to 5. */
     private int pollIntervalMinutes = 5;
-
-    /** AuroraWatch API status URL. */
-    private String aurorawatchStatusUrl =
-            "http://aurorawatch-api.lancs.ac.uk/0.2/status/current-status.xml";
-
-    /** Minimum seconds between AuroraWatch re-fetches (respects Expires). Defaults to 180. */
-    private int minPollIntervalSeconds = 180;
 
     /** API key for lightpollutionmap.info QueryRaster endpoint. */
     private String lightPollutionApiKey;
 
-    /** Bortle thresholds for selecting candidate locations. */
+    /** NOAA SWPC endpoint configuration. */
+    private NoaaConfig noaa = new NoaaConfig();
+
+    /** Met Office space weather scraper configuration. */
+    private MetOfficeConfig metOffice = new MetOfficeConfig();
+
+    /** Thresholds that trigger a NOTIFY from the state machine. */
+    private TriggerConfig triggers = new TriggerConfig();
+
+    /** Bortle class upper bounds for aurora candidate selection. */
     private BortleThreshold bortleThreshold = new BortleThreshold();
+
+    /**
+     * NOAA SWPC endpoint URLs and cache TTLs.
+     */
+    @Getter
+    @Setter
+    public static class NoaaConfig {
+
+        /** Current Kp index endpoint. */
+        private String kpUrl =
+                "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json";
+
+        /** 3-day Kp forecast endpoint. */
+        private String kpForecastUrl =
+                "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json";
+
+        /** OVATION aurora probability grid endpoint (~900KB). */
+        private String ovationUrl =
+                "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json";
+
+        /** Real-time solar wind magnetic field (Bz) endpoint. */
+        private String solarWindUrl =
+                "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json";
+
+        /** Real-time solar wind plasma (speed and density) endpoint. */
+        private String solarWindPlasmaUrl =
+                "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json";
+
+        /** Active G-scale watches/warnings/alerts endpoint. */
+        private String alertsUrl =
+                "https://services.swpc.noaa.gov/products/alerts.json";
+    }
+
+    /**
+     * Met Office space weather scraper configuration.
+     */
+    @Getter
+    @Setter
+    public static class MetOfficeConfig {
+
+        /** URL of the Met Office space weather specialist forecast page. */
+        private String spaceWeatherUrl =
+                "https://weather.metoffice.gov.uk/specialist-forecasts/space-weather/";
+
+        /** Minutes between Met Office page scrapes. Defaults to 60. */
+        private int scrapeIntervalMinutes = 60;
+    }
+
+    /**
+     * Thresholds that trigger a state machine NOTIFY.
+     */
+    @Getter
+    @Setter
+    public static class TriggerConfig {
+
+        /** Minimum Kp index to trigger MODERATE alert. Defaults to 5. */
+        private double kpThreshold = 5.0;
+
+        /** Minimum OVATION aurora probability (%) at ~55°N to trigger. Defaults to 20. */
+        private double ovationProbabilityThreshold = 20.0;
+
+        /** Hours of Kp forecast lookahead for advance-warning trigger. Defaults to 6. */
+        private int kpForecastLookaheadHours = 6;
+
+        /** Kp below which de-escalation toward CLEAR is considered. Defaults to 5. */
+        private double kpClearThreshold = 5.0;
+
+        /** OVATION probability below which de-escalation toward CLEAR is considered. Defaults to 15. */
+        private double ovationClearThreshold = 15.0;
+    }
 
     /**
      * Bortle class upper bounds for aurora candidate selection.
@@ -43,10 +116,10 @@ public class AuroraProperties {
     @Setter
     public static class BortleThreshold {
 
-        /** Maximum Bortle class to include for AMBER alerts. Defaults to 4. */
-        private int amber = 4;
+        /** Maximum Bortle class to include for MODERATE alerts. Defaults to 4. */
+        private int moderate = 4;
 
-        /** Maximum Bortle class to include for RED alerts. Defaults to 5. */
-        private int red = 5;
+        /** Maximum Bortle class to include for STRONG alerts. Defaults to 5. */
+        private int strong = 5;
     }
 }

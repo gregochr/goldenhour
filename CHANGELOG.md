@@ -3,6 +3,49 @@
 All notable changes to PhotoCast are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [v2.5.0] - 2026-03-21
+
+### Changed — Aurora: NOAA SWPC replaces AuroraWatch UK
+
+Complete rewrite of the aurora pipeline replacing the deprecated AuroraWatch UK XML API with
+NOAA SWPC public JSON endpoints. Alert levels renamed QUIET/MINOR/MODERATE/STRONG (from GREEN/YELLOW/AMBER/RED).
+
+**Backend — new classes:**
+- `NoaaSwpcClient` — fetches and caches 5 NOAA SWPC endpoints: Kp index (15min TTL), 3-day Kp forecast (15min), OVATION aurora probability grid at 55°N (5min), solar wind Bz/speed (1min), G-scale alerts (5min); fail-open (returns cached/empty on error); per-endpoint `CachedResult<T>` with timestamp
+- `MetOfficeSpaceWeatherScraper` — Jsoup HTML scraper of the Met Office specialist space weather page; `@Scheduled` refresh (60min); truncates at 2000 chars to fit Claude context
+- `WeatherTriageService` — northward 3-point transect triage (50/100/150 km) via Open-Meteo hourly `cloud_cover`; 0.1° grid deduplication; pass = any hour < 75% overcast in 6h window; `TriageResult` record with viable/rejected/cloudByLocation
+- `ClaudeAuroraInterpreter` — single `claude-haiku-4-5` call for all viable locations; prompt includes Kp trend, 24h forecast, OVATION %, solar wind Bz, active alerts, Met Office narrative; returns JSON array with stars/summary/detail; strips code fences; fallback 1★ on parse error
+- `AuroraOrchestrator` — drives full pipeline: NOAA fetch → `deriveAlertLevel()` (Kp + OVATION dual-signal, forecast lookahead) → `AuroraStateCache.evaluate()` → triage → Claude → cache; overcast-rejected locations auto-assigned 1★
+- `SpaceWeatherData`, `SpaceWeatherAlert` — new model records
+
+**Backend — modified:**
+- `AlertLevel` — `QUIET(0)/MINOR(1)/MODERATE(2)/STRONG(3)` replacing `GREEN/YELLOW/AMBER/RED`; `fromKp(double)` factory; `hexColour()` and `description()` updated
+- `AuroraProperties` — new `NoaaConfig` (5 URLs + plasma URL), `MetOfficeConfig`, `TriggerConfig` (kp/ovation thresholds + forecast lookahead), `BortleThreshold` (moderate/strong Bortle limits)
+- `AuroraStatusResponse` — removed `station`; added `kp`, `ovationProbability`, `dataSource`
+- `AuroraController` — enriches status with live NOAA Kp and OVATION (best-effort); no admin endpoints (moved to `AuroraAdminController`)
+- `AuroraAdminController` — added `POST /api/aurora/admin/run` (triggers immediate orchestration cycle)
+- `AuroraPollingJob` — simplified to `orchestrator.run()` call guarded by daylight check
+
+**Backend — deleted:**
+- `AuroraWatchClient`, `AuroraScorer`, `AuroraTransectFetcher` — replaced by above
+- `AuroraStatus` model (orphaned after `AuroraWatchClient` removal)
+
+**Dependencies:** `org.jsoup:jsoup:1.18.3` added
+
+**Frontend:**
+- `AuroraBanner.jsx` — `AMBER/RED → MODERATE/STRONG`; subtitle now includes live `Kp X.X` reading alongside location count
+- `MapView.jsx` — `AMBER/RED → MODERATE/STRONG` in `ALERT_WORTHY` set, `auroraThreshold`, InfoTip copy
+- `MarkerPopupContent.jsx` — aurora score pill colour logic `RED → STRONG`
+- `auroraApi.js` — updated comment; added `triggerAuroraRun()` and `resetAuroraState()` for the two new admin endpoints
+
+### Tests
+- `NoaaSwpcClientTest` (21) — parse methods + fetch methods with mocked RestClient
+- `WeatherTriageServiceTest` (8) — null/exception fallback, viable/rejected discrimination via reflection
+- `AuroraOrchestratorTest` (18) — `deriveAlertLevel()` parameterized (8 cases), pipeline control flow
+- `ClaudeAuroraInterpreterTest` (16) — `buildUserMessage()`, `parseResponse()`, `interpret()` with mocked Anthropic SDK
+- `AlertLevelTest`, `AuroraStateCacheTest`, `AuroraPollingJobTest`, `AuroraControllerTest` — updated for new enum names
+- JaCoCo: `NoaaSwpcClient$CachedResult`, `MetOfficeSpaceWeatherScraper`, `WeatherTriageService$CloudResponse/HourlyCloudData` added to exclusions
+
 ## [v2.4.0] - 2026-03-21
 
 ### Added — Aurora Photography Feature

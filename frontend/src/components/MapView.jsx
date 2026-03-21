@@ -245,10 +245,10 @@ function MapView({ locations, date }) {
     void 0;
   }, [isMobile]);
 
-  // Fetch per-location aurora scores when an alert is active (AMBER or RED).
+  // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
   useEffect(() => {
-    const ALERT_WORTHY = new Set(['AMBER', 'RED']);
+    const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
     if (!auroraStatus || !ALERT_WORTHY.has(auroraStatus.level)) {
       setAuroraScores({});
       return;
@@ -324,8 +324,8 @@ function MapView({ locations, date }) {
       );
 
   // Aurora-friendly filter: show only locations with a Bortle class at or below threshold.
-  // Threshold is 5 (red alert) or 4 (amber / unknown level).
-  const auroraThreshold = auroraStatus?.level === 'RED' ? 5 : 4;
+  // Threshold is 5 (strong alert) or 4 (moderate / unknown level).
+  const auroraThreshold = auroraStatus?.level === 'STRONG' ? 5 : 4;
   const visibleLocations = auroraFriendlyFilter
     ? driveFiltered.filter((loc) =>
         loc.bortleClass != null && loc.bortleClass <= auroraThreshold,
@@ -434,7 +434,7 @@ function MapView({ locations, date }) {
         >
           🌌 Aurora friendly
         </button>
-        <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when AuroraWatch reports AMBER or RED. Locations with Bortle ≤ 4 (AMBER) or ≤ 5 (RED) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — AMBER = 3★ base, RED = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+        <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
         {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0
             || driveTimeFilter > 0 || auroraFriendlyFilter) && (
           <button

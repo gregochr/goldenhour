@@ -1,12 +1,6 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.client.AuroraWatchClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
-import com.gregochr.goldenhour.entity.AlertLevel;
-import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.model.AuroraForecastScore;
-import com.gregochr.goldenhour.model.AuroraStatus;
-import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.solarutils.SolarCalculator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,27 +10,20 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.List;
-import java.util.Map;
 
 /**
- * Scheduled job that polls AuroraWatch UK and drives the aurora notification lifecycle.
+ * Scheduled job that polls NOAA SWPC and drives the aurora notification lifecycle.
  *
- * <p>Runs every 5 minutes (configurable via {@code aurora.poll-interval-minutes}).
- * Uses a fixed-delay schedule to avoid overlap if a run takes longer than expected.
+ * <p>Runs on a fixed delay (configurable via {@code aurora.poll-interval-minutes}, default 5 min).
+ * A fixed-delay schedule prevents overlap if a run takes longer than expected.
  *
  * <p>The polling sequence:
  * <ol>
  *   <li>Skip if the sun is above nautical twilight (−12°) at a representative UK location —
  *       aurora is not visible until it is properly dark.</li>
- *   <li>Fetch the current AuroraWatch status.</li>
- *   <li>Evaluate via {@link AuroraStateCache} to obtain an {@link AuroraStateCache.Action}.</li>
- *   <li>On {@link AuroraStateCache.Action#NOTIFY} — score all Bortle-eligible locations and
- *       cache the results.</li>
- *   <li>On {@link AuroraStateCache.Action#CLEAR} — cached scores are cleared by the state
- *       machine during {@code evaluate()}.</li>
- *   <li>On {@link AuroraStateCache.Action#SUPPRESS} or {@link AuroraStateCache.Action#NONE}
- *       — do nothing.</li>
+ *   <li>Delegate to {@link AuroraOrchestrator#run()}, which fetches NOAA data, derives the
+ *       {@link com.gregochr.goldenhour.entity.AlertLevel}, evaluates the state machine, and
+ *       (on NOTIFY) scores locations via Claude.</li>
  * </ol>
  */
 @Component
@@ -60,37 +47,21 @@ public class AuroraPollingJob {
      */
     private static final int NAUTICAL_BUFFER_MINUTES = 35;
 
-    private final AuroraWatchClient auroraWatchClient;
-    private final AuroraStateCache stateCache;
-    private final AuroraScorer scorer;
-    private final AuroraTransectFetcher transectFetcher;
-    private final LocationRepository locationRepository;
+    private final AuroraOrchestrator orchestrator;
     private final AuroraProperties properties;
     private final SolarCalculator solarCalculator;
 
     /**
-     * Constructs the polling job with all required dependencies.
+     * Constructs the polling job.
      *
-     * @param auroraWatchClient  AuroraWatch HTTP client
-     * @param stateCache         aurora state machine
-     * @param scorer             location scorer
-     * @param transectFetcher    northward cloud-cover fetcher
-     * @param locationRepository location data access
-     * @param properties         aurora configuration
-     * @param solarCalculator    solar-utils calculator for twilight check
+     * @param orchestrator    aurora orchestrator (NOAA → AlertLevel → score)
+     * @param properties      aurora configuration
+     * @param solarCalculator solar-utils calculator for twilight check
      */
-    public AuroraPollingJob(AuroraWatchClient auroraWatchClient,
-            AuroraStateCache stateCache,
-            AuroraScorer scorer,
-            AuroraTransectFetcher transectFetcher,
-            LocationRepository locationRepository,
+    public AuroraPollingJob(AuroraOrchestrator orchestrator,
             AuroraProperties properties,
             SolarCalculator solarCalculator) {
-        this.auroraWatchClient = auroraWatchClient;
-        this.stateCache = stateCache;
-        this.scorer = scorer;
-        this.transectFetcher = transectFetcher;
-        this.locationRepository = locationRepository;
+        this.orchestrator = orchestrator;
         this.properties = properties;
         this.solarCalculator = solarCalculator;
     }
@@ -98,7 +69,7 @@ public class AuroraPollingJob {
     /**
      * Executes one aurora polling cycle.
      *
-     * <p>The initial 60-second delay prevents hitting AuroraWatch immediately on startup.
+     * <p>The initial 60-second delay prevents NOAA API calls immediately on startup.
      * The fixed-delay schedule ensures the next poll does not begin until this one finishes.
      */
     @Scheduled(fixedDelayString = "PT${aurora.poll-interval-minutes:5}M",
@@ -118,54 +89,7 @@ public class AuroraPollingJob {
             LOG.debug("Aurora poll skipped — above nautical twilight");
             return;
         }
-
-        AuroraStatus status = auroraWatchClient.fetchStatus();
-        if (status == null) {
-            LOG.warn("Aurora poll skipped — no status available (first fetch may have failed)");
-            return;
-        }
-
-        AlertLevel incoming = status.level();
-        AuroraStateCache.Evaluation eval = stateCache.evaluate(incoming);
-        LOG.info("Aurora poll: level={} action={}", incoming, eval.action());
-
-        if (eval.action() == AuroraStateCache.Action.NOTIFY) {
-            scoreAndCache(incoming, status);
-        } else if (eval.action() == AuroraStateCache.Action.CLEAR) {
-            LOG.info("Aurora event ended — cached scores cleared");
-        }
-    }
-
-    /**
-     * Scores all Bortle-eligible locations and stores the results in the state cache.
-     *
-     * @param level  the current alert level determining the Bortle threshold
-     * @param status the AuroraWatch status (used for logging)
-     */
-    private void scoreAndCache(AlertLevel level, AuroraStatus status) {
-        int threshold = (level == AlertLevel.RED)
-                ? properties.getBortleThreshold().getRed()
-                : properties.getBortleThreshold().getAmber();
-
-        List<LocationEntity> candidates = locationRepository
-                .findByBortleClassLessThanEqualAndEnabledTrue(threshold);
-
-        if (candidates.isEmpty()) {
-            LOG.info("Aurora NOTIFY ({}): no Bortle-eligible locations (threshold={})",
-                    level, threshold);
-            stateCache.updateScores(List.of());
-            return;
-        }
-
-        LOG.info("Aurora NOTIFY ({}): scoring {} location(s) (Bortle ≤ {}, station={})",
-                level, candidates.size(), threshold, status.station());
-
-        Map<String, Integer> cloudData = transectFetcher.fetchTransectCloud(candidates);
-        List<AuroraForecastScore> scores = scorer.score(level, candidates, cloudData);
-        stateCache.updateScores(scores);
-
-        LOG.info("Aurora scoring complete: {} location(s) scored, highest={}", scores.size(),
-                scores.stream().mapToInt(AuroraForecastScore::stars).max().orElse(0));
+        orchestrator.run();
     }
 
     /**

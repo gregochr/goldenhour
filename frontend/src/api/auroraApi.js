@@ -3,7 +3,7 @@ import axios from 'axios';
 const BASE_URL = '/api/aurora';
 
 /**
- * Fetches the current AuroraWatch alert status.
+ * Fetches the current NOAA SWPC aurora alert status.
  *
  * Returns null if the request fails or returns 403 (free-tier user).
  *
@@ -25,10 +25,32 @@ export async function getAuroraStatus() {
  * Triggers a Bortle light-pollution enrichment run for all unenriched locations.
  * ADMIN only.
  *
- * @returns {Promise<object>} enrichment summary { enriched, failed, failedLocations }
+ * @returns {Promise<object>} { status, runType, jobRunId }
  */
 export async function enrichBortle() {
   const response = await axios.post(`${BASE_URL}/admin/enrich-bortle`);
+  return response.data;
+}
+
+/**
+ * Triggers an immediate NOAA SWPC aurora orchestration cycle.
+ * ADMIN only.
+ *
+ * @returns {Promise<object>} { status, action }
+ */
+export async function triggerAuroraRun() {
+  const response = await axios.post(`${BASE_URL}/admin/run`);
+  return response.data;
+}
+
+/**
+ * Resets the aurora state machine to IDLE and clears all cached scores.
+ * ADMIN only.
+ *
+ * @returns {Promise<object>} { status }
+ */
+export async function resetAuroraState() {
+  const response = await axios.post(`${BASE_URL}/admin/reset`);
   return response.data;
 }
 
