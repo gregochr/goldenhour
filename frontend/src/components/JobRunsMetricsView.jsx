@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
 import RunProgressPanel from './RunProgressPanel';
+import AuroraForecastModal from './AuroraForecastModal';
 
 /** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
 const STRATEGY_LABELS = {
@@ -159,6 +160,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runningBackfill, setRunningBackfill] = useState(false);
   const [runningDriveTimes, setRunningDriveTimes] = useState(false);
   const [runningLightPollution, setRunningLightPollution] = useState(false);
+  const [showAuroraModal, setShowAuroraModal] = useState(false);
   const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
@@ -422,6 +424,15 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               >
                 {runningLongTerm ? '\u27F3 Running\u2026' : '\u27F3 Long-Term (T+3 \u2013 T+5)'}
               </button>
+              <button
+                className="text-sm px-3 py-1.5 font-medium rounded border border-indigo-500/50 bg-indigo-900/30 text-indigo-300 hover:bg-indigo-800/40 transition-colors disabled:opacity-50"
+                onClick={() => setShowAuroraModal(true)}
+                disabled={anyRunning}
+                title="Choose which nights to generate Claude aurora forecasts for"
+                data-testid="run-aurora-forecast-btn"
+              >
+                🌌 Aurora Forecast
+              </button>
             </div>
           </div>
           <div>
@@ -677,6 +688,22 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             </div>
           </div>
         </div>
+      )}
+
+      {/* Aurora forecast night selector modal */}
+      {showAuroraModal && (
+        <AuroraForecastModal
+          onClose={() => setShowAuroraModal(false)}
+          onComplete={(result) => {
+            const nightCount = result.nights?.length ?? 0;
+            const scored = result.nights?.reduce((sum, n) => sum + (n.locationsScored ?? 0), 0) ?? 0;
+            setRunStatus({
+              type: 'success',
+              message: `Aurora forecast complete: ${nightCount} night${nightCount !== 1 ? 's' : ''}, ${scored} location${scored !== 1 ? 's' : ''} scored. Cost: ${result.estimatedCost ?? '—'}.`,
+            });
+            loadJobRuns(0);
+          }}
+        />
       )}
     </div>
   );

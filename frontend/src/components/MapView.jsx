@@ -10,7 +10,7 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
-import { getAuroraLocations } from '../api/auroraApi.js';
+import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
@@ -245,11 +245,16 @@ function MapView({ locations, date }) {
   const [auroraFriendlyFilter, setAuroraFriendlyFilter] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
   const [auroraScores, setAuroraScores] = useState({});
+  const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
+  const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
   const [flyTarget, setFlyTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
 
-  // Aurora is available when the user is ADMIN/PRO and the state machine is active.
-  const auroraAvailable = role !== 'LITE_USER' && auroraStatus?.active === true;
+  // Aurora is available when the user is ADMIN/PRO and either the state machine is active
+  // or there are stored forecast results for any date on the date strip.
+  const hasStoredAuroraResults = auroraAvailableDates.length > 0;
+  const auroraAvailable = role !== 'LITE_USER'
+    && (auroraStatus?.active === true || hasStoredAuroraResults);
 
   // Auto-reset to SUNSET when aurora mode becomes unavailable.
   useEffect(() => {
@@ -293,6 +298,32 @@ function MapView({ locations, date }) {
       });
   }, [auroraStatus]);
 
+  // Fetch available dates for stored aurora forecast results (ADMIN/PRO only).
+  // Determines whether the Aurora toggle should be shown when no live alert is active.
+  useEffect(() => {
+    if (role === 'LITE_USER') return;
+    getAuroraForecastAvailableDates()
+      .then(setAuroraAvailableDates)
+      .catch(() => {});
+  }, [role]);
+
+  // Fetch stored aurora results when in Aurora mode and the selected date changes.
+  useEffect(() => {
+    if (eventType !== 'AURORA' || !date) {
+      setStoredAuroraResults({});
+      return;
+    }
+    getAuroraForecastResults(date)
+      .then((results) => {
+        const byName = {};
+        results.forEach((r) => { byName[r.locationName] = r; });
+        setStoredAuroraResults(byName);
+      })
+      .catch(() => {
+        setStoredAuroraResults({});
+      });
+  }, [eventType, date]);
+
   const lineKm = lineKmForZoom(zoom);
 
   function toggleTypeFilter(type) {
@@ -322,7 +353,10 @@ function MapView({ locations, date }) {
   /** Get the forecast rating for a location on the current date/event. */
   function getRatingForLocation(loc) {
     if (eventType === 'AURORA') {
-      return auroraScores[loc.name]?.stars ?? null;
+      // Prefer stored DB results; fall back to live state cache for tonight
+      return storedAuroraResults[loc.name]?.stars
+        ?? auroraScores[loc.name]?.stars
+        ?? null;
     }
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
@@ -432,7 +466,8 @@ function MapView({ locations, date }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
         <InfoTip text="Type and star filters combine: locations must match both. Within each group, any selection passes." />
-        {Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
+        {/* Location type chips — hidden in Aurora mode (aurora doesn't care about location type) */}
+        {!isAuroraMode && Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
           <button
             key={type}
             onClick={() => toggleTypeFilter(type)}
@@ -445,7 +480,7 @@ function MapView({ locations, date }) {
             <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
           </button>
         ))}
-        <span className="text-plex-border mx-1">|</span>
+        {!isAuroraMode && <span className="text-plex-border mx-1">|</span>}
         {[1, 2, 3, 4, 5].map((star) => (
           <button
             key={`star-${star}`}
@@ -489,20 +524,25 @@ function MapView({ locations, date }) {
           <option value={90}>🚗 ≤90 min</option>
           <option value={120}>🚗 ≤2 hrs</option>
         </select>
-        <span className="text-plex-border mx-1">|</span>
-        <button
-          onClick={() => setAuroraFriendlyFilter((v) => !v)}
-          data-testid="aurora-filter-toggle"
-          title={`Show only dark-sky locations suitable for aurora photography (Bortle ≤ ${auroraThreshold})`}
-          className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-            auroraFriendlyFilter
-              ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
-              : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-          }`}
-        >
-          🌌 Aurora friendly
-        </button>
-        <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+        {/* Aurora-friendly chip — hidden in Aurora mode (Bortle filtering already implicit in stored results) */}
+        {!isAuroraMode && (
+          <>
+            <span className="text-plex-border mx-1">|</span>
+            <button
+              onClick={() => setAuroraFriendlyFilter((v) => !v)}
+              data-testid="aurora-filter-toggle"
+              title={`Show only dark-sky locations suitable for aurora photography (Bortle ≤ ${auroraThreshold})`}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                auroraFriendlyFilter
+                  ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
+                  : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+              }`}
+            >
+              🌌 Aurora friendly
+            </button>
+            <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+          </>
+        )}
         {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0
             || driveTimeFilter > 0 || auroraFriendlyFilter) && (
           <button

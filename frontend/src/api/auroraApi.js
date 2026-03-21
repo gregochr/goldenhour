@@ -68,3 +68,55 @@ export async function getAuroraLocations({ maxBortle = 4, minStars = 1 } = {}) {
   });
   return response.data;
 }
+
+/**
+ * Returns a 3-night Kp preview (tonight, T+1, T+2) for the night selector popup.
+ * Reads cached NOAA data — no Claude cost.
+ *
+ * @returns {Promise<{nights: Array}>} preview with per-night Kp data
+ */
+export async function getAuroraForecastPreview() {
+  const response = await axios.get(`${BASE_URL}/forecast/preview`);
+  return response.data;
+}
+
+/**
+ * Runs aurora forecasts for the selected nights and stores results to the database.
+ * Each viable night triggers one Claude API call.
+ *
+ * @param {string[]} nights - ISO date strings (e.g. ['2026-03-21', '2026-03-22'])
+ * @returns {Promise<{nights: Array, totalClaudeCalls: number, estimatedCost: string}>}
+ */
+export async function runAuroraForecast(nights) {
+  const response = await axios.post(`${BASE_URL}/forecast/run`, { nights });
+  return response.data;
+}
+
+/**
+ * Fetches stored aurora forecast results for the map view for a given night.
+ *
+ * @param {string} date - ISO date string (e.g. '2026-03-21')
+ * @returns {Promise<Array>} list of location results with stars, summary, and factor breakdown
+ */
+export async function getAuroraForecastResults(date) {
+  const response = await axios.get(`${BASE_URL}/forecast/results`, { params: { date } });
+  return response.data;
+}
+
+/**
+ * Returns all ISO dates for which stored aurora forecast results exist.
+ * Used to determine whether the Aurora toggle should appear on the map.
+ *
+ * @returns {Promise<string[]>} sorted list of ISO date strings
+ */
+export async function getAuroraForecastAvailableDates() {
+  try {
+    const response = await axios.get(`${BASE_URL}/forecast/results/available-dates`);
+    return response.data;
+  } catch (err) {
+    if (err.response?.status === 403 || err.response?.status === 401) {
+      return []; // Free-tier — no stored aurora results available
+    }
+    throw err;
+  }
+}
