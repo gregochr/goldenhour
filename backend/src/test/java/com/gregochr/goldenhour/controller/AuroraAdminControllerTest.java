@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
@@ -15,10 +18,14 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.List;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -44,6 +51,9 @@ class AuroraAdminControllerTest {
 
     @MockitoBean
     private JobRunService jobRunService;
+
+    @MockitoBean
+    private LocationRepository locationRepository;
 
     @BeforeEach
     void setUp() {
@@ -152,6 +162,64 @@ class AuroraAdminControllerTest {
     void reset_admin_callsStateCacheReset() throws Exception {
         mockMvc.perform(post("/api/aurora/admin/reset"))
                 .andExpect(status().isOk());
+
+        verify(stateCache).reset();
+    }
+
+    // -------------------------------------------------------------------------
+    // simulate endpoint
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate returns 403 for PRO_USER")
+    @WithMockUser(roles = {"PRO_USER"})
+    void simulate_proUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/aurora/admin/simulate")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"kp\":7.0,\"ovationProbability\":45.0,\"bzNanoTesla\":-12.0,\"gScale\":\"G3\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate activates simulation and returns 200 for ADMIN")
+    @WithMockUser(roles = {"ADMIN"})
+    void simulate_admin_returns200() throws Exception {
+        AuroraProperties.BortleThreshold bortleThreshold = new AuroraProperties.BortleThreshold();
+        bortleThreshold.setModerate(4);
+        bortleThreshold.setStrong(5);
+        when(auroraProperties.getBortleThreshold()).thenReturn(bortleThreshold);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(new LocationEntity()));
+
+        mockMvc.perform(post("/api/aurora/admin/simulate")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"kp\":7.0,\"ovationProbability\":45.0,\"bzNanoTesla\":-12.0,\"gScale\":\"G3\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level").value("STRONG"))
+                .andExpect(jsonPath("$.eligibleLocations").value(1));
+
+        verify(stateCache).activateSimulation(any(AlertLevel.class), any(AuroraStateCache.SimulatedNoaaData.class));
+    }
+
+    // -------------------------------------------------------------------------
+    // simulate/clear endpoint
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate/clear returns 403 for PRO_USER")
+    @WithMockUser(roles = {"PRO_USER"})
+    void simulateClear_proUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/aurora/admin/simulate/clear"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate/clear returns 200 for ADMIN and resets state")
+    @WithMockUser(roles = {"ADMIN"})
+    void simulateClear_admin_returns200() throws Exception {
+        mockMvc.perform(post("/api/aurora/admin/simulate/clear"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("Aurora simulation cleared"));
 
         verify(stateCache).reset();
     }

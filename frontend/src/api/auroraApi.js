@@ -55,6 +55,34 @@ export async function resetAuroraState() {
 }
 
 /**
+ * Activates aurora simulation mode with the provided fake NOAA space weather values.
+ * No Claude API calls are made — the admin must run a manual Forecast Run separately.
+ * ADMIN only.
+ *
+ * @param {object} request
+ * @param {number} request.kp                 - simulated Kp index (0–9)
+ * @param {number} request.ovationProbability - OVATION aurora probability at 55°N (0–100)
+ * @param {number} request.bzNanoTesla        - solar wind Bz in nanoTesla
+ * @param {string|null} request.gScale        - G-scale label ("G1"–"G5") or null
+ * @returns {Promise<{level: string, message: string, eligibleLocations: number}>}
+ */
+export async function simulateAurora(request) {
+  const response = await axios.post(`${BASE_URL}/admin/simulate`, request);
+  return response.data;
+}
+
+/**
+ * Clears the active aurora simulation, resetting the state machine to IDLE.
+ * ADMIN only.
+ *
+ * @returns {Promise<object>} { status }
+ */
+export async function clearSimulation() {
+  const response = await axios.post(`${BASE_URL}/admin/simulate/clear`);
+  return response.data;
+}
+
+/**
  * Fetches scored aurora-eligible locations, filtered by Bortle class and star rating.
  *
  * @param {object} [params]

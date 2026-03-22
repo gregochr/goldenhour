@@ -52,6 +52,7 @@ class AuroraControllerTest {
     @BeforeEach
     void setUp() {
         when(stateCache.isActive()).thenReturn(false);
+        when(stateCache.isSimulated()).thenReturn(false);
         when(stateCache.getCurrentLevel()).thenReturn(null);
         when(stateCache.getCachedScores()).thenReturn(List.of());
         // Avoid HTTP calls in tests
@@ -229,5 +230,41 @@ class AuroraControllerTest {
                 .bortleClass(bortleClass).build();
         return new AuroraForecastScore(loc, stars, AlertLevel.MODERATE, 25,
                 "★".repeat(stars) + " summary", "detail");
+    }
+
+    // -------------------------------------------------------------------------
+    // Simulation mode
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("GET /api/aurora/status returns simulated=true and uses simulated NOAA values")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_simulated_returnsFakeNoaaValues() throws Exception {
+        AuroraStateCache.SimulatedNoaaData simData =
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
+        when(stateCache.isSimulated()).thenReturn(true);
+        when(stateCache.getSimulatedData()).thenReturn(simData);
+        when(stateCache.isActive()).thenReturn(true);
+        when(stateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+        when(stateCache.getCachedScores()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.simulated").value(true))
+                .andExpect(jsonPath("$.kp").value(7.0))
+                .andExpect(jsonPath("$.ovationProbability").value(45.0))
+                .andExpect(jsonPath("$.bzNanoTesla").value(-12.0))
+                .andExpect(jsonPath("$.level").value("STRONG"));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status returns simulated=false in normal mode")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_notSimulated_returnsSimulatedFalse() throws Exception {
+        when(stateCache.isSimulated()).thenReturn(false);
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.simulated").value(false));
     }
 }

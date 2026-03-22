@@ -26,8 +26,11 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -77,6 +80,7 @@ public class AuroraForecastRunService {
     private final AuroraForecastResultRepository resultRepository;
     private final AuroraProperties properties;
     private final SolarCalculator solarCalculator;
+    private final AuroraStateCache stateCache;
 
     /**
      * Constructs the service with all required dependencies.
@@ -89,6 +93,7 @@ public class AuroraForecastRunService {
      * @param resultRepository   aurora result persistence
      * @param properties         aurora configuration
      * @param solarCalculator    solar-utils twilight calculator
+     * @param stateCache         aurora state machine (checked for simulation mode)
      */
     public AuroraForecastRunService(NoaaSwpcClient noaaClient,
             MetOfficeSpaceWeatherScraper metOfficeScraper,
@@ -97,7 +102,8 @@ public class AuroraForecastRunService {
             LocationRepository locationRepository,
             AuroraForecastResultRepository resultRepository,
             AuroraProperties properties,
-            SolarCalculator solarCalculator) {
+            SolarCalculator solarCalculator,
+            AuroraStateCache stateCache) {
         this.noaaClient = noaaClient;
         this.metOfficeScraper = metOfficeScraper;
         this.weatherTriage = weatherTriage;
@@ -106,6 +112,7 @@ public class AuroraForecastRunService {
         this.resultRepository = resultRepository;
         this.properties = properties;
         this.solarCalculator = solarCalculator;
+        this.stateCache = stateCache;
     }
 
     /**
@@ -116,8 +123,26 @@ public class AuroraForecastRunService {
      *
      * @return preview of the next three nights
      */
+    /**
+     * Returns a 3-night Kp preview (tonight, T+1, T+2) for the night selector popup.
+     *
+     * <p>This is cheap to produce — it reads cached NOAA forecast data and queries the
+     * locations table. No Claude API calls are made.
+     *
+     * <p>When simulation mode is active, the simulated Kp value is substituted for all
+     * three nights so the night selector shows realistic data for an admin test run.
+     *
+     * @return preview of the next three nights
+     */
     public AuroraForecastPreview getPreview() {
-        List<KpForecast> kpForecast = noaaClient.fetchKpForecast();
+        boolean isSimulated = stateCache.isSimulated();
+        List<KpForecast> kpForecast;
+        if (isSimulated) {
+            kpForecast = buildSimulatedKpForecast(stateCache.getSimulatedData().kp());
+        } else {
+            kpForecast = noaaClient.fetchKpForecast();
+        }
+
         int moderateThreshold = properties.getBortleThreshold().getModerate();
         int eligibleCount = locationRepository
                 .findByBortleClassLessThanEqualAndEnabledTrue(moderateThreshold).size();
@@ -138,7 +163,7 @@ public class AuroraForecastRunService {
                     date, label, maxKp, gScale, recommended, summary, eligibleCount));
         }
 
-        return new AuroraForecastPreview(nights);
+        return new AuroraForecastPreview(nights, isSimulated);
     }
 
     /**
@@ -170,7 +195,9 @@ public class AuroraForecastRunService {
         // Delete any prior results for these dates so re-runs replace old data cleanly
         resultRepository.deleteByForecastDateIn(nights);
 
-        SpaceWeatherData spaceWeather = noaaClient.fetchAll();
+        SpaceWeatherData spaceWeather = stateCache.isSimulated()
+                ? buildSimulatedSpaceWeather(stateCache.getSimulatedData())
+                : noaaClient.fetchAll();
         String metOfficeText = metOfficeScraper.getForecastText();
         List<KpForecast> kpForecast = spaceWeather.kpForecast();
         LocalDate today = LocalDate.now(ZoneId.of("UTC"));
@@ -444,6 +471,62 @@ public class AuroraForecastRunService {
                 .map(best -> best.location().getName() + " "
                         + "★".repeat(best.stars()) + "☆".repeat(5 - best.stars()))
                 .orElse("Conditions assessed");
+    }
+
+    /**
+     * Builds a 3-day KpForecast list at a fixed Kp value for simulation mode.
+     *
+     * <p>Creates 24 three-hour windows (72 h total) so that {@link #maxKpInWindow}
+     * always finds a match regardless of the computed dark window.
+     *
+     * @param kp the simulated Kp index to use for every window
+     * @return list of 24 forecast windows covering the next 72 hours
+     */
+    private List<KpForecast> buildSimulatedKpForecast(double kp) {
+        ZonedDateTime windowStart = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
+        List<KpForecast> forecast = new ArrayList<>();
+        for (int i = 0; i < 24; i++) {
+            forecast.add(new KpForecast(windowStart, windowStart.plusHours(3), kp));
+            windowStart = windowStart.plusHours(3);
+        }
+        return forecast;
+    }
+
+    /**
+     * Builds a synthetic {@link SpaceWeatherData} from simulated values for use in the
+     * Claude aurora interpretation call during simulation mode.
+     *
+     * <p>All fields are populated from the simulation request so Claude receives realistic
+     * (if fake) geomagnetic context alongside real weather and lunar data.
+     *
+     * @param simData simulated NOAA data from the state cache
+     * @return synthetic space weather data record
+     */
+    private SpaceWeatherData buildSimulatedSpaceWeather(AuroraStateCache.SimulatedNoaaData simData) {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        com.gregochr.goldenhour.model.KpReading kpReading =
+                new com.gregochr.goldenhour.model.KpReading(now, simData.kp());
+        com.gregochr.goldenhour.model.SolarWindReading solarWind =
+                new com.gregochr.goldenhour.model.SolarWindReading(
+                        now, simData.bzNanoTesla(), 450.0, 5.0);
+        com.gregochr.goldenhour.model.OvationReading ovation =
+                new com.gregochr.goldenhour.model.OvationReading(now, simData.ovationProbability(), 55.0);
+
+        List<com.gregochr.goldenhour.model.SpaceWeatherAlert> alerts;
+        if (simData.gScale() != null && !simData.gScale().isBlank()) {
+            alerts = List.of(new com.gregochr.goldenhour.model.SpaceWeatherAlert(
+                    "A", "SIM-001", now,
+                    "SIMULATION: Geomagnetic Storm " + simData.gScale() + " Alert Issued"));
+        } else {
+            alerts = List.of();
+        }
+
+        return new SpaceWeatherData(
+                List.of(kpReading),
+                buildSimulatedKpForecast(simData.kp()),
+                ovation,
+                List.of(solarWind),
+                alerts);
     }
 
     /**

@@ -116,6 +116,7 @@ function AuroraForecastModal({ onClose, onComplete }) {
           {!loading && !error && preview && preview.nights.map((night) => {
             const isSelected = selectedNights.has(night.date);
             const isRecommended = night.recommended;
+            const isSimulated = preview.simulated === true;
             return (
               <label
                 key={night.date}
@@ -145,6 +146,14 @@ function AuroraForecastModal({ onClose, onComplete }) {
                         {night.gScale}
                       </span>
                     )}
+                    {isSimulated && (
+                      <span
+                        className="px-1.5 py-0.5 text-xs font-medium rounded bg-amber-900/40 text-amber-300 border border-amber-600/40"
+                        title="Using simulated geomagnetic data"
+                      >
+                        🧪 SIM
+                      </span>
+                    )}
                   </div>
                   <p className={`text-xs mt-0.5 ${isRecommended ? 'text-indigo-400' : 'text-plex-text-muted'}`}>
                     {night.summary}
@@ -154,13 +163,18 @@ function AuroraForecastModal({ onClose, onComplete }) {
                       </span>
                     )}
                   </p>
-                  {!isRecommended && (
+                  {!isRecommended && !isSimulated && (
                     <p className="text-xs text-plex-text-muted/60 mt-0.5">Not recommended — quiet conditions</p>
                   )}
                 </div>
               </label>
             );
           })}
+          {!loading && !error && preview?.simulated && (
+            <p className="text-xs text-amber-400 bg-amber-900/20 border border-amber-600/30 rounded px-3 py-2">
+              ⚠️ Using simulated geomagnetic data. Weather and lunar data are real.
+            </p>
+          )}
         </div>
 
         {/* Footer */}

@@ -30,6 +30,8 @@ import java.time.ZonedDateTime;
  *                           {@code null} if unavailable
  * @param dataSource         source of the space weather data (e.g. {@code "NOAA SWPC"})
  * @param updatedAt          when the most recent NOAA data was fetched
+ * @param simulated          {@code true} when the active alert was injected by the admin
+ *                           simulation endpoint rather than real NOAA data
  */
 public record AuroraStatusResponse(
         AlertLevel level,
@@ -43,5 +45,6 @@ public record AuroraStatusResponse(
         Double ovationProbability,
         Double bzNanoTesla,
         String dataSource,
-        ZonedDateTime updatedAt) {
+        ZonedDateTime updatedAt,
+        boolean simulated) {
 }

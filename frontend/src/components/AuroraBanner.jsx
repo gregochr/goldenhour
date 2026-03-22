@@ -52,6 +52,20 @@ const PULSE_STYLE = `
   }
 `;
 
+/** CSS for the dashed-border simulation indicator. */
+const SIM_BORDER_STYLE = `
+  .aurora-banner-simulated {
+    background-image: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 6px,
+      rgba(255,255,255,0.08) 6px,
+      rgba(255,255,255,0.08) 12px
+    );
+    border: 2px dashed rgba(255, 255, 255, 0.6);
+  }
+`;
+
 /**
  * Full-width aurora alert banner displayed when NOAA SWPC reports a moderate or strong alert.
  *
@@ -76,6 +90,8 @@ export default function AuroraBanner() {
   // Dismissed at this exact level — re-show only on escalation
   if (dismissedLevel === status.level) return null;
 
+  const isSimulated = status.simulated === true;
+
   const count = status.eligibleLocations;
   const locationText = count > 0
     ? `${count} location${count !== 1 ? 's' : ''} available`
@@ -83,19 +99,26 @@ export default function AuroraBanner() {
 
   const displayKp = status.forecastKp ?? status.kp;
   const kpText = displayKp != null
-    ? (status.triggerType === 'forecast'
-        ? `Kp ${Math.round(displayKp)} forecast tonight`
-        : `Kp ${Math.round(displayKp)}`)
+    ? (isSimulated
+        ? `Kp ${Math.round(displayKp)} (SIMULATED)`
+        : status.triggerType === 'forecast'
+          ? `Kp ${Math.round(displayKp)} forecast tonight`
+          : `Kp ${Math.round(displayKp)}`)
     : null;
 
   const bz = status.bzNanoTesla;
   const bzInfo = bz != null ? bzStatus(bz) : null;
   const bzText = bzInfo ? `${bzInfo.emoji} ${bzInfo.label} — ${bzInfo.explanation}` : null;
 
-  const subtitleParts = [kpText, locationText ? `${locationText} · Tap to view on map` : null]
-    .filter(Boolean);
+  const actionHint = isSimulated
+    ? 'Go to Forecast Runs → Aurora to generate scores'
+    : locationText
+      ? `${locationText} · Tap to view on map`
+      : null;
 
-  const isFavourable = bz != null && bz < -1;
+  const subtitleParts = [kpText, actionHint].filter(Boolean);
+
+  const isFavourable = !isSimulated && bz != null && bz < -1;
 
   function handleDismiss(e) {
     e.stopPropagation();
@@ -105,6 +128,7 @@ export default function AuroraBanner() {
   return (
     <>
       {isFavourable && <style>{PULSE_STYLE}</style>}
+      {isSimulated && <style>{SIM_BORDER_STYLE}</style>}
       <div
         role="alert"
         data-testid="aurora-banner"
@@ -112,22 +136,22 @@ export default function AuroraBanner() {
           backgroundColor: status.hexColour,
           animation: isFavourable ? 'aurora-pulse 3s ease-in-out infinite' : undefined,
         }}
-        className="px-4 py-2 text-white cursor-pointer select-none"
+        className={`px-4 py-2 text-white cursor-pointer select-none${isSimulated ? ' aurora-banner-simulated' : ''}`}
         onClick={() => {
-          window.location.hash = 'map';
+          window.location.hash = isSimulated ? 'manage' : 'map';
         }}
       >
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="text-lg shrink-0" aria-hidden="true">🌌</span>
+            <span className="text-lg shrink-0" aria-hidden="true">{isSimulated ? '🧪' : '🌌'}</span>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight">
-                Aurora Alert — {status.description}
+                {isSimulated ? 'SIMULATED — ' : 'Aurora Alert — '}{status.description}
               </p>
               {subtitleParts.length > 0 && (
                 <p className="text-xs opacity-90 mt-0.5">{subtitleParts.join(' · ')}</p>
               )}
-              {bzText && (
+              {!isSimulated && bzText && (
                 <p data-testid="aurora-banner-bz" className="text-xs opacity-90 mt-0.5">{bzText}</p>
               )}
             </div>

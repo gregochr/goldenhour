@@ -65,23 +65,32 @@ public class AuroraController {
         Double bz = null;
         ZonedDateTime updatedAt = null;
 
-        try {
-            List<KpReading> recentKp = noaaClient.fetchKp();
-            if (!recentKp.isEmpty()) {
-                KpReading latest = recentKp.get(recentKp.size() - 1);
-                kp = latest.kp();
-                updatedAt = latest.timestamp();
+        if (stateCache.isSimulated()) {
+            // Return simulated NOAA values — no live API call needed
+            AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+            kp = simData.kp();
+            ovation = simData.ovationProbability();
+            bz = simData.bzNanoTesla();
+            updatedAt = ZonedDateTime.now(ZoneOffset.UTC);
+        } else {
+            try {
+                List<KpReading> recentKp = noaaClient.fetchKp();
+                if (!recentKp.isEmpty()) {
+                    KpReading latest = recentKp.get(recentKp.size() - 1);
+                    kp = latest.kp();
+                    updatedAt = latest.timestamp();
+                }
+                OvationReading ovationReading = noaaClient.fetchOvation();
+                if (ovationReading != null) {
+                    ovation = ovationReading.probabilityAtLatitude();
+                }
+                List<com.gregochr.goldenhour.model.SolarWindReading> solarWind = noaaClient.fetchSolarWind();
+                if (!solarWind.isEmpty()) {
+                    bz = solarWind.get(solarWind.size() - 1).bzNanoTesla();
+                }
+            } catch (Exception ignored) {
+                // Best-effort enrichment — don't fail the status endpoint over cached data
             }
-            OvationReading ovationReading = noaaClient.fetchOvation();
-            if (ovationReading != null) {
-                ovation = ovationReading.probabilityAtLatitude();
-            }
-            List<com.gregochr.goldenhour.model.SolarWindReading> solarWind = noaaClient.fetchSolarWind();
-            if (!solarWind.isEmpty()) {
-                bz = solarWind.get(solarWind.size() - 1).bzNanoTesla();
-            }
-        } catch (Exception ignored) {
-            // Best-effort enrichment — don't fail the status endpoint over cached data
         }
 
         TriggerType lastTrigger = stateCache.getLastTriggerType();
@@ -100,7 +109,8 @@ public class AuroraController {
                 ovation,
                 bz,
                 DATA_SOURCE,
-                updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC)));
+                updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
+                stateCache.isSimulated()));
     }
 
     /**

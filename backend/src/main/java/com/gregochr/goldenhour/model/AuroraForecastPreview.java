@@ -9,9 +9,11 @@ import java.util.List;
  * <p>Data is cheap to produce — it reads cached NOAA Kp forecast data and counts
  * Bortle-eligible locations without calling Claude.
  *
- * @param nights the next three nights (tonight, T+1, T+2) with Kp data
+ * @param nights    the next three nights (tonight, T+1, T+2) with Kp data
+ * @param simulated {@code true} when the Kp values are from admin simulation mode rather
+ *                  than real NOAA forecast data; the UI shows a 🧪 indicator on each night
  */
-public record AuroraForecastPreview(List<NightPreview> nights) {
+public record AuroraForecastPreview(List<NightPreview> nights, boolean simulated) {
 
     /** Compact constructor that defensively copies the mutable nights list. */
     public AuroraForecastPreview {

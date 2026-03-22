@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Aurora simulation mode (admin-only)
+
+Allows the admin to inject fake NOAA space weather data to test the full aurora UI flow (banner, forecast runs, night selector) without a real geomagnetic storm. No Claude API calls are made on activation — the admin controls spend via the existing Forecast Run flow.
+
+**Backend:**
+- `AuroraStateCache` — `SimulatedNoaaData` inner record; `simulated` + `simulatedData` volatile fields; `activateSimulation(AlertLevel, SimulatedNoaaData)` method; `isSimulated()` / `getSimulatedData()` getters; `reset()` clears simulation flag
+- `AuroraSimulationRequest` — new record (kp, ovationProbability, bzNanoTesla, gScale)
+- `AuroraSimulationResponse` — new record (level, message, eligibleLocations)
+- `AuroraStatusResponse` — new `simulated` boolean field
+- `AuroraForecastPreview` — new `simulated` boolean field propagated to the night selector
+- `AuroraController.getStatus()` — when simulated, returns fake Kp/OVATION/Bz values directly from the state cache; skips live NOAA fetch; sets `simulated: true` in the response
+- `AuroraAdminController` — two new ADMIN-only endpoints: `POST /api/aurora/admin/simulate` (activates simulation) and `POST /api/aurora/admin/simulate/clear` (calls `reset()`); injected `LocationRepository` to count eligible locations
+- `AuroraForecastRunService` — injected `AuroraStateCache`; `getPreview()` substitutes simulated Kp for all 3 nights when simulation is active; `runForecast()` builds synthetic `SpaceWeatherData` from simulated values instead of calling NOAA; helper methods `buildSimulatedKpForecast()` (72 h of windows at fixed Kp) and `buildSimulatedSpaceWeather()` (KpReading, SolarWindReading, OvationReading, optional G-scale alert)
+
+**Frontend:**
+- `auroraApi.js` — `simulateAurora(request)` and `clearSimulation()` functions
+- `AuroraSimulateModal.jsx` — new admin-only modal with Kp/OVATION/Bz/G-Scale form fields, three preset buttons (Moderate G2, Strong G3, Extreme G5), disclaimer, and optional "Clear Simulation" button when a simulation is active
+- `AuroraBanner.jsx` — when `status.simulated === true`: hatched background + dashed border; 🧪 icon instead of 🌌; "SIMULATED —" prefix; kpText appended with "(SIMULATED)"; click navigates to Manage tab (not map); Bz pulse suppressed
+- `AuroraForecastModal.jsx` — per-night 🧪 SIM badge when `preview.simulated === true`; amber warning banner below nights explaining real vs fake data
+- `JobRunsMetricsView.jsx` — new "🧪 Simulate" button beside Aurora Forecast button; shows amber "🧪 Simulated" label when a simulation is active; opens `AuroraSimulateModal`; imports `useAuroraStatus` hook to detect live simulation state
+
+**Tests (backend):**
+- `AuroraStateCacheTest` — covered by existing reset/lifecycle tests (no new tests needed; `activateSimulation` path exercised by admin controller tests)
+- `AuroraAdminControllerTest` — 4 new tests: simulate 403 for PRO, simulate 200 for ADMIN (activates + returns STRONG + eligibleLocations), simulate/clear 403 for PRO, simulate/clear 200 for ADMIN
+- `AuroraControllerTest` — 2 new tests: simulated status returns fake Kp/OVATION/Bz + `simulated: true`; normal status returns `simulated: false`; added `stateCache.isSimulated()` stub to `setUp()`
+- `AuroraForecastRunServiceTest` — 3 new tests: `getPreview()` uses simulated Kp (all nights Kp 7, `simulated: true`); `getPreview()` returns `simulated: false` normally; `runForecast()` bypasses `noaaClient.fetchAll()` and calls Claude with STRONG alert when simulated
+- `AuroraForecastControllerTest` — updated `new AuroraForecastPreview(...)` calls to include the new `simulated` boolean parameter
+
+**Test count:** 1048 backend (↑ from 1043) · 443 frontend (unchanged) · JaCoCo ≥80% maintained
+
 ### Fixed — Aurora banner shows trigger Kp, not current Kp
 
 **Backend:**

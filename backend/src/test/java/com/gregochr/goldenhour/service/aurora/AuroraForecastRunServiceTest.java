@@ -59,6 +59,7 @@ class AuroraForecastRunServiceTest {
     @Mock private LocationRepository locationRepository;
     @Mock private AuroraForecastResultRepository resultRepository;
     @Mock private SolarCalculator solarCalculator;
+    @Mock private AuroraStateCache stateCache;
 
     private AuroraForecastRunService service;
     private AuroraProperties properties;
@@ -67,7 +68,9 @@ class AuroraForecastRunServiceTest {
     void setUp() {
         properties = new AuroraProperties();
         service = new AuroraForecastRunService(noaaClient, metOfficeScraper, weatherTriage,
-                claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator);
+                claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
+                stateCache);
+        when(stateCache.isSimulated()).thenReturn(false);
 
         ZoneId utc = ZoneId.of("UTC");
         LocalDate today = LocalDate.now(utc);
@@ -410,6 +413,73 @@ class AuroraForecastRunServiceTest {
         // weatherTriage.triage() should NOT be called for a future date
         verify(weatherTriage, never()).triage(any());
         verify(claudeInterpreter, times(1)).interpret(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // -------------------------------------------------------------------------
+    // Simulation mode
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("getPreview uses simulated Kp when stateCache.isSimulated() is true")
+    void getPreview_simulated_usesSimulatedKp() {
+        AuroraStateCache.SimulatedNoaaData simData =
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
+        when(stateCache.isSimulated()).thenReturn(true);
+        when(stateCache.getSimulatedData()).thenReturn(simData);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of());
+
+        AuroraForecastPreview preview = service.getPreview();
+
+        assertThat(preview.simulated()).isTrue();
+        // All nights should have Kp 7 from simulation
+        assertThat(preview.nights()).allMatch(n -> n.maxKp() == 7.0);
+        assertThat(preview.nights()).allMatch(n -> n.recommended());
+    }
+
+    @Test
+    @DisplayName("getPreview returns simulated=false in normal mode")
+    void getPreview_notSimulated_returnsSimulatedFalse() {
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of());
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of());
+
+        AuroraForecastPreview preview = service.getPreview();
+
+        assertThat(preview.simulated()).isFalse();
+    }
+
+    @Test
+    @DisplayName("runForecast uses simulated SpaceWeatherData when simulation is active")
+    void runForecast_simulated_usesSimulatedSpaceWeather() {
+        AuroraStateCache.SimulatedNoaaData simData =
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
+        when(stateCache.isSimulated()).thenReturn(true);
+        when(stateCache.getSimulatedData()).thenReturn(simData);
+        when(metOfficeScraper.getForecastText()).thenReturn("Met Office text");
+
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Sim Location").lat(55.0).lon(-1.5).bortleClass(3).build();
+
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(loc));
+
+        LocalDate tonight = LocalDate.now(ZoneId.of("UTC"));
+        when(weatherTriage.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(List.of(loc), List.of(), Map.of(loc, 30)));
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.STRONG, 30,
+                        "Strong conditions", "✓ Geomagnetic: STRONG")));
+        when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        AuroraForecastRunResponse response = service.runForecast(
+                new AuroraForecastRunRequest(List.of(tonight)));
+
+        // Should have called Claude (Kp 7 = STRONG — above threshold)
+        assertThat(response.totalClaudeCalls()).isEqualTo(1);
+        assertThat(response.nights().get(0).status()).isEqualTo("scored");
+        // Should NOT have called noaaClient.fetchAll() — uses simulated data instead
+        verify(noaaClient, never()).fetchAll();
     }
 
     // -------------------------------------------------------------------------

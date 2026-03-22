@@ -13,6 +13,9 @@ import java.util.List;
  * The machine emits an {@link Action} on each call to {@link #evaluate(AlertLevel)},
  * which the polling job uses to decide whether to score locations, suppress, or clear.
  *
+ * <p>A separate simulation path ({@link #activateSimulation}) bypasses the FSM transitions
+ * to inject fake NOAA data for admin testing without a real geomagnetic storm.
+ *
  * <p>State transitions:
  * <ul>
  *   <li>IDLE + QUIET/MINOR → {@link Action#NONE} (stay IDLE)</li>
@@ -54,6 +57,21 @@ public class AuroraStateCache {
     public record Evaluation(Action action, AlertLevel currentLevel, AlertLevel previousLevel) {
     }
 
+    /**
+     * Simulated NOAA space weather data injected by the admin simulate endpoint.
+     *
+     * @param kp                 simulated Kp index
+     * @param ovationProbability simulated OVATION aurora probability at 55°N
+     * @param bzNanoTesla        simulated solar wind Bz component in nanoTesla
+     * @param gScale             simulated NOAA G-scale label (e.g. "G3"), or null
+     */
+    public record SimulatedNoaaData(
+            double kp,
+            double ovationProbability,
+            double bzNanoTesla,
+            String gScale) {
+    }
+
     private enum State { IDLE, ACTIVE }
 
     private volatile State state = State.IDLE;
@@ -61,6 +79,8 @@ public class AuroraStateCache {
     private volatile List<AuroraForecastScore> cachedScores = List.of();
     private volatile TriggerType lastTriggerType = null;
     private volatile Double lastTriggerKp = null;
+    private volatile boolean simulated = false;
+    private volatile SimulatedNoaaData simulatedData = null;
 
     /**
      * Evaluates an incoming alert level and advances the state machine.
@@ -171,9 +191,52 @@ public class AuroraStateCache {
     }
 
     /**
+     * Activates a simulation by directly injecting alert state without going through the FSM.
+     *
+     * <p>Sets the machine to ACTIVE with the derived alert level and stores the fake NOAA data.
+     * No Claude call is made — the admin must trigger a manual Forecast Run to generate scores.
+     * The simulation flag is visible to the status endpoint and forecast preview so the UI
+     * can display a "(SIMULATED)" indicator.
+     *
+     * <p>Intended for admin testing only. The real NOAA polling job continues independently
+     * and will override this state once a real geomagnetic event is detected.
+     *
+     * @param level simulated alert level
+     * @param data  fake NOAA space weather values to surface via the status endpoint
+     */
+    public void activateSimulation(AlertLevel level, SimulatedNoaaData data) {
+        state = State.ACTIVE;
+        currentLevel = level;
+        cachedScores = List.of();
+        lastTriggerType = TriggerType.FORECAST_LOOKAHEAD;
+        lastTriggerKp = data.kp();
+        simulated = true;
+        simulatedData = data;
+    }
+
+    /**
+     * Returns {@code true} when the state machine is in simulation mode.
+     *
+     * @return {@code true} if a simulated aurora event is active
+     */
+    public boolean isSimulated() {
+        return simulated;
+    }
+
+    /**
+     * Returns the simulated NOAA data injected via {@link #activateSimulation}, or {@code null}
+     * when not in simulation mode.
+     *
+     * @return simulated space weather data, or {@code null}
+     */
+    public SimulatedNoaaData getSimulatedData() {
+        return simulatedData;
+    }
+
+    /**
      * Resets the state machine to IDLE with no cached scores.
      *
-     * <p>Intended for testing and admin use only.
+     * <p>Also clears any active simulation. Intended for testing and admin use only.
      */
     public void reset() {
         state = State.IDLE;
@@ -181,5 +244,7 @@ public class AuroraStateCache {
         cachedScores = List.of();
         lastTriggerType = null;
         lastTriggerKp = null;
+        simulated = false;
+        simulatedData = null;
     }
 }

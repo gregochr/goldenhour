@@ -5,10 +5,12 @@ import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, re
 import { enrichBortle } from '../api/auroraApi';
 import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
+import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import MetricsSummary from './MetricsSummary';
 import JobRunsGrid from './JobRunsGrid';
 import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
+import AuroraSimulateModal from './AuroraSimulateModal';
 
 /** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
 const STRATEGY_LABELS = {
@@ -161,6 +163,8 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runningDriveTimes, setRunningDriveTimes] = useState(false);
   const [runningLightPollution, setRunningLightPollution] = useState(false);
   const [showAuroraModal, setShowAuroraModal] = useState(false);
+  const [showSimulateModal, setShowSimulateModal] = useState(false);
+  const { status: auroraStatus } = useAuroraStatus();
   const [runStatus, setRunStatus] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
@@ -433,6 +437,18 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               >
                 🌌 Aurora Forecast
               </button>
+              <button
+                className={`text-sm px-3 py-1.5 font-medium rounded border transition-colors disabled:opacity-50 ${
+                  auroraStatus?.simulated
+                    ? 'border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40'
+                    : 'border-plex-border bg-plex-bg text-plex-text-muted hover:bg-plex-border/30'
+                }`}
+                onClick={() => setShowSimulateModal(true)}
+                title={auroraStatus?.simulated ? 'Simulation active — click to manage' : 'Inject fake NOAA data for UI testing'}
+                data-testid="aurora-simulate-btn"
+              >
+                {auroraStatus?.simulated ? '🧪 Simulated' : '🧪 Simulate'}
+              </button>
             </div>
           </div>
           <div>
@@ -702,6 +718,17 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               message: `Aurora forecast complete: ${nightCount} night${nightCount !== 1 ? 's' : ''}, ${scored} location${scored !== 1 ? 's' : ''} scored. Cost: ${result.estimatedCost ?? '—'}.`,
             });
             loadJobRuns(0);
+          }}
+        />
+      )}
+
+      {/* Aurora simulation modal */}
+      {showSimulateModal && (
+        <AuroraSimulateModal
+          isActive={auroraStatus?.simulated === true}
+          onClose={() => setShowSimulateModal(false)}
+          onSuccess={(msg) => {
+            setRunStatus({ type: 'success', message: msg });
           }}
         />
       )}

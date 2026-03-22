@@ -89,7 +89,7 @@ class AuroraForecastControllerTest {
                 new AuroraForecastPreview.NightPreview(today.plusDays(1), "Tomorrow — Sun 22 Mar",
                         5.0, "G1", true, "Kp 5 expected 22:00–02:00", 34),
                 new AuroraForecastPreview.NightPreview(today.plusDays(2), "Mon 23 Mar",
-                        2.0, null, false, "Quiet — Kp 2", 34)));
+                        2.0, null, false, "Quiet — Kp 2", 34)), false);
         when(forecastRunService.getPreview()).thenReturn(preview);
 
         mockMvc.perform(get("/api/aurora/forecast/preview"))
@@ -108,7 +108,7 @@ class AuroraForecastControllerTest {
     @WithMockUser(roles = "PRO_USER")
     void preview_proUser_returns200() throws Exception {
         when(forecastRunService.getPreview()).thenReturn(
-                new AuroraForecastPreview(List.of()));
+                new AuroraForecastPreview(List.of(), false));
 
         mockMvc.perform(get("/api/aurora/forecast/preview"))
                 .andExpect(status().isOk());

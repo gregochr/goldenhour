@@ -1,8 +1,12 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.AuroraSimulationRequest;
+import com.gregochr.goldenhour.model.AuroraSimulationResponse;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -13,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,29 +44,33 @@ public class AuroraAdminController {
     private final AuroraOrchestrator orchestrator;
     private final JobRunService jobRunService;
     private final Executor forecastExecutor;
+    private final LocationRepository locationRepository;
 
     /**
      * Constructs the admin controller with all aurora management dependencies.
      *
-     * @param enrichmentService enrichment service for populating Bortle classes
-     * @param properties        aurora configuration (provides the API key)
-     * @param stateCache        aurora state machine
-     * @param orchestrator      aurora orchestrator for on-demand NOAA poll cycles
-     * @param jobRunService     job run service for tracking enrichment runs
-     * @param forecastExecutor  executor for running enrichment asynchronously
+     * @param enrichmentService  enrichment service for populating Bortle classes
+     * @param properties         aurora configuration (provides the API key and thresholds)
+     * @param stateCache         aurora state machine
+     * @param orchestrator       aurora orchestrator for on-demand NOAA poll cycles
+     * @param jobRunService      job run service for tracking enrichment runs
+     * @param forecastExecutor   executor for running enrichment asynchronously
+     * @param locationRepository location data access for counting eligible locations
      */
     public AuroraAdminController(BortleEnrichmentService enrichmentService,
             AuroraProperties properties,
             AuroraStateCache stateCache,
             AuroraOrchestrator orchestrator,
             JobRunService jobRunService,
-            Executor forecastExecutor) {
+            Executor forecastExecutor,
+            LocationRepository locationRepository) {
         this.enrichmentService = enrichmentService;
         this.properties = properties;
         this.stateCache = stateCache;
         this.orchestrator = orchestrator;
         this.jobRunService = jobRunService;
         this.forecastExecutor = forecastExecutor;
+        this.locationRepository = locationRepository;
     }
 
     /**
@@ -117,5 +126,62 @@ public class AuroraAdminController {
         stateCache.reset();
         LOG.info("Admin reset aurora state cache to IDLE");
         return ResponseEntity.ok(Map.of("status", "Aurora state machine reset to IDLE"));
+    }
+
+    /**
+     * Activates aurora simulation mode by injecting fake NOAA space weather data into the
+     * state machine without triggering any Claude API calls.
+     *
+     * <p>After calling this endpoint:
+     * <ul>
+     *   <li>The aurora banner appears in the UI with a "(SIMULATED)" indicator.</li>
+     *   <li>The Aurora forecast type becomes available in the Forecast Runs UI.</li>
+     *   <li>The Admin can run a manual Aurora Forecast Run to generate Claude-scored
+     *       location results using real weather data + the simulated geomagnetic values.</li>
+     * </ul>
+     *
+     * <p>The real NOAA polling job continues independently and will overwrite this simulated
+     * state when a real geomagnetic event is detected or simulation is cleared.
+     *
+     * @param request simulated Kp, OVATION, Bz, and G-scale values
+     * @return derived alert level and instructions for next steps
+     */
+    @PostMapping("/simulate")
+    public ResponseEntity<AuroraSimulationResponse> simulateAurora(
+            @RequestBody AuroraSimulationRequest request) {
+        AlertLevel level = AlertLevel.fromKp(request.kp());
+        AuroraStateCache.SimulatedNoaaData simData = new AuroraStateCache.SimulatedNoaaData(
+                request.kp(), request.ovationProbability(), request.bzNanoTesla(), request.gScale());
+        stateCache.activateSimulation(level, simData);
+
+        int bortleThreshold = (level == AlertLevel.STRONG)
+                ? properties.getBortleThreshold().getStrong()
+                : properties.getBortleThreshold().getModerate();
+        int eligibleLocations = locationRepository
+                .findByBortleClassLessThanEqualAndEnabledTrue(bortleThreshold).size();
+
+        String gScaleInfo = request.gScale() != null ? " (" + request.gScale() + ")" : "";
+        String message = String.format(
+                "Simulation active — Kp %.0f%s. Use Forecast Runs → Aurora to generate scores.",
+                request.kp(), gScaleInfo);
+
+        LOG.info("Admin activated aurora simulation — kp={}, level={}, gScale={}",
+                request.kp(), level, request.gScale());
+        return ResponseEntity.ok(new AuroraSimulationResponse(level, message, eligibleLocations));
+    }
+
+    /**
+     * Clears the active aurora simulation, resetting the state machine to IDLE.
+     *
+     * <p>The banner disappears and the aurora UI deactivates. Equivalent to
+     * {@link #resetStateCache()} but semantically distinct for simulation lifecycle management.
+     *
+     * @return confirmation message
+     */
+    @PostMapping("/simulate/clear")
+    public ResponseEntity<Map<String, String>> clearSimulation() {
+        stateCache.reset();
+        LOG.info("Admin cleared aurora simulation — state machine reset to IDLE");
+        return ResponseEntity.ok(Map.of("status", "Aurora simulation cleared"));
     }
 }
