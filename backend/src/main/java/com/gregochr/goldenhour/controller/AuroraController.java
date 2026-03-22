@@ -62,6 +62,7 @@ public class AuroraController {
 
         Double kp = null;
         Double ovation = null;
+        Double bz = null;
         ZonedDateTime updatedAt = null;
 
         try {
@@ -74,6 +75,10 @@ public class AuroraController {
             OvationReading ovationReading = noaaClient.fetchOvation();
             if (ovationReading != null) {
                 ovation = ovationReading.probabilityAtLatitude();
+            }
+            List<com.gregochr.goldenhour.model.SolarWindReading> solarWind = noaaClient.fetchSolarWind();
+            if (!solarWind.isEmpty()) {
+                bz = solarWind.get(solarWind.size() - 1).bzNanoTesla();
             }
         } catch (Exception ignored) {
             // Best-effort enrichment — don't fail the status endpoint over cached data
@@ -93,6 +98,7 @@ public class AuroraController {
                 stateCache.getLastTriggerKp(),
                 triggerTypeStr,
                 ovation,
+                bz,
                 DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC)));
     }

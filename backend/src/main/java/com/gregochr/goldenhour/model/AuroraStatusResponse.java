@@ -25,6 +25,9 @@ import java.time.ZonedDateTime;
  *                           lookahead path, {@code "realtime"} when raised by the night-time
  *                           real-time path, or {@code null} when IDLE
  * @param ovationProbability OVATION aurora probability at 55°N, or {@code null} if unavailable
+ * @param bzNanoTesla        most recent solar wind Bz component in nanoTesla (negative = favourable
+ *                           southward field coupling energy into Earth's magnetosphere), or
+ *                           {@code null} if unavailable
  * @param dataSource         source of the space weather data (e.g. {@code "NOAA SWPC"})
  * @param updatedAt          when the most recent NOAA data was fetched
  */
@@ -38,6 +41,7 @@ public record AuroraStatusResponse(
         Double forecastKp,
         String triggerType,
         Double ovationProbability,
+        Double bzNanoTesla,
         String dataSource,
         ZonedDateTime updatedAt) {
 }

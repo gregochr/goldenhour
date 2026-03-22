@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
@@ -17,6 +18,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.mockito.Mockito.when;
@@ -55,6 +57,7 @@ class AuroraControllerTest {
         // Avoid HTTP calls in tests
         when(noaaClient.fetchKp()).thenReturn(List.of());
         when(noaaClient.fetchOvation()).thenReturn(null);
+        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
     }
 
     // -------------------------------------------------------------------------
@@ -126,6 +129,29 @@ class AuroraControllerTest {
                 .andExpect(jsonPath("$.hexColour").value("#ff9900"))
                 .andExpect(jsonPath("$.active").value(true))
                 .andExpect(jsonPath("$.eligibleLocations").value(2));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status includes bzNanoTesla when solar wind data is available")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_withSolarWind_returnsBz() throws Exception {
+        SolarWindReading reading = new SolarWindReading(ZonedDateTime.now(), -8.3, 450.0, 5.0);
+        when(noaaClient.fetchSolarWind()).thenReturn(List.of(reading));
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bzNanoTesla").value(-8.3));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/status returns null bzNanoTesla when solar wind list is empty")
+    @WithMockUser(roles = {"ADMIN"})
+    void getStatus_noSolarWind_returnsBzNull() throws Exception {
+        when(noaaClient.fetchSolarWind()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/aurora/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bzNanoTesla").doesNotExist());
     }
 
     // -------------------------------------------------------------------------

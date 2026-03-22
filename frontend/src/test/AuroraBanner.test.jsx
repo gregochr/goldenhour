@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import AuroraBanner from '../components/AuroraBanner.jsx';
+import AuroraBanner, { bzStatus } from '../components/AuroraBanner.jsx';
 
 // Mock the useAuroraStatus hook
 vi.mock('../hooks/useAuroraStatus.js', () => ({
@@ -284,5 +284,131 @@ describe('AuroraBanner', () => {
       triggerType: 'realtime',
     });
     expect(screen.getByText(/Kp 5\b/i)).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // bzStatus helper — unit tests
+  // ---------------------------------------------------------------------------
+
+  describe('bzStatus()', () => {
+    it('returns ✅ and "should be visible" for Bz < −5', () => {
+      const result = bzStatus(-9.2);
+      expect(result.emoji).toBe('✅');
+      expect(result.label).toBe('Bz south (-9.2 nT)');
+      expect(result.explanation).toMatch(/should be visible/);
+    });
+
+    it('returns ✅ and "faint aurora possible" for Bz between −5 and −1', () => {
+      const result = bzStatus(-3.1);
+      expect(result.emoji).toBe('✅');
+      expect(result.label).toBe('Bz south (-3.1 nT)');
+      expect(result.explanation).toMatch(/faint aurora possible/);
+    });
+
+    it('returns ➖ and "borderline" for Bz between −1 and 0', () => {
+      const result = bzStatus(-0.5);
+      expect(result.emoji).toBe('➖');
+      expect(result.label).toBe('Bz neutral (-0.5 nT)');
+      expect(result.explanation).toMatch(/borderline/);
+    });
+
+    it('returns ⚠️ and "not coupling" for Bz between 0 and +5', () => {
+      const result = bzStatus(3.2);
+      expect(result.emoji).toBe('⚠️');
+      expect(result.label).toBe('Bz north (+3.2 nT)');
+      expect(result.explanation).toMatch(/not coupling/);
+    });
+
+    it('returns ⚠️ and "firmly north" for Bz > +5', () => {
+      const result = bzStatus(7.8);
+      expect(result.emoji).toBe('⚠️');
+      expect(result.label).toBe('Bz firmly north (+7.8 nT)');
+      expect(result.explanation).toMatch(/blocked/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bz display in banner
+  // ---------------------------------------------------------------------------
+
+  it('shows Bz line when bzNanoTesla is present', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: -9.2,
+    });
+    expect(screen.getByTestId('aurora-banner-bz')).toBeInTheDocument();
+    expect(screen.getByTestId('aurora-banner-bz').textContent).toMatch(/Bz south/);
+  });
+
+  it('does not show Bz line when bzNanoTesla is null', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: null,
+    });
+    expect(screen.queryByTestId('aurora-banner-bz')).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Pulse animation
+  // ---------------------------------------------------------------------------
+
+  it('applies pulse animation when bzNanoTesla < −1', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: -6.0,
+    });
+    const banner = screen.getByTestId('aurora-banner');
+    expect(banner.style.animation).toMatch(/aurora-pulse/);
+  });
+
+  it('does not apply pulse animation when bzNanoTesla is north (+3)', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: 3.0,
+    });
+    const banner = screen.getByTestId('aurora-banner');
+    expect(banner.style.animation).toBeFalsy();
+  });
+
+  it('does not apply pulse animation when bzNanoTesla is borderline (−0.5)', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: -0.5,
+    });
+    const banner = screen.getByTestId('aurora-banner');
+    expect(banner.style.animation).toBeFalsy();
+  });
+
+  it('does not apply pulse animation when bzNanoTesla is null', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: null,
+    });
+    const banner = screen.getByTestId('aurora-banner');
+    expect(banner.style.animation).toBeFalsy();
   });
 });
