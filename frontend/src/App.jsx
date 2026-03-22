@@ -83,6 +83,17 @@ function AppInner() {
     setViewModeState(mode);
     window.location.hash = mode === 'map' ? 'map' : 'manage';
   };
+
+  // React to hash changes (e.g. AuroraBanner setting window.location.hash = 'map')
+  useEffect(() => {
+    function handleHashChange() {
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'map') setViewModeState('map');
+      else if (hash.startsWith('manage') && isAdmin) setViewModeState('manage');
+    }
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
 
   const sortedLocations = useMemo(
