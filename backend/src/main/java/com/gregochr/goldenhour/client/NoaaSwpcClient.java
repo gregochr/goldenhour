@@ -305,7 +305,7 @@ public class NoaaSwpcClient {
     OvationReading parseOvation(String json, double targetLat) throws Exception {
         JsonNode root = mapper.readTree(json);
 
-        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asText())
+        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asText(""))
                 .orElseGet(() -> ZonedDateTime.now(ZoneOffset.UTC));
 
         int targetLatInt = (int) Math.round(targetLat);
@@ -408,10 +408,10 @@ public class NoaaSwpcClient {
         JsonNode root = mapper.readTree(json);
         List<SpaceWeatherAlert> result = new ArrayList<>();
         for (JsonNode alert : root) {
-            String type = alert.path("message_type").asText();
-            String id = alert.path("message_id").asText();
-            String issuedStr = alert.path("issue_datetime").asText();
-            String message = alert.path("message").asText();
+            String type = alert.path("message_type").asText("");
+            String id = alert.path("message_id").asText("");
+            String issuedStr = alert.path("issue_datetime").asText("");
+            String message = alert.path("message").asText("");
             ZonedDateTime issued = parseUtcDateTime(issuedStr)
                     .orElseGet(() -> ZonedDateTime.now(ZoneOffset.UTC));
             result.add(new SpaceWeatherAlert(type, id, issued, message));
