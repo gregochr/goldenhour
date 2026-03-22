@@ -48,3 +48,4 @@ backend/data/
 .claude/
 backend/.claude/
 backend/.m2/repository
+backend/.m2/settings.xml
