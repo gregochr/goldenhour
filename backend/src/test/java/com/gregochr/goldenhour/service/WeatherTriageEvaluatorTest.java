@@ -138,10 +138,11 @@ class WeatherTriageEvaluatorTest {
                 TargetType.SUNRISE,
                 new CloudData(lowCloud, 20, highCloud),
                 new WeatherData(visibility, new BigDecimal("3.0"), 180, precip,
-                        60, 1, BigDecimal.ZERO),
+                        60, 1, BigDecimal.ZERO, null),
                 new AerosolData(BigDecimal.TEN, BigDecimal.ONE, new BigDecimal("0.1"), 250),
                 new ComfortData(10.0, 8.0, 20),
                 dc,
+                null,
                 null,
                 null
         );

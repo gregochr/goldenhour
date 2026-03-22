@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
@@ -97,6 +98,30 @@ public class PromptBuilder {
             + "If directional data is not provided, fall back to altitude-based inference: "
             + "low cloud (0-3km) sits near the horizon and blocks light; mid (3-8km) and high "
             + "(8+km) cloud sits above and catches it. Ideal: low cloud <30% with mid/high 20-60%.\n\n"
+            + "MIST AND VISIBILITY GUIDANCE: when a 'MIST/VISIBILITY TREND' block is provided, "
+            + "use it to reason about mist dynamics across the event window.\n"
+            + "The temp-dew gap = temperature - dew_point. Smaller gap = higher moisture:\n"
+            + "  - gap > 5\u00b0C: dry air, clear conditions likely\n"
+            + "  - gap 2-5\u00b0C: moderate moisture, some haze possible\n"
+            + "  - gap < 2\u00b0C: mist or fog likely\n"
+            + "  - gap \u2248 0\u00b0C: fog forming or present\n"
+            + "CRITICAL: mist is NOT always negative for photography. Interpret the COMBINATION:\n"
+            + "POSITIVE (score UP): thin ground mist (visibility 2-8 km) with clear sky above "
+            + "(low cloud_cover_low < 30%) at sunrise \u2014 light shafts, atmospheric glow, layering. "
+            + "Mist in valleys from an elevated viewpoint \u2014 potential cloud inversion. "
+            + "Mist burning off as sun rises (visibility IMPROVING in trend) \u2014 dramatic transition. "
+            + "Patchy low cloud (20-50%) with breaks \u2014 crepuscular rays.\n"
+            + "NEGATIVE (score DOWN): dense fog (visibility < 1 km) with no trend toward clearing "
+            + "\u2014 can't see the sun. High cloud_cover_low (> 80%) at ground level \u2014 uniform grey. "
+            + "Thick haze (2-5 km) WITH mid/high cloud \u2014 flat contrast, muddy light.\n"
+            + "SUNSET SPECIFIC: temperature typically falls toward dew point during sunset \u2014 "
+            + "mist may FORM during golden hour, creating dramatic evolving conditions. "
+            + "Watch for narrowing temp-dew gap in the T+1h/T+2h slots.\n"
+            + "SUNRISE SPECIFIC: mist is often already present and burns off as sun warms the air. "
+            + "Watch for IMPROVING visibility trend (T-3h dark, then clearing) \u2014 the transition "
+            + "window is the photographic opportunity. Visibility worsening toward event = fog risk.\n"
+            + "When mist is a positive factor, convey urgency in the summary: 'atmospheric', "
+            + "'ethereal', 'light shafts possible', 'potential for dramatic mist layers'.\n\n"
             + "For coastal locations, tide data may be provided. When available:\n"
             + "- High tide can expose dramatic rock formations and alter water colour\n"
             + "- Low tide may reveal sand patterns and new horizon details\n"
@@ -188,11 +213,19 @@ public class PromptBuilder {
         var comfort = data.comfort();
 
         StringBuilder sb = new StringBuilder();
+        String dewPointStr = w.dewPointCelsius() != null
+                ? String.format("%.1f\u00b0C (gap %.1f\u00b0C)",
+                        w.dewPointCelsius(),
+                        comfort.temperatureCelsius() != null
+                                ? comfort.temperatureCelsius() - w.dewPointCelsius() : Double.NaN)
+                : "N/A";
+
         sb.append(String.format(
                 "Location: %s. %s: %s UTC.%n"
                 + "Cloud: Low %d%%, Mid %d%%, High %d%%%n"
                 + "Visibility: %,dm, Wind: %.2f m/s (%d\u00b0), Precip: %.2fmm%n"
                 + "Humidity: %d%%, Precip probability: %s%%%n"
+                + "Dew point: %s%n"
                 + "Weather code: %d%n"
                 + "Boundary layer: %dm, Shortwave: %.0f W/m\u00b2%n"
                 + "PM2.5: %s\u00b5g/m\u00b3, Dust: %s\u00b5g/m\u00b3, AOD: %s",
@@ -202,6 +235,7 @@ public class PromptBuilder {
                 w.precipitationMm(),
                 w.humidityPercent(),
                 comfort.precipitationProbability() != null ? comfort.precipitationProbability() : "N/A",
+                dewPointStr,
                 w.weatherCode(),
                 a.boundaryLayerHeightMetres(), w.shortwaveRadiationWm2(),
                 a.pm25(), a.dustUgm3(), a.aerosolOpticalDepth()));
@@ -263,6 +297,28 @@ public class PromptBuilder {
                         upwind.distanceKm(), upwind.windFromBearing(),
                         toCardinal(upwind.windFromBearing()),
                         upwind.currentLowCloudPercent(), upwind.eventLowCloudPercent()));
+            }
+        }
+
+        // Mist/visibility trend block — hourly series from T-3h to T+2h
+        MistTrend mistTrend = data.mistTrend();
+        if (mistTrend != null && !mistTrend.slots().isEmpty()) {
+            sb.append(String.format("%nMIST/VISIBILITY TREND (T-3h to T+2h):"));
+            for (MistTrend.MistSlot slot : mistTrend.slots()) {
+                String label = slot.hoursRelativeToEvent() == 0 ? "event"
+                        : (slot.hoursRelativeToEvent() < 0 ? "T" + slot.hoursRelativeToEvent() + "h"
+                        : "T+" + slot.hoursRelativeToEvent() + "h");
+                double gap = slot.temperatureCelsius() - slot.dewPointCelsius();
+                String gapLabel = gap < 1.0 ? " [AT/NEAR DEW POINT]"
+                        : gap < 2.0 ? " [NEAR DEW POINT]"
+                        : "";
+                sb.append(String.format(" %s: vis=%,dm temp=%.1f\u00b0C dew=%.1f\u00b0C (gap=%.1f\u00b0C)%s",
+                        label,
+                        slot.visibilityMetres(),
+                        slot.temperatureCelsius(),
+                        slot.dewPointCelsius(),
+                        gap,
+                        gapLabel));
             }
         }
 

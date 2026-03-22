@@ -526,6 +526,7 @@ public class ForecastService {
                 .temperatureCelsius(data.comfort().temperatureCelsius())
                 .apparentTemperatureCelsius(data.comfort().apparentTemperatureCelsius())
                 .precipitationProbabilityPercent(data.comfort().precipitationProbability())
+                .dewPointCelsius(data.weather().dewPointCelsius())
                 .tideState(tide != null ? tide.tideState() : null)
                 .nextHighTideTime(tide != null ? tide.nextHighTideTime() : null)
                 .nextHighTideHeightMetres(tide != null ? tide.nextHighTideHeightMetres() : null)

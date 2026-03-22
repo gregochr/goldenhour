@@ -48,6 +48,7 @@ import java.time.LocalDateTime;
  * @param temperatureCelsius             air temperature at 2 m in °C
  * @param apparentTemperatureCelsius     feels-like temperature in °C
  * @param precipitationProbabilityPercent precipitation probability %
+ * @param dewPointCelsius                dew point at 2 m in °C (nullable for historical rows)
  * @param tideState                      tide state at event time (nullable for inland)
  * @param nextHighTideTime               UTC time of next high tide (nullable)
  * @param nextHighTideHeightMetres       height of next high tide in metres (nullable)
@@ -100,6 +101,7 @@ public record ForecastEvaluationDto(
         Double temperatureCelsius,
         Double apparentTemperatureCelsius,
         Integer precipitationProbabilityPercent,
+        Double dewPointCelsius,
         TideState tideState,
         LocalDateTime nextHighTideTime,
         BigDecimal nextHighTideHeightMetres,

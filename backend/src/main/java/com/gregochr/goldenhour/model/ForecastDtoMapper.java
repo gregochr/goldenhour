@@ -88,6 +88,7 @@ public class ForecastDtoMapper {
                 entity.getTemperatureCelsius(),
                 entity.getApparentTemperatureCelsius(),
                 entity.getPrecipitationProbabilityPercent(),
+                entity.getDewPointCelsius(),
                 entity.getTideState(),
                 entity.getNextHighTideTime(),
                 entity.getNextHighTideHeightMetres(),

@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.WeatherData;
 
@@ -42,9 +43,11 @@ public final class TestAtmosphericData {
     private Double temperature = null;
     private Double apparentTemperature = null;
     private Integer precipProbability = null;
+    private Double dewPoint = null;
     private DirectionalCloudData directionalCloud = null;
     private TideSnapshot tide = null;
     private CloudApproachData cloudApproach = null;
+    private MistTrend mistTrend = null;
 
     private TestAtmosphericData() {
     }
@@ -167,6 +170,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData dewPoint(Double val) {
+        this.dewPoint = val;
+        return this;
+    }
+
     public TestAtmosphericData directionalCloud(DirectionalCloudData val) {
         this.directionalCloud = val;
         return this;
@@ -182,6 +190,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData mistTrend(MistTrend val) {
+        this.mistTrend = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -192,9 +205,9 @@ public final class TestAtmosphericData {
                 locationName, solarEventTime, targetType,
                 new CloudData(lowCloud, midCloud, highCloud),
                 new WeatherData(visibility, windSpeed, windDirection,
-                        precipitation, humidity, weatherCode, shortwaveRadiation),
+                        precipitation, humidity, weatherCode, shortwaveRadiation, dewPoint),
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
-                directionalCloud, tide, cloudApproach);
+                directionalCloud, tide, cloudApproach, mistTrend);
     }
 }

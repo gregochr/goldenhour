@@ -69,5 +69,8 @@ public class OpenMeteoForecastResponse {
 
         @JsonProperty("precipitation_probability")
         private List<Integer> precipitationProbability;
+
+        @JsonProperty("dew_point_2m")
+        private List<Double> dewPoint2m;
     }
 }

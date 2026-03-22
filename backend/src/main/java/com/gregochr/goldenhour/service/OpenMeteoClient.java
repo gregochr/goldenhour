@@ -25,7 +25,7 @@ public class OpenMeteoClient {
             "cloud_cover_low,cloud_cover_mid,cloud_cover_high,visibility,"
             + "wind_speed_10m,wind_direction_10m,precipitation,weather_code,"
             + "relative_humidity_2m,surface_pressure,shortwave_radiation,boundary_layer_height,"
-            + "temperature_2m,apparent_temperature,precipitation_probability";
+            + "temperature_2m,apparent_temperature,precipitation_probability,dew_point_2m";
 
     /** Comma-separated cloud-only parameters for directional horizon sampling. */
     static final String CLOUD_ONLY_PARAMS = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";

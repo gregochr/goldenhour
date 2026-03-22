@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
  * @param directionalCloud cloud cover at solar/antisolar horizon points, or null if unavailable
  * @param tide             tide state snapshot, or null for inland locations
  * @param cloudApproach    cloud approach risk signals, or null if unavailable
+ * @param mistTrend        hourly visibility and dew point trend around the event, or null
  */
 public record AtmosphericData(
         String locationName,
@@ -31,7 +32,8 @@ public record AtmosphericData(
         ComfortData comfort,
         DirectionalCloudData directionalCloud,
         TideSnapshot tide,
-        CloudApproachData cloudApproach) {
+        CloudApproachData cloudApproach,
+        MistTrend mistTrend) {
 
     /**
      * Returns a copy with directional cloud data set.
@@ -41,7 +43,7 @@ public record AtmosphericData(
      */
     public AtmosphericData withDirectionalCloud(DirectionalCloudData dc) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, dc, tide, cloudApproach);
+                cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend);
     }
 
     /**
@@ -52,7 +54,8 @@ public record AtmosphericData(
      */
     public AtmosphericData withTide(TideSnapshot tideSnapshot) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach);
+                cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
+                mistTrend);
     }
 
     /**
@@ -63,6 +66,6 @@ public record AtmosphericData(
      */
     public AtmosphericData withCloudApproach(CloudApproachData approach) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, directionalCloud, tide, approach);
+                cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend);
     }
 }

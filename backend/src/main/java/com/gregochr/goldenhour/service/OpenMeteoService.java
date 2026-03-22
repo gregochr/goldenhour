@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
+import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
@@ -64,6 +65,12 @@ public class OpenMeteoService {
 
     /** Number of hours before the event to sample for the solar trend. */
     private static final int TREND_HOURS_BACK = 3;
+
+    /** Number of hours before the event to include in the mist/visibility trend. */
+    private static final int MIST_TREND_HOURS_BACK = 3;
+
+    /** Number of hours after the event to include in the mist/visibility trend. */
+    private static final int MIST_TREND_HOURS_FORWARD = 2;
 
     /**
      * Half-angle of the sampling cone for the solar horizon direction (degrees).
@@ -300,7 +307,8 @@ public class OpenMeteoService {
                 h.getRelativeHumidity2m().get(idx),
                 h.getWeatherCode().get(idx),
                 BigDecimal.valueOf(h.getShortwaveRadiation().get(idx))
-                        .setScale(RADIATION_SCALE, RoundingMode.HALF_UP));
+                        .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
+                getDoubleValue(h.getDewPoint2m(), idx));
 
         AerosolData aerosol = new AerosolData(
                 toDecimal(pm25Raw, PRECIP_SCALE),
@@ -313,12 +321,15 @@ public class OpenMeteoService {
                 getDoubleValue(h.getApparentTemperature(), idx),
                 getIntegerValue(h.getPrecipitationProbability(), idx));
 
+        MistTrend mistTrend = extractMistTrend(h, idx);
+
         return new AtmosphericData(
                 locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort,
                 null,  // directionalCloud — populated later for colour locations
                 null,  // tide — populated later for coastal locations
-                null); // cloudApproach — populated later if directional data available
+                null,  // cloudApproach — populated later if directional data available
+                mistTrend);
     }
 
     /**
@@ -588,6 +599,46 @@ public class OpenMeteoService {
             }
             return null;
         }
+    }
+
+    /**
+     * Extracts an hourly visibility and dew point trend from T-3h through T+2h.
+     *
+     * <p>Data is sourced from the already-fetched main forecast response — no additional
+     * API call required. Returns {@code null} if dew point or visibility data is absent.
+     *
+     * <p>Package-private for unit testing.
+     *
+     * @param h        the hourly forecast arrays from Open-Meteo
+     * @param eventIdx the slot index corresponding to the solar event time
+     * @return the trend, or {@code null} if data is insufficient
+     */
+    MistTrend extractMistTrend(OpenMeteoForecastResponse.Hourly h, int eventIdx) {
+        List<Double> vis = h.getVisibility();
+        List<Double> dew = h.getDewPoint2m();
+        List<Double> temp = h.getTemperature2m();
+
+        if (vis == null || dew == null || temp == null) {
+            return null;
+        }
+
+        List<MistTrend.MistSlot> slots = new ArrayList<>();
+        for (int offset = -MIST_TREND_HOURS_BACK; offset <= MIST_TREND_HOURS_FORWARD; offset++) {
+            int idx = eventIdx + offset;
+            if (idx >= 0 && idx < vis.size() && idx < dew.size() && idx < temp.size()) {
+                Double dewVal = dew.get(idx);
+                Double tempVal = temp.get(idx);
+                if (dewVal != null && tempVal != null) {
+                    slots.add(new MistTrend.MistSlot(
+                            offset,
+                            vis.get(idx).intValue(),
+                            dewVal,
+                            tempVal));
+                }
+            }
+        }
+
+        return slots.isEmpty() ? null : new MistTrend(slots);
     }
 
     /**

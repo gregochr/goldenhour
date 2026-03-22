@@ -134,6 +134,10 @@ public class ForecastEvaluationEntity {
     @Column(name = "temperature_celsius")
     private Double temperatureCelsius;
 
+    /** Dew point at 2 m above ground in °C. Null for historical rows. */
+    @Column(name = "dew_point_celsius")
+    private Double dewPointCelsius;
+
     /** Apparent (feels-like) temperature at 2 m above ground in °C. Populated for all models. */
     @Column(name = "apparent_temperature_celsius")
     private Double apparentTemperatureCelsius;

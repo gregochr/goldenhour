@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
+import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
@@ -305,5 +306,91 @@ public class PromptBuilderTest {
                 .contains("CLOUD APPROACH RISK:")
                 .contains("Solar trend")
                 .contains("Upwind sample");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with dew point includes dew point and gap in weather block")
+    void buildUserMessage_withDewPoint_includesDewPointAndGap() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(5.8)
+                .dewPoint(2.2)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Dew point:")
+                .contains("2.2")
+                .contains("gap");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage without dew point shows N/A")
+    void buildUserMessage_noDewPoint_showsNa() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).contains("Dew point: N/A");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with mist trend includes mist trend block")
+    void buildUserMessage_withMistTrend_includesMistBlock() {
+        MistTrend mistTrend = new MistTrend(java.util.List.of(
+                new MistTrend.MistSlot(-2, 15000, 1.0, 6.0),
+                new MistTrend.MistSlot(-1, 8000, 2.0, 4.0),
+                new MistTrend.MistSlot(0, 4200, 2.2, 3.8)
+        ));
+        AtmosphericData data = TestAtmosphericData.builder()
+                .mistTrend(mistTrend)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("MIST/VISIBILITY TREND")
+                .contains("T-2h")
+                .contains("T-1h")
+                .contains("event")
+                .contains("4,200m")
+                .contains("gap=");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage near-dew-point slot gets [NEAR DEW POINT] label")
+    void buildUserMessage_nearDewPointSlot_getsLabel() {
+        MistTrend mistTrend = new MistTrend(java.util.List.of(
+                new MistTrend.MistSlot(0, 3000, 5.8, 6.5) // gap = 0.7°C → AT/NEAR DEW POINT
+        ));
+        AtmosphericData data = TestAtmosphericData.builder()
+                .mistTrend(mistTrend)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).contains("[AT/NEAR DEW POINT]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage without mist trend omits mist block")
+    void buildUserMessage_noMistTrend_omitsMistBlock() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("MIST/VISIBILITY TREND");
+    }
+
+    @Test
+    @DisplayName("getSystemPrompt contains mist and visibility guidance")
+    void getSystemPrompt_containsMistGuidance() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("MIST AND VISIBILITY GUIDANCE")
+                .contains("temp-dew gap")
+                .contains("SUNRISE SPECIFIC")
+                .contains("SUNSET SPECIFIC");
     }
 }

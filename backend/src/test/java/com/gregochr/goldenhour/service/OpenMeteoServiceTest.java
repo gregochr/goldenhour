@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.BeforeEach;
@@ -367,7 +368,8 @@ class OpenMeteoServiceTest {
             List<Double> precip, List<Integer> weatherCode, List<Integer> humidity,
             List<Double> boundaryLayer, List<Double> shortwave) {
         return buildForecastResponse(time, cloudLow, cloudMid, cloudHigh, visibility, windSpeed,
-                windDir, precip, weatherCode, humidity, boundaryLayer, shortwave, null, null, null);
+                windDir, precip, weatherCode, humidity, boundaryLayer, shortwave,
+                null, null, null, null);
     }
 
     private OpenMeteoForecastResponse buildForecastResponse(
@@ -377,7 +379,7 @@ class OpenMeteoServiceTest {
             List<Double> precip, List<Integer> weatherCode, List<Integer> humidity,
             List<Double> boundaryLayer, List<Double> shortwave,
             List<Double> temperature, List<Double> apparentTemperature,
-            List<Integer> precipProbability) {
+            List<Integer> precipProbability, List<Double> dewPoint2m) {
 
         OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
@@ -396,6 +398,7 @@ class OpenMeteoServiceTest {
         hourly.setTemperature2m(temperature);
         hourly.setApparentTemperature(apparentTemperature);
         hourly.setPrecipitationProbability(precipProbability);
+        hourly.setDewPoint2m(dewPoint2m);
         response.setHourly(hourly);
         return response;
     }
@@ -411,7 +414,7 @@ class OpenMeteoServiceTest {
                 List.of(20000.0), List.of(4.0), List.of(225),
                 List.of(0.0), List.of(1), List.of(60),
                 List.of(1000.0), List.of(100.0),
-                List.of(14.5), List.of(11.2), List.of(35));
+                List.of(14.5), List.of(11.2), List.of(35), null);
 
         OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
                 List.of("2026-06-21T20:47"),
@@ -436,7 +439,7 @@ class OpenMeteoServiceTest {
                 List.of(20000.0), List.of(4.0), List.of(225),
                 List.of(0.0), List.of(1), List.of(60),
                 List.of(1000.0), List.of(100.0),
-                null, null, null);
+                null, null, null, null);
 
         OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
                 List.of("2026-06-21T20:47"),
@@ -462,7 +465,7 @@ class OpenMeteoServiceTest {
                 List.of(20000.0, 21000.0), List.of(3.0, 4.0), List.of(225, 240),
                 List.of(0.0, 0.0), List.of(1, 1), List.of(60, 65),
                 List.of(1000.0, 1100.0), List.of(100.0, 120.0),
-                List.of(12.0, 13.0), List.of(10.0, 11.0), List.of(20, 25));
+                List.of(12.0, 13.0), List.of(10.0, 11.0), List.of(20, 25), null);
 
         OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
                 List.of("2026-06-21T03:00", "2026-06-21T04:00"),
@@ -768,6 +771,113 @@ class OpenMeteoServiceTest {
         assertThat(sample.windFromBearing()).isEqualTo(228);
         assertThat(sample.currentLowCloudPercent()).isEqualTo(80);
         assertThat(sample.eventLowCloudPercent()).isEqualTo(15);
+    }
+
+    // --- dew point and mist trend tests ---
+
+    @Test
+    @DisplayName("extractAtmosphericData() populates dewPointCelsius from API response")
+    void extractAtmosphericData_populatesDewPoint() {
+        // Use SUNSET at 18:30 — selects slot at or before event, so index 0 (18:00)
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 3, 21, 18, 30, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-03-21T18:00", "2026-03-21T19:00"),
+                List.of(5, 10), List.of(20, 25), List.of(30, 35),
+                List.of(4200.0, 6500.0), List.of(3.0, 4.0), List.of(180, 200),
+                List.of(0.0, 0.0), List.of(1, 1), List.of(94, 90),
+                List.of(500.0, 600.0), List.of(10.0, 20.0),
+                List.of(3.8, 5.2), List.of(2.5, 3.8), List.of(10, 15),
+                List.of(2.2, 3.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-03-21T18:00", "2026-03-21T19:00"),
+                List.of(2.0, 2.5), List.of(0.5, 0.6), List.of(0.05, 0.06));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Embleton Bay", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.weather().dewPointCelsius()).isEqualTo(2.2);
+    }
+
+    @Test
+    @DisplayName("extractAtmosphericData() returns null dewPointCelsius when not in response")
+    void extractAtmosphericData_nullDewPoint_returnsNull() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 3, 21, 6, 15, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-03-21T06:00"),
+                List.of(5), List.of(20), List.of(30),
+                List.of(4200.0), List.of(3.0), List.of(180),
+                List.of(0.0), List.of(1), List.of(94),
+                List.of(500.0), List.of(10.0),
+                List.of(3.8), List.of(2.5), List.of(10),
+                null);
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-03-21T06:00"),
+                List.of(2.0), List.of(0.5), List.of(0.05));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Embleton Bay", solarEvent, TargetType.SUNRISE);
+
+        assertThat(result.weather().dewPointCelsius()).isNull();
+    }
+
+    @Test
+    @DisplayName("extractMistTrend() extracts T-3h to T+2h visibility and dew point slots")
+    void extractMistTrend_extractsSixSlots() {
+        // 7 hourly slots from index 0 (T-3h) to 6 (T+3h); event at index 3
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setTime(List.of("2026-03-21T03:00", "2026-03-21T04:00", "2026-03-21T05:00",
+                "2026-03-21T06:00", "2026-03-21T07:00", "2026-03-21T08:00", "2026-03-21T09:00"));
+        h.setVisibility(List.of(20000.0, 15000.0, 8000.0, 4200.0, 2500.0, 1800.0, 3000.0));
+        h.setDewPoint2m(List.of(1.0, 1.5, 2.0, 2.2, 2.3, 2.4, 2.2));
+        h.setTemperature2m(List.of(6.0, 5.5, 4.5, 3.8, 3.2, 3.1, 3.5));
+
+        MistTrend trend = openMeteoService.extractMistTrend(h, 3);
+
+        assertThat(trend).isNotNull();
+        assertThat(trend.slots()).hasSize(6); // T-3h through T+2h
+        assertThat(trend.slots().get(0).hoursRelativeToEvent()).isEqualTo(-3);
+        assertThat(trend.slots().get(0).visibilityMetres()).isEqualTo(20000);
+        assertThat(trend.slots().get(3).hoursRelativeToEvent()).isEqualTo(0); // event slot
+        assertThat(trend.slots().get(3).visibilityMetres()).isEqualTo(4200);
+        assertThat(trend.slots().get(3).dewPointCelsius()).isEqualTo(2.2);
+        assertThat(trend.slots().get(3).temperatureCelsius()).isEqualTo(3.8);
+        // gap at event = 3.8 - 2.2 = 1.6°C (near dew point)
+        assertThat(trend.slots().get(3).temperatureCelsius() - trend.slots().get(3).dewPointCelsius())
+                .isCloseTo(1.6, org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    @Test
+    @DisplayName("extractMistTrend() returns null when dew point data is absent")
+    void extractMistTrend_noDewPointData_returnsNull() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setTime(List.of("2026-03-21T06:00"));
+        h.setVisibility(List.of(4200.0));
+        // dewPoint2m not set (null)
+
+        MistTrend trend = openMeteoService.extractMistTrend(h, 0);
+
+        assertThat(trend).isNull();
+    }
+
+    @Test
+    @DisplayName("extractMistTrend() handles event near start of data with fewer back-slots")
+    void extractMistTrend_nearStartOfData_returnsAvailableSlots() {
+        OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+        h.setTime(List.of("2026-03-21T06:00", "2026-03-21T07:00", "2026-03-21T08:00"));
+        h.setVisibility(List.of(8000.0, 6000.0, 4000.0));
+        h.setDewPoint2m(List.of(2.0, 2.2, 2.5));
+        h.setTemperature2m(List.of(4.5, 4.0, 3.5));
+
+        // Event at index 0 — no slots before it, T+1h and T+2h available
+        MistTrend trend = openMeteoService.extractMistTrend(h, 0);
+
+        assertThat(trend).isNotNull();
+        assertThat(trend.slots()).hasSize(3); // only event, T+1h, T+2h
+        assertThat(trend.slots().get(0).hoursRelativeToEvent()).isEqualTo(0);
     }
 
     private OpenMeteoForecastResponse buildCloudOnlyResponse(
