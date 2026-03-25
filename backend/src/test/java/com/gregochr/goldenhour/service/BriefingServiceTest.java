@@ -24,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -340,18 +341,64 @@ class BriefingServiceTest {
     @DisplayName("Headline generation")
     class HeadlineTests {
 
-        @Test
-        @DisplayName("Best region highlighted in headline")
-        void bestRegionHeadline() {
-            BriefingRegion goRegion = new BriefingRegion("Lake District",
-                    Verdict.GO, "Clear skies", List.of(), List.of());
-            BriefingRegion standdownRegion = new BriefingRegion("Northumberland",
-                    Verdict.STANDDOWN, "Rain everywhere", List.of(), List.of());
+        // --- past-event filtering ---
 
-            LocalDate today = LocalDate.now();
+        @Test
+        @DisplayName("Past today event is skipped; tomorrow shown instead")
+        void pastTodayEventSkipped() {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate tomorrow = today.plusDays(1);
+            LocalDateTime pastTime = LocalDateTime.now(ZoneOffset.UTC).minusHours(1);
+            LocalDateTime futureTime = LocalDateTime.now(ZoneOffset.UTC).plusHours(8);
+
+            BriefingRegion todayRegion = new BriefingRegion("Northumberland",
+                    Verdict.GO, "Clear", List.of(),
+                    List.of(slotAt("Bamburgh", Verdict.GO, pastTime)));
+            BriefingRegion tomorrowRegion = new BriefingRegion("Lake District",
+                    Verdict.GO, "Clear", List.of(),
+                    List.of(slotAt("Keswick", Verdict.GO, futureTime)));
+
+            BriefingDay todayDay = new BriefingDay(today, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(todayRegion), List.of())));
+            BriefingDay tomorrowDay = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(tomorrowRegion), List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(todayDay, tomorrowDay));
+            assertThat(headline).contains("Tomorrow");
+            assertThat(headline).contains("Lake District");
+            assertThat(headline).doesNotContain("Northumberland");
+        }
+
+        @Test
+        @DisplayName("Future today event is not skipped")
+        void futureTodayEventNotSkipped() {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDateTime futureTime = LocalDateTime.now(ZoneOffset.UTC).plusHours(2);
+
+            BriefingRegion region = new BriefingRegion("Northumberland",
+                    Verdict.GO, "Clear", List.of(),
+                    List.of(slotAt("Bamburgh", Verdict.GO, futureTime)));
+            BriefingDay day = new BriefingDay(today, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(day));
+            assertThat(headline).contains("Today");
+            assertThat(headline).contains("Northumberland");
+        }
+
+        // --- headline content by GO region count ---
+
+        @Test
+        @DisplayName("Single GO region — names region in headline")
+        void singleGoRegion() {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            BriefingRegion region = new BriefingRegion("Lake District",
+                    Verdict.GO, "Clear skies", List.of(), List.of());
+            BriefingRegion standdown = new BriefingRegion("Northumberland",
+                    Verdict.STANDDOWN, "Rain", List.of(), List.of());
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET,
-                            List.of(goRegion, standdownRegion), List.of())));
+                            List.of(region, standdown), List.of())));
 
             String headline = briefingService.generateHeadline(List.of(day));
             assertThat(headline).contains("Lake District");
@@ -359,14 +406,103 @@ class BriefingServiceTest {
         }
 
         @Test
-        @DisplayName("Standdown headline when no good conditions")
+        @DisplayName("Two GO regions — both named in headline")
+        void twoGoRegions() {
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
+                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of())
+                    ), List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(day));
+            assertThat(headline).contains("Northumberland");
+            assertThat(headline).contains("Lake District");
+            assertThat(headline).contains("sunrise");
+        }
+
+        @Test
+        @DisplayName("Three GO regions — top region + count shown")
+        void threeGoRegions() {
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
+                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of()),
+                            new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of())
+                    ), List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(day));
+            assertThat(headline).contains("Northumberland");
+            assertThat(headline).contains("2 more");
+        }
+
+        @Test
+        @DisplayName("Five or more GO regions — excellent headline with count")
+        void fiveOrMoreGoRegions() {
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            List<BriefingRegion> regions = List.of(
+                    new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
+                    new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of()),
+                    new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of()),
+                    new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of()),
+                    new BriefingRegion("Teesdale", Verdict.GO, "Clear", List.of(), List.of()),
+                    new BriefingRegion("North York Moors", Verdict.GO, "Clear", List.of(), List.of())
+            );
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, regions, List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(day));
+            assertThat(headline).contains("6");
+            assertThat(headline).contains("sunrise");
+            assertThat(headline).containsIgnoringCase("excellent");
+        }
+
+        @Test
+        @DisplayName("Today preferred over tomorrow even with fewer GO regions")
+        void todayPreferredOverTomorrow() {
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate tomorrow = today.plusDays(1);
+
+            BriefingDay todayDay = new BriefingDay(today, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of())
+                    ), List.of())));
+            BriefingDay tomorrowDay = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
+                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of()),
+                            new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of())
+                    ), List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(todayDay, tomorrowDay));
+            assertThat(headline).contains("Today");
+        }
+
+        // --- marginal / standdown ---
+
+        @Test
+        @DisplayName("Marginal only — marginal headline returned")
+        void marginalOnlyHeadline() {
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingRegion region = new BriefingRegion("Northumberland",
+                    Verdict.MARGINAL, "Patchy cloud", List.of(), List.of());
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
+
+            String headline = briefingService.generateHeadline(List.of(day));
+            assertThat(headline).containsIgnoringCase("marginal");
+            assertThat(headline).contains("Northumberland");
+        }
+
+        @Test
+        @DisplayName("Standdown headline when no good conditions anywhere")
         void standdownHeadline() {
             BriefingRegion region = new BriefingRegion("Northumberland",
                     Verdict.STANDDOWN, "Rain everywhere", List.of(), List.of());
-            LocalDate today = LocalDate.now();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
             BriefingDay day = new BriefingDay(today, List.of(
-                    new BriefingEventSummary(TargetType.SUNSET,
-                            List.of(region), List.of())));
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
 
             String headline = briefingService.generateHeadline(List.of(day));
             assertThat(headline).isEqualTo("No promising conditions in the next two days");

@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -551,40 +552,109 @@ public class BriefingService {
     }
 
     /**
-     * Generates a headline summarising the best opportunities across all days and events.
+     * Generates a headline summarising the best upcoming opportunities across all days and events.
+     *
+     * <p>Past solar events (where the slot time has already elapsed) are excluded so the
+     * headline always reflects conditions that are still actionable.
      *
      * @param days the briefing days
      * @return one-line headline
      */
     String generateHeadline(List<BriefingDay> days) {
-        // Find the best region-event combination
-        String bestRegion = null;
-        String bestEvent = null;
-        String bestDay = null;
-        Verdict bestVerdict = Verdict.STANDDOWN;
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
+        record EventOpp(LocalDate date, TargetType event, List<BriefingRegion> goRegions) { }
+
+        List<EventOpp> goOpps = new ArrayList<>();
         for (BriefingDay day : days) {
             for (BriefingEventSummary es : day.eventSummaries()) {
-                for (BriefingRegion region : es.regions()) {
-                    if (isBetterVerdict(region.verdict(), bestVerdict)) {
-                        bestVerdict = region.verdict();
-                        bestRegion = region.regionName();
-                        bestEvent = es.targetType() == TargetType.SUNRISE ? "sunrise" : "sunset";
-                        boolean isToday = day.date().equals(LocalDate.now(ZoneOffset.UTC));
-                        bestDay = isToday ? "Today" : "Tomorrow";
-                    }
+                if (day.date().equals(today) && isEventPast(es, now)) {
+                    continue;
+                }
+                List<BriefingRegion> goRegions = es.regions().stream()
+                        .filter(r -> r.verdict() == Verdict.GO)
+                        .toList();
+                if (!goRegions.isEmpty()) {
+                    goOpps.add(new EventOpp(day.date(), es.targetType(), goRegions));
                 }
             }
         }
 
-        if (bestRegion == null || bestVerdict == Verdict.STANDDOWN) {
-            return "No promising conditions in the next two days";
+        if (goOpps.isEmpty()) {
+            return findMarginalHeadline(days, today, now);
         }
 
-        if (bestVerdict == Verdict.GO) {
-            return bestDay + " " + bestEvent + " looks promising in " + bestRegion;
+        // Today beats tomorrow; within same day, more GO regions wins
+        goOpps.sort(Comparator
+                .comparingInt((EventOpp o) -> o.date().equals(today) ? 0 : 1)
+                .thenComparingInt(o -> -o.goRegions().size()));
+
+        EventOpp best = goOpps.get(0);
+        String dayLabel = best.date().equals(today) ? "Today" : "Tomorrow";
+        String emoji = best.event() == TargetType.SUNRISE ? "\uD83C\uDF05" : "\uD83C\uDF07";
+        String eventLabel = best.event() == TargetType.SUNRISE ? "sunrise" : "sunset";
+        int goCount = best.goRegions().size();
+        String topRegion = best.goRegions().get(0).regionName();
+
+        if (goCount >= 5) {
+            return emoji + " " + dayLabel + " " + eventLabel + " looking excellent \u2014 "
+                    + goCount + " regions GO";
         }
-        return bestDay + " " + bestEvent + " has marginal conditions in " + bestRegion;
+        if (goCount >= 3) {
+            return emoji + " " + dayLabel + " " + eventLabel + " \u2014 GO in "
+                    + topRegion + " and " + (goCount - 1) + " more";
+        }
+        if (goCount == 2) {
+            return emoji + " " + dayLabel + " " + eventLabel + " GO in "
+                    + topRegion + " and " + best.goRegions().get(1).regionName();
+        }
+        return emoji + " " + dayLabel + " " + eventLabel + " GO in " + topRegion;
+    }
+
+    /**
+     * Returns true if all slots for this event summary have already passed.
+     *
+     * @param es  the event summary to check
+     * @param now the current UTC time
+     * @return true if the event is in the past
+     */
+    private boolean isEventPast(BriefingEventSummary es, LocalDateTime now) {
+        return es.regions().stream()
+                .flatMap(r -> r.slots().stream())
+                .filter(s -> s.solarEventTime() != null)
+                .findFirst()
+                .map(s -> s.solarEventTime().isBefore(now))
+                .orElse(false);
+    }
+
+    /**
+     * Finds the best marginal headline when no GO conditions exist, skipping past events.
+     *
+     * @param days  the briefing days
+     * @param today today's date
+     * @param now   the current UTC time
+     * @return a marginal or standdown headline
+     */
+    private String findMarginalHeadline(List<BriefingDay> days, LocalDate today,
+            LocalDateTime now) {
+        for (BriefingDay day : days) {
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                if (day.date().equals(today) && isEventPast(es, now)) {
+                    continue;
+                }
+                for (BriefingRegion region : es.regions()) {
+                    if (region.verdict() == Verdict.MARGINAL) {
+                        String dayLabel = day.date().equals(today) ? "today" : "tomorrow";
+                        String eventLabel = es.targetType() == TargetType.SUNRISE
+                                ? "sunrise" : "sunset";
+                        return "Marginal only \u2014 best: " + dayLabel + " "
+                                + eventLabel + " in " + region.regionName();
+                    }
+                }
+            }
+        }
+        return "No promising conditions in the next two days";
     }
 
     /**
