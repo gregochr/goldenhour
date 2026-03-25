@@ -16,3 +16,13 @@ export async function getDailyBriefing() {
   }
   return response.data;
 }
+
+/**
+ * Triggers an immediate briefing refresh (admin only).
+ *
+ * @returns {Promise<{status: string}>} Status message.
+ */
+export async function runBriefing() {
+  const response = await axios.post(`${BASE_URL}/run`);
+  return response.data;
+}

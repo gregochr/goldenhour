@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations, refreshDriveTimes } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
+import { runBriefing } from '../api/briefingApi.js';
 import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
@@ -162,6 +163,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runningBackfill, setRunningBackfill] = useState(false);
   const [runningDriveTimes, setRunningDriveTimes] = useState(false);
   const [runningLightPollution, setRunningLightPollution] = useState(false);
+  const [runningBriefing, setRunningBriefing] = useState(false);
   const [showAuroraModal, setShowAuroraModal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
@@ -224,7 +226,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     loadJobRuns(page);
   };
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningDriveTimes || runningLightPollution;
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningDriveTimes || runningLightPollution || runningBriefing;
 
   const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
     const summary = getLocationSummary(allLocations, runType);
@@ -317,6 +319,20 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       setRunStatus({ type: 'error', message: msg });
     } finally {
       setRunningLightPollution(false);
+    }
+  };
+
+  const handleRunBriefing = async () => {
+    setRunningBriefing(true);
+    setRunStatus(null);
+    try {
+      const result = await runBriefing();
+      setRunStatus({ type: 'success', message: result.status || 'Briefing refreshed.' });
+      loadJobRuns(0);
+    } catch {
+      setRunStatus({ type: 'error', message: 'Briefing refresh failed. Check the logs.' });
+    } finally {
+      setRunningBriefing(false);
     }
   };
 
@@ -453,6 +469,15 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 data-testid="aurora-simulate-btn"
               >
                 {auroraStatus?.simulated ? '🧪 Simulated' : '🧪 Simulate'}
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleRunBriefing}
+                disabled={anyRunning}
+                title="Trigger an immediate briefing refresh"
+                data-testid="run-briefing-btn"
+              >
+                {runningBriefing ? '\u27F3 Running\u2026' : '\u27F3 Briefing'}
               </button>
             </div>
           </div>

@@ -3,7 +3,9 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.service.BriefingService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,6 +37,12 @@ public class BriefingController {
      *
      * @return the cached briefing response
      */
+    /**
+     * Returns the most recent daily briefing, or 204 No Content if no briefing
+     * has been generated yet.
+     *
+     * @return the cached briefing response
+     */
     @GetMapping
     public ResponseEntity<DailyBriefingResponse> getBriefing() {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
@@ -42,5 +50,17 @@ public class BriefingController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(briefing);
+    }
+
+    /**
+     * Triggers an immediate briefing refresh. Admin-only.
+     *
+     * @return accepted status message
+     */
+    @PostMapping("/run")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<java.util.Map<String, String>> runBriefing() {
+        briefingService.refreshBriefing();
+        return ResponseEntity.ok(java.util.Map.of("status", "Briefing refresh complete."));
     }
 }

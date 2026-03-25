@@ -22,8 +22,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -99,6 +101,32 @@ class BriefingControllerTest {
                         .value(15))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].slots[0].flags[0]")
                         .value("Tide aligned"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/briefing/run triggers refresh and returns 200 for ADMIN")
+    void runBriefing_adminTriggersRefresh() throws Exception {
+        mockMvc.perform(post("/api/briefing/run"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("Briefing refresh complete."));
+
+        verify(briefingService).refreshBriefing();
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("POST /api/briefing/run returns 403 for non-admin")
+    void runBriefing_nonAdminForbidden() throws Exception {
+        mockMvc.perform(post("/api/briefing/run"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/briefing/run returns 401 without authentication")
+    void runBriefing_unauthenticated() throws Exception {
+        mockMvc.perform(post("/api/briefing/run"))
+                .andExpect(status().isUnauthorized());
     }
 
     private static DailyBriefingResponse buildSampleBriefing() {
