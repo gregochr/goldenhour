@@ -524,7 +524,7 @@ function MapView({ locations, date, autoEventType }) {
               data-testid={`star-filter-${star}`}
               title={minStars === star ? `Showing ${star}★ and above — click to clear` : `Show ${star}★ and above`}
               className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-                minStars === star
+                minStars !== null && star >= minStars
                   ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
                   : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
               }`}

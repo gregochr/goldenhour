@@ -180,10 +180,14 @@ describe('MapView star filter — localStorage persistence', () => {
       }
     });
 
-    it('pre-selects the saved minimum from localStorage on mount', () => {
+    it('pre-selects the saved minimum from localStorage on mount — highlights that star and all above', () => {
       localStorage.setItem('mapFilterMinStars', '3');
       renderMap();
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
       expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
 
     it('ignores invalid localStorage values', () => {
@@ -204,10 +208,14 @@ describe('MapView star filter — localStorage persistence', () => {
   });
 
   describe('clicking star buttons', () => {
-    it('marks the clicked star as active', () => {
+    it('marks the clicked star and all stars above it as active', () => {
       renderMap();
       fireEvent.click(screen.getByTestId('star-filter-3'));
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
       expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
 
     it('saves the clicked star to localStorage', () => {
@@ -222,7 +230,10 @@ describe('MapView star filter — localStorage persistence', () => {
       fireEvent.click(screen.getByTestId('star-filter-5'));
       expect(localStorage.getItem('mapFilterMinStars')).toBe('5');
       expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
+      // 1–4 should no longer be highlighted when minimum is 5
+      for (let s = 1; s <= 4; s++) {
+        expect(screen.getByTestId(`star-filter-${s}`).className).not.toMatch(/plex-gold/);
+      }
     });
 
     it('clears the active minimum when the same star is clicked again (toggle off)', () => {
