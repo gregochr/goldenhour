@@ -251,6 +251,7 @@ function MapView({ locations, date, autoEventType }) {
   const [showUnrated, setShowUnrated] = useState(false);
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [auroraFriendlyFilter, setAuroraFriendlyFilter] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
@@ -456,121 +457,147 @@ function MapView({ locations, date, autoEventType }) {
     return { forecast, hourlyData, isPureWildlife, isWaterfall };
   }
 
+  // Count of active advanced filters — drives the badge on the Filters toggle button
+  const advancedFilterCount = activeTypeFilters.size
+    + (minStars !== null ? 1 : 0)
+    + (showUnrated ? 1 : 0)
+    + (driveTimeFilter > 0 ? 1 : 0)
+    + (auroraFriendlyFilter ? 1 : 0);
+
   return (
     <div className="flex flex-col gap-4">
-      {/* Forecast type selector: Sunrise | Sunset | Aurora */}
-      <ForecastTypeSelector
-        eventType={eventType}
-        onChange={(value) => {
-          setUserHasOverriddenEvent(true);
-          setEventType(value);
-          setMinStars(null);
-          setShowUnrated(false);
-          localStorage.removeItem('mapFilterMinStars');
-        }}
-        showAurora={role !== 'LITE_USER'}
-        auroraAvailable={auroraAvailable}
-      />
-
-      {/* Location type + star rating filter toggles */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
-        <InfoTip text="Type and star filters combine: locations must match both. Within each group, any selection passes." />
-        {/* Location type chips — hidden in Aurora mode (aurora doesn't care about location type) */}
-        {!isAuroraMode && Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
-          <button
-            key={type}
-            onClick={() => toggleTypeFilter(type)}
-            className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-              activeTypeFilters.has(type)
-                ? 'bg-plex-border border-plex-border-light text-plex-text'
-                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-            }`}
-          >
-            <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
-          </button>
-        ))}
-        {!isAuroraMode && <span className="text-plex-border mx-1">|</span>}
-        {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={`star-${star}`}
-            onClick={() => handleMinStarsClick(star)}
-            data-testid={`star-filter-${star}`}
-            title={minStars === star ? `Showing ${star}★ and above — click to clear` : `Show ${star}★ and above`}
-            className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-              minStars === star
-                ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
-                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-            }`}
-          >
-            {star}&#9733;
-          </button>
-        ))}
+      {/* Primary row: event type toggles + Filters disclosure button */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <ForecastTypeSelector
+          eventType={eventType}
+          onChange={(value) => {
+            setUserHasOverriddenEvent(true);
+            setEventType(value);
+            setMinStars(null);
+            setShowUnrated(false);
+            localStorage.removeItem('mapFilterMinStars');
+          }}
+          showAurora={role !== 'LITE_USER'}
+          auroraAvailable={auroraAvailable}
+        />
         <button
-          onClick={toggleShowUnrated}
-          disabled={!hasUnrated}
-          data-testid="star-filter-unrated"
-          className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-            !hasUnrated
-              ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
-              : showUnrated
-                ? 'bg-plex-text-muted/20 border-plex-text-muted/50 text-plex-text-secondary'
-                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+          data-testid="advanced-filters-toggle"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+            advancedFilterCount > 0
+              ? 'bg-plex-gold/10 border-plex-gold/40 text-plex-gold'
+              : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
           }`}
         >
-          ?
+          Filters{advancedFilterCount > 0 ? ` (${advancedFilterCount})` : ''}
+          <span aria-hidden="true">{advancedOpen ? '▲' : '▼'}</span>
         </button>
-        <span className="text-plex-border mx-1">|</span>
-        <select
-          value={driveTimeFilter}
-          onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
-          className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
-          data-testid="drive-time-filter-select"
-          title="Filter by drive time from last-refreshed position"
-        >
-          <option value={0}>🚗 All</option>
-          <option value={30}>🚗 ≤30 min</option>
-          <option value={45}>🚗 ≤45 min</option>
-          <option value={60}>🚗 ≤60 min</option>
-          <option value={90}>🚗 ≤90 min</option>
-          <option value={120}>🚗 ≤2 hrs</option>
-        </select>
-        {/* Aurora-friendly chip — hidden in Aurora mode (Bortle filtering already implicit in stored results) */}
-        {!isAuroraMode && (
-          <>
-            <span className="text-plex-border mx-1">|</span>
+      </div>
+
+      {/* Advanced filters — hidden by default, revealed with a slide-down transition */}
+      <div
+        className={`overflow-hidden transition-all duration-200 ${advancedOpen ? 'max-h-96' : 'max-h-0'}`}
+        data-testid="advanced-filters-panel"
+      >
+        <div className="flex items-center gap-2 flex-wrap pb-1">
+          <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
+          <InfoTip text="Type and star filters combine: locations must match both. Within each group, any selection passes." />
+          {/* Location type chips — hidden in Aurora mode (aurora doesn't care about location type) */}
+          {!isAuroraMode && Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
             <button
-              onClick={() => setAuroraFriendlyFilter((v) => !v)}
-              data-testid="aurora-filter-toggle"
-              title={`Show only dark-sky locations suitable for aurora photography (Bortle ≤ ${auroraThreshold})`}
+              key={type}
+              onClick={() => toggleTypeFilter(type)}
               className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                auroraFriendlyFilter
-                  ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
+                activeTypeFilters.has(type)
+                  ? 'bg-plex-border border-plex-border-light text-plex-text'
                   : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
               }`}
             >
-              🌌 Aurora friendly
+              <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
             </button>
-            <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
-          </>
-        )}
-        {(activeTypeFilters.size > 0 || minStars !== null || showUnrated
-            || driveTimeFilter > 0 || auroraFriendlyFilter) && (
+          ))}
+          {!isAuroraMode && <span className="text-plex-border mx-1">|</span>}
+          {[1, 2, 3, 4, 5].map((star) => (
+            <button
+              key={`star-${star}`}
+              onClick={() => handleMinStarsClick(star)}
+              data-testid={`star-filter-${star}`}
+              title={minStars === star ? `Showing ${star}★ and above — click to clear` : `Show ${star}★ and above`}
+              className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                minStars === star
+                  ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
+                  : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+              }`}
+            >
+              {star}&#9733;
+            </button>
+          ))}
           <button
-            onClick={() => {
-              setActiveTypeFilters(new Set());
-              setMinStars(null);
-              setShowUnrated(false);
-              setDriveTimeFilter(0);
-              setAuroraFriendlyFilter(false);
-              localStorage.removeItem('mapFilterMinStars');
-            }}
-            className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
-            data-testid="clear-all-filters"
+            onClick={toggleShowUnrated}
+            disabled={!hasUnrated}
+            data-testid="star-filter-unrated"
+            className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+              !hasUnrated
+                ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
+                : showUnrated
+                  ? 'bg-plex-text-muted/20 border-plex-text-muted/50 text-plex-text-secondary'
+                  : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+            }`}
           >
-            Clear
+            ?
           </button>
-        )}
+          <span className="text-plex-border mx-1">|</span>
+          <select
+            value={driveTimeFilter}
+            onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
+            className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
+            data-testid="drive-time-filter-select"
+            title="Filter by drive time from last-refreshed position"
+          >
+            <option value={0}>🚗 All</option>
+            <option value={30}>🚗 ≤30 min</option>
+            <option value={45}>🚗 ≤45 min</option>
+            <option value={60}>🚗 ≤60 min</option>
+            <option value={90}>🚗 ≤90 min</option>
+            <option value={120}>🚗 ≤2 hrs</option>
+          </select>
+          {/* Aurora-friendly chip — hidden in Aurora mode (Bortle filtering already implicit in stored results) */}
+          {!isAuroraMode && (
+            <>
+              <span className="text-plex-border mx-1">|</span>
+              <button
+                onClick={() => setAuroraFriendlyFilter((v) => !v)}
+                data-testid="aurora-filter-toggle"
+                title={`Show only dark-sky locations suitable for aurora photography (Bortle ≤ ${auroraThreshold})`}
+                className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  auroraFriendlyFilter
+                    ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
+                    : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+                }`}
+              >
+                🌌 Aurora friendly
+              </button>
+              <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+            </>
+          )}
+          {(activeTypeFilters.size > 0 || minStars !== null || showUnrated
+              || driveTimeFilter > 0 || auroraFriendlyFilter) && (
+            <button
+              onClick={() => {
+                setActiveTypeFilters(new Set());
+                setMinStars(null);
+                setShowUnrated(false);
+                setDriveTimeFilter(0);
+                setAuroraFriendlyFilter(false);
+                localStorage.removeItem('mapFilterMinStars');
+              }}
+              className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
+              data-testid="clear-all-filters"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Best aurora location card — visible only in aurora mode */}
