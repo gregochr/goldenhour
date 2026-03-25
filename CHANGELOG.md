@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Daily Briefing ("Go or Movie Night?")
+
+Zero-Claude-cost pre-flight check that runs every 2 hours, fetching live Open-Meteo weather and existing DB tide data for all enabled colour locations, then rolling results up by region per solar event (today + tomorrow, sunrise + sunset).
+
+**Backend:**
+- `Verdict` enum (GO / MARGINAL / STANDDOWN) — aligned with WeatherTriageEvaluator thresholds
+- `BriefingSlot`, `BriefingRegion`, `BriefingEventSummary`, `BriefingDay`, `DailyBriefingResponse` records — hierarchical briefing model
+- `BriefingService` — orchestrates weather fetch (parallel via virtual threads), tide DB lookup, verdict logic, region rollup, headline generation; stores result in `AtomicReference` cache
+- `BriefingController` — `GET /api/briefing` (Bearer, all roles) serves cached result; 204 when cache empty
+- `RunType.BRIEFING` — new enum value for job run tracking
+- `ScheduledForecastService.refreshDailyBriefing()` — `@Scheduled` every 2 hours
+
+**Frontend:**
+- `briefingApi.js` — Axios wrapper for `GET /api/briefing`
+- `DailyBriefing.jsx` — collapsible card above the map: headline + freshness in collapsed state; per-day sunrise/sunset sections with region rows (verdict pill + summary + tide highlights) and expandable location slot detail
+- `App.jsx` — renders `<DailyBriefing />` above DateStrip in map view
+- `JobRunsMetricsView.jsx` — BRIEFING run type in filter dropdown; "Show briefing runs" checkbox (hidden by default)
+
+**Tests:**
+- `BriefingServiceTest` (18 tests) — verdict logic, region rollup, tide classification, headline generation, colour location filter, cache behaviour
+- `BriefingControllerTest` (5 tests) — HTTP status, auth, JSON structure, 204 when cache empty
+- `DailyBriefing.test.jsx` (12 tests) — rendering, expand/collapse, region cards, verdict badges, flags, tide highlights, unregioned slots
+
 ### Added — Aurora simulation mode (admin-only)
 
 Allows the admin to inject fake NOAA space weather data to test the full aurora UI flow (banner, forecast runs, night selector) without a real geomagnetic storm. No Claude API calls are made on activation — the admin controls spend via the existing Forecast Run flow.

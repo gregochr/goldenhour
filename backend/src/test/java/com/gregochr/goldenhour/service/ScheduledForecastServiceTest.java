@@ -51,13 +51,16 @@ class ScheduledForecastServiceTest {
     @Mock
     private ExchangeRateService exchangeRateService;
 
+    @Mock
+    private BriefingService briefingService;
+
     private ScheduledForecastService scheduledForecastService;
 
     @BeforeEach
     void setUp() {
         scheduledForecastService = new ScheduledForecastService(
                 commandFactory, commandExecutor, tideService, locationService,
-                jobRunService, exchangeRateService);
+                jobRunService, exchangeRateService, briefingService);
         lenient().when(commandFactory.create(any(RunType.class), any(boolean.class)))
                 .thenReturn(new ForecastCommand(RunType.SHORT_TERM, List.of(), null, null, false));
     }

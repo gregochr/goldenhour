@@ -24,5 +24,8 @@ public enum RunType {
     TIDE,
 
     /** Light pollution (Bortle class) enrichment. */
-    LIGHT_POLLUTION
+    LIGHT_POLLUTION,
+
+    /** Daily briefing — zero-Claude-cost weather pre-flight check. */
+    BRIEFING
 }

@@ -169,6 +169,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [allLocations, setAllLocations] = useState([]);
   const [dateRange, setDateRange] = useState('7d');
+  const [showBriefingRuns, setShowBriefingRuns] = useState(false);
   const [strategies, setStrategies] = useState({});
   const PAGE_SIZE = 20;
 
@@ -389,13 +390,17 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []);
   const dateFilteredRuns = useMemo(() => {
     if (!runs || runs.length === 0) return [];
+    let filtered = runs;
+    if (!showBriefingRuns) {
+      filtered = filtered.filter((r) => r.runType !== 'BRIEFING');
+    }
     if (dateRange === 'today') {
-      return runs.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
+      return filtered.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
     }
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    return runs.filter((r) => r.startedAt && new Date(r.startedAt) >= cutoff);
-  }, [runs, dateRange, todayStr]);
+    return filtered.filter((r) => r.startedAt && new Date(r.startedAt) >= cutoff);
+  }, [runs, dateRange, todayStr, showBriefingRuns]);
 
   return (
     <div className="space-y-6">
@@ -534,7 +539,18 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           <option value="LONG_TERM">Long-Term</option>
           <option value="WEATHER">Weather</option>
           <option value="TIDE">Tide</option>
+          <option value="BRIEFING">Briefing</option>
         </select>
+        <label className="flex items-center gap-2 mt-2 text-sm text-plex-text-secondary cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showBriefingRuns}
+            onChange={(e) => setShowBriefingRuns(e.target.checked)}
+            data-testid="show-briefing-checkbox"
+            className="rounded border-plex-border"
+          />
+          Show briefing runs
+        </label>
       </div>
 
       {/* Job runs grid — filtered by the same date range as the summary */}

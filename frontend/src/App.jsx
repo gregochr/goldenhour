@@ -8,6 +8,7 @@ import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
+import DailyBriefing from './components/DailyBriefing.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { useForecasts } from './hooks/useForecasts.js';
@@ -275,6 +276,8 @@ function AppInner() {
             <div className="mb-6">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
             </div>
+
+            {viewMode === 'map' && <DailyBriefing />}
 
             {viewMode === 'map' && effectiveDate && (
               <DateStrip

@@ -32,6 +32,7 @@ public class ScheduledForecastService {
     private final LocationService locationService;
     private final JobRunService jobRunService;
     private final ExchangeRateService exchangeRateService;
+    private final BriefingService briefingService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
@@ -42,17 +43,20 @@ public class ScheduledForecastService {
      * @param locationService      the service providing persisted locations
      * @param jobRunService        the service for tracking job run metrics
      * @param exchangeRateService  the service for fetching exchange rates
+     * @param briefingService      the service that generates daily briefings
      */
     public ScheduledForecastService(ForecastCommandFactory commandFactory,
             ForecastCommandExecutor commandExecutor,
             TideService tideService, LocationService locationService,
-            JobRunService jobRunService, ExchangeRateService exchangeRateService) {
+            JobRunService jobRunService, ExchangeRateService exchangeRateService,
+            BriefingService briefingService) {
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
         this.tideService = tideService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
         this.exchangeRateService = exchangeRateService;
+        this.briefingService = briefingService;
     }
 
     /**
@@ -130,6 +134,19 @@ public class ScheduledForecastService {
         jobRunService.completeRun(jobRun, succeeded, failed);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
+    }
+
+    /**
+     * Refreshes the daily briefing every 2 hours — a zero-Claude-cost pre-flight check
+     * of weather and tide conditions across all enabled colour locations.
+     */
+    @Scheduled(cron = "${briefing.schedule.cron:0 0 */2 * * *}")
+    public void refreshDailyBriefing() {
+        try {
+            briefingService.refreshBriefing();
+        } catch (Exception e) {
+            LOG.error("Daily briefing refresh failed: {}", e.getMessage(), e);
+        }
     }
 
     /**
