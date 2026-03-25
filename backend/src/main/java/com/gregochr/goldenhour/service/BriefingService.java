@@ -298,12 +298,22 @@ public class BriefingService {
             }
         }
 
-        // Determine verdict
+        // Determine weather verdict
         Verdict verdict = determineVerdict(lowCloud, precip, visibility, humidity);
+
+        // Coastal tide demotion: if coastal, tide data is present, but tide is not aligned
+        // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
+        // leave the weather-only verdict intact so missing data does not penalise the location.
+        boolean tidesNotAligned = false;
+        if (locationService.isCoastal(loc) && tideState != null
+                && !tideAligned && verdict != Verdict.STANDDOWN) {
+            verdict = Verdict.STANDDOWN;
+            tidesNotAligned = true;
+        }
 
         // Build flags
         List<String> flags = buildFlags(lowCloud, precip, visibility, humidity,
-                tideState, tideAligned, isKingTide, isSpringTide);
+                tideState, tideAligned, isKingTide, isSpringTide, tidesNotAligned);
 
         return new BriefingSlot(
                 loc.getName(), solarTime, verdict,
@@ -336,19 +346,20 @@ public class BriefingService {
     /**
      * Builds human-readable flag strings for a slot.
      *
-     * @param lowCloud    low cloud cover percentage
-     * @param precip      precipitation in mm
-     * @param visibility  visibility in metres
-     * @param humidity    relative humidity percentage
-     * @param tideState   HIGH/MID/LOW or null
-     * @param tideAligned whether tide matches preference
-     * @param isKingTide  whether this is a king tide
-     * @param isSpringTide whether this is a spring tide
+     * @param lowCloud       low cloud cover percentage
+     * @param precip         precipitation in mm
+     * @param visibility     visibility in metres
+     * @param humidity       relative humidity percentage
+     * @param tideState      HIGH/MID/LOW or null
+     * @param tideAligned    whether tide matches preference
+     * @param isKingTide     whether this is a king tide
+     * @param isSpringTide   whether this is a spring tide
+     * @param tidesNotAligned true when the coastal tide demotion was applied
      * @return list of flag strings
      */
     static List<String> buildFlags(int lowCloud, BigDecimal precip, int visibility,
             int humidity, String tideState, boolean tideAligned,
-            boolean isKingTide, boolean isSpringTide) {
+            boolean isKingTide, boolean isSpringTide, boolean tidesNotAligned) {
         List<String> flags = new ArrayList<>();
         if (lowCloud > CLOUD_STANDDOWN) {
             flags.add("Sun blocked");
@@ -372,6 +383,9 @@ public class BriefingService {
             flags.add("King tide");
         } else if (isSpringTide) {
             flags.add("Spring tide");
+        }
+        if (tidesNotAligned) {
+            flags.add("Tide not aligned");
         }
         if (tideAligned) {
             flags.add("Tide aligned");

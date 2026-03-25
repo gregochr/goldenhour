@@ -288,7 +288,7 @@ function AppInner() {
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
             </div>
 
-            {viewMode === 'map' && <DailyBriefing />}
+            {viewMode === 'map' && <DailyBriefing locations={visibleLocations} />}
 
             {viewMode === 'map' && effectiveDate && (
               <DateStrip

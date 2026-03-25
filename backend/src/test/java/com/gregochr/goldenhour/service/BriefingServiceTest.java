@@ -6,6 +6,9 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -29,6 +32,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
@@ -244,7 +248,7 @@ class BriefingServiceTest {
         @DisplayName("Sun blocked flag for cloud > 80%")
         void sunBlocked() {
             List<String> flags = BriefingService.buildFlags(
-                    85, BigDecimal.ZERO, 15000, 70, null, false, false, false);
+                    85, BigDecimal.ZERO, 15000, 70, null, false, false, false, false);
             assertThat(flags).contains("Sun blocked");
         }
 
@@ -252,7 +256,7 @@ class BriefingServiceTest {
         @DisplayName("Active rain flag for precip > 2mm")
         void activeRain() {
             List<String> flags = BriefingService.buildFlags(
-                    20, new BigDecimal("3.0"), 15000, 70, null, false, false, false);
+                    20, new BigDecimal("3.0"), 15000, 70, null, false, false, false, false);
             assertThat(flags).contains("Active rain");
         }
 
@@ -260,7 +264,7 @@ class BriefingServiceTest {
         @DisplayName("No flags when all clear")
         void noFlags() {
             List<String> flags = BriefingService.buildFlags(
-                    20, BigDecimal.ZERO, 15000, 70, null, false, false, false);
+                    20, BigDecimal.ZERO, 15000, 70, null, false, false, false, false);
             assertThat(flags).isEmpty();
         }
 
@@ -268,10 +272,30 @@ class BriefingServiceTest {
         @DisplayName("Multiple flags accumulate")
         void multipleFlags() {
             List<String> flags = BriefingService.buildFlags(
-                    85, new BigDecimal("5.0"), 3000, 95, "HIGH", true, true, false);
+                    85, new BigDecimal("5.0"), 3000, 95, "HIGH", true, true, false, false);
             assertThat(flags).containsExactly(
                     "Sun blocked", "Active rain", "Poor visibility",
                     "Mist risk", "King tide", "Tide aligned");
+        }
+
+        @Test
+        @DisplayName("Tide not aligned flag when tidesNotAligned=true")
+        void tideNotAligned() {
+            List<String> flags = BriefingService.buildFlags(
+                    20, BigDecimal.ZERO, 15000, 70, "LOW", false, false, false, true);
+            assertThat(flags).contains("Tide not aligned");
+            assertThat(flags).doesNotContain("Tide aligned");
+        }
+
+        @Test
+        @DisplayName("Tide aligned and Tide not aligned are mutually exclusive")
+        void tideAlignedAndNotAlignedMutuallyExclusive() {
+            List<String> aligned = BriefingService.buildFlags(
+                    20, BigDecimal.ZERO, 15000, 70, "HIGH", true, false, false, false);
+            List<String> notAligned = BriefingService.buildFlags(
+                    20, BigDecimal.ZERO, 15000, 70, "LOW", false, false, false, true);
+            assertThat(aligned).contains("Tide aligned").doesNotContain("Tide not aligned");
+            assertThat(notAligned).contains("Tide not aligned").doesNotContain("Tide aligned");
         }
     }
 
@@ -596,6 +620,172 @@ class BriefingServiceTest {
     }
 
     
+
+    // ── Coastal tide demotion ──
+
+    @Nested
+    @DisplayName("Coastal tide demotion in buildSlot")
+    class TideDemotionTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity coastalLoc() {
+            return LocationEntity.builder()
+                    .id(10L).name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of(TideType.HIGH))
+                    .solarEventType(Set.of())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }
+
+        private LocationEntity inlandLoc() {
+            return LocationEntity.builder()
+                    .id(11L).name("Durham").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }
+
+        /** Minimal TideData with a given state and no extremes present. */
+        private TideData tideData(TideState state) {
+            return new TideData(state, false, null, null, null, null, null, null);
+        }
+
+        @Test
+        @DisplayName("Coastal + weather GO + tide not aligned → STANDDOWN with 'Tide not aligned' flag")
+        void coastal_weatherGo_tideNotAligned_demotedToStanddown() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(tideData(TideState.LOW)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+
+            BriefingService.LocationWeather lw =
+                    new BriefingService.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = briefingService.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+            assertThat(slot.flags()).contains("Tide not aligned");
+        }
+
+        @Test
+        @DisplayName("Coastal + weather MARGINAL + tide not aligned → STANDDOWN")
+        void coastal_weatherMarginal_tideNotAligned_demotedToStanddown() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(tideData(TideState.LOW)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+
+            OpenMeteoForecastResponse marginalForecast = buildForecastResponse();
+            marginalForecast.getHourly().getCloudCoverLow().replaceAll(ignored -> 65);
+
+            BriefingService.LocationWeather lw =
+                    new BriefingService.LocationWeather(loc, marginalForecast);
+            BriefingSlot slot = briefingService.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+            assertThat(slot.flags()).contains("Tide not aligned");
+        }
+
+        @Test
+        @DisplayName("Inland location + weather GO → GO, no tide demotion")
+        void inland_weatherGo_notAffected() throws Exception {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingService.LocationWeather lw =
+                    new BriefingService.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = briefingService.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+            assertThat(slot.flags()).doesNotContain("Tide not aligned");
+        }
+
+        @Test
+        @DisplayName("Coastal + no tide data in DB → weather GO verdict retained")
+        void coastal_noTideData_weatherVerdictRetained() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.empty());
+
+            BriefingService.LocationWeather lw =
+                    new BriefingService.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = briefingService.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+            assertThat(slot.flags()).doesNotContain("Tide not aligned");
+        }
+
+        @Test
+        @DisplayName("Coastal + weather already STANDDOWN + tide not aligned → no 'Tide not aligned' flag")
+        void coastal_weatherStanddown_noFlagAdded() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(tideData(TideState.LOW)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+
+            OpenMeteoForecastResponse standdownForecast = buildForecastResponse();
+            standdownForecast.getHourly().getCloudCoverLow().replaceAll(ignored -> 90);
+
+            BriefingService.LocationWeather lw =
+                    new BriefingService.LocationWeather(loc, standdownForecast);
+            BriefingSlot slot = briefingService.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+            assertThat(slot.flags()).doesNotContain("Tide not aligned");
+            assertThat(slot.flags()).contains("Sun blocked");
+        }
+
+        @Test
+        @DisplayName("Coastal + tide aligned → GO retained, 'Tide aligned' flag present")
+        void coastal_tideAligned_goRetained() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(tideData(TideState.HIGH)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+
+            BriefingService.LocationWeather lw =
+                    new BriefingService.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = briefingService.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+            assertThat(slot.flags()).doesNotContain("Tide not aligned");
+            assertThat(slot.flags()).contains("Tide aligned");
+        }
+    }
 
     @Test
     @DisplayName("getCachedBriefing returns null before first refresh")

@@ -559,4 +559,133 @@ describe('DailyBriefing', () => {
 
     expect(screen.getByText('Durham')).toBeInTheDocument();
   });
+
+  // ────── Slot sort order ──────
+
+  describe('slot sort order within a region', () => {
+    it('renders GO before MARGINAL before STANDDOWN, then A-Z within each group', async () => {
+      const dateStr = futureDateStr();
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days: [{
+          date: dateStr,
+          eventSummaries: [{
+            targetType: 'SUNSET',
+            regions: [{
+              regionName: 'TestRegion',
+              verdict: 'MARGINAL',
+              summary: '',
+              tideHighlights: [],
+              slots: [
+                { locationName: 'Zelda',  solarEventTime: `${dateStr}T18:00:00`, verdict: 'STANDDOWN', tideAligned: false, flags: [] },
+                { locationName: 'Alpha',  solarEventTime: `${dateStr}T18:00:00`, verdict: 'GO',        tideAligned: false, flags: [] },
+                { locationName: 'Beta',   solarEventTime: `${dateStr}T18:00:00`, verdict: 'MARGINAL',  tideAligned: false, flags: [] },
+                { locationName: 'Cedar',  solarEventTime: `${dateStr}T18:00:00`, verdict: 'GO',        tideAligned: false, flags: [] },
+              ],
+            }],
+            unregioned: [],
+          }],
+        }],
+      });
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+      fireEvent.click(screen.getByTestId('region-row'));
+
+      const slots = screen.getAllByTestId('briefing-slot');
+      const names = slots.map((s) => s.querySelector('.font-medium').textContent);
+      expect(names).toEqual(['Alpha', 'Cedar', 'Beta', 'Zelda']);
+    });
+
+    it('sorts unregioned slots GO before STANDDOWN', async () => {
+      const dateStr = futureDateStr();
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days: [{
+          date: dateStr,
+          eventSummaries: [{
+            targetType: 'SUNSET',
+            regions: [],
+            unregioned: [
+              { locationName: 'York',   solarEventTime: `${dateStr}T18:00:00`, verdict: 'STANDDOWN', tideAligned: false, flags: [] },
+              { locationName: 'Alnwick', solarEventTime: `${dateStr}T18:00:00`, verdict: 'GO',       tideAligned: false, flags: [] },
+            ],
+          }],
+        }],
+      });
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const slots = screen.getAllByTestId('briefing-slot');
+      const names = slots.map((s) => s.querySelector('.font-medium').textContent);
+      expect(names).toEqual(['Alnwick', 'York']);
+    });
+  });
+
+  // ────── Drive time display ──────
+
+  describe('drive time display', () => {
+    it('shows formatted drive time when driveDurationMinutes is in the locations prop', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick', driveDurationMinutes: 45 }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      const lakeDist = regionRows.find((r) => r.textContent.includes('Lake District'));
+      fireEvent.click(lakeDist);
+
+      const driveTimes = screen.getAllByTestId('slot-drive-time');
+      expect(driveTimes).toHaveLength(1);
+      expect(driveTimes[0]).toHaveTextContent('45 min');
+    });
+
+    it('does not show drive time when driveDurationMinutes is absent', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick' }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      const lakeDist = regionRows.find((r) => r.textContent.includes('Lake District'));
+      fireEvent.click(lakeDist);
+
+      expect(screen.queryByTestId('slot-drive-time')).toBeNull();
+    });
+
+    it('formats durations over 1 hour correctly', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick', driveDurationMinutes: 90 }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      const lakeDist = regionRows.find((r) => r.textContent.includes('Lake District'));
+      fireEvent.click(lakeDist);
+
+      expect(screen.getByTestId('slot-drive-time')).toHaveTextContent('1h 30min');
+    });
+
+    it('formats exact-hour durations without trailing minutes', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick', driveDurationMinutes: 120 }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      const lakeDist = regionRows.find((r) => r.textContent.includes('Lake District'));
+      fireEvent.click(lakeDist);
+
+      expect(screen.getByTestId('slot-drive-time')).toHaveTextContent('2h');
+    });
+  });
 });

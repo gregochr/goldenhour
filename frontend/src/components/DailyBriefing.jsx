@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -172,6 +173,37 @@ function EventSummaryRow({ dayLabel, es }) {
   );
 }
 
+/** Sort order for verdict: GO first, MARGINAL second, STANDDOWN last. */
+const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
+
+/**
+ * Returns a copy of the slots array sorted by verdict (GO→MARGINAL→STANDDOWN),
+ * then alphabetically by location name within each verdict group.
+ *
+ * @param {Array<object>} slots
+ * @returns {Array<object>}
+ */
+function sortedSlots(slots) {
+  return [...slots].sort((a, b) => {
+    const vd = (VERDICT_ORDER[a.verdict] ?? 3) - (VERDICT_ORDER[b.verdict] ?? 3);
+    return vd !== 0 ? vd : a.locationName.localeCompare(b.locationName);
+  });
+}
+
+/**
+ * Formats a drive duration in minutes as a human-readable string.
+ *
+ * @param {number|null} minutes
+ * @returns {string|null}
+ */
+function formatDriveDuration(minutes) {
+  if (minutes == null) return null;
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
+}
+
 /**
  * Collapsible daily briefing card displayed above the map view.
  *
@@ -181,13 +213,22 @@ function EventSummaryRow({ dayLabel, es }) {
  */
 const MINIMISED_KEY = 'briefing-minimised';
 
-export default function DailyBriefing() {
+export default function DailyBriefing({ locations }) {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const [minimised, setMinimised] = useState(() => localStorage.getItem(MINIMISED_KEY) === 'true');
   const [expandedRegions, setExpandedRegions] = useState(new Set());
   const intervalRef = useRef(null);
+
+  /** Map from location name → driveDurationMinutes (only entries with a known duration). */
+  const driveMap = useMemo(() => {
+    const m = new Map();
+    (locations || []).forEach((loc) => {
+      if (loc.driveDurationMinutes != null) m.set(loc.name, loc.driveDurationMinutes);
+    });
+    return m;
+  }, [locations]);
 
   const setMinimisedPersisted = (value) => {
     setMinimised(value);
@@ -363,24 +404,32 @@ export default function DailyBriefing() {
                           {/* Expanded location slots */}
                           {isOpen && (
                             <div className="ml-4 mt-1 space-y-1" data-testid="region-slots">
-                              {region.slots.map((slot) => (
-                                <div
-                                  key={slot.locationName}
-                                  className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
-                                  data-testid="briefing-slot"
-                                >
-                                  <VerdictPill verdict={slot.verdict} />
-                                  <span className="font-medium text-plex-text">
-                                    {slot.locationName}
-                                  </span>
-                                  <span className="text-plex-text-secondary">
-                                    {formatTime(slot.solarEventTime)}
-                                  </span>
-                                  {slot.flags?.map((flag) => (
-                                    <FlagChip key={flag} label={flag} />
-                                  ))}
-                                </div>
-                              ))}
+                              {sortedSlots(region.slots).map((slot) => {
+                                const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                                return (
+                                  <div
+                                    key={slot.locationName}
+                                    className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
+                                    data-testid="briefing-slot"
+                                  >
+                                    <VerdictPill verdict={slot.verdict} />
+                                    <span className="font-medium text-plex-text">
+                                      {slot.locationName}
+                                    </span>
+                                    <span className="text-plex-text-secondary">
+                                      {formatTime(slot.solarEventTime)}
+                                    </span>
+                                    {drive && (
+                                      <span className="text-plex-text-muted" data-testid="slot-drive-time">
+                                        🚗 {drive}
+                                      </span>
+                                    )}
+                                    {slot.flags?.map((flag) => (
+                                      <FlagChip key={flag} label={flag} />
+                                    ))}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -390,24 +439,32 @@ export default function DailyBriefing() {
                     {/* Unregioned slots */}
                     {es.unregioned?.length > 0 && (
                       <div className="ml-2 mt-1 space-y-1">
-                        {es.unregioned.map((slot) => (
-                          <div
-                            key={slot.locationName}
-                            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
-                            data-testid="briefing-slot"
-                          >
-                            <VerdictPill verdict={slot.verdict} />
-                            <span className="font-medium text-plex-text">
-                              {slot.locationName}
-                            </span>
-                            <span className="text-plex-text-secondary">
-                              {formatTime(slot.solarEventTime)}
-                            </span>
-                            {slot.flags?.map((flag) => (
-                              <FlagChip key={flag} label={flag} />
-                            ))}
-                          </div>
-                        ))}
+                        {sortedSlots(es.unregioned).map((slot) => {
+                          const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                          return (
+                            <div
+                              key={slot.locationName}
+                              className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
+                              data-testid="briefing-slot"
+                            >
+                              <VerdictPill verdict={slot.verdict} />
+                              <span className="font-medium text-plex-text">
+                                {slot.locationName}
+                              </span>
+                              <span className="text-plex-text-secondary">
+                                {formatTime(slot.solarEventTime)}
+                              </span>
+                              {drive && (
+                                <span className="text-plex-text-muted" data-testid="slot-drive-time">
+                                  🚗 {drive}
+                                </span>
+                              )}
+                              {slot.flags?.map((flag) => (
+                                <FlagChip key={flag} label={flag} />
+                              ))}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -420,3 +477,12 @@ export default function DailyBriefing() {
     </div>
   );
 }
+
+DailyBriefing.propTypes = {
+  locations: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      driveDurationMinutes: PropTypes.number,
+    }),
+  ),
+};
