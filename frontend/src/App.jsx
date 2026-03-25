@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { computeAutoSelection } from './utils/conversions.js';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
 import MapView from './components/MapView.jsx';
@@ -114,12 +115,22 @@ function AppInner() {
     [visibleLocations],
   );
 
+  // Auto-select the next solar event using forecast data + a 30-min afterglow buffer.
+  // Returns null when forecast data isn't loaded yet (fallback to default behaviour).
+  const autoSelection = useMemo(
+    () => visibleLocations.length === 0 ? null : computeAutoSelection(visibleLocations, new Date()),
+    [visibleLocations],
+  );
+
   // Default to today (or the nearest future date) when data loads.
   const todayStr = new Date().toISOString().slice(0, 10);
   const defaultDate = allDates.find((d) => d >= todayStr) ?? allDates[allDates.length - 1] ?? null;
+  const autoDate = autoSelection?.date ?? null;
   const effectiveDate = (selectedDate && allDates.includes(selectedDate))
     ? selectedDate
-    : defaultDate;
+    : (autoDate && allDates.includes(autoDate))
+      ? autoDate
+      : defaultDate;
 
   // Show banner when a run completes, auto-dismiss after 15 seconds
   useEffect(() => {
@@ -288,7 +299,11 @@ function AppInner() {
             )}
 
             {viewMode === 'map' && (
-              <MapView locations={visibleLocations} date={effectiveDate} />
+              <MapView
+                locations={visibleLocations}
+                date={effectiveDate}
+                autoEventType={autoSelection?.eventType ?? null}
+              />
             )}
 
             {viewMode === 'manage' && isAdmin && (

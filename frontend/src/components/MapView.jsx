@@ -234,14 +234,21 @@ function getNextEventType(locations, date) {
   return 'SUNSET';
 }
 
-function MapView({ locations, date }) {
+function MapView({ locations, date, autoEventType }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
+  const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
-  const [activeRatingFilters, setActiveRatingFilters] = useState(new Set());
+  // Minimum star filter — persisted to localStorage as 'mapFilterMinStars'
+  const [minStars, setMinStars] = useState(() => {
+    const saved = localStorage.getItem('mapFilterMinStars');
+    const n = saved !== null ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
+  });
+  const [showUnrated, setShowUnrated] = useState(false);
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [auroraFriendlyFilter, setAuroraFriendlyFilter] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
@@ -261,9 +268,19 @@ function MapView({ locations, date }) {
   useEffect(() => {
     if (eventType === 'AURORA' && !auroraAvailable) {
       setEventType('SUNSET');
-      setActiveRatingFilters(new Set());
+      setMinStars(null);
+      setShowUnrated(false);
+      localStorage.removeItem('mapFilterMinStars');
     }
   }, [auroraAvailable, eventType]);
+
+  // Apply the auto-selected event type when forecast data arrives, unless the user
+  // has already manually chosen an event type this session.
+  useEffect(() => {
+    if (!userHasOverriddenEvent && autoEventType) {
+      setEventType(autoEventType);
+    }
+  }, [autoEventType, userHasOverriddenEvent]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -339,16 +356,18 @@ function MapView({ locations, date }) {
     });
   }
 
-  function toggleRatingFilter(rating) {
-    setActiveRatingFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(rating)) {
-        next.delete(rating);
-      } else {
-        next.add(rating);
-      }
-      return next;
-    });
+  function handleMinStarsClick(star) {
+    if (minStars === star) {
+      setMinStars(null);
+      localStorage.removeItem('mapFilterMinStars');
+    } else {
+      setMinStars(star);
+      localStorage.setItem('mapFilterMinStars', String(star));
+    }
+  }
+
+  function toggleShowUnrated() {
+    setShowUnrated((v) => !v);
   }
 
   /** Get the forecast rating for a location on the current date/event. */
@@ -376,12 +395,12 @@ function MapView({ locations, date }) {
   const hasUnrated = typeFiltered.some((loc) => getRatingForLocation(loc) == null);
 
 
-  const ratingFiltered = activeRatingFilters.size === 0
+  const ratingFiltered = (minStars === null && !showUnrated)
     ? typeFiltered
     : typeFiltered.filter((loc) => {
         const rating = getRatingForLocation(loc);
-        if (rating == null) return activeRatingFilters.has('unrated');
-        return activeRatingFilters.has(rating);
+        if (rating == null) return showUnrated;
+        return minStars === null || rating >= minStars;
       });
 
   const driveFiltered = driveTimeFilter === 0
@@ -442,7 +461,13 @@ function MapView({ locations, date }) {
       {/* Forecast type selector: Sunrise | Sunset | Aurora */}
       <ForecastTypeSelector
         eventType={eventType}
-        onChange={(value) => { setEventType(value); setActiveRatingFilters(new Set()); }}
+        onChange={(value) => {
+          setUserHasOverriddenEvent(true);
+          setEventType(value);
+          setMinStars(null);
+          setShowUnrated(false);
+          localStorage.removeItem('mapFilterMinStars');
+        }}
         showAurora={role !== 'LITE_USER'}
         auroraAvailable={auroraAvailable}
       />
@@ -469,10 +494,11 @@ function MapView({ locations, date }) {
         {[1, 2, 3, 4, 5].map((star) => (
           <button
             key={`star-${star}`}
-            onClick={() => toggleRatingFilter(star)}
+            onClick={() => handleMinStarsClick(star)}
             data-testid={`star-filter-${star}`}
+            title={minStars === star ? `Showing ${star}★ and above — click to clear` : `Show ${star}★ and above`}
             className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-              activeRatingFilters.has(star)
+              minStars === star
                 ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
                 : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
             }`}
@@ -481,13 +507,13 @@ function MapView({ locations, date }) {
           </button>
         ))}
         <button
-          onClick={() => toggleRatingFilter('unrated')}
+          onClick={toggleShowUnrated}
           disabled={!hasUnrated}
           data-testid="star-filter-unrated"
           className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
             !hasUnrated
               ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
-              : activeRatingFilters.has('unrated')
+              : showUnrated
                 ? 'bg-plex-text-muted/20 border-plex-text-muted/50 text-plex-text-secondary'
                 : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
           }`}
@@ -528,14 +554,16 @@ function MapView({ locations, date }) {
             <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
           </>
         )}
-        {(activeTypeFilters.size > 0 || activeRatingFilters.size > 0
+        {(activeTypeFilters.size > 0 || minStars !== null || showUnrated
             || driveTimeFilter > 0 || auroraFriendlyFilter) && (
           <button
             onClick={() => {
               setActiveTypeFilters(new Set());
-              setActiveRatingFilters(new Set());
+              setMinStars(null);
+              setShowUnrated(false);
               setDriveTimeFilter(0);
               setAuroraFriendlyFilter(false);
+              localStorage.removeItem('mapFilterMinStars');
             }}
             className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
             data-testid="clear-all-filters"
@@ -736,6 +764,7 @@ MapView.propTypes = {
     })
   ).isRequired,
   date: PropTypes.string,
+  autoEventType: PropTypes.string,
 };
 
 export default React.memo(MapView);

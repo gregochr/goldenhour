@@ -251,3 +251,41 @@ export function groupForecastsByDate(forecasts) {
 
   return map;
 }
+
+const AUTO_SELECTION_BUFFER_MS = 30 * 60 * 1000; // 30-minute afterglow buffer
+
+/**
+ * Determines the next solar event to show on the map based on the current time.
+ *
+ * Rules:
+ * - Find the earliest sunset today across all enabled non-wildlife locations.
+ * - If now is before that sunset + 30 min → return today + SUNSET.
+ * - If that window has passed → return tomorrow + SUNRISE.
+ * - Returns null when no sunset data is available (e.g. data not yet loaded).
+ *
+ * @param {Array<object>} locations - Enabled locations with `forecastsByDate` Maps.
+ * @param {Date} now - The current date/time (injectable for testing).
+ * @returns {{ date: string, eventType: string }|null}
+ */
+export function computeAutoSelection(locations, now) {
+  const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+
+  let earliestSunset = null;
+  for (const loc of locations) {
+    if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
+    const sunsetTime = loc.forecastsByDate.get(todayStr)?.sunset?.solarEventTime;
+    if (sunsetTime) {
+      const t = new Date(sunsetTime);
+      if (!earliestSunset || t < earliestSunset) earliestSunset = t;
+    }
+  }
+
+  if (!earliestSunset) return null;
+
+  if (now < new Date(earliestSunset.getTime() + AUTO_SELECTION_BUFFER_MS)) {
+    return { date: todayStr, eventType: 'SUNSET' };
+  }
+
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return { date: tomorrow.toLocaleDateString('en-CA'), eventType: 'SUNRISE' };
+}
