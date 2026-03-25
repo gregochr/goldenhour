@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
+import ForecastTypeSelector from './ForecastTypeSelector.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 
@@ -438,29 +439,13 @@ function MapView({ locations, date }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Forecast type selector: Sunrise | Sunset | Aurora (Aurora only for ADMIN/PRO when active) */}
-      <div className="flex items-center gap-1" data-testid="forecast-type-selector">
-        {[
-          { value: 'SUNRISE', label: '☀️ Sunrise' },
-          { value: 'SUNSET',  label: '🌇 Sunset' },
-          ...(auroraAvailable ? [{ value: 'AURORA', label: '🌌 Aurora' }] : []),
-        ].map(({ value, label }) => (
-          <button
-            key={value}
-            data-testid={`forecast-type-${value.toLowerCase()}`}
-            onClick={() => { setEventType(value); setActiveRatingFilters(new Set()); }}
-            className={`px-4 py-1.5 text-sm font-medium rounded-full border transition-colors ${
-              eventType === value
-                ? value === 'AURORA'
-                  ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-200'
-                  : 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
-                : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Forecast type selector: Sunrise | Sunset | Aurora */}
+      <ForecastTypeSelector
+        eventType={eventType}
+        onChange={(value) => { setEventType(value); setActiveRatingFilters(new Set()); }}
+        showAurora={role !== 'LITE_USER'}
+        auroraAvailable={auroraAvailable}
+      />
 
       {/* Location type + star rating filter toggles */}
       <div className="flex items-center gap-2 flex-wrap">
