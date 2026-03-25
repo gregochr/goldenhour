@@ -564,7 +564,8 @@ public class BriefingService {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
-        record EventOpp(LocalDate date, TargetType event, List<BriefingRegion> goRegions) { }
+        record EventOpp(LocalDate date, TargetType event,
+                List<BriefingRegion> allRegions, List<BriefingRegion> goRegions) { }
 
         List<EventOpp> goOpps = new ArrayList<>();
         for (BriefingDay day : days) {
@@ -572,11 +573,12 @@ public class BriefingService {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
                 }
-                List<BriefingRegion> goRegions = es.regions().stream()
+                List<BriefingRegion> allRegions = es.regions();
+                List<BriefingRegion> goRegions = allRegions.stream()
                         .filter(r -> r.verdict() == Verdict.GO)
                         .toList();
                 if (!goRegions.isEmpty()) {
-                    goOpps.add(new EventOpp(day.date(), es.targetType(), goRegions));
+                    goOpps.add(new EventOpp(day.date(), es.targetType(), allRegions, goRegions));
                 }
             }
         }
@@ -596,20 +598,23 @@ public class BriefingService {
         String eventLabel = best.event() == TargetType.SUNRISE ? "sunrise" : "sunset";
         int goCount = best.goRegions().size();
         String topRegion = best.goRegions().get(0).regionName();
+        String breakdown = buildVerdictBreakdown(best.allRegions(), goCount);
 
         if (goCount >= 5) {
-            return emoji + " " + dayLabel + " " + eventLabel + " looking excellent \u2014 "
-                    + goCount + " regions GO";
+            return emoji + " " + dayLabel + " " + eventLabel
+                    + " looking excellent \u2014 " + breakdown;
         }
         if (goCount >= 3) {
             return emoji + " " + dayLabel + " " + eventLabel + " \u2014 GO in "
-                    + topRegion + " and " + (goCount - 1) + " more";
+                    + topRegion + " and " + (goCount - 1) + " more, " + breakdown;
         }
         if (goCount == 2) {
             return emoji + " " + dayLabel + " " + eventLabel + " GO in "
-                    + topRegion + " and " + best.goRegions().get(1).regionName();
+                    + topRegion + " and " + best.goRegions().get(1).regionName()
+                    + buildNonGoSuffix(best.allRegions());
         }
-        return emoji + " " + dayLabel + " " + eventLabel + " GO in " + topRegion;
+        return emoji + " " + dayLabel + " " + eventLabel + " GO in " + topRegion
+                + buildNonGoSuffix(best.allRegions());
     }
 
     /**
@@ -655,6 +660,52 @@ public class BriefingService {
             }
         }
         return "No promising conditions in the next two days";
+    }
+
+    /**
+     * Builds a full verdict breakdown string for all non-zero verdict counts, e.g.
+     * "6 regions GO, 1 region MARGINAL, 1 region STANDDOWN".
+     *
+     * @param allRegions all regions for the event
+     * @param goCount    pre-computed GO count
+     * @return breakdown string
+     */
+    private String buildVerdictBreakdown(List<BriefingRegion> allRegions, int goCount) {
+        long marginal = allRegions.stream().filter(r -> r.verdict() == Verdict.MARGINAL).count();
+        long standdown = allRegions.stream().filter(r -> r.verdict() == Verdict.STANDDOWN).count();
+        StringBuilder sb = new StringBuilder();
+        sb.append(goCount).append(goCount == 1 ? " region GO" : " regions GO");
+        if (marginal > 0) {
+            sb.append(", ").append(marginal)
+                    .append(marginal == 1 ? " region MARGINAL" : " regions MARGINAL");
+        }
+        if (standdown > 0) {
+            sb.append(", ").append(standdown)
+                    .append(standdown == 1 ? " region STANDDOWN" : " regions STANDDOWN");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Builds a suffix listing non-GO verdict counts, for the 1-2 GO region headline cases.
+     * Returns empty string if all regions are GO.
+     *
+     * @param allRegions all regions for the event
+     * @return suffix string, e.g. ", 2 regions STANDDOWN"
+     */
+    private String buildNonGoSuffix(List<BriefingRegion> allRegions) {
+        long marginal = allRegions.stream().filter(r -> r.verdict() == Verdict.MARGINAL).count();
+        long standdown = allRegions.stream().filter(r -> r.verdict() == Verdict.STANDDOWN).count();
+        StringBuilder sb = new StringBuilder();
+        if (marginal > 0) {
+            sb.append(", ").append(marginal)
+                    .append(marginal == 1 ? " region MARGINAL" : " regions MARGINAL");
+        }
+        if (standdown > 0) {
+            sb.append(", ").append(standdown)
+                    .append(standdown == 1 ? " region STANDDOWN" : " regions STANDDOWN");
+        }
+        return sb.toString();
     }
 
     /**

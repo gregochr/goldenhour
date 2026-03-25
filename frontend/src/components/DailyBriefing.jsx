@@ -68,11 +68,116 @@ function formatAge(isoString) {
 }
 
 /**
+ * Returns the representative solar event time for an event summary (first slot's time).
+ *
+ * @param {object} es - BriefingEventSummary
+ * @returns {string|null} ISO datetime string or null
+ */
+function getEventTime(es) {
+  for (const r of es.regions || []) {
+    for (const s of r.slots || []) {
+      if (s.solarEventTime) return s.solarEventTime;
+    }
+  }
+  for (const s of es.unregioned || []) {
+    if (s.solarEventTime) return s.solarEventTime;
+  }
+  return null;
+}
+
+/**
+ * Returns true if the solar event for this summary has already passed.
+ *
+ * @param {object} es - BriefingEventSummary
+ * @returns {boolean}
+ */
+function isEventPast(es) {
+  const t = getEventTime(es);
+  if (!t) return false;
+  return new Date(t + 'Z') < new Date();
+}
+
+/**
+ * Returns verdict counts across all regions in an event summary.
+ *
+ * @param {object} es - BriefingEventSummary
+ * @returns {{ GO: number, MARGINAL: number, STANDDOWN: number }}
+ */
+function getVerdictCounts(es) {
+  const counts = { GO: 0, MARGINAL: 0, STANDDOWN: 0 };
+  (es.regions || []).forEach((r) => { counts[r.verdict] = (counts[r.verdict] || 0) + 1; });
+  return counts;
+}
+
+/**
+ * Returns true if any slot in this event summary has tide alignment.
+ *
+ * @param {object} es - BriefingEventSummary
+ * @returns {boolean}
+ */
+function hasTideAligned(es) {
+  return (es.regions || []).some((r) => (r.slots || []).some((s) => s.tideAligned));
+}
+
+/**
+ * Compact single-row summary of one solar event shown in the collapsed briefing card.
+ *
+ * @param {object} props
+ * @param {string} props.dayLabel   - "Today" or "Tomorrow"
+ * @param {object} props.es         - BriefingEventSummary
+ */
+function EventSummaryRow({ dayLabel, es }) {
+  const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
+  const eventLabel = es.targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset';
+  const counts = getVerdictCounts(es);
+  const tideAligned = hasTideAligned(es);
+
+  const countColours = {
+    GO: 'text-green-400',
+    MARGINAL: 'text-amber-400',
+    STANDDOWN: 'text-red-400',
+  };
+
+  return (
+    <div
+      data-testid="event-summary-row"
+      className="flex items-center gap-2 text-xs py-0.5"
+    >
+      <span className="w-36 shrink-0 font-medium text-plex-text">
+        {emoji} {dayLabel} {eventLabel}
+      </span>
+      <span className="flex gap-2 flex-wrap">
+        {counts.GO > 0 && (
+          <span className={countColours.GO} data-testid="go-count">
+            {counts.GO} GO
+          </span>
+        )}
+        {counts.MARGINAL > 0 && (
+          <span className={countColours.MARGINAL} data-testid="marginal-count">
+            {counts.MARGINAL} MARGINAL
+          </span>
+        )}
+        {counts.STANDDOWN > 0 && (
+          <span className={countColours.STANDDOWN} data-testid="standdown-count">
+            {counts.STANDDOWN} STANDDOWN
+          </span>
+        )}
+      </span>
+      {tideAligned && (
+        <span title="Tide-aligned location in this event" className="text-blue-400 shrink-0">
+          🌊
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * Collapsible daily briefing card displayed above the map view.
  *
- * Collapsed: headline + freshness timestamp.
- * Expanded: per-day sections with sunrise/sunset sub-sections,
- *           region rows with verdict pills, and expandable location detail.
+ * Collapsed: per-event compact rows for all upcoming solar events (past events hidden),
+ *            showing verdict counts and tide alignment at a glance.
+ * Expanded: per-day sections with region rows and expandable location detail.
  */
 export default function DailyBriefing() {
   const [briefing, setBriefing] = useState(null);
@@ -123,31 +228,55 @@ export default function DailyBriefing() {
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
+  // Collect upcoming (not-yet-past) event summaries across all days
+  const upcomingEvents = briefing.days.flatMap((day) =>
+    (day.eventSummaries || [])
+      .filter((es) => !isEventPast(es))
+      .map((es) => ({
+        es,
+        dayLabel: day.date === todayStr ? 'Today' : 'Tomorrow',
+        date: day.date,
+      })),
+  );
+
   return (
     <div
       data-testid="daily-briefing"
       className="card mb-4 overflow-hidden"
     >
-      {/* Collapsed header — always visible */}
+      {/* Header toggle row */}
       <button
         data-testid="briefing-toggle"
         className="w-full flex items-center justify-between gap-3 text-left"
         onClick={() => setExpanded((v) => !v)}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-lg shrink-0" aria-hidden="true">
-            {expanded ? '▾' : '▸'}
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-plex-text leading-tight truncate">
-              {briefing.headline}
-            </p>
-            <p className="text-xs text-plex-text-muted mt-0.5">
-              Briefing as of {formatAge(briefing.generatedAt)}
-            </p>
-          </div>
-        </div>
+        <span className="text-xs font-semibold text-plex-text-secondary uppercase tracking-wide">
+          Daily Briefing
+        </span>
+        <span className="flex items-center gap-2 text-xs text-plex-text-muted">
+          {formatAge(briefing.generatedAt)}
+          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        </span>
       </button>
+
+      {/* Compact upcoming-event rows — visible when collapsed */}
+      {!expanded && (
+        <div className="mt-2 space-y-0.5" data-testid="briefing-collapsed-events">
+          {upcomingEvents.length === 0 ? (
+            <p className="text-xs text-plex-text-muted italic mt-1">
+              No upcoming events in the next two days
+            </p>
+          ) : (
+            upcomingEvents.map(({ es, dayLabel, date }) => (
+              <EventSummaryRow
+                key={`${date}-${es.targetType}`}
+                dayLabel={dayLabel}
+                es={es}
+              />
+            ))
+          )}
+        </div>
+      )}
 
       {/* Expanded content */}
       {expanded && (
@@ -162,7 +291,10 @@ export default function DailyBriefing() {
                 {day.eventSummaries.map((es) => (
                   <div key={es.targetType} className="mb-3">
                     <p className="text-xs font-semibold text-plex-text-secondary mb-1">
-                      {es.targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
+                      {es.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
+                      {isEventPast(es) && (
+                        <span className="ml-2 text-plex-text-muted font-normal">(passed)</span>
+                      )}
                     </p>
 
                     {/* Region rows */}
