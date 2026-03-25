@@ -179,12 +179,20 @@ function EventSummaryRow({ dayLabel, es }) {
  *            showing verdict counts and tide alignment at a glance.
  * Expanded: per-day sections with region rows and expandable location detail.
  */
+const MINIMISED_KEY = 'briefing-minimised';
+
 export default function DailyBriefing() {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
+  const [minimised, setMinimised] = useState(() => localStorage.getItem(MINIMISED_KEY) === 'true');
   const [expandedRegions, setExpandedRegions] = useState(new Set());
   const intervalRef = useRef(null);
+
+  const setMinimisedPersisted = (value) => {
+    setMinimised(value);
+    localStorage.setItem(MINIMISED_KEY, value ? 'true' : 'false');
+  };
 
   const fetchBriefing = useCallback(async () => {
     try {
@@ -213,6 +221,19 @@ export default function DailyBriefing() {
   }, [fetchBriefing]);
 
   if (loading || !briefing) return null;
+
+  if (minimised) {
+    return (
+      <button
+        data-testid="briefing-minimised-pill"
+        className="mb-4 px-3 py-1 rounded-full text-xs font-semibold text-plex-text-secondary border border-plex-border hover:bg-plex-surface transition-colors"
+        onClick={() => setMinimisedPersisted(false)}
+        title="Restore Daily Briefing"
+      >
+        📋 Briefing
+      </button>
+    );
+  }
 
   const toggleRegion = (key) => {
     setExpandedRegions((prev) => {
@@ -245,19 +266,30 @@ export default function DailyBriefing() {
       className="card mb-4 overflow-hidden"
     >
       {/* Header toggle row */}
-      <button
-        data-testid="briefing-toggle"
-        className="w-full flex items-center justify-between gap-3 text-left"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <span className="text-xs font-semibold text-plex-text-secondary uppercase tracking-wide">
-          Daily Briefing
-        </span>
-        <span className="flex items-center gap-2 text-xs text-plex-text-muted">
-          {formatAge(briefing.generatedAt)}
-          <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-        </span>
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          data-testid="briefing-toggle"
+          className="flex-1 flex items-center justify-between gap-3 text-left"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <span className="text-xs font-semibold text-plex-text-secondary uppercase tracking-wide">
+            Daily Briefing
+          </span>
+          <span className="flex items-center gap-2 text-xs text-plex-text-muted">
+            {formatAge(briefing.generatedAt)}
+            <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+          </span>
+        </button>
+        <button
+          data-testid="briefing-minimise"
+          className="shrink-0 text-plex-text-muted hover:text-plex-text transition-colors text-xs px-1"
+          onClick={() => setMinimisedPersisted(true)}
+          title="Minimise Daily Briefing"
+          aria-label="Minimise Daily Briefing"
+        >
+          ✕
+        </button>
+      </div>
 
       {/* Compact upcoming-event rows — visible when collapsed */}
       {!expanded && (
@@ -283,18 +315,17 @@ export default function DailyBriefing() {
         <div className="mt-3 space-y-4" data-testid="briefing-expanded">
           {briefing.days.map((day) => {
             const dateLabel = day.date === todayStr ? 'Today' : 'Tomorrow';
+            const upcomingSummaries = (day.eventSummaries || []).filter((es) => !isEventPast(es));
+            if (upcomingSummaries.length === 0) return null;
             return (
               <div key={day.date}>
                 <h3 className="text-xs font-bold text-plex-text-secondary uppercase tracking-wide mb-2">
                   {dateLabel} &mdash; {day.date}
                 </h3>
-                {day.eventSummaries.map((es) => (
+                {upcomingSummaries.map((es) => (
                   <div key={es.targetType} className="mb-3">
                     <p className="text-xs font-semibold text-plex-text-secondary mb-1">
                       {es.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
-                      {isEventPast(es) && (
-                        <span className="ml-2 text-plex-text-muted font-normal">(passed)</span>
-                      )}
                     </p>
 
                     {/* Region rows */}

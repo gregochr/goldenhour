@@ -9,13 +9,20 @@ vi.mock('../api/briefingApi.js', () => ({
 
 import { getDailyBriefing } from '../api/briefingApi.js';
 
+function futureDateStr() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function buildBriefing(overrides = {}) {
+  const dateStr = futureDateStr();
   return {
-    generatedAt: '2026-03-25T14:00:00',
+    generatedAt: new Date().toISOString().slice(0, 19),
     headline: 'Tomorrow sunset looks promising in the Lake District',
     days: [
       {
-        date: new Date().toISOString().slice(0, 10),
+        date: dateStr,
         eventSummaries: [
           {
             targetType: 'SUNRISE',
@@ -28,7 +35,7 @@ function buildBriefing(overrides = {}) {
                 slots: [
                   {
                     locationName: 'Bamburgh',
-                    solarEventTime: '2026-03-25T05:47:00',
+                    solarEventTime: `${dateStr}T05:47:00`,
                     verdict: 'STANDDOWN',
                     lowCloudPercent: 92,
                     precipitationMm: 4.2,
@@ -55,7 +62,7 @@ function buildBriefing(overrides = {}) {
                 slots: [
                   {
                     locationName: 'Keswick',
-                    solarEventTime: '2026-03-25T18:30:00',
+                    solarEventTime: `${dateStr}T18:30:00`,
                     verdict: 'GO',
                     lowCloudPercent: 15,
                     precipitationMm: 0,
@@ -72,7 +79,7 @@ function buildBriefing(overrides = {}) {
             unregioned: [
               {
                 locationName: 'Durham',
-                solarEventTime: '2026-03-25T18:28:00',
+                solarEventTime: `${dateStr}T18:28:00`,
                 verdict: 'MARGINAL',
                 lowCloudPercent: 60,
                 precipitationMm: 0.8,
@@ -95,6 +102,7 @@ function buildBriefing(overrides = {}) {
 describe('DailyBriefing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   // ────── Rendering ──────
@@ -126,7 +134,7 @@ describe('DailyBriefing', () => {
     getDailyBriefing.mockResolvedValue(buildBriefing());
     render(<DailyBriefing />);
     await waitFor(() => {
-      expect(screen.getByText(/ago/i)).toBeInTheDocument();
+      expect(screen.getByText(/ago|just now/i)).toBeInTheDocument();
     });
   });
 
@@ -156,7 +164,158 @@ describe('DailyBriefing', () => {
     expect(screen.queryByTestId('briefing-expanded')).toBeNull();
   });
 
-  // ────���─ Region cards ──────
+  // ────── Minimise / restore ──────
+
+  it('shows minimise button on the card', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimise'));
+    expect(screen.getByTestId('briefing-minimise')).toBeInTheDocument();
+  });
+
+  it('clicking minimise hides the card and shows the pill', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimise'));
+
+    fireEvent.click(screen.getByTestId('briefing-minimise'));
+
+    expect(screen.queryByTestId('daily-briefing')).toBeNull();
+    expect(screen.getByTestId('briefing-minimised-pill')).toBeInTheDocument();
+  });
+
+  it('clicking the pill restores the card', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimise'));
+
+    fireEvent.click(screen.getByTestId('briefing-minimise'));
+    fireEvent.click(screen.getByTestId('briefing-minimised-pill'));
+
+    expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
+    expect(screen.queryByTestId('briefing-minimised-pill')).toBeNull();
+  });
+
+  it('persists minimised state in localStorage', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimise'));
+
+    fireEvent.click(screen.getByTestId('briefing-minimise'));
+
+    expect(localStorage.getItem('briefing-minimised')).toBe('true');
+  });
+
+  it('starts minimised when localStorage flag is set', async () => {
+    localStorage.setItem('briefing-minimised', 'true');
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimised-pill'));
+
+    expect(screen.queryByTestId('daily-briefing')).toBeNull();
+    expect(screen.getByTestId('briefing-minimised-pill')).toBeInTheDocument();
+  });
+
+  it('clears localStorage flag when restored', async () => {
+    localStorage.setItem('briefing-minimised', 'true');
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimised-pill'));
+
+    fireEvent.click(screen.getByTestId('briefing-minimised-pill'));
+
+    expect(localStorage.getItem('briefing-minimised')).toBe('false');
+  });
+
+  // ────── Expanded view — past event filtering ──────
+
+  it('hides past events when expanded', async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: todayStr,
+        eventSummaries: [
+          {
+            targetType: 'SUNRISE',
+            regions: [{ regionName: 'Northumberland', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'Bamburgh', solarEventTime: `${todayStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            unregioned: [],
+          },
+        ],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    expect(screen.queryByText(/Sunrise/)).toBeNull();
+    expect(screen.queryByText('Northumberland')).toBeNull();
+  });
+
+  it('shows future events and hides past events in the same day when expanded', async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const tomorrowStr = futureDateStr();
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: todayStr,
+        eventSummaries: [
+          {
+            targetType: 'SUNRISE',
+            regions: [{ regionName: 'Past Region', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'A', solarEventTime: `${todayStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            unregioned: [],
+          },
+          {
+            targetType: 'SUNSET',
+            regions: [{ regionName: 'Future Region', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'B', solarEventTime: `${tomorrowStr}T20:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            unregioned: [],
+          },
+        ],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    expect(screen.queryByText('Past Region')).toBeNull();
+    expect(screen.getByText(/Sunset/)).toBeInTheDocument();
+  });
+
+  it('hides day heading when all events for that day have passed', async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: todayStr,
+        eventSummaries: [
+          {
+            targetType: 'SUNRISE',
+            regions: [{ regionName: 'Northumberland', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'A', solarEventTime: `${todayStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            unregioned: [],
+          },
+          {
+            targetType: 'SUNSET',
+            regions: [{ regionName: 'Lake District', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'B', solarEventTime: `${todayStr}T17:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            unregioned: [],
+          },
+        ],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    // Day heading ("Today — YYYY-MM-DD") should not appear
+    expect(screen.queryByText(/Today/)).toBeNull();
+  });
+
+  // ────── Region cards ──────
 
   it('shows region rows with verdict pills', async () => {
     getDailyBriefing.mockResolvedValue(buildBriefing());
