@@ -115,6 +115,47 @@ function renderMap(overrides = {}) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+describe('MapView advanced filters toggle', () => {
+  beforeEach(() => { localStorage.clear(); });
+  afterEach(() => { localStorage.clear(); });
+
+  it('advanced filters panel is collapsed on fresh load', () => {
+    renderMap();
+    expect(screen.getByTestId('advanced-filters-panel').className).toMatch(/max-h-0/);
+    expect(screen.getByTestId('advanced-filters-panel').className).not.toMatch(/max-h-96/);
+  });
+
+  it('Filters toggle button is present', () => {
+    renderMap();
+    expect(screen.getByTestId('advanced-filters-toggle')).toBeInTheDocument();
+  });
+
+  it('Filters button shows no badge when no advanced filters are active', () => {
+    renderMap();
+    const btn = screen.getByTestId('advanced-filters-toggle');
+    expect(btn.textContent).not.toMatch(/\(/);
+  });
+
+  it('Filters button shows badge count when a star filter is active', () => {
+    localStorage.setItem('mapFilterMinStars', '3');
+    renderMap();
+    expect(screen.getByTestId('advanced-filters-toggle').textContent).toMatch(/\(1\)/);
+  });
+
+  it('clicking the toggle opens the advanced panel', () => {
+    renderMap();
+    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
+    expect(screen.getByTestId('advanced-filters-panel').className).toMatch(/max-h-96/);
+  });
+
+  it('clicking the toggle twice collapses the panel again', () => {
+    renderMap();
+    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
+    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
+    expect(screen.getByTestId('advanced-filters-panel').className).toMatch(/max-h-0/);
+  });
+});
+
 describe('MapView star filter — localStorage persistence', () => {
   beforeEach(() => {
     localStorage.clear();
