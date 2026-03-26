@@ -354,8 +354,8 @@ describe('DailyBriefing', () => {
 
     const regionRows = screen.getAllByTestId('region-row');
     expect(regionRows.length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('Northumberland')).toBeInTheDocument();
-    expect(screen.getByText('Lake District')).toBeInTheDocument();
+    expect(screen.getAllByText('Northumberland').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Lake District').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows verdict pills with correct text', async () => {
@@ -969,6 +969,151 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('best-bet-banner'));
       expect(screen.getByText(/low confidence/i)).toBeInTheDocument();
+    });
+  });
+
+  // ────── Aurora tonight panel ──────
+
+  describe('Aurora tonight panel', () => {
+    function buildBriefingWithAuroraTonight(aurora) {
+      return { ...buildBriefing(), auroraTonight: aurora };
+    }
+
+    it('does not render aurora panel when auroraTonight is absent', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('aurora-tonight-panel')).toBeNull();
+    });
+
+    it('renders aurora panel with alert level and Kp when auroraTonight is present', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAuroraTonight({
+        alertLevel: 'MODERATE',
+        kp: 5.3,
+        clearLocationCount: 2,
+        regions: [],
+      }));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('aurora-tonight-panel'));
+      expect(screen.getByText(/Moderate/)).toBeInTheDocument();
+      expect(screen.getByText(/Kp 5.3/)).toBeInTheDocument();
+      expect(screen.getByText(/2 locations clear/)).toBeInTheDocument();
+    });
+
+    it('uses singular "location" when clearLocationCount is 1', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAuroraTonight({
+        alertLevel: 'MINOR',
+        kp: 3.0,
+        clearLocationCount: 1,
+        regions: [],
+      }));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('aurora-tonight-panel'));
+      expect(screen.getByText(/1 location clear/)).toBeInTheDocument();
+      expect(screen.queryByText(/1 locations clear/)).toBeNull();
+    });
+
+    it('shows region breakdown when expanded', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAuroraTonight({
+        alertLevel: 'MODERATE',
+        kp: 5.0,
+        clearLocationCount: 1,
+        regions: [{
+          regionName: 'Northumberland',
+          locations: [
+            { locationName: 'Kielder', bortleClass: 2, clear: true, cloudPercent: 30 },
+            { locationName: 'Bamburgh', bortleClass: 4, clear: false, cloudPercent: 80 },
+          ],
+        }],
+      }));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('aurora-tonight-panel'));
+
+      // Expand by clicking the panel
+      fireEvent.click(screen.getByTestId('aurora-tonight-panel').querySelector('button'));
+
+      await waitFor(() => screen.getByTestId('aurora-region'));
+      expect(screen.getAllByText('Northumberland').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText(/Kielder/)).toBeInTheDocument();
+      expect(screen.getByText(/Bamburgh/)).toBeInTheDocument();
+    });
+  });
+
+  // ────── Aurora tomorrow note ──────
+
+  describe('Aurora tomorrow note', () => {
+    it('does not render tomorrow note when auroraTomorrow is absent', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('aurora-tomorrow-note')).toBeNull();
+    });
+
+    it('does not render tomorrow note when label is Quiet', async () => {
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        auroraTomorrow: { peakKp: 1.5, label: 'Quiet' },
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('aurora-tomorrow-note')).toBeNull();
+    });
+
+    it('renders tomorrow note when label is Worth watching', async () => {
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        auroraTomorrow: { peakKp: 4.33, label: 'Worth watching' },
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('aurora-tomorrow-note'));
+      expect(screen.getByText(/Worth watching/)).toBeInTheDocument();
+      expect(screen.getByText(/Kp 4.3/)).toBeInTheDocument();
+    });
+
+    it('renders tomorrow note when label is Potentially strong', async () => {
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        auroraTomorrow: { peakKp: 6.67, label: 'Potentially strong' },
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('aurora-tomorrow-note'));
+      expect(screen.getByText(/Potentially strong/)).toBeInTheDocument();
+    });
+  });
+
+  // ────── Desktop heatmap grid ──────
+
+  describe('Desktop heatmap grid', () => {
+    it('renders heatmap grid container when there are upcoming events', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      // Grid is in DOM (hidden on mobile via CSS) but present
+      expect(screen.getByTestId('briefing-heatmap')).toBeInTheDocument();
+    });
+
+    it('renders heatmap cells for each region × event combination', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      // buildBriefing has 1 event with 2 regions → at least 2 cells
+      const cells = screen.getAllByTestId('heatmap-cell');
+      expect(cells.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('clicking a heatmap cell opens drill-down panel', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+
+      const cells = screen.getAllByTestId('heatmap-cell');
+      // Find first enabled cell
+      const enabledCell = cells.find((c) => !c.disabled);
+      if (enabledCell) {
+        fireEvent.click(enabledCell);
+        await waitFor(() => screen.getByTestId('drill-down-panel'));
+        expect(screen.getByTestId('drill-down-panel')).toBeInTheDocument();
+      }
     });
   });
 });

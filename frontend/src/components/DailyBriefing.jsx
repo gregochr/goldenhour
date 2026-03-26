@@ -334,6 +334,111 @@ BestBetBanner.propTypes = {
   onPickClick: PropTypes.func.isRequired,
 };
 
+/**
+ * Expandable aurora tonight panel shown when the aurora state machine is active.
+ *
+ * @param {object} props
+ * @param {object} props.aurora - AuroraTonightSummary from the briefing response
+ */
+function AuroraTonightPanel({ aurora }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!aurora) return null;
+
+  const levelColour = aurora.alertLevel === 'STRONG'
+    ? 'text-red-400'
+    : aurora.alertLevel === 'MODERATE'
+      ? 'text-amber-400'
+      : 'text-green-400';
+
+  const levelLabel = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
+
+  return (
+    <div
+      data-testid="aurora-tonight-panel"
+      className="mb-3 rounded border border-indigo-500/30 bg-indigo-500/5 px-3 py-2"
+    >
+      <button
+        className="w-full flex items-center gap-2 text-left"
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <span className="text-sm">🌌</span>
+        <span className="text-xs font-semibold text-indigo-300">Aurora Alert</span>
+        <span className={`text-xs font-bold ${levelColour}`}>
+          {levelLabel[aurora.alertLevel] || aurora.alertLevel}
+          {aurora.kp != null && ` (Kp ${aurora.kp.toFixed(1)})`}
+        </span>
+        <span className="text-xs text-plex-text-secondary ml-auto">
+          {aurora.clearLocationCount} location{aurora.clearLocationCount !== 1 ? 's' : ''} clear
+        </span>
+        <Chevron open={expanded} className="text-sm text-plex-text-muted ml-1" />
+      </button>
+
+      {expanded && (
+        <div className="mt-2 space-y-2">
+          {(aurora.regions || []).map((region) => (
+            <div key={region.regionName} data-testid="aurora-region" className="pl-2">
+              <span className="text-xs font-medium text-plex-text">{region.regionName}</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {(region.locations || []).map((loc) => (
+                  <span
+                    key={loc.locationName}
+                    className={`text-xs px-1.5 py-0.5 rounded ${
+                      loc.clear
+                        ? 'bg-green-500/20 text-green-300'
+                        : 'bg-plex-surface text-plex-text-muted'
+                    }`}
+                  >
+                    {loc.locationName}
+                    {loc.bortleClass != null && ` B${loc.bortleClass}`}
+                    {loc.clear ? ' ✓' : ` ${loc.cloudPercent}%☁`}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+AuroraTonightPanel.propTypes = {
+  aurora: PropTypes.shape({
+    alertLevel: PropTypes.string.isRequired,
+    kp: PropTypes.number,
+    clearLocationCount: PropTypes.number.isRequired,
+    regions: PropTypes.array.isRequired,
+  }),
+};
+
+/**
+ * Small footer note for tomorrow's aurora forecast when it is worth watching.
+ *
+ * @param {object} props
+ * @param {object} props.aurora - AuroraTomorrowSummary from the briefing response
+ */
+function AuroraTomorrowNote({ aurora }) {
+  if (!aurora || aurora.label === 'Quiet') return null;
+  return (
+    <div
+      data-testid="aurora-tomorrow-note"
+      className="mt-2 text-xs text-indigo-300 flex items-center gap-1.5"
+    >
+      <span>🌌</span>
+      <span>
+        Tomorrow night: {aurora.label} (Kp {aurora.peakKp.toFixed(1)} forecast)
+      </span>
+    </div>
+  );
+}
+
+AuroraTomorrowNote.propTypes = {
+  aurora: PropTypes.shape({
+    peakKp: PropTypes.number.isRequired,
+    label: PropTypes.string.isRequired,
+  }),
+};
+
 /** Sort order for verdict: GO first, MARGINAL second, STANDDOWN last. */
 const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
@@ -366,9 +471,186 @@ function formatDriveDuration(minutes) {
 }
 
 /**
+ * Desktop-only heatmap grid: regions × upcoming events + optional aurora column.
+ * Hidden on mobile (< sm breakpoint). Uses CSS Grid with inline gridTemplateColumns
+ * since column count is dynamic.
+ *
+ * @param {object}   props
+ * @param {Array}    props.upcomingEvents  - [{es, dayLabel, date}]
+ * @param {Array}    props.allRegions      - unique region names in display order
+ * @param {object}   props.briefing        - full DailyBriefingResponse
+ * @param {Map}      props.driveMap        - location name → driveDurationMinutes
+ * @param {Map}      props.typeMap         - location name → locationType string
+ */
+function HeatmapGrid({ upcomingEvents, allRegions, briefing, driveMap, typeMap }) {
+  const [drillDown, setDrillDown] = useState(null); // { regionName, eventKey, region }
+
+  const hasAurora = !!briefing.auroraTonight;
+
+  // Cell lookup: eventKey → regionName → BriefingRegion
+  const cellLookup = useMemo(() => {
+    const map = new Map();
+    upcomingEvents.forEach(({ es, date }) => {
+      const eventKey = `${date}-${es.targetType}`;
+      const regionMap = new Map();
+      (es.regions || []).forEach((r) => regionMap.set(r.regionName, r));
+      map.set(eventKey, regionMap);
+    });
+    return map;
+  }, [upcomingEvents]);
+
+  // Aurora region lookup: regionName → AuroraRegionSummary
+  const auroraRegionMap = useMemo(() => {
+    if (!hasAurora) return new Map();
+    const m = new Map();
+    (briefing.auroraTonight.regions || []).forEach((r) => m.set(r.regionName, r));
+    return m;
+  }, [briefing.auroraTonight, hasAurora]);
+
+  const verdictCell = (verdict) => {
+    if (verdict === 'GO') return 'bg-green-600/25 hover:bg-green-600/40 text-green-300';
+    if (verdict === 'MARGINAL') return 'bg-amber-600/25 hover:bg-amber-600/40 text-amber-300';
+    if (verdict === 'STANDDOWN') return 'bg-red-700/25 hover:bg-red-700/40 text-red-300';
+    return 'bg-plex-surface/10 text-plex-text-muted cursor-default';
+  };
+
+  const toggleDrillDown = (regionName, eventKey, region) => {
+    setDrillDown((prev) =>
+      prev?.regionName === regionName && prev?.eventKey === eventKey
+        ? null
+        : { regionName, eventKey, region },
+    );
+  };
+
+  const eventColCount = upcomingEvents.length;
+  const auroraColDef = hasAurora ? ' minmax(72px, auto)' : '';
+  const gridCols = `minmax(100px, auto) repeat(${eventColCount}, minmax(0, 1fr))${auroraColDef}`;
+
+  if (allRegions.length === 0 || upcomingEvents.length === 0) return null;
+
+  return (
+    <div
+      data-testid="briefing-heatmap"
+      className="hidden sm:grid gap-1 mt-2"
+      style={{ gridTemplateColumns: gridCols }}
+    >
+      {/* Header row */}
+      <div className="text-xs text-plex-text-muted px-1 py-1 font-medium">Region</div>
+      {upcomingEvents.map(({ es, dayLabel, date }) => {
+        const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
+        return (
+          <div
+            key={`${date}-${es.targetType}`}
+            className="text-xs text-plex-text-secondary text-center py-1 font-medium"
+          >
+            {emoji} {dayLabel}
+          </div>
+        );
+      })}
+      {hasAurora && (
+        <div className="text-xs text-indigo-300 text-center py-1 font-medium">🌌 Tonight</div>
+      )}
+
+      {/* Region rows */}
+      {allRegions.map((regionName) => (
+        <React.Fragment key={regionName}>
+          {/* Region label */}
+          <div className="text-xs text-plex-text font-medium px-1 py-2 flex items-center truncate">
+            {regionName}
+          </div>
+
+          {/* Event cells */}
+          {upcomingEvents.map(({ es, date }) => {
+            const eventKey = `${date}-${es.targetType}`;
+            const region = cellLookup.get(eventKey)?.get(regionName);
+            const isActive =
+              drillDown?.regionName === regionName && drillDown?.eventKey === eventKey;
+            return (
+              <button
+                key={eventKey}
+                data-testid="heatmap-cell"
+                className={`text-xs rounded py-1.5 px-1 text-center font-bold uppercase transition-colors
+                  ${region ? verdictCell(region.verdict) : verdictCell(null)}
+                  ${isActive ? 'ring-1 ring-white/20' : ''}`}
+                onClick={() => region && toggleDrillDown(regionName, eventKey, region)}
+                disabled={!region}
+              >
+                {region ? region.verdict.slice(0, 2) : '—'}
+              </button>
+            );
+          })}
+
+          {/* Aurora cell */}
+          {hasAurora && (() => {
+            const ar = auroraRegionMap.get(regionName);
+            if (!ar) {
+              return (
+                <div className="text-xs text-plex-text-muted text-center py-1.5">—</div>
+              );
+            }
+            const clearCount = (ar.locations || []).filter((l) => l.clear).length;
+            return (
+              <div className="text-xs text-center py-1.5">
+                {clearCount > 0
+                  ? <span className="text-indigo-300">{clearCount} clear</span>
+                  : <span className="text-plex-text-muted">cloudy</span>}
+              </div>
+            );
+          })()}
+
+          {/* Drill-down panel — spans all columns */}
+          {drillDown?.regionName === regionName && drillDown?.region && (
+            <div
+              data-testid="drill-down-panel"
+              style={{ gridColumn: '1 / -1' }}
+              className="px-2 py-2 rounded bg-plex-bg/40 border border-plex-border/50 space-y-1"
+            >
+              <p className="text-xs text-plex-text-secondary mb-1.5">
+                {regionName} — {drillDown.region.summary}
+              </p>
+              {sortedSlots(drillDown.region.slots || []).map((slot) => {
+                const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+                return (
+                  <div
+                    key={slot.locationName}
+                    className="flex flex-wrap items-center gap-1.5 text-xs"
+                  >
+                    <VerdictPill verdict={slot.verdict} />
+                    <span className="text-sm font-medium text-plex-text">
+                      {typeIcon && <span>{typeIcon} </span>}
+                      {slot.locationName}
+                    </span>
+                    <span className="text-plex-text-secondary">{formatTime(slot.solarEventTime)}</span>
+                    {drive && (
+                      <span className="text-plex-text-secondary">🚗 {drive}</span>
+                    )}
+                    {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+HeatmapGrid.propTypes = {
+  upcomingEvents: PropTypes.array.isRequired,
+  allRegions: PropTypes.arrayOf(PropTypes.string).isRequired,
+  briefing: PropTypes.object.isRequired,
+  driveMap: PropTypes.instanceOf(Map).isRequired,
+  typeMap: PropTypes.instanceOf(Map).isRequired,
+};
+
+/**
  * Collapsible daily briefing card displayed above the map view.
  *
- * Each solar event row is independently expandable; the header toggle expands/collapses all at once.
+ * Mobile (<sm): accordion-style event rows with drill-down per region.
+ * Desktop (sm+): heatmap grid (regions × events) with inline drill-down panels.
+ * Aurora tonight section displayed when the aurora state machine is active.
  *
  * Dismissal: the × button minimises to a pill and stores the dismissed briefing's generatedAt
  * in sessionStorage. A newer briefing (later generatedAt) automatically clears the dismissed
@@ -458,9 +740,31 @@ export default function DailyBriefing({ locations }) {
     });
     setTimeout(() => {
       const el = document.querySelector(`[data-event-key="${eventKey}"]`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
     }, 50);
   }, []);
+
+  // Unique region names from upcoming (non-past) events — must be before early returns.
+  const allRegions = useMemo(() => {
+    if (!briefing) return [];
+    const names = [];
+    const seen = new Set();
+    briefing.days.forEach((day) => {
+      (day.eventSummaries || []).forEach((es) => {
+        if (!isEventPast(es)) {
+          (es.regions || []).forEach((r) => {
+            if (!seen.has(r.regionName)) {
+              seen.add(r.regionName);
+              names.push(r.regionName);
+            }
+          });
+        }
+      });
+    });
+    return names;
+  }, [briefing]);
 
   if (loading || !briefing) return null;
 
@@ -570,158 +874,176 @@ export default function DailyBriefing({ locations }) {
         />
       )}
 
-      {/* Per-event summary rows — always visible */}
-      <div className="mt-1" data-testid="briefing-collapsed-events">
-        {upcomingEvents.length === 0 ? (
-          <p className="text-xs text-plex-text-muted italic mt-1">
-            No upcoming events in the next two days
-          </p>
-        ) : (
-          upcomingEvents.map(({ es, dayLabel, date }) => (
-            <div key={`${date}-${es.targetType}`} data-event-key={`${date}-${es.targetType}`}>
-              <EventSummaryRow
-                dayLabel={dayLabel}
-                es={es}
-                isOpen={expandedEvents.has(`${date}-${es.targetType}`)}
-                onToggle={() => toggleEvent(`${date}-${es.targetType}`)}
-              />
-            </div>
-          ))
+      {/* Aurora tonight section — shown when alert is active */}
+      <AuroraTonightPanel aurora={briefing.auroraTonight || null} />
+
+      {/* Mobile accordion — hidden on desktop (sm+) */}
+      <div className="sm:hidden">
+        {/* Per-event summary rows — always visible */}
+        <div className="mt-1" data-testid="briefing-collapsed-events">
+          {upcomingEvents.length === 0 ? (
+            <p className="text-xs text-plex-text-muted italic mt-1">
+              No upcoming events in the next two days
+            </p>
+          ) : (
+            upcomingEvents.map(({ es, dayLabel, date }) => (
+              <div key={`${date}-${es.targetType}`} data-event-key={`${date}-${es.targetType}`}>
+                <EventSummaryRow
+                  dayLabel={dayLabel}
+                  es={es}
+                  isOpen={expandedEvents.has(`${date}-${es.targetType}`)}
+                  onToggle={() => toggleEvent(`${date}-${es.targetType}`)}
+                />
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Expanded region content — renders when at least one event is open */}
+        {anyExpanded && (
+          <div className="mt-2 space-y-4" data-testid="briefing-expanded">
+            {upcomingEvents.map(({ es, dayLabel: _dl, date }) => {
+              const eventKey = `${date}-${es.targetType}`;
+              if (!expandedEvents.has(eventKey)) return null;
+              return (
+                <div key={eventKey} className="mb-1">
+                  {/* Region rows */}
+                  {es.regions.map((region) => {
+                    const regionKey = `${date}-${es.targetType}-${region.regionName}`;
+                    const isOpen = expandedRegions.has(regionKey);
+                    return (
+                      <div key={regionKey} className="mb-1">
+                        <button
+                          data-testid="region-row"
+                          className="w-full flex items-center gap-2 px-2 min-h-[44px] rounded hover:bg-plex-bg/50 text-left"
+                          onClick={() => toggleRegion(regionKey)}
+                        >
+                          <VerdictPill verdict={region.verdict} />
+                          <span className="text-sm text-plex-text font-medium">
+                            {region.regionName}
+                          </span>
+                          <span className="text-sm text-plex-text-secondary flex-1 truncate">
+                            {region.summary}
+                          </span>
+                          {region.regionTemperatureCelsius != null && (
+                            <span
+                              className="text-xs text-plex-text-secondary shrink-0 flex items-center gap-1"
+                              data-testid="region-comfort"
+                            >
+                              {weatherCodeToIcon(region.regionWeatherCode)}
+                              {Math.round(region.regionTemperatureCelsius)}°C
+                              {region.regionApparentTemperatureCelsius != null && (
+                                <span className="opacity-70">
+                                  ({Math.round(region.regionApparentTemperatureCelsius)}°C)
+                                </span>
+                              )}
+                              {region.regionWindSpeedMs != null && (
+                                <>💨 {msToMph(region.regionWindSpeedMs)}mph</>
+                              )}
+                            </span>
+                          )}
+                          <span className="shrink-0 flex items-center justify-center w-11 h-11">
+                            <Chevron open={isOpen} className="text-lg text-plex-text-muted" />
+                          </span>
+                        </button>
+
+                        {/* Tide highlights */}
+                        {region.tideHighlights?.length > 0 && (
+                          <div className="flex flex-wrap gap-1 px-2 mt-0.5">
+                            {region.tideHighlights.map((hl) => (
+                              <FlagChip key={hl} label={hl} />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Expanded location slots */}
+                        {isOpen && (
+                          <div className="ml-4 mt-1 space-y-1" data-testid="region-slots">
+                            {sortedSlots(region.slots).map((slot) => {
+                              const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                              const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+                              return (
+                                <div
+                                  key={slot.locationName}
+                                  className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
+                                  data-testid="briefing-slot"
+                                >
+                                  <VerdictPill verdict={slot.verdict} />
+                                  <span className="text-sm font-medium text-plex-text">
+                                    {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
+                                    {slot.locationName}
+                                  </span>
+                                  <span className="text-plex-text-secondary">
+                                    {formatTime(slot.solarEventTime)}
+                                  </span>
+                                  {drive && (
+                                    <span className="text-plex-text-secondary" data-testid="slot-drive-time">
+                                      🚗 {drive}
+                                    </span>
+                                  )}
+                                  {slot.flags?.map((flag) => (
+                                    <FlagChip key={flag} label={flag} />
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Unregioned slots */}
+                  {es.unregioned?.length > 0 && (
+                    <div className="ml-2 mt-1 space-y-1">
+                      {sortedSlots(es.unregioned).map((slot) => {
+                        const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                        const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+                        return (
+                          <div
+                            key={slot.locationName}
+                            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
+                            data-testid="briefing-slot"
+                          >
+                            <VerdictPill verdict={slot.verdict} />
+                            <span className="text-sm font-medium text-plex-text">
+                              {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
+                              {slot.locationName}
+                            </span>
+                            <span className="text-plex-text-secondary">
+                              {formatTime(slot.solarEventTime)}
+                            </span>
+                            {drive && (
+                              <span className="text-plex-text-secondary" data-testid="slot-drive-time">
+                                🚗 {drive}
+                              </span>
+                            )}
+                            {slot.flags?.map((flag) => (
+                              <FlagChip key={flag} label={flag} />
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Expanded region content — renders when at least one event is open */}
-      {anyExpanded && (
-        <div className="mt-2 space-y-4" data-testid="briefing-expanded">
-          {upcomingEvents.map(({ es, dayLabel: _dl, date }) => {
-            const eventKey = `${date}-${es.targetType}`;
-            if (!expandedEvents.has(eventKey)) return null;
-            return (
-              <div key={eventKey} className="mb-1">
-                {/* Region rows */}
-                {es.regions.map((region) => {
-                  const regionKey = `${date}-${es.targetType}-${region.regionName}`;
-                  const isOpen = expandedRegions.has(regionKey);
-                  return (
-                    <div key={regionKey} className="mb-1">
-                      <button
-                        data-testid="region-row"
-                        className="w-full flex items-center gap-2 px-2 min-h-[44px] rounded hover:bg-plex-bg/50 text-left"
-                        onClick={() => toggleRegion(regionKey)}
-                      >
-                        <VerdictPill verdict={region.verdict} />
-                        <span className="text-sm text-plex-text font-medium">
-                          {region.regionName}
-                        </span>
-                        <span className="text-sm text-plex-text-secondary flex-1 truncate">
-                          {region.summary}
-                        </span>
-                        {region.regionTemperatureCelsius != null && (
-                          <span
-                            className="text-xs text-plex-text-secondary shrink-0 flex items-center gap-1"
-                            data-testid="region-comfort"
-                          >
-                            {weatherCodeToIcon(region.regionWeatherCode)}
-                            {Math.round(region.regionTemperatureCelsius)}°C
-                            {region.regionApparentTemperatureCelsius != null && (
-                              <span className="opacity-70">
-                                ({Math.round(region.regionApparentTemperatureCelsius)}°C)
-                              </span>
-                            )}
-                            {region.regionWindSpeedMs != null && (
-                              <>💨 {msToMph(region.regionWindSpeedMs)}mph</>
-                            )}
-                          </span>
-                        )}
-                        <span className="shrink-0 flex items-center justify-center w-11 h-11">
-                          <Chevron open={isOpen} className="text-lg text-plex-text-muted" />
-                        </span>
-                      </button>
+      {/* Desktop heatmap grid — hidden on mobile, shown on sm+ */}
+      <HeatmapGrid
+        upcomingEvents={upcomingEvents}
+        allRegions={allRegions}
+        briefing={briefing}
+        driveMap={driveMap}
+        typeMap={typeMap}
+      />
 
-                      {/* Tide highlights */}
-                      {region.tideHighlights?.length > 0 && (
-                        <div className="flex flex-wrap gap-1 px-2 mt-0.5">
-                          {region.tideHighlights.map((hl) => (
-                            <FlagChip key={hl} label={hl} />
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Expanded location slots */}
-                      {isOpen && (
-                        <div className="ml-4 mt-1 space-y-1" data-testid="region-slots">
-                          {sortedSlots(region.slots).map((slot) => {
-                            const drive = formatDriveDuration(driveMap.get(slot.locationName));
-                            const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
-                            return (
-                              <div
-                                key={slot.locationName}
-                                className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
-                                data-testid="briefing-slot"
-                              >
-                                <VerdictPill verdict={slot.verdict} />
-                                <span className="text-sm font-medium text-plex-text">
-                                  {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-                                  {slot.locationName}
-                                </span>
-                                <span className="text-plex-text-secondary">
-                                  {formatTime(slot.solarEventTime)}
-                                </span>
-                                {drive && (
-                                  <span className="text-plex-text-secondary" data-testid="slot-drive-time">
-                                    🚗 {drive}
-                                  </span>
-                                )}
-                                {slot.flags?.map((flag) => (
-                                  <FlagChip key={flag} label={flag} />
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {/* Unregioned slots */}
-                {es.unregioned?.length > 0 && (
-                  <div className="ml-2 mt-1 space-y-1">
-                    {sortedSlots(es.unregioned).map((slot) => {
-                      const drive = formatDriveDuration(driveMap.get(slot.locationName));
-                      const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
-                      return (
-                        <div
-                          key={slot.locationName}
-                          className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
-                          data-testid="briefing-slot"
-                        >
-                          <VerdictPill verdict={slot.verdict} />
-                          <span className="text-sm font-medium text-plex-text">
-                            {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-                            {slot.locationName}
-                          </span>
-                          <span className="text-plex-text-secondary">
-                            {formatTime(slot.solarEventTime)}
-                          </span>
-                          {drive && (
-                            <span className="text-plex-text-secondary" data-testid="slot-drive-time">
-                              🚗 {drive}
-                            </span>
-                          )}
-                          {slot.flags?.map((flag) => (
-                            <FlagChip key={flag} label={flag} />
-                          ))}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Aurora tomorrow footer note */}
+      <AuroraTomorrowNote aurora={briefing.auroraTomorrow || null} />
     </div>
   );
 }

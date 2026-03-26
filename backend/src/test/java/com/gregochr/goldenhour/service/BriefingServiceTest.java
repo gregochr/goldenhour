@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.client.NoaaSwpcClient;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -9,6 +11,10 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.AuroraTonightSummary;
+import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
+import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -18,6 +24,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -29,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,6 +71,10 @@ class BriefingServiceTest {
     private DailyBriefingCacheRepository briefingCacheRepository;
     @Mock
     private BriefingBestBetAdvisor bestBetAdvisor;
+    @Mock
+    private AuroraStateCache auroraStateCache;
+    @Mock
+    private NoaaSwpcClient noaaSwpcClient;
 
     private BriefingService briefingService;
 
@@ -72,10 +84,14 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(java.util.List.of());
+        org.mockito.Mockito.lenient().when(auroraStateCache.isActive()).thenReturn(false);
+        org.mockito.Mockito.lenient().when(noaaSwpcClient.fetchKpForecast())
+                .thenReturn(java.util.List.of());
         briefingService = new BriefingService(
                 locationService, solarService, openMeteoClient, tideService,
                 jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
                 new BriefingVerdictEvaluator(), new BriefingHeadlineGenerator(), bestBetAdvisor,
+                auroraStateCache, noaaSwpcClient,
                 Executors.newVirtualThreadPerTaskExecutor());
     }
 
@@ -421,6 +437,87 @@ class BriefingServiceTest {
             assertThat(slot.verdict()).isEqualTo(Verdict.GO);
             assertThat(slot.flags()).doesNotContain("Tide not aligned");
             assertThat(slot.flags()).contains("Tide aligned");
+        }
+    }
+
+    @Nested
+    @DisplayName("Aurora summary building")
+    class BuildAuroraSummaryTests {
+
+        @Test
+        @DisplayName("buildAuroraTonight returns null when state machine is idle")
+        void tonightNull_whenIdle() {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            assertThat(briefingService.buildAuroraTonight()).isNull();
+        }
+
+        @Test
+        @DisplayName("buildAuroraTonight returns summary with clear count when active")
+        void tonightSummary_whenActive() {
+            LocationEntity loc = location("Kielder", "Northumberland");
+            AuroraForecastScore score = new AuroraForecastScore(
+                    loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+            when(auroraStateCache.isActive()).thenReturn(true);
+            when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+            when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+            when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+
+            AuroraTonightSummary summary = briefingService.buildAuroraTonight();
+
+            assertThat(summary).isNotNull();
+            assertThat(summary.alertLevel()).isEqualTo(AlertLevel.MODERATE);
+            assertThat(summary.kp()).isEqualTo(5.0);
+            assertThat(summary.clearLocationCount()).isEqualTo(1);
+            assertThat(summary.regions()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("buildAuroraTomorrow returns Quiet label when Kp < 3")
+        void tomorrowQuiet() {
+            ZonedDateTime now = ZonedDateTime.now(java.time.ZoneOffset.UTC);
+            when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                    new KpForecast(now.plusHours(20), now.plusHours(23), 1.5)));
+
+            AuroraTomorrowSummary summary = briefingService.buildAuroraTomorrow();
+
+            assertThat(summary).isNotNull();
+            assertThat(summary.label()).isEqualTo("Quiet");
+            assertThat(summary.peakKp()).isEqualTo(1.5);
+        }
+
+        @Test
+        @DisplayName("buildAuroraTomorrow returns Worth watching label when Kp >= 4")
+        void tomorrowWorthWatching() {
+            ZonedDateTime now = ZonedDateTime.now(java.time.ZoneOffset.UTC);
+            when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                    new KpForecast(now.plusHours(24), now.plusHours(27), 4.33)));
+
+            AuroraTomorrowSummary summary = briefingService.buildAuroraTomorrow();
+
+            assertThat(summary).isNotNull();
+            assertThat(summary.label()).isEqualTo("Worth watching");
+        }
+
+        @Test
+        @DisplayName("buildAuroraTomorrow returns Potentially strong label when Kp >= 6")
+        void tomorrowPotentiallyStrong() {
+            ZonedDateTime now = ZonedDateTime.now(java.time.ZoneOffset.UTC);
+            when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                    new KpForecast(now.plusHours(30), now.plusHours(33), 6.67)));
+
+            AuroraTomorrowSummary summary = briefingService.buildAuroraTomorrow();
+
+            assertThat(summary).isNotNull();
+            assertThat(summary.label()).isEqualTo("Potentially strong");
+        }
+
+        @Test
+        @DisplayName("buildAuroraTomorrow returns null when forecast fetch throws")
+        void tomorrowNull_onException() {
+            when(noaaSwpcClient.fetchKpForecast())
+                    .thenThrow(new RuntimeException("NOAA unavailable"));
+
+            assertThat(briefingService.buildAuroraTomorrow()).isNull();
         }
     }
 

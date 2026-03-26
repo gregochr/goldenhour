@@ -6,17 +6,22 @@ import java.util.List;
 /**
  * Top-level daily briefing response served by {@code GET /api/briefing}.
  *
- * @param generatedAt UTC timestamp when this briefing was generated
- * @param headline    one-line summary highlighting the best opportunities
- * @param days        per-day briefing data (today + tomorrow)
- * @param bestBets    Claude-generated "best bet" picks (empty if the advisory call failed)
+ * @param generatedAt    UTC timestamp when this briefing was generated
+ * @param headline       one-line summary highlighting the best opportunities
+ * @param days           per-day briefing data (today + tomorrow)
+ * @param bestBets       Claude-generated "best bet" picks (empty if the advisory call failed)
+ * @param auroraTonight  tonight's aurora summary, or {@code null} when the state machine is idle
+ * @param auroraTomorrow tomorrow night's Kp forecast summary, or {@code null} if unavailable
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
         String headline,
         List<BriefingDay> days,
-        List<BestBet> bestBets) {
+        List<BestBet> bestBets,
+        AuroraTonightSummary auroraTonight,
+        AuroraTomorrowSummary auroraTomorrow) {
 
+    /** Null-safe compact constructor — defensive copies for list fields only. */
     public DailyBriefingResponse {
         days = List.copyOf(days);
         bestBets = bestBets == null ? List.of() : List.copyOf(bestBets);
