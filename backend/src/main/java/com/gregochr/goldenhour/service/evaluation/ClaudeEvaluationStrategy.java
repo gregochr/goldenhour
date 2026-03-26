@@ -185,7 +185,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      * Invokes the Anthropic API via the resilient {@link AnthropicApiClient}.
      *
      * <p>Retry logic for transient failures (529 overloaded, 400 content filtering)
-     * is handled declaratively by the {@code @Retryable} annotation on
+     * is handled declaratively by the Resilience4j {@code @Retry} annotation on
      * {@link AnthropicApiClient#createMessage}.
      *
      * @param userMessage the pre-built user message to send

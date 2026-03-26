@@ -21,8 +21,8 @@ import com.gregochr.goldenhour.service.notification.MacOsToastNotificationServic
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.resilience.annotation.ConcurrencyLimit;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -107,7 +107,7 @@ public class ForecastService {
      * @param jobRun     the parent job run for metrics tracking, or {@code null} if called from controller
      * @return the saved entities in evaluation order
      */
-    @ConcurrencyLimit(8)
+    @Bulkhead(name = "forecast")
     public List<ForecastEvaluationEntity> runForecasts(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, JobRunEntity jobRun) {
@@ -225,7 +225,7 @@ public class ForecastService {
      * @param jobRun                parent job run for metrics
      * @return the pre-evaluation result
      */
-    @ConcurrencyLimit(8)
+    @Bulkhead(name = "forecast")
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun) {

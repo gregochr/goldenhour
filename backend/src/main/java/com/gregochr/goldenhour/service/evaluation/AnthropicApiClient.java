@@ -1,22 +1,22 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
-import com.gregochr.goldenhour.config.ClaudeRetryPredicate;
-import org.springframework.resilience.annotation.Retryable;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.stereotype.Service;
 
 /**
  * Resilient wrapper around the Anthropic Messages API.
  *
- * <p>Delegates to the {@link AnthropicClient} SDK with retry logic for transient
- * failures. The {@code @Retryable} annotation replaces the hand-rolled retry loop
- * previously in {@link AbstractEvaluationStrategy}.
+ * <p>Delegates to the {@link AnthropicClient} SDK with retry and circuit breaker
+ * logic for transient failures. The circuit breaker fails fast when the Anthropic
+ * API is persistently down, preventing cascading retries across many locations.
  *
  * <p>Retries on:
  * <ul>
+ *   <li>500 (internal server error) — transient Anthropic-side failure</li>
  *   <li>529 (overloaded) — transient capacity issue</li>
  *   <li>400 with "content filtering" — intermittent output filter trigger</li>
  * </ul>
@@ -41,9 +41,8 @@ public class AnthropicApiClient {
      * @param params the message creation parameters (model, prompt, etc.)
      * @return Claude's response message
      */
-    @Retryable(includes = AnthropicServiceException.class,
-               predicate = ClaudeRetryPredicate.class,
-               maxRetries = 3, delay = 1000, multiplier = 2, maxDelay = 30000)
+    @Retry(name = "anthropic")
+    @CircuitBreaker(name = "anthropic")
     public Message createMessage(MessageCreateParams params) {
         return client.messages().create(params);
     }

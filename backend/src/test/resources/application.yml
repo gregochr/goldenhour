@@ -44,3 +44,51 @@ jwt:
 
 server:
   port: 8081
+
+resilience4j:
+  circuitbreaker:
+    circuitBreakerAspectOrder: 1
+    instances:
+      anthropic:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 60s
+        permittedNumberOfCallsInHalfOpenState: 3
+      open-meteo:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 5
+  retry:
+    retryAspectOrder: 2
+    instances:
+      anthropic:
+        maxAttempts: 4
+        waitDuration: 1s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 30s
+      open-meteo:
+        maxAttempts: 3
+        waitDuration: 5s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+  ratelimiter:
+    rateLimiterAspectOrder: 3
+    instances:
+      open-meteo:
+        limitForPeriod: 8
+        limitRefreshPeriod: 1s
+        timeoutDuration: 10s
+  bulkhead:
+    bulkheadAspectOrder: 4
+    instances:
+      forecast:
+        maxConcurrentCalls: 8
+        maxWaitDuration: 0ms

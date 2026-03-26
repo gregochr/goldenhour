@@ -1,9 +1,8 @@
 package com.gregochr.goldenhour.config;
 
 import com.anthropic.errors.AnthropicServiceException;
-import org.springframework.resilience.retry.MethodRetryPredicate;
 
-import java.lang.reflect.Method;
+import java.util.function.Predicate;
 
 /**
  * Retry predicate for Anthropic API calls.
@@ -15,10 +14,10 @@ import java.lang.reflect.Method;
  *   <li>400 with "content filtering" — intermittent output filter trigger</li>
  * </ul>
  */
-public class ClaudeRetryPredicate implements MethodRetryPredicate {
+public class ClaudeRetryPredicate implements Predicate<Throwable> {
 
     @Override
-    public boolean shouldRetry(Method method, Throwable throwable) {
+    public boolean test(Throwable throwable) {
         if (throwable instanceof AnthropicServiceException ex) {
             boolean isServerError = ex.statusCode() == 500;
             boolean isOverloaded = ex.statusCode() == 529;

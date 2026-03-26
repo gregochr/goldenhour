@@ -11,7 +11,6 @@ import com.gregochr.solarutils.SolarCalculator;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.resilience.annotation.EnableResilientMethods;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
@@ -26,12 +25,11 @@ import java.util.concurrent.Executors;
  *
  * <p>Provides shared infrastructure beans, enables the caching layer, enables
  * asynchronous method execution (for {@code @Async} methods such as email sending),
- * and enables resilient method processing ({@code @Retryable}, {@code @ConcurrencyLimit}).
+ * and enables resilient method processing via Resilience4j annotations.
  */
 @Configuration
 @EnableCaching
 @EnableAsync
-@EnableResilientMethods
 public class AppConfig {
 
     /**
@@ -66,7 +64,7 @@ public class AppConfig {
      *
      * <p>Uses virtual threads — each forecast task gets its own lightweight thread
      * (~1 KB each vs ~1 MB for platform threads). No pool sizing needed;
-     * concurrency is controlled by {@code @ConcurrencyLimit} on the service methods.
+     * concurrency is controlled by {@code @Bulkhead} on the service methods.
      *
      * @return a virtual-thread-per-task executor
      */

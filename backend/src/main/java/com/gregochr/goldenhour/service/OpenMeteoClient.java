@@ -2,20 +2,20 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
-import com.gregochr.goldenhour.config.OpenMeteoRateLimiter;
-import com.gregochr.goldenhour.config.TransientHttpErrorPredicate;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
-import org.springframework.resilience.annotation.Retryable;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Resilient wrapper around the Open-Meteo HTTP APIs.
  *
  * <p>Delegates to {@link OpenMeteoForecastApi} and {@link OpenMeteoAirQualityApi}
- * declarative HTTP interfaces. Each call is retried on transient errors (5xx and 429)
- * using Spring's {@code @Retryable} annotation with exponential backoff.
+ * declarative HTTP interfaces. Each call is protected by retry (transient 5xx/429),
+ * circuit breaker (fail fast when Open-Meteo is down), and rate limiter (stay within
+ * Open-Meteo's free-tier minutely quota).
  */
 @Service
 public class OpenMeteoClient {
@@ -35,20 +35,16 @@ public class OpenMeteoClient {
 
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
-    private final OpenMeteoRateLimiter rateLimiter;
 
     /**
      * Constructs an {@code OpenMeteoClient}.
      *
      * @param forecastApi   proxy for the Open-Meteo forecast endpoint
      * @param airQualityApi proxy for the Open-Meteo air quality endpoint
-     * @param rateLimiter   rate limiter to stay within Open-Meteo's minutely quota
      */
-    public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi,
-            OpenMeteoRateLimiter rateLimiter) {
+    public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi) {
         this.forecastApi = forecastApi;
         this.airQualityApi = airQualityApi;
-        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -58,11 +54,11 @@ public class OpenMeteoClient {
      * @param lon longitude in decimal degrees
      * @return the deserialized forecast response
      */
-    @Retryable(includes = RestClientResponseException.class,
-               predicate = TransientHttpErrorPredicate.class,
-               maxRetries = 2, delay = 5000, multiplier = 2)
+    @Retry(name = "open-meteo")
+    @CircuitBreaker(name = "open-meteo")
+    @RateLimiter(name = "open-meteo")
     public OpenMeteoForecastResponse fetchForecast(double lat, double lon) {
-        return rateLimited(() -> forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC"));
+        return forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC");
     }
 
     /**
@@ -72,11 +68,11 @@ public class OpenMeteoClient {
      * @param lon longitude in decimal degrees
      * @return the deserialized air quality response
      */
-    @Retryable(includes = RestClientResponseException.class,
-               predicate = TransientHttpErrorPredicate.class,
-               maxRetries = 2, delay = 5000, multiplier = 2)
+    @Retry(name = "open-meteo")
+    @CircuitBreaker(name = "open-meteo")
+    @RateLimiter(name = "open-meteo")
     public OpenMeteoAirQualityResponse fetchAirQuality(double lat, double lon) {
-        return rateLimited(() -> airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC"));
+        return airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC");
     }
 
     /**
@@ -86,31 +82,10 @@ public class OpenMeteoClient {
      * @param lon longitude in decimal degrees
      * @return the deserialized forecast response (only cloud layers populated)
      */
-    @Retryable(includes = RestClientResponseException.class,
-               predicate = TransientHttpErrorPredicate.class,
-               maxRetries = 2, delay = 5000, multiplier = 2)
+    @Retry(name = "open-meteo")
+    @CircuitBreaker(name = "open-meteo")
+    @RateLimiter(name = "open-meteo")
     public OpenMeteoForecastResponse fetchCloudOnly(double lat, double lon) {
-        return rateLimited(() -> forecastApi.getForecast(lat, lon, CLOUD_ONLY_PARAMS, "ms", "UTC"));
-    }
-
-    /**
-     * Executes a supplier within the rate limiter's acquire/release lifecycle.
-     *
-     * @param supplier the API call to execute
-     * @param <T>      the response type
-     * @return the API response
-     */
-    private <T> T rateLimited(java.util.function.Supplier<T> supplier) {
-        try {
-            rateLimiter.acquire();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while waiting for Open-Meteo rate limit", e);
-        }
-        try {
-            return supplier.get();
-        } finally {
-            rateLimiter.release();
-        }
+        return forecastApi.getForecast(lat, lon, CLOUD_ONLY_PARAMS, "ms", "UTC");
     }
 }

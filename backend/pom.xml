@@ -177,6 +177,15 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- ==================== Resilience ==================== -->
+
+        <!-- Resilience4j - circuit breakers, retry, rate limiting, bulkhead -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot4</artifactId>
+            <version>2.4.0</version>
+        </dependency>
+
         <!-- JJWT API - JWT generation and validation -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
