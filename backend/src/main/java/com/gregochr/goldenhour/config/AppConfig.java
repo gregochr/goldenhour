@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import com.gregochr.solarutils.LunarCalculator;
@@ -31,6 +33,19 @@ import java.util.concurrent.Executors;
 @EnableAsync
 @EnableResilientMethods
 public class AppConfig {
+
+    /**
+     * Shared {@link ObjectMapper} for JSON serialisation/deserialisation.
+     *
+     * <p>Registered with {@link JavaTimeModule} so that Java 8 date/time types
+     * (e.g. {@link java.time.LocalDateTime}) serialise correctly.
+     *
+     * @return a configured {@link ObjectMapper}
+     */
+    @Bean
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper().registerModule(new JavaTimeModule());
+    }
 
     /**
      * Shared {@link RestClient} instance for outbound HTTP calls.
