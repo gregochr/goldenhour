@@ -474,7 +474,7 @@ function HeatmapGrid({
 
   if (sortedRegions.length === 0 || dayDates.length === 0) return null;
 
-  const gridCols = `minmax(100px, 150px) repeat(${dayDates.length}, minmax(0, 1fr))`;
+  const gridCols = `minmax(120px, 160px) repeat(${dayDates.length}, minmax(0, 1fr))`;
 
   const toggleDrillDown = (date, regionName) => {
     setDrillDown((prev) =>
@@ -512,7 +512,8 @@ function HeatmapGrid({
         <React.Fragment key={regionName}>
           {/* Region label */}
           <div
-            className="font-medium text-plex-text px-1 py-2 flex items-center truncate"
+            className="font-medium text-plex-text px-1 py-2 flex items-start"
+          style={{ overflowWrap: 'break-word', wordBreak: 'break-word', minWidth: 0 }}
             style={{ fontSize: '13px' }}
           >
             {regionName}

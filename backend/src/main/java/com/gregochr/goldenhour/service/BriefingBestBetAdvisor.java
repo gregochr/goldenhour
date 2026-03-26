@@ -90,7 +90,7 @@ public class BriefingBestBetAdvisor {
                 {
                   "rank": 1,
                   "headline": "One sentence, 15 words max, punchy — what to do",
-                  "detail": "2-3 sentences explaining why. Specific regions, conditions, what makes this special.",
+                  "detail": "2 sentences max, 40 words max. Mention region, key conditions, drive time.",
                   "event": "tomorrow_sunset",
                   "region": "Northumberland",
                   "confidence": "high|medium|low"
@@ -101,6 +101,12 @@ public class BriefingBestBetAdvisor {
             If conditions only support one good pick, return a single item in the array.
             If everything is STANDDOWN, return a single pick with event and region as null.
             Return only valid JSON — no code fences, no markdown.
+
+            Never include raw data field names, codes, or technical identifiers in your response.
+            Translate all data into natural language:
+            - weatherCode values → "clear skies", "partly cloudy", "overcast", "light rain", "fog" etc.
+            - windSpeedMs → describe as "calm", "light wind", "breezy", or convert to mph (multiply by 2.24)
+            - Do not write "weatherCode 0" or "windSpeedMs 3.5" — write "clear skies" or "8mph wind"
             """;
 
     private final AnthropicApiClient anthropicApiClient;

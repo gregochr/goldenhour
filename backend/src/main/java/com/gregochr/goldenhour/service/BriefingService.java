@@ -175,8 +175,7 @@ public class BriefingService {
         }
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDate tomorrow = today.plusDays(1);
-        List<LocalDate> dates = List.of(today, tomorrow);
+        List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2));
 
         int succeeded = 0;
         int failed = 0;
