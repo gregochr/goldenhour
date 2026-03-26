@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 /** Components whose failure is a soft warning (amber), not a hard failure (red). */
-const SOFT_COMPONENTS = new Set(['mail']);
+const SOFT_COMPONENTS = new Set(['mail', 'rateLimiters']);
 
 /**
  * Polls backend health status with component details.
