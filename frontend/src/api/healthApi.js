@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 /** Components whose failure is a soft warning (amber), not a hard failure (red). */
-const SOFT_COMPONENTS = new Set(['mail', 'rateLimiters']);
+const SOFT_COMPONENTS = new Set(['mail']);
 
 /**
  * Polls backend health status with component details.
@@ -23,7 +23,7 @@ export async function getHealth() {
 
     // Find if any hard component is down
     const hardDown = Object.entries(components)
-      .some(([name, info]) => !SOFT_COMPONENTS.has(name) && info.status !== 'UP');
+      .some(([name, info]) => !SOFT_COMPONENTS.has(name) && info.status !== 'UP' && info.status !== 'UNKNOWN');
 
     if (hardDown) {
       return { status: 'DOWN', degraded: [] };
