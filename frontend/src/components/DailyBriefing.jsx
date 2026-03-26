@@ -268,13 +268,15 @@ function formatDriveDuration(minutes) {
  * Collapsible daily briefing card displayed above the map view.
  *
  * Each solar event row is independently expandable; the header toggle expands/collapses all at once.
+ * The × button dismisses the card for the current browser session (sessionStorage).
+ * A new tab or browser session always shows the briefing again.
  */
-const MINIMISED_KEY = 'briefing-minimised';
+const DISMISSED_KEY = 'briefing-dismissed';
 
 export default function DailyBriefing({ locations }) {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [minimised, setMinimised] = useState(() => localStorage.getItem(MINIMISED_KEY) === 'true');
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(DISMISSED_KEY) === 'true');
   const [expandedEvents, setExpandedEvents] = useState(new Set());
   const [expandedRegions, setExpandedRegions] = useState(new Set());
   const intervalRef = useRef(null);
@@ -297,9 +299,9 @@ export default function DailyBriefing({ locations }) {
     return m;
   }, [locations]);
 
-  const setMinimisedPersisted = (value) => {
-    setMinimised(value);
-    localStorage.setItem(MINIMISED_KEY, value ? 'true' : 'false');
+  const dismiss = () => {
+    setDismissed(true);
+    sessionStorage.setItem(DISMISSED_KEY, 'true');
   };
 
   const fetchBriefing = useCallback(async () => {
@@ -328,20 +330,7 @@ export default function DailyBriefing({ locations }) {
     };
   }, [fetchBriefing]);
 
-  if (loading || !briefing) return null;
-
-  if (minimised) {
-    return (
-      <button
-        data-testid="briefing-minimised-pill"
-        className="mb-4 px-3 py-1 rounded-full text-xs font-semibold text-plex-text-secondary border border-plex-border hover:bg-plex-surface transition-colors"
-        onClick={() => setMinimisedPersisted(false)}
-        title="Restore Daily Briefing"
-      >
-        📋 Briefing
-      </button>
-    );
-  }
+  if (loading || !briefing || dismissed) return null;
 
   const toggleEvent = (key) => {
     setExpandedEvents((prev) => {
@@ -410,7 +399,7 @@ export default function DailyBriefing({ locations }) {
         <button
           data-testid="briefing-minimise"
           className="shrink-0 text-plex-text-muted hover:text-plex-text transition-colors text-xs px-1"
-          onClick={() => setMinimisedPersisted(true)}
+          onClick={dismiss}
           title="Minimise Daily Briefing"
           aria-label="Minimise Daily Briefing"
         >
