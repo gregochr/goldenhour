@@ -746,13 +746,12 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
           const secondary = pick.rank !== 1;
           const lowConf = pick.confidence === 'low';
 
-          const borderClass = secondary || lowConf ? 'border-plex-border' : 'border-amber-500/50';
-          const bgClass = secondary || lowConf ? 'bg-plex-surface/30' : 'bg-amber-500/5';
-          const opacityClass = secondary ? 'opacity-60' : '';
+          const borderClass = lowConf ? 'border-plex-border' : 'border-amber-500/50';
+          const bgClass = lowConf ? 'bg-plex-surface/30' : 'bg-amber-500/5';
           const cursorClass = navigable ? 'cursor-pointer hover:bg-plex-surface/50' : 'cursor-default';
 
           const rankLabel = pick.rank === 1 ? '① BEST BET' : '② ALSO GOOD';
-          const rankColour = secondary ? 'text-plex-text-muted' : 'text-amber-400';
+          const rankColour = lowConf ? 'text-plex-text-muted' : 'text-amber-400';
 
           return (
             <button
@@ -760,7 +759,7 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
               data-testid={`best-bet-pick-${pick.rank}`}
               disabled={!navigable}
               className={`flex-1 text-left rounded px-3 py-2.5 border transition-colors
-                ${borderClass} ${bgClass} ${opacityClass} ${cursorClass}`}
+                ${borderClass} ${bgClass} ${cursorClass}`}
               onClick={navigable ? () => onPickClick(eventKey) : undefined}
             >
               <div className="flex items-center gap-2 mb-0.5">
@@ -779,7 +778,7 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
                   </span>
                 )}
               </div>
-              <p className={`font-medium leading-snug ${secondary ? 'text-plex-text-secondary' : 'text-plex-text'}`}
+              <p className="font-medium leading-snug text-plex-text"
                 style={{ fontSize: '14px' }}>
                 {pick.headline}
               </p>
