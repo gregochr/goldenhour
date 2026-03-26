@@ -205,8 +205,13 @@ public class BriefingService {
         // Group into days → event summaries → regions
         List<BriefingDay> days = buildDays(allSlots, colourLocations, dates);
 
+        Map<String, Integer> driveMap = colourLocations.stream()
+                .filter(l -> l.getDriveDurationMinutes() != null)
+                .collect(java.util.stream.Collectors.toMap(
+                        LocationEntity::getName, LocationEntity::getDriveDurationMinutes));
+
         String headline = headlineGenerator.generateHeadline(days);
-        List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId());
+        List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId(), driveMap);
         AuroraTonightSummary auroraTonight = buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = buildAuroraTomorrow();
         DailyBriefingResponse response = new DailyBriefingResponse(

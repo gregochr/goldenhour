@@ -24,12 +24,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Makes a single Haiku call after briefing triage completes to produce Claude-generated
@@ -55,7 +60,7 @@ public class BriefingBestBetAdvisor {
             decide when and where to go for the best light.
 
             Given triage data for upcoming solar events and aurora conditions across regions,
-            identify the two best photographic opportunities in the next 24 hours, ranked.
+            identify the two best photographic opportunities in the next 3 days, ranked.
 
             Consider:
             - GO regions with the most clear locations are generally best
@@ -66,6 +71,13 @@ public class BriefingBestBetAdvisor {
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the outing's appeal
             - If multiple events are close in quality, prefer the sooner one
+            - **Drive time and day of week matter.** On weekdays, photographers have work
+              and family commitments. A GO region 25 minutes away is usually better than a GO
+              region 70 minutes away on a Tuesday evening. On weekends, longer drives are fine
+              for the right conditions. A truly rare event (king tide, strong aurora) can justify
+              a longer weekday drive — acknowledge the tradeoff in the detail text.
+            - **Mention drive time** in the detail text when it's a factor — "25 minutes from
+              home" or "an hour's drive but worth it for the king tide."
             - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
               Be human about it — tell the photographer to stay home, charge their batteries,
               maybe edit last weekend's shots. A bit of humour is fine; they'll trust you more.
@@ -119,14 +131,16 @@ public class BriefingBestBetAdvisor {
      * <p>Any failure (network error, timeout, parse failure) returns an empty list so the
      * briefing always loads — the frontend falls back to the mechanical headline.
      *
-     * @param days     the fully assembled briefing days (triage complete)
-     * @param jobRunId the current briefing job run ID for API call logging
+     * @param days      the fully assembled briefing days (triage complete)
+     * @param jobRunId  the current briefing job run ID for API call logging
+     * @param driveMap  map of location name to drive duration minutes (may be empty)
      * @return list of best-bet picks (1–2 items normally; empty on failure)
      */
-    public List<BestBet> advise(List<BriefingDay> days, Long jobRunId) {
+    public List<BestBet> advise(List<BriefingDay> days, Long jobRunId,
+            Map<String, Integer> driveMap) {
         try {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            String rollupJson = buildRollupJson(days, now);
+            String rollupJson = buildRollupJson(days, now, driveMap);
             long startMs = System.currentTimeMillis();
 
             Message response = anthropicApiClient.createMessage(
@@ -163,12 +177,14 @@ public class BriefingBestBetAdvisor {
      * Builds the region-level rollup JSON sent to Claude as the user message.
      * Past solar events are excluded. Aurora data is included if an active alert is present.
      *
-     * @param days the briefing days
-     * @param now  current UTC time for past-event filtering
+     * @param days     the briefing days
+     * @param now      current UTC time for past-event filtering
+     * @param driveMap map of location name to drive duration minutes (may be empty)
      * @return compact JSON string
      * @throws JsonProcessingException if Jackson serialization fails
      */
-    String buildRollupJson(List<BriefingDay> days, LocalDateTime now) throws JsonProcessingException {
+    String buildRollupJson(List<BriefingDay> days, LocalDateTime now,
+            Map<String, Integer> driveMap) throws JsonProcessingException {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
 
         ObjectNode root = objectMapper.createObjectNode();
@@ -177,6 +193,8 @@ public class BriefingBestBetAdvisor {
 
         for (BriefingDay day : days) {
             String dayLabel = day.date().equals(today) ? "today" : "tomorrow";
+            DayOfWeek dow = day.date().getDayOfWeek();
+            boolean isWeekday = dow != DayOfWeek.SATURDAY && dow != DayOfWeek.SUNDAY;
             for (BriefingEventSummary es : day.eventSummaries()) {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
@@ -184,13 +202,15 @@ public class BriefingBestBetAdvisor {
                 ObjectNode eventNode = eventsNode.addObject();
                 eventNode.put("event", dayLabel + "_" + es.targetType().name().toLowerCase());
                 eventNode.put("date", day.date().toString());
+                eventNode.put("dayOfWeek", dow.getDisplayName(TextStyle.FULL, Locale.ENGLISH));
+                eventNode.put("isWeekday", isWeekday);
                 String eventTime = getEventTimeStr(es);
                 if (eventTime != null) {
                     eventNode.put("eventTime", eventTime);
                 }
                 ArrayNode regionsNode = eventNode.putArray("regions");
                 for (BriefingRegion region : es.regions()) {
-                    appendRegionNode(regionsNode, region);
+                    appendRegionNode(regionsNode, region, driveMap);
                 }
             }
         }
@@ -204,7 +224,8 @@ public class BriefingBestBetAdvisor {
         return objectMapper.writeValueAsString(root);
     }
 
-    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region) {
+    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
+            Map<String, Integer> driveMap) {
         long goCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO).count();
         long marginalCount = region.slots().stream()
@@ -237,6 +258,9 @@ public class BriefingBestBetAdvisor {
         if (region.regionWindSpeedMs() != null) {
             regionNode.put("windSpeedMs", region.regionWindSpeedMs());
         }
+        if (region.regionWeatherCode() != null) {
+            regionNode.put("weatherCode", region.regionWeatherCode());
+        }
         regionNode.put("tideAlignedCount", tideAlignedCount);
         regionNode.put("hasKingTide", !kingTideLocations.isEmpty());
         if (!kingTideLocations.isEmpty()) {
@@ -246,6 +270,17 @@ public class BriefingBestBetAdvisor {
         regionNode.put("hasSpringTide", hasSpringTide);
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
+        List<Integer> driveTimes = region.slots().stream()
+                .map(s -> driveMap.get(s.locationName()))
+                .filter(Objects::nonNull)
+                .toList();
+        if (!driveTimes.isEmpty()) {
+            int avg = (int) Math.round(
+                    driveTimes.stream().mapToInt(Integer::intValue).average().orElse(0));
+            int nearest = driveTimes.stream().mapToInt(Integer::intValue).min().orElse(0);
+            regionNode.put("averageDriveMinutes", avg);
+            regionNode.put("nearestLocationDriveMinutes", nearest);
+        }
     }
 
     private void appendAuroraEvent(ArrayNode eventsNode) {

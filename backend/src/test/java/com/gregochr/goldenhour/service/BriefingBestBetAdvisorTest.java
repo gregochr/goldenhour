@@ -28,6 +28,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -189,7 +190,7 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now);
+            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
             assertThat(json).contains("tomorrow_sunset");
             assertThat(json).contains("Northumberland");
         }
@@ -207,7 +208,7 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now);
+            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
             assertThat(json).doesNotContain("today_sunrise");
         }
 
@@ -221,7 +222,7 @@ class BriefingBestBetAdvisorTest {
                     mock(AuroraForecastScore.class)
             ));
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            String json = advisor.buildRollupJson(List.of(), now);
+            String json = advisor.buildRollupJson(List.of(), now, Map.of());
             assertThat(json).contains("aurora_tonight");
             assertThat(json).contains("MODERATE");
             assertThat(json).contains("5.2");
@@ -232,7 +233,7 @@ class BriefingBestBetAdvisorTest {
         void auroraExcludedWhenInactive() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            String json = advisor.buildRollupJson(List.of(), now);
+            String json = advisor.buildRollupJson(List.of(), now, Map.of());
             assertThat(json).doesNotContain("aurora_tonight");
         }
 
@@ -255,10 +256,50 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now);
+            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
             assertThat(json).contains("hasKingTide");
             assertThat(json).contains("Bamburgh");
             assertThat(json).contains("kingTideLocations");
+        }
+
+        @Test
+        @DisplayName("dayOfWeek and isWeekday included in event node")
+        void dayOfWeekIncluded() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate saturday = LocalDate.now(ZoneOffset.UTC).with(
+                    java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SATURDAY));
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            BriefingDay day = new BriefingDay(saturday, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 2, 0, 0)
+                    ), List.of())
+            ));
+
+            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
+            assertThat(json).contains("\"dayOfWeek\":\"Saturday\"");
+            assertThat(json).contains("\"isWeekday\":false");
+        }
+
+        @Test
+        @DisplayName("Drive times included when driveMap has entries for region slots")
+        void driveTimesIncluded() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingRegion region = new BriefingRegion(
+                    "Northumberland", Verdict.GO, "Clear", List.of(),
+                    List.of(slot("Bamburgh", Verdict.GO, null), slot("Dunstanburgh", Verdict.GO, null)),
+                    7.0, 5.0, 1.5, 1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
+            ));
+
+            Map<String, Integer> driveMap = Map.of("Bamburgh", 30, "Dunstanburgh", 50);
+            String json = advisor.buildRollupJson(List.of(day), now, driveMap);
+            assertThat(json).contains("averageDriveMinutes");
+            assertThat(json).contains("nearestLocationDriveMinutes");
+            assertThat(json).contains("\"nearestLocationDriveMinutes\":30");
         }
     }
 
@@ -275,7 +316,7 @@ class BriefingBestBetAdvisorTest {
                     .thenThrow(new RuntimeException("overloaded — simulated failure"));
             when(auroraStateCache.isActive()).thenReturn(false);
 
-            List<BestBet> picks = advisor.advise(List.of(), 42L);
+            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of());
             assertThat(picks).isEmpty();
         }
 
@@ -296,7 +337,7 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
-            List<BestBet> picks = advisor.advise(List.of(), 42L);
+            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of());
             assertThat(picks).hasSize(1);
             assertThat(picks.get(0).region()).isEqualTo("Northumberland");
         }

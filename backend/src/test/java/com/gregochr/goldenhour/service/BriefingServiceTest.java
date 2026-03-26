@@ -82,6 +82,7 @@ class BriefingServiceTest {
     void setUp() {
         org.mockito.Mockito.lenient().when(bestBetAdvisor.advise(
                 org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(java.util.List.of());
         org.mockito.Mockito.lenient().when(auroraStateCache.isActive()).thenReturn(false);
