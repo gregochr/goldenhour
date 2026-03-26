@@ -25,6 +25,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;

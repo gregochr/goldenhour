@@ -28,6 +28,7 @@ import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

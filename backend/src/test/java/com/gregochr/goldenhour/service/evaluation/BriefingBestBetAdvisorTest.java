@@ -1,4 +1,4 @@
-package com.gregochr.goldenhour.service;
+package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
@@ -13,8 +13,8 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
-import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
