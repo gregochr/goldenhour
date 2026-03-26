@@ -64,9 +64,12 @@ public class BriefingBestBetAdvisor {
 
             Consider:
             - GO regions with the most clear locations are generally best
+            - **Tide alignment is a strong differentiator.** A GO region with tide-aligned
+              coastal locations should be ranked above an equally clear inland-only region.
+              Matching tides add foreground drama that elevates a good sunrise/sunset into a
+              great one — mention the tide in the detail text when it's a factor.
             - King tides at coastal locations during sunset/sunrise are rare and highly valuable
             - Spring tides are also notable but less rare than king tides
-            - Tide-aligned coastal spots are more interesting than non-aligned
             - Aurora events (MODERATE or above with clear dark-sky locations) are rare and exciting
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the outing's appeal
