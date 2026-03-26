@@ -257,6 +257,10 @@ public class BriefingService {
         int humidity = h.getRelativeHumidity2m().get(idx);
         Double temp = h.getTemperature2m() != null && idx < h.getTemperature2m().size()
                 ? h.getTemperature2m().get(idx) : null;
+        Double apparentTemp = h.getApparentTemperature() != null && idx < h.getApparentTemperature().size()
+                ? h.getApparentTemperature().get(idx) : null;
+        Integer weatherCode = h.getWeatherCode() != null && idx < h.getWeatherCode().size()
+                ? h.getWeatherCode().get(idx) : null;
         BigDecimal windSpeed = BigDecimal.valueOf(h.getWindSpeed10m().get(idx))
                 .setScale(DECIMAL_SCALE, RoundingMode.HALF_UP);
 
@@ -317,7 +321,7 @@ public class BriefingService {
 
         return new BriefingSlot(
                 loc.getName(), solarTime, verdict,
-                lowCloud, precip, visibility, humidity, temp, windSpeed,
+                lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
                 tideState, tideAligned, nearestHighTime, nearestHighHeight,
                 isKingTide, isSpringTide, flags);
     }
@@ -484,7 +488,40 @@ public class BriefingService {
         Verdict verdict = rollUpVerdict(slots);
         List<String> tideHighlights = buildTideHighlights(slots);
         String summary = buildRegionSummary(verdict, slots, tideHighlights);
-        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots);
+
+        // Representative comfort: average of GO slots, falling back to all slots
+        List<BriefingSlot> repSlots = slots.stream()
+                .filter(s -> s.verdict() == Verdict.GO)
+                .toList();
+        if (repSlots.isEmpty()) {
+            repSlots = slots;
+        }
+
+        double rawTemp = repSlots.stream()
+                .filter(s -> s.temperatureCelsius() != null)
+                .mapToDouble(BriefingSlot::temperatureCelsius)
+                .average().orElse(Double.NaN);
+        double rawApparent = repSlots.stream()
+                .filter(s -> s.apparentTemperatureCelsius() != null)
+                .mapToDouble(BriefingSlot::apparentTemperatureCelsius)
+                .average().orElse(Double.NaN);
+        double rawWind = repSlots.stream()
+                .mapToDouble(s -> s.windSpeedMs().doubleValue())
+                .average().orElse(Double.NaN);
+
+        // Weather code: code of the median-temperature slot
+        List<BriefingSlot> withCode = repSlots.stream()
+                .filter(s -> s.temperatureCelsius() != null && s.weatherCode() != null)
+                .sorted(Comparator.comparingDouble(BriefingSlot::temperatureCelsius))
+                .toList();
+        Integer medianWeatherCode = withCode.isEmpty() ? null
+                : withCode.get(withCode.size() / 2).weatherCode();
+
+        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
+                Double.isNaN(rawTemp) ? null : rawTemp,
+                Double.isNaN(rawApparent) ? null : rawApparent,
+                Double.isNaN(rawWind) ? null : rawWind,
+                medianWeatherCode);
     }
 
     /**

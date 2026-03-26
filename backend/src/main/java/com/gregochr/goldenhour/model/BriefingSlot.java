@@ -14,9 +14,11 @@ import java.util.List;
  * @param precipitationMm     precipitation in mm
  * @param visibilityMetres    visibility in metres
  * @param humidityPercent     relative humidity (%)
- * @param temperatureCelsius  temperature in degrees Celsius
- * @param windSpeedMs         wind speed in m/s
- * @param tideState           HIGH, MID, LOW, or null for inland
+ * @param temperatureCelsius           temperature in degrees Celsius
+ * @param apparentTemperatureCelsius  feels-like temperature in degrees Celsius
+ * @param weatherCode                 WMO weather code, or null if unavailable
+ * @param windSpeedMs                 wind speed in m/s
+ * @param tideState                   HIGH, MID, LOW, or null for inland
  * @param tideAligned         true if tide matches location preference
  * @param nearestHighTideTime UTC time of nearest high tide, or null
  * @param nearestHighTideHeight height of nearest high tide in metres, or null
@@ -33,6 +35,8 @@ public record BriefingSlot(
         int visibilityMetres,
         int humidityPercent,
         Double temperatureCelsius,
+        Double apparentTemperatureCelsius,
+        Integer weatherCode,
         BigDecimal windSpeedMs,
         String tideState,
         boolean tideAligned,

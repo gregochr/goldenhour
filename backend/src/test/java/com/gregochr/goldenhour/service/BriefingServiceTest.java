@@ -210,7 +210,7 @@ class BriefingServiceTest {
         void kingTide() {
             BriefingSlot s = new BriefingSlot("Bamburgh",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
-                    20, BigDecimal.ZERO, 15000, 70, 8.0, BigDecimal.ONE,
+                    20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
                     "HIGH", true,
                     LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
                     true, false, List.of("King tide"));
@@ -223,7 +223,7 @@ class BriefingServiceTest {
         void springTide() {
             BriefingSlot s = new BriefingSlot("Seahouses",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
-                    20, BigDecimal.ZERO, 15000, 70, 8.0, BigDecimal.ONE,
+                    20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
                     "HIGH", true, null, null,
                     false, true, List.of("Spring tide"));
             assertThat(BriefingService.buildTideHighlights(List.of(s)))
@@ -377,10 +377,10 @@ class BriefingServiceTest {
 
             BriefingRegion todayRegion = new BriefingRegion("Northumberland",
                     Verdict.GO, "Clear", List.of(),
-                    List.of(slotAt("Bamburgh", Verdict.GO, pastTime)));
+                    List.of(slotAt("Bamburgh", Verdict.GO, pastTime)), null, null, null, null);
             BriefingRegion tomorrowRegion = new BriefingRegion("Lake District",
                     Verdict.GO, "Clear", List.of(),
-                    List.of(slotAt("Keswick", Verdict.GO, futureTime)));
+                    List.of(slotAt("Keswick", Verdict.GO, futureTime)), null, null, null, null);
 
             BriefingDay todayDay = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(todayRegion), List.of())));
@@ -401,7 +401,7 @@ class BriefingServiceTest {
 
             BriefingRegion region = new BriefingRegion("Northumberland",
                     Verdict.GO, "Clear", List.of(),
-                    List.of(slotAt("Bamburgh", Verdict.GO, futureTime)));
+                    List.of(slotAt("Bamburgh", Verdict.GO, futureTime)), null, null, null, null);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
 
@@ -417,9 +417,9 @@ class BriefingServiceTest {
         void singleGoRegion() {
             LocalDate today = LocalDate.now(ZoneOffset.UTC);
             BriefingRegion region = new BriefingRegion("Lake District",
-                    Verdict.GO, "Clear skies", List.of(), List.of());
+                    Verdict.GO, "Clear skies", List.of(), List.of(), null, null, null, null);
             BriefingRegion standdown = new BriefingRegion("Northumberland",
-                    Verdict.STANDDOWN, "Rain", List.of(), List.of());
+                    Verdict.STANDDOWN, "Rain", List.of(), List.of(), null, null, null, null);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region, standdown), List.of())));
@@ -435,8 +435,10 @@ class BriefingServiceTest {
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
-                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of())
+                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null)
                     ), List.of())));
 
             String headline = briefingService.generateHeadline(List.of(day));
@@ -451,9 +453,12 @@ class BriefingServiceTest {
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
-                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of()),
-                            new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of())
+                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                            new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null)
                     ), List.of())));
 
             String headline = briefingService.generateHeadline(List.of(day));
@@ -466,12 +471,18 @@ class BriefingServiceTest {
         void fiveOrMoreGoRegions() {
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             List<BriefingRegion> regions = List.of(
-                    new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
-                    new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of()),
-                    new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of()),
-                    new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of()),
-                    new BriefingRegion("Teesdale", Verdict.GO, "Clear", List.of(), List.of()),
-                    new BriefingRegion("North York Moors", Verdict.GO, "Clear", List.of(), List.of())
+                    new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                    new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                    new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                    new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                    new BriefingRegion("Teesdale", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                    new BriefingRegion("North York Moors", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null)
             );
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, regions, List.of())));
@@ -490,13 +501,17 @@ class BriefingServiceTest {
 
             BriefingDay todayDay = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
-                            new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of())
+                            new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null)
                     ), List.of())));
             BriefingDay tomorrowDay = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of()),
-                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of()),
-                            new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of())
+                            new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                            new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null),
+                            new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of(),
+                            null, null, null, null)
                     ), List.of())));
 
             String headline = briefingService.generateHeadline(List.of(todayDay, tomorrowDay));
@@ -510,7 +525,7 @@ class BriefingServiceTest {
         void marginalOnlyHeadline() {
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             BriefingRegion region = new BriefingRegion("Northumberland",
-                    Verdict.MARGINAL, "Patchy cloud", List.of(), List.of());
+                    Verdict.MARGINAL, "Patchy cloud", List.of(), List.of(), null, null, null, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
 
@@ -523,7 +538,7 @@ class BriefingServiceTest {
         @DisplayName("Standdown headline when no good conditions anywhere")
         void standdownHeadline() {
             BriefingRegion region = new BriefingRegion("Northumberland",
-                    Verdict.STANDDOWN, "Rain everywhere", List.of(), List.of());
+                    Verdict.STANDDOWN, "Rain everywhere", List.of(), List.of(), null, null, null, null);
             LocalDate today = LocalDate.now(ZoneOffset.UTC);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
@@ -534,6 +549,71 @@ class BriefingServiceTest {
     }
 
     
+
+    @Nested
+    @DisplayName("Region comfort rollup")
+    class RegionComfortTests {
+
+        private BriefingSlot slotWithComfort(String name, Verdict verdict,
+                double temp, double apparentTemp, double wind, int weatherCode) {
+            return new BriefingSlot(name, LocalDateTime.of(2026, 3, 26, 18, 0), verdict,
+                    20, BigDecimal.ZERO, 15000, 70, temp, apparentTemp, weatherCode,
+                    BigDecimal.valueOf(wind), null, false, null, null, false, false, List.of());
+        }
+
+        @Test
+        @DisplayName("averages temperature and wind across GO slots")
+        void averagesGoSlots() {
+            List<BriefingSlot> slots = List.of(
+                    slotWithComfort("A", Verdict.GO, 10.0, 7.0, 5.0, 0),
+                    slotWithComfort("B", Verdict.GO, 12.0, 9.0, 3.0, 1),
+                    slotWithComfort("C", Verdict.STANDDOWN, 20.0, 18.0, 1.0, 95));
+            BriefingRegion region = briefingService.buildRegion("Test", slots);
+
+            assertThat(region.regionTemperatureCelsius()).isEqualTo(11.0);
+            assertThat(region.regionApparentTemperatureCelsius()).isEqualTo(8.0);
+            assertThat(region.regionWindSpeedMs()).isEqualTo(4.0);
+        }
+
+        @Test
+        @DisplayName("falls back to all slots when no GO slots present")
+        void fallsBackToAllSlots() {
+            List<BriefingSlot> slots = List.of(
+                    slotWithComfort("A", Verdict.STANDDOWN, 8.0, 5.0, 6.0, 61),
+                    slotWithComfort("B", Verdict.STANDDOWN, 10.0, 7.0, 4.0, 63));
+            BriefingRegion region = briefingService.buildRegion("Test", slots);
+
+            assertThat(region.regionTemperatureCelsius()).isEqualTo(9.0);
+            assertThat(region.regionWindSpeedMs()).isEqualTo(5.0);
+        }
+
+        @Test
+        @DisplayName("weather code taken from median-temperature GO slot")
+        void weatherCodeFromMedianSlot() {
+            List<BriefingSlot> slots = List.of(
+                    slotWithComfort("A", Verdict.GO, 8.0, 5.0, 5.0, 0),
+                    slotWithComfort("B", Verdict.GO, 10.0, 7.0, 5.0, 3),
+                    slotWithComfort("C", Verdict.GO, 12.0, 9.0, 5.0, 80));
+            BriefingRegion region = briefingService.buildRegion("Test", slots);
+
+            // Sorted by temp: A(8), B(10), C(12) — middle index 1 → weatherCode=3
+            assertThat(region.regionWeatherCode()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("returns null comfort fields when all slots have null temperature")
+        void nullTemperatureGraceful() {
+            List<BriefingSlot> slots = List.of(
+                    new BriefingSlot("A", LocalDateTime.of(2026, 3, 26, 18, 0), Verdict.GO,
+                            20, BigDecimal.ZERO, 15000, 70, null, null, null,
+                            BigDecimal.ONE, null, false, null, null, false, false, List.of()));
+            BriefingRegion region = briefingService.buildRegion("Test", slots);
+
+            assertThat(region.regionTemperatureCelsius()).isNull();
+            assertThat(region.regionApparentTemperatureCelsius()).isNull();
+            assertThat(region.regionWeatherCode()).isNull();
+        }
+    }
 
     @Nested
     @DisplayName("Region summary text")
@@ -820,13 +900,13 @@ class BriefingServiceTest {
     private static BriefingSlot slot(String name, Verdict verdict) {
         return new BriefingSlot(name,
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, BigDecimal.ONE,
+                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
                 null, false, null, null, false, false, List.of());
     }
 
     private static BriefingSlot slotAt(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, BigDecimal.ONE,
+                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
                 null, false, null, null, false, false, List.of());
     }
 

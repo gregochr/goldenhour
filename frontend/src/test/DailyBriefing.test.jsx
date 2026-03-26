@@ -15,6 +15,12 @@ function futureDateStr() {
   return d.toISOString().slice(0, 10);
 }
 
+function pastDateStr() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function buildBriefing(overrides = {}) {
   const dateStr = futureDateStr();
   return {
@@ -230,16 +236,16 @@ describe('DailyBriefing', () => {
   // ────── Expanded view — past event filtering ──────
 
   it('hides past events when expanded', async () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const pastStr = pastDateStr();
     getDailyBriefing.mockResolvedValue({
       generatedAt: new Date().toISOString().slice(0, 19),
       headline: '',
       days: [{
-        date: todayStr,
+        date: pastStr,
         eventSummaries: [
           {
             targetType: 'SUNRISE',
-            regions: [{ regionName: 'Northumberland', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'Bamburgh', solarEventTime: `${todayStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            regions: [{ regionName: 'Northumberland', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'Bamburgh', solarEventTime: `${pastStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
             unregioned: [],
           },
         ],
@@ -255,22 +261,22 @@ describe('DailyBriefing', () => {
   });
 
   it('shows future events and hides past events in the same day when expanded', async () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const tomorrowStr = futureDateStr();
+    const pastStr = pastDateStr();
+    const futureStr = futureDateStr();
     getDailyBriefing.mockResolvedValue({
       generatedAt: new Date().toISOString().slice(0, 19),
       headline: '',
       days: [{
-        date: todayStr,
+        date: pastStr,
         eventSummaries: [
           {
             targetType: 'SUNRISE',
-            regions: [{ regionName: 'Past Region', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'A', solarEventTime: `${todayStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            regions: [{ regionName: 'Past Region', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'A', solarEventTime: `${pastStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
             unregioned: [],
           },
           {
             targetType: 'SUNSET',
-            regions: [{ regionName: 'Future Region', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'B', solarEventTime: `${tomorrowStr}T20:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            regions: [{ regionName: 'Future Region', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'B', solarEventTime: `${futureStr}T20:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
             unregioned: [],
           },
         ],
@@ -286,21 +292,21 @@ describe('DailyBriefing', () => {
   });
 
   it('hides day heading when all events for that day have passed', async () => {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const pastStr = pastDateStr();
     getDailyBriefing.mockResolvedValue({
       generatedAt: new Date().toISOString().slice(0, 19),
       headline: '',
       days: [{
-        date: todayStr,
+        date: pastStr,
         eventSummaries: [
           {
             targetType: 'SUNRISE',
-            regions: [{ regionName: 'Northumberland', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'A', solarEventTime: `${todayStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            regions: [{ regionName: 'Northumberland', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'A', solarEventTime: `${pastStr}T04:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
             unregioned: [],
           },
           {
             targetType: 'SUNSET',
-            regions: [{ regionName: 'Lake District', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'B', solarEventTime: `${todayStr}T17:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+            regions: [{ regionName: 'Lake District', verdict: 'GO', summary: '', tideHighlights: [], slots: [{ locationName: 'B', solarEventTime: `${pastStr}T17:00:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
             unregioned: [],
           },
         ],
@@ -686,6 +692,131 @@ describe('DailyBriefing', () => {
       fireEvent.click(lakeDist);
 
       expect(screen.getByTestId('slot-drive-time')).toHaveTextContent('2h');
+    });
+  });
+
+  // ────── Location type icons ──────
+
+  describe('location type icons', () => {
+    it('shows landscape icon for LANDSCAPE locations in slot rows', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick', locationType: 'LANDSCAPE' }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      fireEvent.click(regionRows.find((r) => r.textContent.includes('Lake District')));
+
+      const icons = screen.getAllByTestId('slot-type-icon');
+      expect(icons[0]).toHaveTextContent('🏔️');
+    });
+
+    it('shows seascape icon for SEASCAPE locations', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick', locationType: 'SEASCAPE' }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      fireEvent.click(regionRows.find((r) => r.textContent.includes('Lake District')));
+
+      const icons = screen.getAllByTestId('slot-type-icon');
+      expect(icons[0]).toHaveTextContent('🌊');
+    });
+
+    it('shows no type icon when locationType is absent', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[{ name: 'Keswick' }]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const regionRows = screen.getAllByTestId('region-row');
+      fireEvent.click(regionRows.find((r) => r.textContent.includes('Lake District')));
+
+      expect(screen.queryByTestId('slot-type-icon')).toBeNull();
+    });
+  });
+
+  // ────── Region comfort forecast ──────
+
+  describe('region comfort forecast', () => {
+    function buildBriefingWithComfort() {
+      const dateStr = new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 10);
+      return {
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: 'Looking good',
+        days: [{
+          date: dateStr,
+          eventSummaries: [{
+            targetType: 'SUNSET',
+            regions: [{
+              regionName: 'Lake District',
+              verdict: 'GO',
+              summary: 'Clear at 1 of 1 location',
+              tideHighlights: [],
+              slots: [{
+                locationName: 'Keswick',
+                solarEventTime: `${dateStr}T18:30:00`,
+                verdict: 'GO',
+                tideAligned: false,
+                flags: [],
+              }],
+              regionTemperatureCelsius: 7.4,
+              regionApparentTemperatureCelsius: 3.2,
+              regionWindSpeedMs: 5.5,
+              regionWeatherCode: 1,
+            }],
+            unregioned: [],
+          }],
+        }],
+      };
+    }
+
+    it('shows temperature on region row when comfort data is present', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithComfort());
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const comfort = screen.getByTestId('region-comfort');
+      expect(comfort).toHaveTextContent('7°C');
+    });
+
+    it('shows feels-like temperature in brackets', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithComfort());
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const comfort = screen.getByTestId('region-comfort');
+      expect(comfort).toHaveTextContent('(3°C)');
+    });
+
+    it('shows wind speed in mph on region row', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithComfort());
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      const comfort = screen.getByTestId('region-comfort');
+      // 5.5 m/s * 2.237 = 12.3 → 12 mph
+      expect(comfort).toHaveTextContent('12mph');
+    });
+
+    it('does not show comfort strip when regionTemperatureCelsius is null', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing locations={[]} />);
+      await waitFor(() => screen.getByTestId('briefing-toggle'));
+
+      fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+      expect(screen.queryByTestId('region-comfort')).toBeNull();
     });
   });
 });

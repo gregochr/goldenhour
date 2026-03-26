@@ -173,6 +173,42 @@ function EventSummaryRow({ dayLabel, es }) {
   );
 }
 
+/** Location type icon lookup. */
+const LOCATION_TYPE_ICONS = {
+  LANDSCAPE: '🏔️',
+  WILDLIFE: '🐾',
+  SEASCAPE: '🌊',
+  WATERFALL: '💧',
+};
+
+/**
+ * Maps a WMO weather code to a representative emoji.
+ *
+ * @param {number|null} code
+ * @returns {string}
+ */
+function weatherCodeToIcon(code) {
+  if (code == null) return '';
+  if (code === 0) return '☀️';
+  if (code <= 2) return '🌤️';
+  if (code === 3) return '☁️';
+  if (code <= 48) return '🌫️';
+  if (code <= 67 || (code >= 80 && code <= 82)) return '🌦️';
+  if (code <= 77 || (code >= 85 && code <= 86)) return '❄️';
+  return '⛈️';
+}
+
+/**
+ * Converts wind speed in m/s to mph (rounded).
+ *
+ * @param {number|null} ms
+ * @returns {number|null}
+ */
+function msToMph(ms) {
+  if (ms == null) return null;
+  return Math.round(ms * 2.237);
+}
+
 /** Sort order for verdict: GO first, MARGINAL second, STANDDOWN last. */
 const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
@@ -226,6 +262,15 @@ export default function DailyBriefing({ locations }) {
     const m = new Map();
     (locations || []).forEach((loc) => {
       if (loc.driveDurationMinutes != null) m.set(loc.name, loc.driveDurationMinutes);
+    });
+    return m;
+  }, [locations]);
+
+  /** Map from location name → locationType string. */
+  const typeMap = useMemo(() => {
+    const m = new Map();
+    (locations || []).forEach((loc) => {
+      if (loc.locationType) m.set(loc.name, loc.locationType);
     });
     return m;
   }, [locations]);
@@ -387,6 +432,23 @@ export default function DailyBriefing({ locations }) {
                             <span className="text-xs text-plex-text-secondary flex-1 truncate">
                               {region.summary}
                             </span>
+                            {region.regionTemperatureCelsius != null && (
+                              <span
+                                className="text-xs text-plex-text-muted shrink-0 flex items-center gap-1"
+                                data-testid="region-comfort"
+                              >
+                                {weatherCodeToIcon(region.regionWeatherCode)}
+                                {Math.round(region.regionTemperatureCelsius)}°C
+                                {region.regionApparentTemperatureCelsius != null && (
+                                  <span className="opacity-70">
+                                    ({Math.round(region.regionApparentTemperatureCelsius)}°C)
+                                  </span>
+                                )}
+                                {region.regionWindSpeedMs != null && (
+                                  <>💨 {msToMph(region.regionWindSpeedMs)}mph</>
+                                )}
+                              </span>
+                            )}
                             <span className="text-xs text-plex-text-muted shrink-0">
                               {isOpen ? '▾' : '▸'}
                             </span>
@@ -406,6 +468,7 @@ export default function DailyBriefing({ locations }) {
                             <div className="ml-4 mt-1 space-y-1" data-testid="region-slots">
                               {sortedSlots(region.slots).map((slot) => {
                                 const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                                const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
                                 return (
                                   <div
                                     key={slot.locationName}
@@ -414,6 +477,7 @@ export default function DailyBriefing({ locations }) {
                                   >
                                     <VerdictPill verdict={slot.verdict} />
                                     <span className="font-medium text-plex-text">
+                                      {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
                                       {slot.locationName}
                                     </span>
                                     <span className="text-plex-text-secondary">
@@ -441,6 +505,7 @@ export default function DailyBriefing({ locations }) {
                       <div className="ml-2 mt-1 space-y-1">
                         {sortedSlots(es.unregioned).map((slot) => {
                           const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                          const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
                           return (
                             <div
                               key={slot.locationName}
@@ -449,6 +514,7 @@ export default function DailyBriefing({ locations }) {
                             >
                               <VerdictPill verdict={slot.verdict} />
                               <span className="font-medium text-plex-text">
+                                {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
                                 {slot.locationName}
                               </span>
                               <span className="text-plex-text-secondary">
@@ -483,6 +549,7 @@ DailyBriefing.propTypes = {
     PropTypes.shape({
       name: PropTypes.string.isRequired,
       driveDurationMinutes: PropTypes.number,
+      locationType: PropTypes.string,
     }),
   ),
 };

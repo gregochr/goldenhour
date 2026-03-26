@@ -132,14 +132,14 @@ class BriefingControllerTest {
     private static DailyBriefingResponse buildSampleBriefing() {
         BriefingSlot slot = new BriefingSlot("Keswick",
                 LocalDateTime.of(2026, 3, 25, 18, 30), Verdict.GO,
-                15, BigDecimal.ZERO, 20000, 65, 10.5, new BigDecimal("3.2"),
+                15, BigDecimal.ZERO, 20000, 65, 10.5, 8.0, 1, new BigDecimal("3.2"),
                 "HIGH", true,
                 LocalDateTime.of(2026, 3, 25, 19, 0), new BigDecimal("1.5"),
                 false, false, List.of("Tide aligned"));
 
         BriefingRegion region = new BriefingRegion("Lake District",
                 Verdict.GO, "Clear at 1 of 1 location",
-                List.of(), List.of(slot));
+                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1);
 
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());
