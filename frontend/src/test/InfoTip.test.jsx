@@ -48,12 +48,14 @@ describe('InfoTip', () => {
     expect(wrapper.className).toContain('text-red-500');
   });
 
-  it('popover uses wide max-width and left-aligned positioning', () => {
+  it('popover uses wide max-width and fixed positioning to escape overflow:hidden ancestors', () => {
     render(<InfoTip text="Some help text" />);
     fireEvent.click(screen.getByTestId('infotip-trigger'));
     const popover = screen.getByTestId('infotip-popover');
     expect(popover.className).toContain('w-max');
-    expect(popover.className).toContain('left-0');
     expect(popover.className).not.toContain('max-w-[220px]');
+    // Popover must use position:fixed (not absolute) so it escapes overflow:hidden containers
+    expect(popover.style.position).toBe('fixed');
+    expect(Number(popover.style.zIndex)).toBeGreaterThanOrEqual(9000);
   });
 });

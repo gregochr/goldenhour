@@ -41,6 +41,24 @@ function FlagChip({ label }) {
 }
 
 /**
+ * Rotating chevron icon — right at rest, down when open.
+ *
+ * @param {object} props
+ * @param {boolean} props.open
+ * @param {string}  [props.className]
+ */
+function Chevron({ open, className = '' }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block transition-transform duration-200 leading-none select-none ${open ? 'rotate-90' : 'rotate-0'} ${className}`}
+    >
+      ▶
+    </span>
+  );
+}
+
+/**
  * Formats a UTC ISO datetime string to a human-readable time (HH:MM).
  *
  * @param {string} isoString
@@ -121,13 +139,15 @@ function hasTideAligned(es) {
 }
 
 /**
- * Compact single-row summary of one solar event shown in the collapsed briefing card.
+ * Compact single-row summary of one solar event. Clicking expands its region detail inline.
  *
- * @param {object} props
- * @param {string} props.dayLabel   - "Today" or "Tomorrow"
- * @param {object} props.es         - BriefingEventSummary
+ * @param {object}   props
+ * @param {string}   props.dayLabel  - "Today" or "Tomorrow"
+ * @param {object}   props.es        - BriefingEventSummary
+ * @param {boolean}  props.isOpen    - whether this event's region detail is expanded
+ * @param {Function} props.onToggle  - called when the row is clicked
  */
-function EventSummaryRow({ dayLabel, es }) {
+function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
   const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
   const eventLabel = es.targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset';
   const counts = getVerdictCounts(es);
@@ -140,14 +160,15 @@ function EventSummaryRow({ dayLabel, es }) {
   };
 
   return (
-    <div
+    <button
       data-testid="event-summary-row"
-      className="flex items-center gap-2 text-xs py-0.5"
+      className="w-full flex items-center gap-2 text-xs min-h-[44px] px-1 rounded hover:bg-plex-bg/30 text-left"
+      onClick={onToggle}
     >
       <span className="w-36 shrink-0 font-medium text-plex-text">
         {emoji} {dayLabel} {eventLabel}
       </span>
-      <span className="flex gap-2 flex-wrap">
+      <span className="flex gap-2 flex-wrap flex-1">
         {counts.GO > 0 && (
           <span className={countColours.GO} data-testid="go-count">
             {counts.GO} GO
@@ -169,7 +190,10 @@ function EventSummaryRow({ dayLabel, es }) {
           🌊
         </span>
       )}
-    </div>
+      <span className="shrink-0 flex items-center justify-center w-11 h-11">
+        <Chevron open={isOpen} className="text-lg text-plex-text-muted" />
+      </span>
+    </button>
   );
 }
 
@@ -243,17 +267,15 @@ function formatDriveDuration(minutes) {
 /**
  * Collapsible daily briefing card displayed above the map view.
  *
- * Collapsed: per-event compact rows for all upcoming solar events (past events hidden),
- *            showing verdict counts and tide alignment at a glance.
- * Expanded: per-day sections with region rows and expandable location detail.
+ * Each solar event row is independently expandable; the header toggle expands/collapses all at once.
  */
 const MINIMISED_KEY = 'briefing-minimised';
 
 export default function DailyBriefing({ locations }) {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(false);
   const [minimised, setMinimised] = useState(() => localStorage.getItem(MINIMISED_KEY) === 'true');
+  const [expandedEvents, setExpandedEvents] = useState(new Set());
   const [expandedRegions, setExpandedRegions] = useState(new Set());
   const intervalRef = useRef(null);
 
@@ -321,14 +343,20 @@ export default function DailyBriefing({ locations }) {
     );
   }
 
+  const toggleEvent = (key) => {
+    setExpandedEvents((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const toggleRegion = (key) => {
     setExpandedRegions((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -346,6 +374,19 @@ export default function DailyBriefing({ locations }) {
       })),
   );
 
+  const allExpanded = upcomingEvents.length > 0
+    && upcomingEvents.every(({ es, date }) => expandedEvents.has(`${date}-${es.targetType}`));
+
+  const toggleAll = () => {
+    if (allExpanded) {
+      setExpandedEvents(new Set());
+    } else {
+      setExpandedEvents(new Set(upcomingEvents.map(({ es, date }) => `${date}-${es.targetType}`)));
+    }
+  };
+
+  const anyExpanded = upcomingEvents.some(({ es, date }) => expandedEvents.has(`${date}-${es.targetType}`));
+
   return (
     <div
       data-testid="daily-briefing"
@@ -356,14 +397,14 @@ export default function DailyBriefing({ locations }) {
         <button
           data-testid="briefing-toggle"
           className="flex-1 flex items-center justify-between gap-3 text-left"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={toggleAll}
         >
           <span className="text-xs font-semibold text-plex-text-secondary uppercase tracking-wide">
             Daily Briefing
           </span>
           <span className="flex items-center gap-2 text-xs text-plex-text-muted">
             {formatAge(briefing.generatedAt)}
-            <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+            <Chevron open={allExpanded} className="text-base text-plex-text-muted" />
           </span>
         </button>
         <button
@@ -377,164 +418,152 @@ export default function DailyBriefing({ locations }) {
         </button>
       </div>
 
-      {/* Compact upcoming-event rows — visible when collapsed */}
-      {!expanded && (
-        <div className="mt-2 space-y-0.5" data-testid="briefing-collapsed-events">
-          {upcomingEvents.length === 0 ? (
-            <p className="text-xs text-plex-text-muted italic mt-1">
-              No upcoming events in the next two days
-            </p>
-          ) : (
-            upcomingEvents.map(({ es, dayLabel, date }) => (
-              <EventSummaryRow
-                key={`${date}-${es.targetType}`}
-                dayLabel={dayLabel}
-                es={es}
-              />
-            ))
-          )}
-        </div>
-      )}
+      {/* Per-event summary rows — always visible */}
+      <div className="mt-1" data-testid="briefing-collapsed-events">
+        {upcomingEvents.length === 0 ? (
+          <p className="text-xs text-plex-text-muted italic mt-1">
+            No upcoming events in the next two days
+          </p>
+        ) : (
+          upcomingEvents.map(({ es, dayLabel, date }) => (
+            <EventSummaryRow
+              key={`${date}-${es.targetType}`}
+              dayLabel={dayLabel}
+              es={es}
+              isOpen={expandedEvents.has(`${date}-${es.targetType}`)}
+              onToggle={() => toggleEvent(`${date}-${es.targetType}`)}
+            />
+          ))
+        )}
+      </div>
 
-      {/* Expanded content */}
-      {expanded && (
-        <div className="mt-3 space-y-4" data-testid="briefing-expanded">
-          {briefing.days.map((day) => {
-            const dateLabel = day.date === todayStr ? 'Today' : 'Tomorrow';
-            const upcomingSummaries = (day.eventSummaries || []).filter((es) => !isEventPast(es));
-            if (upcomingSummaries.length === 0) return null;
+      {/* Expanded region content — renders when at least one event is open */}
+      {anyExpanded && (
+        <div className="mt-2 space-y-4" data-testid="briefing-expanded">
+          {upcomingEvents.map(({ es, dayLabel: _dl, date }) => {
+            const eventKey = `${date}-${es.targetType}`;
+            if (!expandedEvents.has(eventKey)) return null;
             return (
-              <div key={day.date}>
-                <h3 className="text-xs font-bold text-plex-text-secondary uppercase tracking-wide mb-2">
-                  {dateLabel} &mdash; {day.date}
-                </h3>
-                {upcomingSummaries.map((es) => (
-                  <div key={es.targetType} className="mb-3">
-                    <p className="text-xs font-semibold text-plex-text-secondary mb-1">
-                      {es.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
-                    </p>
-
-                    {/* Region rows */}
-                    {es.regions.map((region) => {
-                      const regionKey = `${day.date}-${es.targetType}-${region.regionName}`;
-                      const isOpen = expandedRegions.has(regionKey);
-                      return (
-                        <div key={regionKey} className="mb-1">
-                          <button
-                            data-testid="region-row"
-                            className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-plex-bg/50 text-left"
-                            onClick={() => toggleRegion(regionKey)}
+              <div key={eventKey} className="mb-1">
+                {/* Region rows */}
+                {es.regions.map((region) => {
+                  const regionKey = `${date}-${es.targetType}-${region.regionName}`;
+                  const isOpen = expandedRegions.has(regionKey);
+                  return (
+                    <div key={regionKey} className="mb-1">
+                      <button
+                        data-testid="region-row"
+                        className="w-full flex items-center gap-2 px-2 min-h-[44px] rounded hover:bg-plex-bg/50 text-left"
+                        onClick={() => toggleRegion(regionKey)}
+                      >
+                        <VerdictPill verdict={region.verdict} />
+                        <span className="text-sm text-plex-text font-medium">
+                          {region.regionName}
+                        </span>
+                        <span className="text-xs text-plex-text-secondary flex-1 truncate">
+                          {region.summary}
+                        </span>
+                        {region.regionTemperatureCelsius != null && (
+                          <span
+                            className="text-xs text-plex-text-muted shrink-0 flex items-center gap-1"
+                            data-testid="region-comfort"
                           >
-                            <VerdictPill verdict={region.verdict} />
-                            <span className="text-sm text-plex-text font-medium">
-                              {region.regionName}
-                            </span>
-                            <span className="text-xs text-plex-text-secondary flex-1 truncate">
-                              {region.summary}
-                            </span>
-                            {region.regionTemperatureCelsius != null && (
-                              <span
-                                className="text-xs text-plex-text-muted shrink-0 flex items-center gap-1"
-                                data-testid="region-comfort"
-                              >
-                                {weatherCodeToIcon(region.regionWeatherCode)}
-                                {Math.round(region.regionTemperatureCelsius)}°C
-                                {region.regionApparentTemperatureCelsius != null && (
-                                  <span className="opacity-70">
-                                    ({Math.round(region.regionApparentTemperatureCelsius)}°C)
-                                  </span>
-                                )}
-                                {region.regionWindSpeedMs != null && (
-                                  <>💨 {msToMph(region.regionWindSpeedMs)}mph</>
-                                )}
+                            {weatherCodeToIcon(region.regionWeatherCode)}
+                            {Math.round(region.regionTemperatureCelsius)}°C
+                            {region.regionApparentTemperatureCelsius != null && (
+                              <span className="opacity-70">
+                                ({Math.round(region.regionApparentTemperatureCelsius)}°C)
                               </span>
                             )}
-                            <span className="text-xs text-plex-text-muted shrink-0">
-                              {isOpen ? '▾' : '▸'}
+                            {region.regionWindSpeedMs != null && (
+                              <>💨 {msToMph(region.regionWindSpeedMs)}mph</>
+                            )}
+                          </span>
+                        )}
+                        <span className="shrink-0 flex items-center justify-center w-11 h-11">
+                          <Chevron open={isOpen} className="text-lg text-plex-text-muted" />
+                        </span>
+                      </button>
+
+                      {/* Tide highlights */}
+                      {region.tideHighlights?.length > 0 && (
+                        <div className="flex flex-wrap gap-1 px-2 mt-0.5">
+                          {region.tideHighlights.map((hl) => (
+                            <FlagChip key={hl} label={hl} />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Expanded location slots */}
+                      {isOpen && (
+                        <div className="ml-4 mt-1 space-y-1" data-testid="region-slots">
+                          {sortedSlots(region.slots).map((slot) => {
+                            const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                            const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+                            return (
+                              <div
+                                key={slot.locationName}
+                                className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
+                                data-testid="briefing-slot"
+                              >
+                                <VerdictPill verdict={slot.verdict} />
+                                <span className="font-medium text-plex-text">
+                                  {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
+                                  {slot.locationName}
+                                </span>
+                                <span className="text-plex-text-secondary">
+                                  {formatTime(slot.solarEventTime)}
+                                </span>
+                                {drive && (
+                                  <span className="text-plex-text-muted" data-testid="slot-drive-time">
+                                    🚗 {drive}
+                                  </span>
+                                )}
+                                {slot.flags?.map((flag) => (
+                                  <FlagChip key={flag} label={flag} />
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Unregioned slots */}
+                {es.unregioned?.length > 0 && (
+                  <div className="ml-2 mt-1 space-y-1">
+                    {sortedSlots(es.unregioned).map((slot) => {
+                      const drive = formatDriveDuration(driveMap.get(slot.locationName));
+                      const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+                      return (
+                        <div
+                          key={slot.locationName}
+                          className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
+                          data-testid="briefing-slot"
+                        >
+                          <VerdictPill verdict={slot.verdict} />
+                          <span className="font-medium text-plex-text">
+                            {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
+                            {slot.locationName}
+                          </span>
+                          <span className="text-plex-text-secondary">
+                            {formatTime(slot.solarEventTime)}
+                          </span>
+                          {drive && (
+                            <span className="text-plex-text-muted" data-testid="slot-drive-time">
+                              🚗 {drive}
                             </span>
-                          </button>
-
-                          {/* Tide highlights */}
-                          {region.tideHighlights?.length > 0 && (
-                            <div className="flex flex-wrap gap-1 px-2 mt-0.5">
-                              {region.tideHighlights.map((hl) => (
-                                <FlagChip key={hl} label={hl} />
-                              ))}
-                            </div>
                           )}
-
-                          {/* Expanded location slots */}
-                          {isOpen && (
-                            <div className="ml-4 mt-1 space-y-1" data-testid="region-slots">
-                              {sortedSlots(region.slots).map((slot) => {
-                                const drive = formatDriveDuration(driveMap.get(slot.locationName));
-                                const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
-                                return (
-                                  <div
-                                    key={slot.locationName}
-                                    className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
-                                    data-testid="briefing-slot"
-                                  >
-                                    <VerdictPill verdict={slot.verdict} />
-                                    <span className="font-medium text-plex-text">
-                                      {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-                                      {slot.locationName}
-                                    </span>
-                                    <span className="text-plex-text-secondary">
-                                      {formatTime(slot.solarEventTime)}
-                                    </span>
-                                    {drive && (
-                                      <span className="text-plex-text-muted" data-testid="slot-drive-time">
-                                        🚗 {drive}
-                                      </span>
-                                    )}
-                                    {slot.flags?.map((flag) => (
-                                      <FlagChip key={flag} label={flag} />
-                                    ))}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
+                          {slot.flags?.map((flag) => (
+                            <FlagChip key={flag} label={flag} />
+                          ))}
                         </div>
                       );
                     })}
-
-                    {/* Unregioned slots */}
-                    {es.unregioned?.length > 0 && (
-                      <div className="ml-2 mt-1 space-y-1">
-                        {sortedSlots(es.unregioned).map((slot) => {
-                          const drive = formatDriveDuration(driveMap.get(slot.locationName));
-                          const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
-                          return (
-                            <div
-                              key={slot.locationName}
-                              className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 text-xs"
-                              data-testid="briefing-slot"
-                            >
-                              <VerdictPill verdict={slot.verdict} />
-                              <span className="font-medium text-plex-text">
-                                {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
-                                {slot.locationName}
-                              </span>
-                              <span className="text-plex-text-secondary">
-                                {formatTime(slot.solarEventTime)}
-                              </span>
-                              {drive && (
-                                <span className="text-plex-text-muted" data-testid="slot-drive-time">
-                                  🚗 {drive}
-                                </span>
-                              )}
-                              {slot.flags?.map((flag) => (
-                                <FlagChip key={flag} label={flag} />
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
-                ))}
+                )}
               </div>
             );
           })}
