@@ -1104,7 +1104,7 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
         <div className="mt-1" data-testid="briefing-collapsed-events">
           {upcomingEvents.length === 0 ? (
             <p className="text-plex-text-muted italic mt-1" style={{ fontSize: '12px' }}>
-              No upcoming events in the next two days
+              No upcoming events in the next three days
             </p>
           ) : (
             upcomingEvents.map(({ es, dayLabel, date }) => {

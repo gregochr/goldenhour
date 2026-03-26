@@ -547,7 +547,7 @@ class BriefingServiceTest {
 
         DailyBriefingResponse cached = briefingService.getCachedBriefing();
         assertThat(cached).isNotNull();
-        assertThat(cached.days()).hasSize(2);
+        assertThat(cached.days()).hasSize(4);
         assertThat(cached.headline()).isNotBlank();
     }
 
