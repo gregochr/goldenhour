@@ -407,7 +407,7 @@ describe('DailyBriefing', () => {
 
     const pills = screen.getAllByTestId('verdict-pill');
     const pillTexts = pills.map((p) => p.textContent);
-    expect(pillTexts).toContain('STANDDOWN');
+    expect(pillTexts).toContain('Standdown');
     expect(pillTexts).toContain('GO');
   });
 
@@ -862,7 +862,7 @@ describe('DailyBriefing', () => {
 
   describe('region comfort forecast', () => {
     function buildBriefingWithComfort() {
-      const dateStr = new Date(Date.now() + 3600 * 1000).toISOString().slice(0, 10);
+      const dateStr = futureDateStr();
       return {
         generatedAt: new Date().toISOString().slice(0, 19),
         headline: 'Looking good',

@@ -12,14 +12,15 @@ function VerdictPill({ verdict }) {
   const colours = {
     GO: 'bg-green-600 text-white',
     MARGINAL: 'bg-amber-600 text-white',
-    STANDDOWN: 'bg-red-700 text-white',
+    STANDDOWN: 'bg-red-900/60 text-red-200/70',
   };
+  const labels = { GO: 'GO', MARGINAL: 'Marginal', STANDDOWN: 'Standdown' };
   return (
     <span
       data-testid="verdict-pill"
-      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold uppercase ${colours[verdict] || 'bg-plex-surface text-plex-text-secondary'}`}
+      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[verdict] || 'bg-plex-surface text-plex-text-secondary'}`}
     >
-      {verdict}
+      {labels[verdict] || verdict}
     </span>
   );
 }
@@ -299,22 +300,21 @@ function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
 // ── Event pips (tiny coloured labels inside a day cell) ───────────────────
 
 function EventPips({ allEvents, auroraActive }) {
-  const upcoming = allEvents.filter((e) => !e.past);
+  const upcoming = allEvents.filter((e) => !e.past && e.region.verdict !== 'STANDDOWN');
   if (upcoming.length === 0 && !auroraActive) return null;
   return (
     <div className="flex flex-wrap gap-0.5 mt-1">
       {upcoming.map(({ es, region }) => {
         const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
+        const label = region.verdict === 'GO' ? 'GO' : 'Marginal';
         const c = region.verdict === 'GO'
           ? 'bg-green-500/30 text-green-300'
-          : region.verdict === 'MARGINAL'
-            ? 'bg-amber-500/30 text-amber-300'
-            : 'bg-red-500/20 text-red-400';
+          : 'bg-amber-500/30 text-amber-300';
         return (
           <span key={es.targetType} data-testid="event-pip"
             className={`rounded px-1 font-medium ${c}`}
             style={{ fontSize: '10px' }}>
-            {emoji} {region.verdict.slice(0, 2)}
+            {emoji} {label}
           </span>
         );
       })}
@@ -322,7 +322,7 @@ function EventPips({ allEvents, auroraActive }) {
         <span data-testid="event-pip"
           className="rounded px-1 font-medium bg-indigo-500/30 text-indigo-300"
           style={{ fontSize: '10px' }}>
-          🌌 AU
+          🌌 Aurora
         </span>
       )}
     </div>
@@ -538,13 +538,13 @@ function HeatmapGrid({
             const auroraActive = !!auroraTonight;
 
             const cellBg = isStanddown
-              ? 'bg-red-700/10 border-red-500/10'
+              ? 'border-red-500/8'
               : bestVerdict === 'GO'
                 ? 'bg-green-600/20 border-green-600/20 hover:bg-green-600/35'
                 : 'bg-amber-500/18 border-amber-500/20 hover:bg-amber-500/32';
 
             const verdictTextColour = isStanddown
-              ? 'text-red-400/60'
+              ? 'text-plex-text-muted'
               : bestVerdict === 'GO'
                 ? 'text-green-300'
                 : 'text-amber-300';
@@ -565,9 +565,13 @@ function HeatmapGrid({
                 disabled={isStanddown}
                 className={`relative rounded border text-left p-2 transition-all
                   ${cellBg}
-                  ${isStanddown ? 'opacity-25 cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
+                  ${isStanddown ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
                   ${isActive ? 'ring-1 ring-white/25' : ''}`}
-                style={{ pointerEvents: isStanddown ? 'none' : undefined }}
+                style={{
+                  pointerEvents: isStanddown ? 'none' : undefined,
+                  opacity: isStanddown ? 0.3 : undefined,
+                  backgroundColor: isStanddown ? 'rgba(180,50,50,0.04)' : undefined,
+                }}
                 onClick={isStanddown ? undefined : () => toggleDrillDown(date, regionName)}
               >
                 <div className={`font-medium ${verdictTextColour}`} style={{ fontSize: '12px' }}>
@@ -638,7 +642,7 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
   const isStanddown = bestVerdict === 'STANDDOWN';
 
   const cardBg = isStanddown
-    ? 'bg-red-700/8 border-red-500/10 opacity-30'
+    ? 'border-red-500/8'
     : bestVerdict === 'GO'
       ? 'bg-green-600/15 border-green-600/25'
       : 'bg-amber-500/15 border-amber-500/25';
@@ -649,7 +653,8 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
       : `Marginal ${eventLabel}`;
 
   return (
-    <div className={`rounded border ${cardBg} mb-1.5`}>
+    <div className={`rounded border ${cardBg} mb-1.5`}
+      style={isStanddown ? { opacity: 0.3, backgroundColor: 'rgba(180,50,50,0.04)' } : undefined}>
       <button
         data-testid="region-row"
         disabled={isStanddown}
