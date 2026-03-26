@@ -171,7 +171,7 @@ describe('DailyBriefing', () => {
     expect(screen.queryByTestId('briefing-expanded')).toBeNull();
   });
 
-  // ────── Dismiss (session-scoped) ──────
+  // ────── Dismiss / restore (session-scoped) ──────
 
   it('shows dismiss button on the card', async () => {
     getDailyBriefing.mockResolvedValue(buildBriefing());
@@ -180,7 +180,7 @@ describe('DailyBriefing', () => {
     expect(screen.getByTestId('briefing-minimise')).toBeInTheDocument();
   });
 
-  it('clicking × hides the card entirely with no pill', async () => {
+  it('clicking × hides the card and shows the pill', async () => {
     getDailyBriefing.mockResolvedValue(buildBriefing());
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-minimise'));
@@ -188,31 +188,58 @@ describe('DailyBriefing', () => {
     fireEvent.click(screen.getByTestId('briefing-minimise'));
 
     expect(screen.queryByTestId('daily-briefing')).toBeNull();
+    expect(screen.getByTestId('briefing-minimised-pill')).toBeInTheDocument();
+  });
+
+  it('clicking the pill restores the card', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-minimise'));
+
+    fireEvent.click(screen.getByTestId('briefing-minimise'));
+    fireEvent.click(screen.getByTestId('briefing-minimised-pill'));
+
+    expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
     expect(screen.queryByTestId('briefing-minimised-pill')).toBeNull();
   });
 
-  it('persists dismissed state in sessionStorage', async () => {
-    getDailyBriefing.mockResolvedValue(buildBriefing());
+  it('persists dismissed generatedAt in sessionStorage', async () => {
+    const briefing = buildBriefing();
+    getDailyBriefing.mockResolvedValue(briefing);
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('briefing-minimise'));
 
     fireEvent.click(screen.getByTestId('briefing-minimise'));
 
-    expect(sessionStorage.getItem('briefing-dismissed')).toBe('true');
+    expect(sessionStorage.getItem('briefing-dismissed-at')).toBe(briefing.generatedAt);
   });
 
-  it('stays dismissed on refresh when sessionStorage flag is set', async () => {
-    sessionStorage.setItem('briefing-dismissed', 'true');
-    getDailyBriefing.mockResolvedValue(buildBriefing());
+  it('shows pill on refresh when sessionStorage has same generatedAt', async () => {
+    const briefing = buildBriefing();
+    sessionStorage.setItem('briefing-dismissed-at', briefing.generatedAt);
+    getDailyBriefing.mockResolvedValue(briefing);
     render(<DailyBriefing />);
-    await waitFor(() => expect(getDailyBriefing).toHaveBeenCalled());
+    await waitFor(() => screen.getByTestId('briefing-minimised-pill'));
 
     expect(screen.queryByTestId('daily-briefing')).toBeNull();
+    expect(screen.getByTestId('briefing-minimised-pill')).toBeInTheDocument();
+  });
+
+  it('auto-shows the card when a newer briefing is generated after dismissal', async () => {
+    const futureDateS = futureDateStr();
+    const oldBriefing = { ...buildBriefing(), generatedAt: `${futureDateS}T10:00:00` };
+    const newBriefing = { ...buildBriefing(), generatedAt: `${futureDateS}T12:00:00` };
+
+    sessionStorage.setItem('briefing-dismissed-at', oldBriefing.generatedAt);
+    getDailyBriefing.mockResolvedValue(newBriefing);
+    render(<DailyBriefing />);
+
+    await waitFor(() => screen.getByTestId('daily-briefing'));
     expect(screen.queryByTestId('briefing-minimised-pill')).toBeNull();
   });
 
   it('shows the card when sessionStorage flag is absent (new session)', async () => {
-    sessionStorage.removeItem('briefing-dismissed');
+    sessionStorage.removeItem('briefing-dismissed-at');
     getDailyBriefing.mockResolvedValue(buildBriefing());
     render(<DailyBriefing />);
     await waitFor(() => screen.getByTestId('daily-briefing'));

@@ -268,15 +268,17 @@ function formatDriveDuration(minutes) {
  * Collapsible daily briefing card displayed above the map view.
  *
  * Each solar event row is independently expandable; the header toggle expands/collapses all at once.
- * The × button dismisses the card for the current browser session (sessionStorage).
- * A new tab or browser session always shows the briefing again.
+ *
+ * Dismissal: the × button minimises to a pill and stores the dismissed briefing's generatedAt
+ * in sessionStorage. A newer briefing (later generatedAt) automatically clears the dismissed
+ * state and shows the card again. A new browser session always starts fresh.
  */
-const DISMISSED_KEY = 'briefing-dismissed';
+const DISMISSED_AT_KEY = 'briefing-dismissed-at';
 
 export default function DailyBriefing({ locations }) {
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(DISMISSED_KEY) === 'true');
+  const [dismissedAt, setDismissedAt] = useState(() => sessionStorage.getItem(DISMISSED_AT_KEY));
   const [expandedEvents, setExpandedEvents] = useState(new Set());
   const [expandedRegions, setExpandedRegions] = useState(new Set());
   const intervalRef = useRef(null);
@@ -300,8 +302,15 @@ export default function DailyBriefing({ locations }) {
   }, [locations]);
 
   const dismiss = () => {
-    setDismissed(true);
-    sessionStorage.setItem(DISMISSED_KEY, 'true');
+    const ts = briefing?.generatedAt;
+    if (!ts) return;
+    setDismissedAt(ts);
+    sessionStorage.setItem(DISMISSED_AT_KEY, ts);
+  };
+
+  const restore = () => {
+    setDismissedAt(null);
+    sessionStorage.removeItem(DISMISSED_AT_KEY);
   };
 
   const fetchBriefing = useCallback(async () => {
@@ -314,6 +323,14 @@ export default function DailyBriefing({ locations }) {
       setLoading(false);
     }
   }, []);
+
+  // Auto-show if a newer briefing has been generated since last dismissal.
+  useEffect(() => {
+    if (briefing && dismissedAt && briefing.generatedAt > dismissedAt) {
+      setDismissedAt(null);
+      sessionStorage.removeItem(DISMISSED_AT_KEY);
+    }
+  }, [briefing, dismissedAt]);
 
   useEffect(() => {
     fetchBriefing();
@@ -330,7 +347,23 @@ export default function DailyBriefing({ locations }) {
     };
   }, [fetchBriefing]);
 
-  if (loading || !briefing || dismissed) return null;
+  if (loading || !briefing) return null;
+
+  // Dismissed — same briefing still in cache, show restore pill.
+  const isDismissed = dismissedAt != null && briefing.generatedAt <= dismissedAt;
+
+  if (isDismissed) {
+    return (
+      <button
+        data-testid="briefing-minimised-pill"
+        className="mb-4 px-3 py-1 rounded-full text-xs font-semibold text-plex-text-secondary border border-plex-border hover:bg-plex-surface transition-colors"
+        onClick={restore}
+        title="Restore Daily Briefing"
+      >
+        📋 Briefing
+      </button>
+    );
+  }
 
   const toggleEvent = (key) => {
     setExpandedEvents((prev) => {
