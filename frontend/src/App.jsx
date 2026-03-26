@@ -75,28 +75,40 @@ function AppInner() {
   const [showRunBanner, setShowRunBanner] = useState(false);
   const [viewMode, setViewModeState] = useState(() => {
     const hash = window.location.hash.replace('#', '');
+    if (hash === 'plan') return 'plan';
     if (hash === 'map') return 'map';
     if (hash.startsWith('manage') && isAdmin) return 'manage';
-    return 'map';
+    return 'plan';
   });
+
+  /** Pending handoff from Plan tab to Map tab (event type to pre-select). */
+  const [mapHandoff, setMapHandoff] = useState(null);
 
   /** Update viewMode and sync to URL hash. */
   const setViewMode = (mode) => {
     setViewModeState(mode);
-    window.location.hash = mode === 'map' ? 'map' : 'manage';
+    window.location.hash = mode;
   };
 
   // React to hash changes (e.g. AuroraBanner setting window.location.hash = 'map')
   useEffect(() => {
     function handleHashChange() {
       const hash = window.location.hash.replace('#', '');
-      if (hash === 'map') setViewModeState('map');
+      if (hash === 'plan') setViewModeState('plan');
+      else if (hash === 'map') setViewModeState('map');
       else if (hash.startsWith('manage') && isAdmin) setViewModeState('manage');
     }
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
+
+  /** Called from Plan tab drill-down — switches to Map tab with pre-selected date + event type. */
+  const handleShowOnMap = (date, eventType) => {
+    setSelectedDate(date);
+    setMapHandoff({ eventType });
+    setViewMode('map');
+  };
 
   const sortedLocations = useMemo(
     () => [...locations].sort((a, b) => a.name.localeCompare(b.name)),
@@ -288,7 +300,9 @@ function AppInner() {
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
             </div>
 
-            {viewMode === 'map' && <DailyBriefing locations={visibleLocations} />}
+            {viewMode === 'plan' && (
+              <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} />
+            )}
 
             {viewMode === 'map' && effectiveDate && (
               <DateStrip
@@ -303,6 +317,7 @@ function AppInner() {
                 locations={visibleLocations}
                 date={effectiveDate}
                 autoEventType={autoSelection?.eventType ?? null}
+                handoffEventType={mapHandoff?.eventType ?? null}
               />
             )}
 

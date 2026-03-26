@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 
 const ALL_OPTIONS = [
+  { value: 'plan', label: 'Plan', adminOnly: false },
   { value: 'map', label: 'Map', adminOnly: false },
   { value: 'manage', label: 'Manage', adminOnly: true },
 ];
@@ -10,7 +11,7 @@ const ALL_OPTIONS = [
  * Underline tab bar for switching between view modes.
  *
  * @param {object} props
- * @param {'map'|'manage'} props.value - Currently active mode.
+ * @param {'plan'|'map'|'manage'} props.value - Currently active mode.
  * @param {function} props.onChange - Called with the new mode string when toggled.
  * @param {boolean} [props.isAdmin=false] - Whether to show the admin-only Manage tab.
  */
@@ -39,7 +40,7 @@ export default function ViewToggle({ value, onChange, isAdmin = false }) {
 }
 
 ViewToggle.propTypes = {
-  value: PropTypes.oneOf(['map', 'manage']).isRequired,
+  value: PropTypes.oneOf(['plan', 'map', 'manage']).isRequired,
   onChange: PropTypes.func.isRequired,
   isAdmin: PropTypes.bool,
 };

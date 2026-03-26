@@ -234,7 +234,7 @@ function getNextEventType(locations, date) {
   return 'SUNSET';
 }
 
-function MapView({ locations, date, autoEventType }) {
+function MapView({ locations, date, autoEventType, handoffEventType }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -282,6 +282,14 @@ function MapView({ locations, date, autoEventType }) {
       setEventType(autoEventType);
     }
   }, [autoEventType, userHasOverriddenEvent]);
+
+  // Apply a forced event type from the Plan tab handoff, overriding any user selection.
+  useEffect(() => {
+    if (handoffEventType) {
+      setEventType(handoffEventType);
+      setUserHasOverriddenEvent(false);
+    }
+  }, [handoffEventType]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -792,6 +800,7 @@ MapView.propTypes = {
   ).isRequired,
   date: PropTypes.string,
   autoEventType: PropTypes.string,
+  handoffEventType: PropTypes.string,
 };
 
 export default React.memo(MapView);

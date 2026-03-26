@@ -368,7 +368,7 @@ function LocationSlotList({ slots, driveMap, typeMap }) {
 
 // ── EventDrillList (shared: event-row list with expandable location slots) ─
 
-function EventDrillList({ events, driveMap, typeMap }) {
+function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {
   const [expandedType, setExpandedType] = useState(null);
 
   return (
@@ -408,6 +408,20 @@ function EventDrillList({ events, driveMap, typeMap }) {
                   {region.regionWindSpeedMs != null && ` · ${msToMph(region.regionWindSpeedMs)}mph`}
                 </span>
               )}
+              {tappable && onShowOnMap && date && (
+                <button
+                  data-testid="show-on-map-btn"
+                  className="shrink-0 text-plex-text-muted hover:text-plex-text transition-colors px-1"
+                  style={{ fontSize: '14px' }}
+                  title="Show on map"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onShowOnMap(date, es.targetType);
+                  }}
+                >
+                  🗺
+                </button>
+              )}
               {tappable && (
                 <Chevron open={isExpanded} className="text-plex-text-muted shrink-0" />
               )}
@@ -425,7 +439,7 @@ function EventDrillList({ events, driveMap, typeMap }) {
 
 // ── HeatmapDrillDown (spans full grid, shows all events for a day × region) ─
 
-function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, onClose }) {
+function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, onClose, onShowOnMap }) {
   const day = briefingDays.find((d) => d.date === date);
   const events = [];
   if (day) {
@@ -453,7 +467,8 @@ function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, o
           ✕
         </button>
       </div>
-      <EventDrillList events={events} driveMap={driveMap} typeMap={typeMap} />
+      <EventDrillList events={events} driveMap={driveMap} typeMap={typeMap}
+        date={date} onShowOnMap={onShowOnMap} />
     </div>
   );
 }
@@ -469,6 +484,7 @@ function HeatmapGrid({
   typeMap,
   todayStr,
   tomorrowStr,
+  onShowOnMap,
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName }
 
@@ -624,6 +640,7 @@ function HeatmapGrid({
               driveMap={driveMap}
               typeMap={typeMap}
               onClose={() => setDrillDown(null)}
+              onShowOnMap={onShowOnMap}
             />
           )}
         </React.Fragment>
@@ -634,7 +651,7 @@ function HeatmapGrid({
 
 // ── MobileRegionCard (one region × selected day) ─────────────────────────────
 
-function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, isOpen, onToggle }) {
+function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, isOpen, onToggle, onShowOnMap }) {
   const cellData = getDayCellData(date, regionName, briefingDays);
   if (!cellData) return null;
 
@@ -707,7 +724,8 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
       {/* Expanded: event list → location slots */}
       {isOpen && (
         <div className="px-2 pb-2 border-t border-plex-border/20 mt-1 pt-1.5">
-          <EventDrillList events={allEvents} driveMap={driveMap} typeMap={typeMap} />
+          <EventDrillList events={allEvents} driveMap={driveMap} typeMap={typeMap}
+            date={date} onShowOnMap={onShowOnMap} />
         </div>
       )}
     </div>
@@ -907,7 +925,7 @@ const DISMISSED_AT_KEY = 'briefing-dismissed-at';
  * Desktop (sm+): heatmap grid (3 day-columns × regions) always visible.
  * Aurora tonight section displayed when the aurora state machine is active.
  */
-export default function DailyBriefing({ locations }) {
+export default function DailyBriefing({ locations, onShowOnMap }) {
   const { role } = useAuth();
   const canSeeBestBets = role === 'ADMIN' || role === 'PRO_USER';
   const [briefing, setBriefing] = useState(null);
@@ -1128,6 +1146,7 @@ export default function DailyBriefing({ locations }) {
                       typeMap={typeMap}
                       isOpen={openCardKeys.has(cardKey)}
                       onToggle={() => toggleCard(cardKey)}
+                      onShowOnMap={onShowOnMap}
                     />
                   );
                 })}
@@ -1184,6 +1203,7 @@ export default function DailyBriefing({ locations }) {
         typeMap={typeMap}
         todayStr={todayStr}
         tomorrowStr={tomorrowStr}
+        onShowOnMap={onShowOnMap}
       />
 
       {/* ── Aurora tomorrow note ── */}
@@ -1200,4 +1220,5 @@ DailyBriefing.propTypes = {
       locationType: PropTypes.string,
     }),
   ),
+  onShowOnMap: PropTypes.func,
 };

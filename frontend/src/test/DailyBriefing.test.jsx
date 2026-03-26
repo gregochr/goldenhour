@@ -534,6 +534,42 @@ describe('DailyBriefing', () => {
     expect(standdownRow).toBeTruthy();
   });
 
+  // ────── Show on map handoff ──────
+
+  it('calls onShowOnMap with correct date and event type when map button is clicked', async () => {
+    const onShowOnMap = vi.fn();
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing onShowOnMap={onShowOnMap} />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    // Open Lake District card (GO sunset)
+    const regionRows = screen.getAllByTestId('region-row');
+    fireEvent.click(regionRows.find((r) => r.textContent.includes('Lake District')));
+
+    // Map button should be visible on the GO event row (not expanded yet)
+    const mapButtons = screen.getAllByTestId('show-on-map-btn');
+    expect(mapButtons.length).toBeGreaterThan(0);
+    fireEvent.click(mapButtons[0]);
+
+    expect(onShowOnMap).toHaveBeenCalledWith(
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      'SUNSET',
+    );
+  });
+
+  it('does not show map button when onShowOnMap is not provided', async () => {
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const regionRows = screen.getAllByTestId('region-row');
+    fireEvent.click(regionRows.find((r) => r.textContent.includes('Lake District')));
+
+    expect(screen.queryByTestId('show-on-map-btn')).toBeNull();
+  });
+
   // ────── Flags ──────
 
   it('shows flag chips in location slot list', async () => {
