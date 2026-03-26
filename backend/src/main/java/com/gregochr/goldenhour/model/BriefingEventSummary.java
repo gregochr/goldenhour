@@ -15,4 +15,9 @@ public record BriefingEventSummary(
         TargetType targetType,
         List<BriefingRegion> regions,
         List<BriefingSlot> unregioned) {
+
+    public BriefingEventSummary {
+        regions = List.copyOf(regions);
+        unregioned = List.copyOf(unregioned);
+    }
 }

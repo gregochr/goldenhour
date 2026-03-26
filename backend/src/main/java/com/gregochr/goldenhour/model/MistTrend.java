@@ -12,6 +12,10 @@ import java.util.List;
  */
 public record MistTrend(List<MistSlot> slots) {
 
+    public MistTrend {
+        slots = List.copyOf(slots);
+    }
+
     /**
      * A single hourly slot in the mist trend.
      *

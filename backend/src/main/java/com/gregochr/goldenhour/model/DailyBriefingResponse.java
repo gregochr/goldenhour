@@ -14,4 +14,8 @@ public record DailyBriefingResponse(
         LocalDateTime generatedAt,
         String headline,
         List<BriefingDay> days) {
+
+    public DailyBriefingResponse {
+        days = List.copyOf(days);
+    }
 }

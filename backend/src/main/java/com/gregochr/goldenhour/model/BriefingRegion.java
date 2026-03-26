@@ -25,4 +25,9 @@ public record BriefingRegion(
         Double regionApparentTemperatureCelsius,
         Double regionWindSpeedMs,
         Integer regionWeatherCode) {
+
+    public BriefingRegion {
+        tideHighlights = List.copyOf(tideHighlights);
+        slots = List.copyOf(slots);
+    }
 }

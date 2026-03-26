@@ -12,4 +12,8 @@ import java.util.List;
 public record BriefingDay(
         LocalDate date,
         List<BriefingEventSummary> eventSummaries) {
+
+    public BriefingDay {
+        eventSummaries = List.copyOf(eventSummaries);
+    }
 }

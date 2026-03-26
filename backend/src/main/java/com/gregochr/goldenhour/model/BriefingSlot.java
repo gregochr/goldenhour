@@ -45,4 +45,8 @@ public record BriefingSlot(
         boolean isKingTide,
         boolean isSpringTide,
         List<String> flags) {
+
+    public BriefingSlot {
+        flags = List.copyOf(flags);
+    }
 }
