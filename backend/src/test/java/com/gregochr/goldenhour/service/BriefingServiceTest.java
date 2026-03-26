@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -9,6 +10,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -58,6 +60,8 @@ class BriefingServiceTest {
     private TideService tideService;
     @Mock
     private JobRunService jobRunService;
+    @Mock
+    private DailyBriefingCacheRepository briefingCacheRepository;
 
     private BriefingService briefingService;
 
@@ -65,7 +69,8 @@ class BriefingServiceTest {
     void setUp() {
         briefingService = new BriefingService(
                 locationService, solarService, openMeteoClient, tideService,
-                jobRunService, Executors.newVirtualThreadPerTaskExecutor());
+                jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
+                Executors.newVirtualThreadPerTaskExecutor());
     }
 
     // ── Verdict logic ──

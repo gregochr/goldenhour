@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.DailyBriefingCacheEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -15,6 +17,8 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -80,28 +84,55 @@ public class BriefingService {
     private final OpenMeteoClient openMeteoClient;
     private final TideService tideService;
     private final JobRunService jobRunService;
+    private final DailyBriefingCacheRepository briefingCacheRepository;
+    private final ObjectMapper objectMapper;
     private final Executor forecastExecutor;
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
 
     /**
      * Constructs a {@code BriefingService}.
      *
-     * @param locationService  service for retrieving enabled locations
-     * @param solarService     service for calculating sunrise/sunset times
-     * @param openMeteoClient  resilient Open-Meteo API client
-     * @param tideService      service for tide data lookups
-     * @param jobRunService    service for job run tracking
-     * @param forecastExecutor virtual thread executor for parallel weather fetches
+     * @param locationService        service for retrieving enabled locations
+     * @param solarService           service for calculating sunrise/sunset times
+     * @param openMeteoClient        resilient Open-Meteo API client
+     * @param tideService            service for tide data lookups
+     * @param jobRunService          service for job run tracking
+     * @param briefingCacheRepository repository for persisting the briefing across restarts
+     * @param objectMapper           Jackson mapper for JSON serialization
+     * @param forecastExecutor       virtual thread executor for parallel weather fetches
      */
     public BriefingService(LocationService locationService, SolarService solarService,
             OpenMeteoClient openMeteoClient, TideService tideService,
-            JobRunService jobRunService, Executor forecastExecutor) {
+            JobRunService jobRunService, DailyBriefingCacheRepository briefingCacheRepository,
+            ObjectMapper objectMapper, Executor forecastExecutor) {
         this.locationService = locationService;
         this.solarService = solarService;
         this.openMeteoClient = openMeteoClient;
         this.tideService = tideService;
         this.jobRunService = jobRunService;
+        this.briefingCacheRepository = briefingCacheRepository;
+        this.objectMapper = objectMapper;
         this.forecastExecutor = forecastExecutor;
+    }
+
+    /**
+     * Loads the last persisted briefing from the database into the in-memory cache on startup.
+     *
+     * <p>This ensures the briefing is available immediately after a restart without waiting
+     * for the next scheduled cron run.
+     */
+    @PostConstruct
+    void loadPersistedBriefing() {
+        briefingCacheRepository.findById(1).ifPresent(entity -> {
+            try {
+                DailyBriefingResponse persisted = objectMapper.readValue(
+                        entity.getPayload(), DailyBriefingResponse.class);
+                cache.set(persisted);
+                LOG.info("Loaded persisted briefing from DB (generated {})", entity.getGeneratedAt());
+            } catch (Exception e) {
+                LOG.warn("Could not deserialize persisted briefing — will regenerate on next scheduled run", e);
+            }
+        });
     }
 
     /**
@@ -169,9 +200,29 @@ public class BriefingService {
                 LocalDateTime.now(ZoneOffset.UTC), headline, days);
 
         cache.set(response);
+        persistBriefing(response);
         jobRunService.completeRun(jobRun, succeeded, failed, dates);
         LOG.info("Daily briefing refresh complete — {} locations, {} succeeded, {} failed",
                 colourLocations.size(), succeeded, failed);
+    }
+
+    /**
+     * Serializes the briefing response and upserts the single-row DB cache (id = 1).
+     * Failures are logged as warnings and do not affect the in-memory cache or job run metrics.
+     *
+     * @param response the briefing response to persist
+     */
+    private void persistBriefing(DailyBriefingResponse response) {
+        try {
+            DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+            entity.setId(1);
+            entity.setGeneratedAt(response.generatedAt());
+            entity.setPayload(objectMapper.writeValueAsString(response));
+            briefingCacheRepository.save(entity);
+            LOG.debug("Persisted briefing to DB (generated {})", response.generatedAt());
+        } catch (Exception e) {
+            LOG.warn("Could not persist briefing to DB — in-memory cache still updated", e);
+        }
     }
 
     /**
