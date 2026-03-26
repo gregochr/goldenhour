@@ -513,8 +513,7 @@ function HeatmapGrid({
           {/* Region label */}
           <div
             className="font-medium text-plex-text px-1 py-2 flex items-start"
-          style={{ overflowWrap: 'break-word', wordBreak: 'break-word', minWidth: 0 }}
-            style={{ fontSize: '13px' }}
+          style={{ fontSize: '13px', overflowWrap: 'break-word', wordBreak: 'break-word', minWidth: 0 }}
           >
             {regionName}
           </div>
