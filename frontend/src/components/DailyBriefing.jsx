@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -376,6 +377,8 @@ function formatDriveDuration(minutes) {
 const DISMISSED_AT_KEY = 'briefing-dismissed-at';
 
 export default function DailyBriefing({ locations }) {
+  const { role } = useAuth();
+  const canSeeBestBets = role === 'ADMIN' || role === 'PRO_USER';
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissedAt, setDismissedAt] = useState(() => sessionStorage.getItem(DISMISSED_AT_KEY));
@@ -557,8 +560,8 @@ export default function DailyBriefing({ locations }) {
         </button>
       </div>
 
-      {/* Best bet banner — shown when Claude picks are available */}
-      {briefing.bestBets && briefing.bestBets.length > 0 && (
+      {/* Best bet banner — ADMIN and PRO only */}
+      {canSeeBestBets && briefing.bestBets && briefing.bestBets.length > 0 && (
         <BestBetBanner
           picks={briefing.bestBets}
           todayStr={todayStr}

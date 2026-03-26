@@ -7,7 +7,13 @@ vi.mock('../api/briefingApi.js', () => ({
   getDailyBriefing: vi.fn(),
 }));
 
+// Mock auth — default to ADMIN so existing tests are unaffected
+vi.mock('../context/AuthContext.jsx', () => ({
+  useAuth: vi.fn(),
+}));
+
 import { getDailyBriefing } from '../api/briefingApi.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
 function futureDateStr() {
   const d = new Date();
@@ -110,6 +116,8 @@ describe('DailyBriefing', () => {
     vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    // Default: ADMIN can see everything
+    useAuth.mockReturnValue({ role: 'ADMIN' });
   });
 
   // ────── Rendering ──────
@@ -853,6 +861,28 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
       expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+    });
+
+    it('renders no banner for LITE_USER even when picks exist', async () => {
+      useAuth.mockReturnValue({ role: 'LITE_USER' });
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Go shoot', detail: 'Clear.', event: 'tomorrow_sunset',
+          region: 'Northumberland', confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+    });
+
+    it('renders banner for PRO_USER', async () => {
+      useAuth.mockReturnValue({ role: 'PRO_USER' });
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Go shoot', detail: 'Clear.', event: 'tomorrow_sunset',
+          region: 'Northumberland', confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByTestId('best-bet-pick-1')).toBeInTheDocument();
     });
 
     it('renders banner with one pick', async () => {
