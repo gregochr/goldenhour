@@ -233,6 +233,106 @@ function msToMph(ms) {
   return Math.round(ms * 2.237);
 }
 
+/**
+ * Resolves a best-bet event string (e.g. "tomorrow_sunset") to the
+ * event key used by expandedEvents state (e.g. "2026-03-27-SUNSET").
+ * Returns null for aurora events or invalid inputs.
+ *
+ * @param {string|null} event   - e.g. "today_sunset", "tomorrow_sunrise", "aurora_tonight"
+ * @param {string}      todayStr   - "YYYY-MM-DD" for today
+ * @param {string}      tomorrowStr - "YYYY-MM-DD" for tomorrow
+ * @returns {string|null}
+ */
+function resolveEventKey(event, todayStr, tomorrowStr) {
+  if (!event) return null;
+  const underscore = event.indexOf('_');
+  if (underscore === -1) return null;
+  const dayPart = event.substring(0, underscore);
+  const typePart = event.substring(underscore + 1).toUpperCase();
+  const dateStr = dayPart === 'today' ? todayStr : dayPart === 'tomorrow' ? tomorrowStr : null;
+  if (!dateStr || !['SUNRISE', 'SUNSET'].includes(typePart)) return null;
+  return `${dateStr}-${typePart}`;
+}
+
+/**
+ * Claude-generated best bet banner showing ranked photography picks.
+ *
+ * @param {object}   props
+ * @param {Array}    props.picks       - array of BestBet objects
+ * @param {string}   props.todayStr    - today's date as YYYY-MM-DD
+ * @param {string}   props.tomorrowStr - tomorrow's date as YYYY-MM-DD
+ * @param {Function} props.onPickClick - called with eventKey when a navigable pick is clicked
+ */
+function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
+  if (!picks || picks.length === 0) return null;
+
+  return (
+    <div className="mb-3 space-y-1.5" data-testid="best-bet-banner">
+      {picks.map((pick) => {
+        const eventKey = resolveEventKey(pick.event, todayStr, tomorrowStr);
+        const navigable = pick.event != null && eventKey != null;
+        const secondary = pick.rank !== 1;
+        const lowConf = pick.confidence === 'low';
+
+        const borderClass = secondary || lowConf
+          ? 'border-plex-border'
+          : 'border-amber-500/50';
+        const bgClass = secondary || lowConf
+          ? 'bg-plex-surface/40'
+          : 'bg-amber-500/5';
+        const opacityClass = secondary ? 'opacity-70' : '';
+        const cursorClass = navigable ? 'cursor-pointer hover:bg-plex-surface/60' : 'cursor-default';
+
+        const rankLabel = pick.rank === 1 ? '① BEST BET' : '② ALSO GOOD';
+        const rankColour = secondary ? 'text-plex-text-muted' : 'text-amber-400';
+
+        return (
+          <button
+            key={pick.rank}
+            data-testid={`best-bet-pick-${pick.rank}`}
+            disabled={!navigable}
+            className={`w-full text-left rounded px-3 py-2.5 border transition-colors
+              ${borderClass} ${bgClass} ${opacityClass} ${cursorClass}`}
+            onClick={navigable ? () => onPickClick(eventKey) : undefined}
+          >
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${rankColour}`}>
+                {rankLabel}
+              </span>
+              {lowConf && (
+                <span className="text-[10px] text-plex-text-muted italic">(low confidence)</span>
+              )}
+              {pick.region && (
+                <span className="text-[10px] text-plex-text-muted ml-auto">{pick.region}</span>
+              )}
+            </div>
+            <p className={`text-sm font-medium leading-snug ${secondary ? 'text-plex-text-secondary' : 'text-plex-text'}`}>
+              {pick.headline}
+            </p>
+            {pick.detail && (
+              <p className="text-xs text-plex-text-muted mt-0.5 leading-relaxed">{pick.detail}</p>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+BestBetBanner.propTypes = {
+  picks: PropTypes.arrayOf(PropTypes.shape({
+    rank: PropTypes.number.isRequired,
+    headline: PropTypes.string,
+    detail: PropTypes.string,
+    event: PropTypes.string,
+    region: PropTypes.string,
+    confidence: PropTypes.string,
+  })),
+  todayStr: PropTypes.string.isRequired,
+  tomorrowStr: PropTypes.string.isRequired,
+  onPickClick: PropTypes.func.isRequired,
+};
+
 /** Sort order for verdict: GO first, MARGINAL second, STANDDOWN last. */
 const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
@@ -347,6 +447,18 @@ export default function DailyBriefing({ locations }) {
     };
   }, [fetchBriefing]);
 
+  const handlePickClick = useCallback((eventKey) => {
+    setExpandedEvents((prev) => {
+      const next = new Set(prev);
+      next.add(eventKey);
+      return next;
+    });
+    setTimeout(() => {
+      const el = document.querySelector(`[data-event-key="${eventKey}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
+  }, []);
+
   if (loading || !briefing) return null;
 
   // Dismissed — same briefing still in cache, show restore pill.
@@ -384,6 +496,11 @@ export default function DailyBriefing({ locations }) {
   };
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  const tomorrowStr = (() => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
 
   // Collect upcoming (not-yet-past) event summaries across all days
   const upcomingEvents = briefing.days.flatMap((day) =>
@@ -440,6 +557,16 @@ export default function DailyBriefing({ locations }) {
         </button>
       </div>
 
+      {/* Best bet banner — shown when Claude picks are available */}
+      {briefing.bestBets && briefing.bestBets.length > 0 && (
+        <BestBetBanner
+          picks={briefing.bestBets}
+          todayStr={todayStr}
+          tomorrowStr={tomorrowStr}
+          onPickClick={handlePickClick}
+        />
+      )}
+
       {/* Per-event summary rows — always visible */}
       <div className="mt-1" data-testid="briefing-collapsed-events">
         {upcomingEvents.length === 0 ? (
@@ -448,13 +575,14 @@ export default function DailyBriefing({ locations }) {
           </p>
         ) : (
           upcomingEvents.map(({ es, dayLabel, date }) => (
-            <EventSummaryRow
-              key={`${date}-${es.targetType}`}
-              dayLabel={dayLabel}
-              es={es}
-              isOpen={expandedEvents.has(`${date}-${es.targetType}`)}
-              onToggle={() => toggleEvent(`${date}-${es.targetType}`)}
-            />
+            <div key={`${date}-${es.targetType}`} data-event-key={`${date}-${es.targetType}`}>
+              <EventSummaryRow
+                dayLabel={dayLabel}
+                es={es}
+                isOpen={expandedEvents.has(`${date}-${es.targetType}`)}
+                onToggle={() => toggleEvent(`${date}-${es.targetType}`)}
+              />
+            </div>
           ))
         )}
       </div>

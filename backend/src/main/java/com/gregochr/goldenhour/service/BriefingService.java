@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -26,11 +27,11 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +39,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+
 
 /**
  * Orchestrates the daily briefing: fetches live Open-Meteo weather and existing DB tide data
@@ -52,27 +54,6 @@ public class BriefingService {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingService.class);
 
-    /** Low cloud percentage above which conditions are STANDDOWN. */
-    static final int CLOUD_STANDDOWN = 80;
-
-    /** Low cloud percentage above which conditions are MARGINAL. */
-    static final int CLOUD_MARGINAL = 50;
-
-    /** Precipitation in mm above which conditions are STANDDOWN. */
-    static final BigDecimal PRECIP_STANDDOWN = new BigDecimal("2.0");
-
-    /** Precipitation in mm above which conditions are MARGINAL. */
-    static final BigDecimal PRECIP_MARGINAL = new BigDecimal("0.5");
-
-    /** Visibility in metres below which conditions are STANDDOWN. */
-    static final int VISIBILITY_STANDDOWN = 5000;
-
-    /** Visibility in metres below which conditions are MARGINAL. */
-    static final int VISIBILITY_MARGINAL = 10000;
-
-    /** Humidity percentage above which conditions are MARGINAL (mist risk). */
-    static final int HUMIDITY_MARGINAL = 90;
-
     /** Minutes within which a high tide is considered coincident with the solar event. */
     private static final long TIDE_WINDOW_MINUTES = 90;
 
@@ -86,25 +67,33 @@ public class BriefingService {
     private final JobRunService jobRunService;
     private final DailyBriefingCacheRepository briefingCacheRepository;
     private final ObjectMapper objectMapper;
+    private final BriefingVerdictEvaluator verdictEvaluator;
+    private final BriefingHeadlineGenerator headlineGenerator;
+    private final BriefingBestBetAdvisor bestBetAdvisor;
     private final Executor forecastExecutor;
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
 
     /**
      * Constructs a {@code BriefingService}.
      *
-     * @param locationService        service for retrieving enabled locations
-     * @param solarService           service for calculating sunrise/sunset times
-     * @param openMeteoClient        resilient Open-Meteo API client
-     * @param tideService            service for tide data lookups
-     * @param jobRunService          service for job run tracking
+     * @param locationService         service for retrieving enabled locations
+     * @param solarService            service for calculating sunrise/sunset times
+     * @param openMeteoClient         resilient Open-Meteo API client
+     * @param tideService             service for tide data lookups
+     * @param jobRunService           service for job run tracking
      * @param briefingCacheRepository repository for persisting the briefing across restarts
-     * @param objectMapper           Jackson mapper for JSON serialization
-     * @param forecastExecutor       virtual thread executor for parallel weather fetches
+     * @param objectMapper            Jackson mapper for JSON serialization
+     * @param verdictEvaluator        evaluator for slot verdicts, rollups and flags
+     * @param headlineGenerator       generator for the briefing headline
+     * @param bestBetAdvisor          Claude Haiku advisor producing ranked best-bet picks
+     * @param forecastExecutor        virtual thread executor for parallel weather fetches
      */
     public BriefingService(LocationService locationService, SolarService solarService,
             OpenMeteoClient openMeteoClient, TideService tideService,
             JobRunService jobRunService, DailyBriefingCacheRepository briefingCacheRepository,
-            ObjectMapper objectMapper, Executor forecastExecutor) {
+            ObjectMapper objectMapper, BriefingVerdictEvaluator verdictEvaluator,
+            BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
+            Executor forecastExecutor) {
         this.locationService = locationService;
         this.solarService = solarService;
         this.openMeteoClient = openMeteoClient;
@@ -112,6 +101,9 @@ public class BriefingService {
         this.jobRunService = jobRunService;
         this.briefingCacheRepository = briefingCacheRepository;
         this.objectMapper = objectMapper;
+        this.verdictEvaluator = verdictEvaluator;
+        this.headlineGenerator = headlineGenerator;
+        this.bestBetAdvisor = bestBetAdvisor;
         this.forecastExecutor = forecastExecutor;
     }
 
@@ -195,9 +187,10 @@ public class BriefingService {
         // Group into days → event summaries → regions
         List<BriefingDay> days = buildDays(allSlots, colourLocations, dates);
 
-        String headline = generateHeadline(days);
+        String headline = headlineGenerator.generateHeadline(days);
+        List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId());
         DailyBriefingResponse response = new DailyBriefingResponse(
-                LocalDateTime.now(ZoneOffset.UTC), headline, days);
+                LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets);
 
         cache.set(response);
         persistBriefing(response);
@@ -354,7 +347,7 @@ public class BriefingService {
         }
 
         // Determine weather verdict
-        Verdict verdict = determineVerdict(lowCloud, precip, visibility, humidity);
+        Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
 
         // Coastal tide demotion: if coastal, tide data is present, but tide is not aligned
         // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
@@ -367,7 +360,7 @@ public class BriefingService {
         }
 
         // Build flags
-        List<String> flags = buildFlags(lowCloud, precip, visibility, humidity,
+        List<String> flags = verdictEvaluator.buildFlags(lowCloud, precip, visibility, humidity,
                 tideState, tideAligned, isKingTide, isSpringTide, tidesNotAligned);
 
         return new BriefingSlot(
@@ -377,76 +370,6 @@ public class BriefingService {
                 isKingTide, isSpringTide, flags);
     }
 
-    /**
-     * Determines the verdict for a slot based on weather conditions.
-     *
-     * @param lowCloud   low cloud cover percentage
-     * @param precip     precipitation in mm
-     * @param visibility visibility in metres
-     * @param humidity   relative humidity percentage
-     * @return the verdict
-     */
-    static Verdict determineVerdict(int lowCloud, BigDecimal precip, int visibility, int humidity) {
-        if (lowCloud > CLOUD_STANDDOWN || precip.compareTo(PRECIP_STANDDOWN) > 0
-                || visibility < VISIBILITY_STANDDOWN) {
-            return Verdict.STANDDOWN;
-        }
-        if (lowCloud > CLOUD_MARGINAL || precip.compareTo(PRECIP_MARGINAL) > 0
-                || visibility < VISIBILITY_MARGINAL || humidity > HUMIDITY_MARGINAL) {
-            return Verdict.MARGINAL;
-        }
-        return Verdict.GO;
-    }
-
-    /**
-     * Builds human-readable flag strings for a slot.
-     *
-     * @param lowCloud       low cloud cover percentage
-     * @param precip         precipitation in mm
-     * @param visibility     visibility in metres
-     * @param humidity       relative humidity percentage
-     * @param tideState      HIGH/MID/LOW or null
-     * @param tideAligned    whether tide matches preference
-     * @param isKingTide     whether this is a king tide
-     * @param isSpringTide   whether this is a spring tide
-     * @param tidesNotAligned true when the coastal tide demotion was applied
-     * @return list of flag strings
-     */
-    static List<String> buildFlags(int lowCloud, BigDecimal precip, int visibility,
-            int humidity, String tideState, boolean tideAligned,
-            boolean isKingTide, boolean isSpringTide, boolean tidesNotAligned) {
-        List<String> flags = new ArrayList<>();
-        if (lowCloud > CLOUD_STANDDOWN) {
-            flags.add("Sun blocked");
-        } else if (lowCloud > CLOUD_MARGINAL) {
-            flags.add("Partial cloud");
-        }
-        if (precip.compareTo(PRECIP_STANDDOWN) > 0) {
-            flags.add("Active rain");
-        } else if (precip.compareTo(PRECIP_MARGINAL) > 0) {
-            flags.add("Light rain");
-        }
-        if (visibility < VISIBILITY_STANDDOWN) {
-            flags.add("Poor visibility");
-        } else if (visibility < VISIBILITY_MARGINAL) {
-            flags.add("Reduced visibility");
-        }
-        if (humidity > HUMIDITY_MARGINAL) {
-            flags.add("Mist risk");
-        }
-        if (isKingTide) {
-            flags.add("King tide");
-        } else if (isSpringTide) {
-            flags.add("Spring tide");
-        }
-        if (tidesNotAligned) {
-            flags.add("Tide not aligned");
-        }
-        if (tideAligned) {
-            flags.add("Tide aligned");
-        }
-        return flags;
-    }
 
     /**
      * Groups slots into the day → event summary → region hierarchy.
@@ -536,9 +459,9 @@ public class BriefingService {
      * @return the region rollup with verdict, summary, and tide highlights
      */
     BriefingRegion buildRegion(String regionName, List<BriefingSlot> slots) {
-        Verdict verdict = rollUpVerdict(slots);
-        List<String> tideHighlights = buildTideHighlights(slots);
-        String summary = buildRegionSummary(verdict, slots, tideHighlights);
+        Verdict verdict = verdictEvaluator.rollUpVerdict(slots);
+        List<String> tideHighlights = verdictEvaluator.buildTideHighlights(slots);
+        String summary = verdictEvaluator.buildRegionSummary(verdict, slots, tideHighlights);
 
         // Representative comfort: average of GO slots, falling back to all slots
         List<BriefingSlot> repSlots = slots.stream()
@@ -575,251 +498,7 @@ public class BriefingService {
                 medianWeatherCode);
     }
 
-    /**
-     * Rolls up individual slot verdicts to a region-level verdict using majority vote.
-     *
-     * @param slots the location slots
-     * @return GO if majority GO, STANDDOWN if majority STANDDOWN, MARGINAL otherwise
-     */
-    static Verdict rollUpVerdict(List<BriefingSlot> slots) {
-        if (slots.isEmpty()) {
-            return Verdict.MARGINAL;
-        }
-        long goCount = slots.stream().filter(s -> s.verdict() == Verdict.GO).count();
-        long standdownCount = slots.stream().filter(s -> s.verdict() == Verdict.STANDDOWN).count();
 
-        if (goCount > slots.size() / 2) {
-            return Verdict.GO;
-        }
-        if (standdownCount > slots.size() / 2) {
-            return Verdict.STANDDOWN;
-        }
-        return Verdict.MARGINAL;
-    }
-
-    /**
-     * Extracts tide highlights from slots.
-     *
-     * @param slots the location slots
-     * @return list of notable tide events (e.g. "King tide at Bamburgh")
-     */
-    static List<String> buildTideHighlights(List<BriefingSlot> slots) {
-        List<String> highlights = new ArrayList<>();
-        for (BriefingSlot slot : slots) {
-            if (slot.isKingTide()) {
-                highlights.add("King tide at " + slot.locationName());
-            } else if (slot.isSpringTide()) {
-                highlights.add("Spring tide at " + slot.locationName());
-            }
-        }
-        return highlights;
-    }
-
-    /**
-     * Builds a one-line summary for a region.
-     *
-     * @param verdict        the region verdict
-     * @param slots          the child slots
-     * @param tideHighlights tide highlight strings
-     * @return human-readable summary
-     */
-    static String buildRegionSummary(Verdict verdict, List<BriefingSlot> slots,
-            List<String> tideHighlights) {
-        long goCount = slots.stream().filter(s -> s.verdict() == Verdict.GO).count();
-        int total = slots.size();
-
-        String conditionText;
-        if (verdict == Verdict.GO) {
-            conditionText = "Clear at " + goCount + " of " + total + " location"
-                    + (total != 1 ? "s" : "");
-        } else if (verdict == Verdict.STANDDOWN) {
-            long standdownCount = slots.stream()
-                    .filter(s -> s.verdict() == Verdict.STANDDOWN).count();
-            if (standdownCount == total) {
-                conditionText = "Heavy cloud and rain across all " + total + " location"
-                        + (total != 1 ? "s" : "");
-            } else {
-                conditionText = "Poor conditions at " + standdownCount + " of " + total
-                        + " location" + (total != 1 ? "s" : "");
-            }
-        } else {
-            conditionText = "Mixed conditions across " + total + " location"
-                    + (total != 1 ? "s" : "");
-        }
-
-        if (!tideHighlights.isEmpty()) {
-            return conditionText + ", " + String.join(", ", tideHighlights).toLowerCase();
-        }
-        return conditionText;
-    }
-
-    /**
-     * Generates a headline summarising the best upcoming opportunities across all days and events.
-     *
-     * <p>Past solar events (where the slot time has already elapsed) are excluded so the
-     * headline always reflects conditions that are still actionable.
-     *
-     * @param days the briefing days
-     * @return one-line headline
-     */
-    String generateHeadline(List<BriefingDay> days) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-
-        record EventOpp(LocalDate date, TargetType event,
-                List<BriefingRegion> allRegions, List<BriefingRegion> goRegions) { }
-
-        List<EventOpp> goOpps = new ArrayList<>();
-        for (BriefingDay day : days) {
-            for (BriefingEventSummary es : day.eventSummaries()) {
-                if (day.date().equals(today) && isEventPast(es, now)) {
-                    continue;
-                }
-                List<BriefingRegion> allRegions = es.regions();
-                List<BriefingRegion> goRegions = allRegions.stream()
-                        .filter(r -> r.verdict() == Verdict.GO)
-                        .toList();
-                if (!goRegions.isEmpty()) {
-                    goOpps.add(new EventOpp(day.date(), es.targetType(), allRegions, goRegions));
-                }
-            }
-        }
-
-        if (goOpps.isEmpty()) {
-            return findMarginalHeadline(days, today, now);
-        }
-
-        // Today beats tomorrow; within same day, more GO regions wins
-        goOpps.sort(Comparator
-                .comparingInt((EventOpp o) -> o.date().equals(today) ? 0 : 1)
-                .thenComparingInt(o -> -o.goRegions().size()));
-
-        EventOpp best = goOpps.get(0);
-        String dayLabel = best.date().equals(today) ? "Today" : "Tomorrow";
-        String emoji = best.event() == TargetType.SUNRISE ? "\uD83C\uDF05" : "\uD83C\uDF07";
-        String eventLabel = best.event() == TargetType.SUNRISE ? "sunrise" : "sunset";
-        int goCount = best.goRegions().size();
-        String topRegion = best.goRegions().get(0).regionName();
-        String breakdown = buildVerdictBreakdown(best.allRegions(), goCount);
-
-        if (goCount >= 5) {
-            return emoji + " " + dayLabel + " " + eventLabel
-                    + " looking excellent \u2014 " + breakdown;
-        }
-        if (goCount >= 3) {
-            return emoji + " " + dayLabel + " " + eventLabel + " \u2014 GO in "
-                    + topRegion + " and " + (goCount - 1) + " more, " + breakdown;
-        }
-        if (goCount == 2) {
-            return emoji + " " + dayLabel + " " + eventLabel + " GO in "
-                    + topRegion + " and " + best.goRegions().get(1).regionName()
-                    + buildNonGoSuffix(best.allRegions());
-        }
-        return emoji + " " + dayLabel + " " + eventLabel + " GO in " + topRegion
-                + buildNonGoSuffix(best.allRegions());
-    }
-
-    /**
-     * Returns true if all slots for this event summary have already passed.
-     *
-     * @param es  the event summary to check
-     * @param now the current UTC time
-     * @return true if the event is in the past
-     */
-    private boolean isEventPast(BriefingEventSummary es, LocalDateTime now) {
-        return es.regions().stream()
-                .flatMap(r -> r.slots().stream())
-                .filter(s -> s.solarEventTime() != null)
-                .findFirst()
-                .map(s -> s.solarEventTime().isBefore(now))
-                .orElse(false);
-    }
-
-    /**
-     * Finds the best marginal headline when no GO conditions exist, skipping past events.
-     *
-     * @param days  the briefing days
-     * @param today today's date
-     * @param now   the current UTC time
-     * @return a marginal or standdown headline
-     */
-    private String findMarginalHeadline(List<BriefingDay> days, LocalDate today,
-            LocalDateTime now) {
-        for (BriefingDay day : days) {
-            for (BriefingEventSummary es : day.eventSummaries()) {
-                if (day.date().equals(today) && isEventPast(es, now)) {
-                    continue;
-                }
-                for (BriefingRegion region : es.regions()) {
-                    if (region.verdict() == Verdict.MARGINAL) {
-                        String dayLabel = day.date().equals(today) ? "today" : "tomorrow";
-                        String eventLabel = es.targetType() == TargetType.SUNRISE
-                                ? "sunrise" : "sunset";
-                        return "Marginal only \u2014 best: " + dayLabel + " "
-                                + eventLabel + " in " + region.regionName();
-                    }
-                }
-            }
-        }
-        return "No promising conditions in the next two days";
-    }
-
-    /**
-     * Builds a full verdict breakdown string for all non-zero verdict counts, e.g.
-     * "6 regions GO, 1 region MARGINAL, 1 region STANDDOWN".
-     *
-     * @param allRegions all regions for the event
-     * @param goCount    pre-computed GO count
-     * @return breakdown string
-     */
-    private String buildVerdictBreakdown(List<BriefingRegion> allRegions, int goCount) {
-        long marginal = allRegions.stream().filter(r -> r.verdict() == Verdict.MARGINAL).count();
-        long standdown = allRegions.stream().filter(r -> r.verdict() == Verdict.STANDDOWN).count();
-        StringBuilder sb = new StringBuilder();
-        sb.append(goCount).append(goCount == 1 ? " region GO" : " regions GO");
-        if (marginal > 0) {
-            sb.append(", ").append(marginal)
-                    .append(marginal == 1 ? " region MARGINAL" : " regions MARGINAL");
-        }
-        if (standdown > 0) {
-            sb.append(", ").append(standdown)
-                    .append(standdown == 1 ? " region STANDDOWN" : " regions STANDDOWN");
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Builds a suffix listing non-GO verdict counts, for the 1-2 GO region headline cases.
-     * Returns empty string if all regions are GO.
-     *
-     * @param allRegions all regions for the event
-     * @return suffix string, e.g. ", 2 regions STANDDOWN"
-     */
-    private String buildNonGoSuffix(List<BriefingRegion> allRegions) {
-        long marginal = allRegions.stream().filter(r -> r.verdict() == Verdict.MARGINAL).count();
-        long standdown = allRegions.stream().filter(r -> r.verdict() == Verdict.STANDDOWN).count();
-        StringBuilder sb = new StringBuilder();
-        if (marginal > 0) {
-            sb.append(", ").append(marginal)
-                    .append(marginal == 1 ? " region MARGINAL" : " regions MARGINAL");
-        }
-        if (standdown > 0) {
-            sb.append(", ").append(standdown)
-                    .append(standdown == 1 ? " region STANDDOWN" : " regions STANDDOWN");
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Compares two verdicts, with GO being better than MARGINAL, which is better than STANDDOWN.
-     *
-     * @param candidate the candidate verdict
-     * @param current   the current best verdict
-     * @return true if the candidate is strictly better
-     */
-    private boolean isBetterVerdict(Verdict candidate, Verdict current) {
-        return candidate.ordinal() < current.ordinal();
-    }
 
     /**
      * Finds the best hourly slot index for a solar event.

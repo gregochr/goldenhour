@@ -833,4 +833,112 @@ describe('DailyBriefing', () => {
       expect(screen.queryByTestId('region-comfort')).toBeNull();
     });
   });
+
+  // ────── Best bet banner ──────
+
+  describe('Best bet banner', () => {
+    function buildBriefingWithPicks(picks) {
+      return { ...buildBriefing(), bestBets: picks };
+    }
+
+    it('renders no banner when bestBets is absent', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+    });
+
+    it('renders no banner when bestBets is empty', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+    });
+
+    it('renders banner with one pick', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'King tide at Northumberland', detail: 'Rare king tide.',
+          event: futureDateStr() === futureDateStr() ? 'tomorrow_sunset' : 'today_sunset',
+          region: 'Northumberland', confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByTestId('best-bet-pick-1')).toBeInTheDocument();
+      expect(screen.getByText('King tide at Northumberland')).toBeInTheDocument();
+      expect(screen.getByText('Rare king tide.')).toBeInTheDocument();
+    });
+
+    it('renders two picks with different visual weight', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'First pick', detail: 'Detail 1.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+        { rank: 2, headline: 'Second pick', detail: 'Detail 2.',
+          event: 'tomorrow_sunset', region: 'Lake District', confidence: 'medium' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByTestId('best-bet-pick-1')).toBeInTheDocument();
+      expect(screen.getByTestId('best-bet-pick-2')).toBeInTheDocument();
+      // Rank labels
+      expect(screen.getByText('① BEST BET')).toBeInTheDocument();
+      expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
+    });
+
+    it('stay-home pick button is disabled', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Stay in tonight', detail: 'Nothing worth it.',
+          event: null, region: null, confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      const btn = screen.getByTestId('best-bet-pick-1');
+      expect(btn).toBeDisabled();
+    });
+
+    it('solar event pick expands the corresponding event row when clicked', async () => {
+      const dateStr = futureDateStr();
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        bestBets: [
+          { rank: 1, headline: 'Go to Lake District', detail: 'Clear skies.',
+            event: 'tomorrow_sunset', region: 'Lake District', confidence: 'high' },
+        ],
+        days: [{
+          date: dateStr,
+          eventSummaries: [{
+            targetType: 'SUNSET',
+            regions: [{ regionName: 'Lake District', verdict: 'GO', summary: 'Clear',
+              tideHighlights: [], slots: [{
+                locationName: 'Keswick', solarEventTime: `${dateStr}T19:00:00`,
+                verdict: 'GO', tideAligned: false, flags: [],
+              }],
+            }],
+            unregioned: [],
+          }],
+        }],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+
+      // Briefing is initially collapsed — no expanded content
+      expect(screen.queryByTestId('briefing-expanded')).toBeNull();
+
+      // Click the best-bet pick
+      fireEvent.click(screen.getByTestId('best-bet-pick-1'));
+
+      // Expanded content should now be visible
+      await waitFor(() => expect(screen.getByTestId('briefing-expanded')).toBeInTheDocument());
+    });
+
+    it('low-confidence pick shows low-confidence label', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Marginal at best', detail: 'Patchy cloud.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'low' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByText(/low confidence/i)).toBeInTheDocument();
+    });
+  });
 });
