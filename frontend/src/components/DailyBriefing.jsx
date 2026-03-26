@@ -297,21 +297,21 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
             onClick={navigable ? () => onPickClick(eventKey) : undefined}
           >
             <div className="flex items-center gap-2 mb-0.5">
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${rankColour}`}>
+              <span className={`text-xs font-bold uppercase tracking-wider ${rankColour}`}>
                 {rankLabel}
               </span>
               {lowConf && (
-                <span className="text-[10px] text-plex-text-muted italic">(low confidence)</span>
+                <span className="text-xs text-plex-text-muted italic">(low confidence)</span>
               )}
               {pick.region && (
-                <span className="text-[10px] text-plex-text-muted ml-auto">{pick.region}</span>
+                <span className="text-xs text-plex-text-muted ml-auto">{pick.region}</span>
               )}
             </div>
             <p className={`text-sm font-medium leading-snug ${secondary ? 'text-plex-text-secondary' : 'text-plex-text'}`}>
               {pick.headline}
             </p>
             {pick.detail && (
-              <p className="text-xs text-plex-text-muted mt-0.5 leading-relaxed">{pick.detail}</p>
+              <p className="text-xs text-plex-text-secondary mt-0.5 leading-relaxed">{pick.detail}</p>
             )}
           </button>
         );
@@ -473,9 +473,9 @@ export default function DailyBriefing({ locations }) {
         data-testid="briefing-minimised-pill"
         className="mb-4 px-3 py-1 rounded-full text-xs font-semibold text-plex-text-secondary border border-plex-border hover:bg-plex-surface transition-colors"
         onClick={restore}
-        title="Restore Daily Briefing"
+        title="Restore PhotoCast Planner"
       >
-        📋 Briefing
+        📋 Planner
       </button>
     );
   }
@@ -542,7 +542,7 @@ export default function DailyBriefing({ locations }) {
           onClick={toggleAll}
         >
           <span className="text-xs font-semibold text-plex-text-secondary uppercase tracking-wide">
-            Daily Briefing
+            PhotoCast Planner
           </span>
           <span className="flex items-center gap-2 text-xs text-plex-text-muted">
             {formatAge(briefing.generatedAt)}
@@ -553,8 +553,8 @@ export default function DailyBriefing({ locations }) {
           data-testid="briefing-minimise"
           className="shrink-0 text-plex-text-muted hover:text-plex-text transition-colors text-xs px-1"
           onClick={dismiss}
-          title="Minimise Daily Briefing"
-          aria-label="Minimise Daily Briefing"
+          title="Minimise PhotoCast Planner"
+          aria-label="Minimise PhotoCast Planner"
         >
           ✕
         </button>
@@ -613,12 +613,12 @@ export default function DailyBriefing({ locations }) {
                         <span className="text-sm text-plex-text font-medium">
                           {region.regionName}
                         </span>
-                        <span className="text-xs text-plex-text-secondary flex-1 truncate">
+                        <span className="text-sm text-plex-text-secondary flex-1 truncate">
                           {region.summary}
                         </span>
                         {region.regionTemperatureCelsius != null && (
                           <span
-                            className="text-xs text-plex-text-muted shrink-0 flex items-center gap-1"
+                            className="text-xs text-plex-text-secondary shrink-0 flex items-center gap-1"
                             data-testid="region-comfort"
                           >
                             {weatherCodeToIcon(region.regionWeatherCode)}
@@ -660,7 +660,7 @@ export default function DailyBriefing({ locations }) {
                                 data-testid="briefing-slot"
                               >
                                 <VerdictPill verdict={slot.verdict} />
-                                <span className="font-medium text-plex-text">
+                                <span className="text-sm font-medium text-plex-text">
                                   {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
                                   {slot.locationName}
                                 </span>
@@ -668,7 +668,7 @@ export default function DailyBriefing({ locations }) {
                                   {formatTime(slot.solarEventTime)}
                                 </span>
                                 {drive && (
-                                  <span className="text-plex-text-muted" data-testid="slot-drive-time">
+                                  <span className="text-plex-text-secondary" data-testid="slot-drive-time">
                                     🚗 {drive}
                                   </span>
                                 )}
@@ -697,7 +697,7 @@ export default function DailyBriefing({ locations }) {
                           data-testid="briefing-slot"
                         >
                           <VerdictPill verdict={slot.verdict} />
-                          <span className="font-medium text-plex-text">
+                          <span className="text-sm font-medium text-plex-text">
                             {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
                             {slot.locationName}
                           </span>
@@ -705,7 +705,7 @@ export default function DailyBriefing({ locations }) {
                             {formatTime(slot.solarEventTime)}
                           </span>
                           {drive && (
-                            <span className="text-plex-text-muted" data-testid="slot-drive-time">
+                            <span className="text-plex-text-secondary" data-testid="slot-drive-time">
                               🚗 {drive}
                             </span>
                           )}

@@ -136,13 +136,13 @@ describe('DailyBriefing', () => {
     });
   });
 
-  it('renders Daily Briefing label in collapsed state', async () => {
+  it('renders PhotoCast Planner label in collapsed state', async () => {
     getDailyBriefing.mockResolvedValue(buildBriefing());
     render(<DailyBriefing />);
     await waitFor(() => {
       expect(screen.getByTestId('daily-briefing')).toBeInTheDocument();
     });
-    expect(screen.getByText(/Daily Briefing/i)).toBeInTheDocument();
+    expect(screen.getByText(/PhotoCast Planner/i)).toBeInTheDocument();
   });
 
   it('shows freshness timestamp', async () => {
