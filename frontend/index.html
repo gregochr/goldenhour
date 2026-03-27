@@ -13,5 +13,12 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script nomodule>
+      document.getElementById('root').innerHTML =
+        '<div style="font-family:sans-serif;max-width:480px;margin:80px auto;text-align:center;padding:0 20px">' +
+        '<h1 style="font-size:24px;margin-bottom:16px">Browser Not Supported</h1>' +
+        '<p style="color:#666;line-height:1.5">PhotoCast requires a modern browser. ' +
+        'Please update Safari to version 14 or later, or use a recent version of Chrome, Firefox, or Edge.</p></div>';
+    </script>
   </body>
 </html>
