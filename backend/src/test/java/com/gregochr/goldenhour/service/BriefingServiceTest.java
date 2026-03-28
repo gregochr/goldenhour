@@ -23,7 +23,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -72,8 +71,7 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder,
-                Executors.newVirtualThreadPerTaskExecutor());
+                slotBuilder);
     }
 
     @Nested

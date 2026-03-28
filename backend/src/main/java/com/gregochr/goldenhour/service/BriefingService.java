@@ -27,8 +27,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -56,7 +54,6 @@ public class BriefingService {
     private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
-    private final Executor forecastExecutor;
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
 
     /**
@@ -72,7 +69,6 @@ public class BriefingService {
      * @param auroraSummaryBuilder    builder for aurora tonight/tomorrow summaries
      * @param hierarchyBuilder        builder for the day/event/region hierarchy
      * @param slotBuilder             builder for individual briefing slots
-     * @param forecastExecutor        virtual thread executor for parallel weather fetches
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -81,8 +77,7 @@ public class BriefingService {
             BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
             BriefingHierarchyBuilder hierarchyBuilder,
-            BriefingSlotBuilder slotBuilder,
-            Executor forecastExecutor) {
+            BriefingSlotBuilder slotBuilder) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -93,7 +88,6 @@ public class BriefingService {
         this.auroraSummaryBuilder = auroraSummaryBuilder;
         this.hierarchyBuilder = hierarchyBuilder;
         this.slotBuilder = slotBuilder;
-        this.forecastExecutor = forecastExecutor;
     }
 
     /**
@@ -151,9 +145,11 @@ public class BriefingService {
         int succeeded = 0;
         int failed = 0;
 
-        // Fetch weather for all locations in parallel
+        // Fetch weather sequentially — the @RateLimiter on fetchForecast() throttles naturally
+        // at 8 calls/second, so sequential fetching scales to any number of locations without
+        // exhausting the rate limiter.
         List<BriefingSlotBuilder.LocationWeather> locationWeathers =
-                fetchWeatherParallel(colourLocations, jobRun);
+                fetchWeatherSequential(colourLocations, jobRun);
 
         // Build slots for each location × date × event type
         List<BriefingSlot> allSlots = new ArrayList<>();
@@ -230,36 +226,36 @@ public class BriefingService {
     }
 
     /**
-     * Fetches Open-Meteo forecast data for all locations in parallel using virtual threads.
+     * Fetches Open-Meteo forecast data for all locations sequentially.
+     *
+     * <p>Sequential fetching lets the {@code @RateLimiter} on
+     * {@link OpenMeteoClient#fetchForecast} throttle calls naturally at 8/s with no
+     * queuing pressure. This scales to any number of locations without exhausting the
+     * rate limiter (contrast with firing N parallel threads that all compete for permits).
      *
      * @param locations the locations to fetch weather for
      * @param jobRun    the job run for API call tracking
      * @return list of location-weather pairs (forecast may be null on failure)
      */
-    private List<BriefingSlotBuilder.LocationWeather> fetchWeatherParallel(
+    private List<BriefingSlotBuilder.LocationWeather> fetchWeatherSequential(
             List<LocationEntity> locations, JobRunEntity jobRun) {
-        List<CompletableFuture<BriefingSlotBuilder.LocationWeather>> futures = locations.stream()
-                .map(loc -> CompletableFuture.supplyAsync(() -> {
-                    try {
-                        long startMs = System.currentTimeMillis();
-                        OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecast(
-                                loc.getLat(), loc.getLon());
-                        long durationMs = System.currentTimeMillis() - startMs;
-                        jobRunService.logApiCall(jobRun.getId(),
-                                com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
-                                "GET", "briefing-forecast/" + loc.getName(), null,
-                                durationMs, 200, null, true, null);
-                        return new BriefingSlotBuilder.LocationWeather(loc, forecast);
-                    } catch (Exception e) {
-                        LOG.warn("Briefing weather fetch failed for {}: {}",
-                                loc.getName(), e.getMessage());
-                        return new BriefingSlotBuilder.LocationWeather(loc, null);
-                    }
-                }, forecastExecutor))
-                .toList();
-
-        return futures.stream()
-                .map(CompletableFuture::join)
-                .toList();
+        List<BriefingSlotBuilder.LocationWeather> results = new ArrayList<>();
+        for (LocationEntity loc : locations) {
+            try {
+                long startMs = System.currentTimeMillis();
+                OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecast(
+                        loc.getLat(), loc.getLon());
+                long durationMs = System.currentTimeMillis() - startMs;
+                jobRunService.logApiCall(jobRun.getId(),
+                        com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "briefing-forecast/" + loc.getName(), null,
+                        durationMs, 200, null, true, null);
+                results.add(new BriefingSlotBuilder.LocationWeather(loc, forecast));
+            } catch (Exception e) {
+                LOG.warn("Briefing weather fetch failed for {}: {}", loc.getName(), e.getMessage());
+                results.add(new BriefingSlotBuilder.LocationWeather(loc, null));
+            }
+        }
+        return results;
     }
 }

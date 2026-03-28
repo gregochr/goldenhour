@@ -71,7 +71,7 @@ resilience4j:
       open-meteo:
         limitForPeriod: 8
         limitRefreshPeriod: 1s
-        timeoutDuration: 60s
+        timeoutDuration: 10s
   bulkhead:
     bulkheadAspectOrder: 4
     instances:
