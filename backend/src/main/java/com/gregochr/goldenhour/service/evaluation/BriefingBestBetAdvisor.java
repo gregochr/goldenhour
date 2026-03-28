@@ -24,15 +24,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -60,32 +57,43 @@ public class BriefingBestBetAdvisor {
             decide when and where to go for the best light.
 
             Given triage data for upcoming solar events and aurora conditions across regions,
-            identify the two best photographic opportunities in the next 3 days, ranked.
+            identify the two best photographic opportunities in the next 3 days.
 
-            Consider:
+            **How to pick the two recommendations:**
+
+            Pick 1 — THE BEST OVERALL. The single best opportunity across all regions and
+            events, regardless of how far away it is. If the best light is 90 minutes away,
+            say so. This is "if you could go anywhere."
+
+            Pick 2 — THE BEST WITHIN AN HOUR. The best opportunity where
+            nearestLocationDriveMinutes is 60 or less. This is the pragmatic option —\s
+            "what's good that I can actually get to on a normal evening."
+
+            If Pick 1 is already within an hour (nearestLocationDriveMinutes <= 60), then
+            Pick 2 should be the next best region or event that is different from Pick 1.
+            The user should always get two meaningfully different options.
+
+            **Label them clearly:**
+            - Pick 1 headline should reflect it's the best overall
+            - Pick 2 headline should mention proximity when relevant — "close to home",
+              "under an hour", "quick evening dash"
+
+            **When evaluating quality, consider:**
             - GO regions with the most clear locations are generally best
-            - **Tide alignment is a strong differentiator.** A GO region with tide-aligned
-              coastal locations should be ranked above an equally clear inland-only region.
-              Matching tides add foreground drama that elevates a good sunrise/sunset into a
-              great one — mention the tide in the detail text when it's a factor.
-            - King tides at coastal locations during sunset/sunrise are rare and highly valuable
-            - Spring tides are also notable but less rare than king tides
+            - Tide alignment is a strong differentiator. A GO region with tide-aligned
+              coastal locations ranks above an equally clear inland-only region.
+              Matching tides add foreground drama — mention the tide when it's a factor.
+            - King tides at coastal locations are rare and highly valuable
+            - Spring tides are notable but less rare than king tides
             - Aurora events (MODERATE or above with clear dark-sky locations) are rare and exciting
             - Lower wind speeds are better for long exposures and reflections
-            - Comfort matters — extreme cold or high wind reduces the outing's appeal
+            - Comfort matters — extreme cold or high wind reduces the appeal
             - If multiple events are close in quality, prefer the sooner one
-            - **Drive time and day of week matter.** On weekdays, photographers have work
-              and family commitments. A GO region 25 minutes away is usually better than a GO
-              region 70 minutes away on a Tuesday evening. On weekends, longer drives are fine
-              for the right conditions. A truly rare event (king tide, strong aurora) can justify
-              a longer weekday drive — acknowledge the tradeoff in the detail text.
-            - **Mention drive time** in the detail text when it's a factor — "25 minutes from
-              home" or "an hour's drive but worth it for the king tide."
+            - Mention drive time in the detail text — "25 minutes from home" or
+              "90-minute drive but the king tide makes it worth it"
             - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
-              Be human about it — tell the photographer to stay home, charge their batteries,
-              maybe edit last weekend's shots. A bit of humour is fine; they'll trust you more.
-            - The two picks should be meaningfully different — different regions or different
-              events, not just #1 and #2 region for the same sunset
+              Be human — tell the photographer to stay home, charge their batteries,
+              maybe edit last weekend's shots. A bit of humour is fine.
 
             Respond with a JSON object:
             {
@@ -96,6 +104,14 @@ public class BriefingBestBetAdvisor {
                   "detail": "2 sentences max, 40 words max. Mention region, key conditions, drive time.",
                   "event": "tomorrow_sunset",
                   "region": "Northumberland",
+                  "confidence": "high|medium|low"
+                },
+                {
+                  "rank": 2,
+                  "headline": "One sentence, 15 words max — the closer/alternative option",
+                  "detail": "2 sentences max, 40 words max. Mention region, conditions, drive time.",
+                  "event": "today_sunset",
+                  "region": "The North York Moors",
                   "confidence": "high|medium|low"
                 }
               ]
@@ -175,11 +191,47 @@ public class BriefingBestBetAdvisor {
                     durationMs, 200, raw, true, null,
                     EvaluationModel.HAIKU, null, null);
 
-            return parseBestBets(raw);
+            return enrichWithDriveTimes(parseBestBets(raw), days, driveMap);
         } catch (Exception e) {
             LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
             return List.of();
         }
+    }
+
+    /**
+     * Enriches parsed picks with the nearest drive time for each pick's region,
+     * looking up from the days hierarchy and driveMap.
+     */
+    private List<BestBet> enrichWithDriveTimes(List<BestBet> picks,
+            List<BriefingDay> days, Map<String, Integer> driveMap) {
+        if (driveMap.isEmpty()) {
+            return picks;
+        }
+        return picks.stream().map(pick -> {
+            if (pick.region() == null) {
+                return pick;
+            }
+            Integer nearest = nearestDriveForRegion(pick.region(), days, driveMap);
+            return new BestBet(pick.rank(), pick.headline(), pick.detail(),
+                    pick.event(), pick.region(), pick.confidence(), nearest);
+        }).toList();
+    }
+
+    /**
+     * Returns the nearest drive time in minutes for any location in the named region,
+     * or null if no drive data is available for that region.
+     */
+    private Integer nearestDriveForRegion(String regionName, List<BriefingDay> days,
+            Map<String, Integer> driveMap) {
+        return days.stream()
+                .flatMap(d -> d.eventSummaries().stream())
+                .flatMap(es -> es.regions().stream())
+                .filter(r -> regionName.equals(r.regionName()))
+                .flatMap(r -> r.slots().stream())
+                .map(s -> driveMap.get(s.locationName()))
+                .filter(Objects::nonNull)
+                .min(Integer::compareTo)
+                .orElse(null);
     }
 
     /**
@@ -202,8 +254,6 @@ public class BriefingBestBetAdvisor {
 
         for (BriefingDay day : days) {
             String dayLabel = day.date().equals(today) ? "today" : "tomorrow";
-            DayOfWeek dow = day.date().getDayOfWeek();
-            boolean isWeekday = dow != DayOfWeek.SATURDAY && dow != DayOfWeek.SUNDAY;
             for (BriefingEventSummary es : day.eventSummaries()) {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
@@ -211,8 +261,6 @@ public class BriefingBestBetAdvisor {
                 ObjectNode eventNode = eventsNode.addObject();
                 eventNode.put("event", dayLabel + "_" + es.targetType().name().toLowerCase());
                 eventNode.put("date", day.date().toString());
-                eventNode.put("dayOfWeek", dow.getDisplayName(TextStyle.FULL, Locale.ENGLISH));
-                eventNode.put("isWeekday", isWeekday);
                 String eventTime = getEventTimeStr(es);
                 if (eventTime != null) {
                     eventNode.put("eventTime", eventTime);
@@ -362,7 +410,7 @@ public class BriefingBestBetAdvisor {
                 String region = pick.path("region").isNull()
                         ? null : pick.path("region").asText(null);
                 String confidence = pick.path("confidence").asText("medium");
-                picks.add(new BestBet(rank, headline, detail, event, region, confidence));
+                picks.add(new BestBet(rank, headline, detail, event, region, confidence, null));
             }
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
             return List.copyOf(picks);

@@ -263,8 +263,8 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("dayOfWeek and isWeekday included in event node")
-        void dayOfWeekIncluded() throws Exception {
+        @DisplayName("dayOfWeek and isWeekday not included in event node")
+        void dayOfWeekNotIncluded() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate saturday = LocalDate.now(ZoneOffset.UTC).with(
                     java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.SATURDAY));
@@ -276,8 +276,8 @@ class BriefingBestBetAdvisorTest {
             ));
 
             String json = advisor.buildRollupJson(List.of(day), now, Map.of());
-            assertThat(json).contains("\"dayOfWeek\":\"Saturday\"");
-            assertThat(json).contains("\"isWeekday\":false");
+            assertThat(json).doesNotContain("dayOfWeek");
+            assertThat(json).doesNotContain("isWeekday");
         }
 
         @Test

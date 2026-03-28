@@ -55,6 +55,7 @@ public class BriefingService {
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
+    private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
 
     /**
      * Constructs a {@code BriefingService}.
@@ -103,6 +104,7 @@ public class BriefingService {
                 DailyBriefingResponse persisted = objectMapper.readValue(
                         entity.getPayload(), DailyBriefingResponse.class);
                 cache.set(persisted);
+                lastKnownGood.set(persisted);
                 LOG.info("Loaded persisted briefing from DB (generated {})", entity.getGeneratedAt());
             } catch (Exception e) {
                 LOG.warn("Could not deserialize persisted briefing — will regenerate on next scheduled run", e);
@@ -181,15 +183,40 @@ public class BriefingService {
         List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId(), driveMap);
         AuroraTonightSummary auroraTonight = auroraSummaryBuilder.buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
-        DailyBriefingResponse response = new DailyBriefingResponse(
-                LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
-                auroraTonight, auroraTomorrow);
 
-        cache.set(response);
-        persistBriefing(response);
-        jobRunService.completeRun(jobRun, succeeded, failed, dates);
-        LOG.info("Daily briefing refresh complete — {} locations, {} succeeded, {} failed",
-                colourLocations.size(), succeeded, failed);
+        boolean partialFailure = failed > 0;
+        int total = succeeded + failed;
+        boolean aboveThreshold = total == 0 || (succeeded * 100 / total) >= 50;
+
+        if (aboveThreshold) {
+            DailyBriefingResponse response = new DailyBriefingResponse(
+                    LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
+                    auroraTonight, auroraTomorrow, false, partialFailure, failed);
+            cache.set(response);
+            lastKnownGood.set(response);
+            persistBriefing(response);
+            jobRunService.completeRun(jobRun, succeeded, failed, dates);
+            LOG.info("Briefing complete: {}/{} succeeded, {} failed, stale=false",
+                    succeeded, total, failed);
+        } else {
+            DailyBriefingResponse lkg = lastKnownGood.get();
+            if (lkg != null) {
+                DailyBriefingResponse staleResponse = new DailyBriefingResponse(
+                        lkg.generatedAt(), lkg.headline(), lkg.days(), lkg.bestBets(),
+                        auroraTonight, auroraTomorrow, true, true, failed);
+                cache.set(staleResponse);
+                LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
+                        + "serving stale=true (LKG from {})", succeeded, total, failed, lkg.generatedAt());
+            } else {
+                DailyBriefingResponse response = new DailyBriefingResponse(
+                        LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
+                        auroraTonight, auroraTomorrow, false, partialFailure, failed);
+                cache.set(response);
+                LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, no LKG; using partial",
+                        succeeded, total, failed);
+            }
+            jobRunService.completeRun(jobRun, succeeded, failed, dates);
+        }
     }
 
     /**

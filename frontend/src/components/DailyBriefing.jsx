@@ -750,7 +750,13 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
           const bgClass = lowConf ? 'bg-plex-surface/30' : 'bg-amber-500/5';
           const cursorClass = navigable ? 'cursor-pointer hover:bg-plex-surface/50' : 'cursor-default';
 
-          const rankLabel = pick.rank === 1 ? '① BEST BET' : '② ALSO GOOD';
+          const pick1 = picks[0];
+          const isNearestGood = pick.rank === 2
+            && pick1?.nearestDriveMinutes != null && pick1.nearestDriveMinutes > 60
+            && pick.nearestDriveMinutes != null && pick.nearestDriveMinutes <= 60;
+          const rankLabel = pick.rank === 1
+            ? '① BEST BET'
+            : isNearestGood ? '② NEAREST GOOD' : '② ALSO GOOD';
           const rankColour = lowConf ? 'text-plex-text-muted' : 'text-amber-400';
 
           return (
@@ -1069,7 +1075,11 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
             PhotoCast Planner
           </span>
           <span className="flex items-center gap-2 text-plex-text-muted" style={{ fontSize: '12px' }}>
-            {formatAge(briefing.generatedAt)}
+            {briefing.stale
+              ? <span className="text-amber-400" title="Last refresh failed — showing cached data">stale data</span>
+              : briefing.partialFailure
+                ? <span title={`${briefing.failedLocationCount} location(s) failed`}>{formatAge(briefing.generatedAt)}</span>
+                : formatAge(briefing.generatedAt)}
             <Chevron open={isExpanded} className="text-base text-plex-text-muted" />
           </span>
         </button>
