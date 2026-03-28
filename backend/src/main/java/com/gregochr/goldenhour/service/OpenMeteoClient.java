@@ -62,6 +62,22 @@ public class OpenMeteoClient {
     }
 
     /**
+     * Fetches hourly weather forecast data for a location, using a dedicated circuit breaker
+     * and no retries. Used by the briefing job so that forecast-run or aurora failures cannot
+     * trip the briefing circuit breaker and vice versa.
+     *
+     * @param lat latitude in decimal degrees
+     * @param lon longitude in decimal degrees
+     * @return the deserialized forecast response
+     */
+    @Retry(name = "open-meteo-briefing")
+    @CircuitBreaker(name = "open-meteo-briefing")
+    @RateLimiter(name = "open-meteo")
+    public OpenMeteoForecastResponse fetchForecastBriefing(double lat, double lon) {
+        return forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC");
+    }
+
+    /**
      * Fetches hourly air quality data for a location.
      *
      * @param lat latitude in decimal degrees

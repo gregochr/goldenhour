@@ -51,6 +51,15 @@ resilience4j:
         waitDurationInOpenState: 30s
         permittedNumberOfCallsInHalfOpenState: 5
         automaticTransitionFromOpenToHalfOpenEnabled: true
+      open-meteo-briefing:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
   retry:
     retryAspectOrder: 2
     instances:
@@ -65,6 +74,8 @@ resilience4j:
         waitDuration: 5s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
+      open-meteo-briefing:
+        maxAttempts: 1
   ratelimiter:
     rateLimiterAspectOrder: 3
     instances:

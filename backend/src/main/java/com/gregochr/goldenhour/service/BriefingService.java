@@ -241,9 +241,9 @@ public class BriefingService {
             List<LocationEntity> locations, JobRunEntity jobRun) {
         List<BriefingSlotBuilder.LocationWeather> results = new ArrayList<>();
         for (LocationEntity loc : locations) {
+            long startMs = System.currentTimeMillis();
             try {
-                long startMs = System.currentTimeMillis();
-                OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecast(
+                OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecastBriefing(
                         loc.getLat(), loc.getLon());
                 long durationMs = System.currentTimeMillis() - startMs;
                 jobRunService.logApiCall(jobRun.getId(),
@@ -252,7 +252,12 @@ public class BriefingService {
                         durationMs, 200, null, true, null);
                 results.add(new BriefingSlotBuilder.LocationWeather(loc, forecast));
             } catch (Exception e) {
+                long durationMs = System.currentTimeMillis() - startMs;
                 LOG.warn("Briefing weather fetch failed for {}: {}", loc.getName(), e.getMessage());
+                jobRunService.logApiCall(jobRun.getId(),
+                        com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "briefing-forecast/" + loc.getName(), null,
+                        durationMs, null, null, false, e.getMessage());
                 results.add(new BriefingSlotBuilder.LocationWeather(loc, null));
             }
         }

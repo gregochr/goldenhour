@@ -136,7 +136,7 @@ class BriefingServiceTest {
                 .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
-        when(openMeteoClient.fetchForecast(loc.getLat(), loc.getLon()))
+        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
                 .thenReturn(buildForecastResponse());
 
         briefingService.refreshBriefing();
