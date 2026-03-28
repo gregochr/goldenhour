@@ -107,6 +107,58 @@
   color: #E5A00D !important;
 }
 
+/* Quality slider — gradient track from green → amber → red */
+.quality-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #16a34a, #ca8a04, #b91c1c);
+  outline: none;
+  cursor: pointer;
+}
+
+.quality-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #EBEBEB;
+  border: 2px solid #3A3D45;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.quality-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #EBEBEB;
+  border: 2px solid #3A3D45;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.quality-slider:hover::-webkit-slider-thumb {
+  background: #fff;
+  transform: scale(1.1);
+}
+
+/* Heatmap cell visibility transitions */
+.heatmap-cell-visible {
+  opacity: 1;
+  transition: opacity 0.35s ease;
+}
+
+.heatmap-cell-hidden {
+  opacity: 0.04;
+  pointer-events: none !important;
+  transition: opacity 0.35s ease;
+}
+
 /* Bottom sheet slide-up animation */
 @keyframes slide-up {
   from { transform: translateY(100%); }

@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import HeatmapGrid from './HeatmapGrid.jsx';
+import QualitySlider from './QualitySlider.jsx';
+import AuroraGridRow from './AuroraGridRow.jsx';
+import useLocalStorageState from '../hooks/useLocalStorageState.js';
+import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -473,181 +478,7 @@ function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, o
   );
 }
 
-// ── HeatmapGrid (desktop — 3 day-columns) ────────────────────────────────────
-
-function HeatmapGrid({
-  dayDates,
-  sortedRegions,
-  briefingDays,
-  auroraTonight,
-  driveMap,
-  typeMap,
-  todayStr,
-  tomorrowStr,
-  onShowOnMap,
-}) {
-  const [drillDown, setDrillDown] = useState(null); // { date, regionName }
-
-  if (sortedRegions.length === 0 || dayDates.length === 0) return null;
-
-  const gridCols = `minmax(120px, 160px) repeat(${dayDates.length}, minmax(0, 1fr))`;
-
-  const toggleDrillDown = (date, regionName) => {
-    setDrillDown((prev) =>
-      prev?.date === date && prev?.regionName === regionName ? null : { date, regionName },
-    );
-  };
-
-  return (
-    <div
-      data-testid="briefing-heatmap"
-      className="hidden sm:grid gap-1 mt-2"
-      style={{ gridTemplateColumns: gridCols }}
-    >
-      {/* Header row */}
-      <div className="px-1 py-1" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-        Region
-      </div>
-      {dayDates.map((date) => (
-        <div
-          key={date}
-          data-testid="heatmap-day-header"
-          className="text-center py-1 px-1"
-        >
-          <div className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
-            {getDayLabel(date, todayStr, tomorrowStr)}
-          </div>
-          <div className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
-            {getShortDate(date)}
-          </div>
-        </div>
-      ))}
-
-      {/* Region rows */}
-      {sortedRegions.map((regionName) => (
-        <React.Fragment key={regionName}>
-          {/* Region label */}
-          <div
-            className="font-medium text-plex-text px-1 py-2 flex items-start"
-          style={{ fontSize: '13px', overflowWrap: 'break-word', wordBreak: 'break-word', minWidth: 0 }}
-          >
-            {regionName}
-          </div>
-
-          {/* Day cells */}
-          {dayDates.map((date) => {
-            const cellData = getDayCellData(date, regionName, briefingDays);
-            const isActive = drillDown?.date === date && drillDown?.regionName === regionName;
-
-            if (!cellData) {
-              return (
-                <div key={date}
-                  className="text-center py-2 text-plex-text-muted opacity-30"
-                  style={{ fontSize: '12px' }}>
-                  —
-                </div>
-              );
-            }
-
-            const { bestVerdict, bestRegion, bestEs, allEvents } = cellData;
-            const isStanddown = bestVerdict === 'STANDDOWN';
-            const auroraActive = !!auroraTonight;
-
-            const cellBg = isStanddown
-              ? 'border-red-500/8'
-              : bestVerdict === 'GO'
-                ? 'bg-green-600/20 border-green-600/20 hover:bg-green-600/35'
-                : 'bg-amber-500/18 border-amber-500/20 hover:bg-amber-500/32';
-
-            const verdictTextColour = isStanddown
-              ? 'text-plex-text-muted'
-              : bestVerdict === 'GO'
-                ? 'text-green-300'
-                : 'text-amber-300';
-
-            const eventLabel = bestEs?.targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
-            const verdictLabel = isStanddown ? 'Poor'
-              : bestVerdict === 'GO' ? `GO ${eventLabel}`
-                : `Marginal ${eventLabel}`;
-
-            const hasKingTide = (bestRegion?.tideHighlights || [])
-              .some((h) => h.toLowerCase().includes('king'));
-            const alignedCount = (bestRegion?.slots || []).filter((s) => s.tideAligned).length;
-
-            return (
-              <button
-                key={date}
-                data-testid="heatmap-cell"
-                disabled={isStanddown}
-                className={`relative rounded border text-left p-2 transition-all
-                  ${cellBg}
-                  ${isStanddown ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
-                  ${isActive ? 'ring-1 ring-white/25' : ''}`}
-                style={{
-                  pointerEvents: isStanddown ? 'none' : undefined,
-                  opacity: isStanddown ? 0.3 : undefined,
-                  backgroundColor: isStanddown ? 'rgba(180,50,50,0.04)' : undefined,
-                }}
-                onClick={isStanddown ? undefined : () => toggleDrillDown(date, regionName)}
-              >
-                <div className={`font-medium ${verdictTextColour}`} style={{ fontSize: '12px' }}>
-                  {verdictLabel}
-                </div>
-                {!isStanddown && bestRegion && (
-                  <>
-                    {bestRegion.regionTemperatureCelsius != null && (
-                      <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '11px' }}>
-                        {weatherCodeToIcon(bestRegion.regionWeatherCode)}
-                        {Math.round(bestRegion.regionTemperatureCelsius)}°C
-                        {bestRegion.regionWindSpeedMs != null
-                          && ` ${msToMph(bestRegion.regionWindSpeedMs)}mph`}
-                      </div>
-                    )}
-                    {(hasKingTide || alignedCount > 0) && (
-                      <div className="flex flex-wrap gap-0.5 mt-0.5">
-                        {hasKingTide && (
-                          <span className="rounded px-1 bg-amber-500/20 text-amber-300 font-medium"
-                            style={{ fontSize: '10px' }}>
-                            King tide
-                          </span>
-                        )}
-                        {alignedCount > 0 && (
-                          <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium"
-                            style={{ fontSize: '10px' }}>
-                            {alignedCount} aligned
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    <EventPips allEvents={allEvents} auroraActive={auroraActive} />
-                  </>
-                )}
-                {isStanddown && bestRegion?.summary && (
-                  <div className="text-red-400/50 mt-0.5" style={{ fontSize: '11px' }}>
-                    {bestRegion.summary.slice(0, 30)}
-                  </div>
-                )}
-              </button>
-            );
-          })}
-
-          {/* Drill-down panel — spans all columns */}
-          {drillDown?.regionName === regionName && drillDown?.date && (
-            <HeatmapDrillDown
-              date={drillDown.date}
-              regionName={regionName}
-              briefingDays={briefingDays}
-              driveMap={driveMap}
-              typeMap={typeMap}
-              onClose={() => setDrillDown(null)}
-              onShowOnMap={onShowOnMap}
-            />
-          )}
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
+// HeatmapGrid is imported from ./HeatmapGrid.jsx
 
 // ── MobileRegionCard (one region × selected day) ─────────────────────────────
 
@@ -815,108 +646,7 @@ BestBetBanner.propTypes = {
   onPickClick: PropTypes.func.isRequired,
 };
 
-// ── AuroraTonightPanel (unchanged) ───────────────────────────────────────────
-
-function AuroraTonightPanel({ aurora }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!aurora) return null;
-
-  const levelColour = aurora.alertLevel === 'STRONG'
-    ? 'text-red-400'
-    : aurora.alertLevel === 'MODERATE'
-      ? 'text-amber-400'
-      : 'text-green-400';
-
-  const levelLabel = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
-
-  return (
-    <div
-      data-testid="aurora-tonight-panel"
-      className="mb-3 rounded border border-indigo-500/30 bg-indigo-500/5 px-3 py-2"
-    >
-      <button
-        className="w-full flex items-center gap-2 text-left"
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <span className="text-sm">🌌</span>
-        <span className="font-semibold text-indigo-300" style={{ fontSize: '12px' }}>
-          Aurora Alert
-        </span>
-        <span className={`font-bold ${levelColour}`} style={{ fontSize: '12px' }}>
-          {levelLabel[aurora.alertLevel] || aurora.alertLevel}
-          {aurora.kp != null && ` (Kp ${aurora.kp.toFixed(1)})`}
-        </span>
-        <span className="text-plex-text-secondary ml-auto" style={{ fontSize: '12px' }}>
-          {aurora.clearLocationCount} location{aurora.clearLocationCount !== 1 ? 's' : ''} clear
-        </span>
-        <Chevron open={expanded} className="text-sm text-plex-text-muted ml-1" />
-      </button>
-
-      {expanded && (
-        <div className="mt-2 space-y-2">
-          {(aurora.regions || []).map((region) => (
-            <div key={region.regionName} data-testid="aurora-region" className="pl-2">
-              <span className="font-medium text-plex-text" style={{ fontSize: '12px' }}>
-                {region.regionName}
-              </span>
-              <div className="flex flex-wrap gap-1 mt-0.5">
-                {(region.locations || []).map((loc) => (
-                  <span
-                    key={loc.locationName}
-                    className={`px-1.5 py-0.5 rounded ${
-                      loc.clear
-                        ? 'bg-green-500/20 text-green-300'
-                        : 'bg-plex-surface text-plex-text-muted'
-                    }`}
-                    style={{ fontSize: '11px' }}
-                  >
-                    {loc.locationName}
-                    {loc.bortleClass != null && ` B${loc.bortleClass}`}
-                    {loc.clear ? ' ✓' : ` ${loc.cloudPercent}%☁`}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-AuroraTonightPanel.propTypes = {
-  aurora: PropTypes.shape({
-    alertLevel: PropTypes.string.isRequired,
-    kp: PropTypes.number,
-    clearLocationCount: PropTypes.number.isRequired,
-    regions: PropTypes.array.isRequired,
-  }),
-};
-
-// ── AuroraTomorrowNote (unchanged) ────────────────────────────────────────────
-
-function AuroraTomorrowNote({ aurora }) {
-  if (!aurora || aurora.label === 'Quiet') return null;
-  return (
-    <div
-      data-testid="aurora-tomorrow-note"
-      className="mt-2 flex items-center gap-1.5 text-indigo-300"
-      style={{ fontSize: '12px' }}
-    >
-      <span>🌌</span>
-      <span>
-        Tomorrow night: {aurora.label} (Kp {aurora.peakKp.toFixed(1)} forecast)
-      </span>
-    </div>
-  );
-}
-
-AuroraTomorrowNote.propTypes = {
-  aurora: PropTypes.shape({
-    peakKp: PropTypes.number.isRequired,
-    label: PropTypes.string.isRequired,
-  }),
-};
+// AuroraTonightPanel and AuroraTomorrowNote are replaced by AuroraGridRow (imported).
 
 // ── DISMISSED_AT_KEY ──────────────────────────────────────────────────────────
 const DISMISSED_AT_KEY = 'briefing-dismissed-at';
@@ -939,6 +669,7 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [openCardKeys, setOpenCardKeys] = useState(new Set()); // "date-regionName"
+  const [qualityTier, setQualityTier] = useLocalStorageState('plannerQualityTier', 2);
   const intervalRef = useRef(null);
 
   /** Map from location name → driveDurationMinutes. */
@@ -1014,6 +745,30 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
     if (!briefing) return [];
     return getSortedRegions(dayDates, briefing.days);
   }, [briefing, dayDates]);
+
+  /** Slider cell counts: total cells and visible cells at current qualityTier. */
+  const sliderCounts = useMemo(() => {
+    if (!briefing) return { showing: 0, total: 0 };
+    const TARGET_TYPES = ['SUNRISE', 'SUNSET'];
+    let total = 0;
+    let showing = 0;
+    for (const regionName of sortedRegions) {
+      for (const date of dayDates) {
+        const day = briefing.days.find((d) => d.date === date);
+        if (!day) continue;
+        for (const tt of TARGET_TYPES) {
+          const es = (day.eventSummaries || []).find((e) => e.targetType === tt);
+          if (!es) continue;
+          const region = (es.regions || []).find((r) => r.regionName === regionName);
+          if (!region) continue;
+          total += 1;
+          const tier = computeCellTier(region);
+          if (isCellVisible(tier, qualityTier)) showing += 1;
+        }
+      }
+    }
+    return { showing, total };
+  }, [briefing, sortedRegions, dayDates, qualityTier]);
 
   if (loading || !briefing) return null;
 
@@ -1105,8 +860,15 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
         />
       )}
 
-      {/* ── Aurora tonight ── */}
-      <AuroraTonightPanel aurora={briefing.auroraTonight || null} />
+      {/* ── Quality threshold slider (desktop + mobile) ── */}
+      {dayDates.length > 0 && (
+        <QualitySlider
+          value={qualityTier}
+          onChange={setQualityTier}
+          showing={sliderCounts.showing}
+          total={sliderCounts.total}
+        />
+      )}
 
       {/* ── Mobile section (sm:hidden) ── */}
       <div className="sm:hidden">
@@ -1142,23 +904,54 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
               </p>
             ) : (
               <>
-                {/* Region cards for selected day */}
-                {sortedRegions.map((regionName) => {
-                  const cardKey = `${selectedDate}-${regionName}`;
+                {/* Sunrise section */}
+                {(() => {
+                  const selectedDay = briefing.days.find((d) => d.date === selectedDate);
+                  const sunriseEs = (selectedDay?.eventSummaries || []).find((es) => es.targetType === 'SUNRISE');
+                  const sunsetEs = (selectedDay?.eventSummaries || []).find((es) => es.targetType === 'SUNSET');
+
+                  const renderSection = (es, label, emoji) => {
+                    if (!es || isEventPast(es)) return null;
+                    const visibleRegions = sortedRegions.filter((regionName) => {
+                      const region = (es.regions || []).find((r) => r.regionName === regionName);
+                      if (!region) return false;
+                      return isCellVisible(computeCellTier(region), qualityTier);
+                    });
+                    if (visibleRegions.length === 0) return null;
+                    return (
+                      <div key={label} className="mb-2">
+                        <div className="text-plex-text-secondary mb-1 px-1 flex items-center gap-1"
+                          style={{ fontSize: '12px' }}>
+                          <span>{emoji}</span>
+                          <span className="font-medium">{label}</span>
+                        </div>
+                        {visibleRegions.map((regionName) => {
+                          const cardKey = `${selectedDate}-${regionName}-${es.targetType}`;
+                          return (
+                            <MobileRegionCard
+                              key={cardKey}
+                              date={selectedDate}
+                              regionName={regionName}
+                              briefingDays={briefing.days}
+                              driveMap={driveMap}
+                              typeMap={typeMap}
+                              isOpen={openCardKeys.has(cardKey)}
+                              onToggle={() => toggleCard(cardKey)}
+                              onShowOnMap={onShowOnMap}
+                            />
+                          );
+                        })}
+                      </div>
+                    );
+                  };
+
                   return (
-                    <MobileRegionCard
-                      key={cardKey}
-                      date={selectedDate}
-                      regionName={regionName}
-                      briefingDays={briefing.days}
-                      driveMap={driveMap}
-                      typeMap={typeMap}
-                      isOpen={openCardKeys.has(cardKey)}
-                      onToggle={() => toggleCard(cardKey)}
-                      onShowOnMap={onShowOnMap}
-                    />
+                    <>
+                      {renderSection(sunriseEs, 'Sunrise', '🌅')}
+                      {renderSection(sunsetEs, 'Sunset', '🌇')}
+                    </>
                   );
-                })}
+                })()}
 
                 {/* Other days pills */}
                 {dayDates.length > 1 && (
@@ -1207,7 +1000,7 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
         dayDates={dayDates}
         sortedRegions={sortedRegions}
         briefingDays={briefing.days}
-        auroraTonight={briefing.auroraTonight || null}
+        qualityTier={qualityTier}
         driveMap={driveMap}
         typeMap={typeMap}
         todayStr={todayStr}
@@ -1215,8 +1008,11 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
         onShowOnMap={onShowOnMap}
       />
 
-      {/* ── Aurora tomorrow note ── */}
-      <AuroraTomorrowNote aurora={briefing.auroraTomorrow || null} />
+      {/* ── Aurora row — below grid, not affected by quality slider ── */}
+      <AuroraGridRow
+        auroraTonight={briefing.auroraTonight || null}
+        auroraTomorrow={briefing.auroraTomorrow || null}
+      />
     </div>
   );
 }
