@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Refactored — Briefing subsystem code quality
+
+Seven targeted refactorings across the briefing pipeline:
+
+1. **BriefingHeadlineGenerator** — extracted shared `appendVerdictCounts()` helper from near-identical `buildVerdictBreakdown()` and `buildNonGoSuffix()`
+2. **BriefingVerdictEvaluator** — introduced `WeatherMetrics` and `TideContext` records, reducing `buildFlags()` from 9 positional parameters to 2 named record arguments
+3. **BriefingAuroraSummaryBuilder** — extracted `CLEAR_SKY_THRESHOLD` constant (75%), replaced `.mapToInt(s -> 1).sum()` with `.count()`
+4. **BriefingSlotBuilder** — extracted 30-line tide calculation into `calculateTideData()` with `TideResult` record, shrinking `buildSlot()` from 95 to 60 lines
+5. **BriefingSlot** — split 18-field flat record into `WeatherConditions` + `TideInfo` sub-records with `@JsonUnwrapped` to preserve the flat JSON contract
+6. **BestBet** — converted `confidence` from raw String to `Confidence` enum (`HIGH`/`MEDIUM`/`LOW`) with `@JsonValue` for backward-compatible lowercase serialization
+7. **BriefingHierarchyBuilder + BriefingAuroraSummaryBuilder** — extracted shared `RegionGroupingUtils.groupByRegion()` utility replacing duplicated `LinkedHashMap + computeIfAbsent` loops
+
 ### Added — Daily Briefing ("Go or Movie Night?")
 
 Zero-Claude-cost pre-flight check that runs every 2 hours, fetching live Open-Meteo weather and existing DB tide data for all enabled colour locations, then rolling results up by region per solar event (today + tomorrow, sunrise + sunset).

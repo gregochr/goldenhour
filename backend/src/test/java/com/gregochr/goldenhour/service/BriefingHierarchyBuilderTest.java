@@ -99,8 +99,9 @@ class BriefingHierarchyBuilderTest {
         private BriefingSlot slotWithComfort(String name, Verdict verdict,
                 double temp, double apparentTemp, double wind, int weatherCode) {
             return new BriefingSlot(name, LocalDateTime.of(2026, 3, 26, 18, 0), verdict,
-                    20, BigDecimal.ZERO, 15000, 70, temp, apparentTemp, weatherCode,
-                    BigDecimal.valueOf(wind), null, false, null, null, false, false, List.of());
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            temp, apparentTemp, weatherCode, BigDecimal.valueOf(wind)),
+                    BriefingSlot.TideInfo.NONE, List.of());
         }
 
         @Test
@@ -147,8 +148,9 @@ class BriefingHierarchyBuilderTest {
         void nullTemperatureGraceful() {
             List<BriefingSlot> slots = List.of(
                     new BriefingSlot("A", LocalDateTime.of(2026, 3, 26, 18, 0), Verdict.GO,
-                            20, BigDecimal.ZERO, 15000, 70, null, null, null,
-                            BigDecimal.ONE, null, false, null, null, false, false, List.of()));
+                            new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                                    null, null, null, BigDecimal.ONE),
+                            BriefingSlot.TideInfo.NONE, List.of()));
             BriefingRegion region = builder.buildRegion("Test", slots);
 
             assertThat(region.regionTemperatureCelsius()).isNull();
@@ -160,14 +162,16 @@ class BriefingHierarchyBuilderTest {
     private static BriefingSlot slot(String name, Verdict verdict) {
         return new BriefingSlot(name,
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                null, false, null, null, false, false, List.of());
+                new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                        8.0, null, null, BigDecimal.ONE),
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     private static BriefingSlot slotAt(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                null, false, null, null, false, false, List.of());
+                new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                        8.0, null, null, BigDecimal.ONE),
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     private static LocationEntity location(String name, String regionName) {

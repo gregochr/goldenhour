@@ -101,42 +101,7 @@ public class BriefingSlotBuilder {
                 .setScale(DECIMAL_SCALE, RoundingMode.HALF_UP);
 
         // Tide data from DB
-        String tideState = null;
-        boolean tideAligned = false;
-        LocalDateTime nearestHighTime = null;
-        BigDecimal nearestHighHeight = null;
-        boolean isKingTide = false;
-        boolean isSpringTide = false;
-
-        if (locationService.isCoastal(loc)) {
-            Optional<TideData> tideOpt = tideService.deriveTideData(loc.getId(), solarTime);
-            if (tideOpt.isPresent()) {
-                TideData td = tideOpt.get();
-                tideState = td.tideState().name();
-                tideAligned = tideService.calculateTideAligned(td, loc.getTideType());
-                nearestHighTime = td.nearestHighTideTime();
-                nearestHighHeight = td.nextHighTideHeightMetres();
-
-                // Check king/spring tide from stats
-                if (td.tideState() == TideState.HIGH && nearestHighTime != null
-                        && Math.abs(ChronoUnit.MINUTES.between(nearestHighTime, solarTime))
-                                <= TIDE_WINDOW_MINUTES) {
-                    Optional<TideStats> statsOpt = tideService.getTideStats(loc.getId());
-                    if (statsOpt.isPresent()) {
-                        TideStats stats = statsOpt.get();
-                        BigDecimal height = td.nextHighTideHeightMetres();
-                        if (height != null && stats.p95HighMetres() != null
-                                && height.compareTo(stats.p95HighMetres()) > 0) {
-                            isKingTide = true;
-                        }
-                        if (height != null && stats.springTideThreshold() != null
-                                && height.compareTo(stats.springTideThreshold()) > 0) {
-                            isSpringTide = true;
-                        }
-                    }
-                }
-            }
-        }
+        TideResult tideResult = calculateTideData(loc, solarTime);
 
         // Determine weather verdict
         Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
@@ -145,21 +110,85 @@ public class BriefingSlotBuilder {
         // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
         // leave the weather-only verdict intact so missing data does not penalise the location.
         boolean tidesNotAligned = false;
-        if (locationService.isCoastal(loc) && tideState != null
-                && !tideAligned && verdict != Verdict.STANDDOWN) {
+        if (locationService.isCoastal(loc) && tideResult.tideState() != null
+                && !tideResult.tideAligned() && verdict != Verdict.STANDDOWN) {
             verdict = Verdict.STANDDOWN;
             tidesNotAligned = true;
         }
 
         // Build flags
-        List<String> flags = verdictEvaluator.buildFlags(lowCloud, precip, visibility, humidity,
-                tideState, tideAligned, isKingTide, isSpringTide, tidesNotAligned);
+        BriefingVerdictEvaluator.WeatherMetrics weatherMetrics =
+                new BriefingVerdictEvaluator.WeatherMetrics(lowCloud, precip, visibility, humidity);
+        BriefingVerdictEvaluator.TideContext tideContext = new BriefingVerdictEvaluator.TideContext(
+                tideResult.tideState(), tideResult.tideAligned(),
+                tideResult.isKingTide(), tideResult.isSpringTide(), tidesNotAligned);
+        List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext);
 
-        return new BriefingSlot(
-                loc.getName(), solarTime, verdict,
-                lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
-                tideState, tideAligned, nearestHighTime, nearestHighHeight,
-                isKingTide, isSpringTide, flags);
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
+        BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
+                tideResult.tideState(), tideResult.tideAligned(),
+                tideResult.nearestHighTime(), tideResult.nearestHighHeight(),
+                tideResult.isKingTide(), tideResult.isSpringTide());
+
+        return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags);
+    }
+
+    /**
+     * Intermediate result of tide data calculation for a coastal location.
+     */
+    record TideResult(String tideState, boolean tideAligned,
+            LocalDateTime nearestHighTime, BigDecimal nearestHighHeight,
+            boolean isKingTide, boolean isSpringTide) {
+
+        static final TideResult NONE = new TideResult(null, false, null, null, false, false);
+    }
+
+    /**
+     * Calculates tide data for a location at a given solar event time.
+     * Returns {@link TideResult#NONE} for inland locations or when no tide data is available.
+     *
+     * @param loc       the location entity
+     * @param solarTime the UTC time of the solar event
+     * @return tide calculation result
+     */
+    private TideResult calculateTideData(LocationEntity loc, LocalDateTime solarTime) {
+        if (!locationService.isCoastal(loc)) {
+            return TideResult.NONE;
+        }
+        Optional<TideData> tideOpt = tideService.deriveTideData(loc.getId(), solarTime);
+        if (tideOpt.isEmpty()) {
+            return TideResult.NONE;
+        }
+
+        TideData td = tideOpt.get();
+        String tideState = td.tideState().name();
+        boolean tideAligned = tideService.calculateTideAligned(td, loc.getTideType());
+        LocalDateTime nearestHighTime = td.nearestHighTideTime();
+        BigDecimal nearestHighHeight = td.nextHighTideHeightMetres();
+        boolean isKingTide = false;
+        boolean isSpringTide = false;
+
+        if (td.tideState() == TideState.HIGH && nearestHighTime != null
+                && Math.abs(ChronoUnit.MINUTES.between(nearestHighTime, solarTime))
+                        <= TIDE_WINDOW_MINUTES) {
+            Optional<TideStats> statsOpt = tideService.getTideStats(loc.getId());
+            if (statsOpt.isPresent()) {
+                TideStats stats = statsOpt.get();
+                BigDecimal height = td.nextHighTideHeightMetres();
+                if (height != null && stats.p95HighMetres() != null
+                        && height.compareTo(stats.p95HighMetres()) > 0) {
+                    isKingTide = true;
+                }
+                if (height != null && stats.springTideThreshold() != null
+                        && height.compareTo(stats.springTideThreshold()) > 0) {
+                    isSpringTide = true;
+                }
+            }
+        }
+
+        return new TideResult(tideState, tideAligned, nearestHighTime,
+                nearestHighHeight, isKingTide, isSpringTide);
     }
 
     /**

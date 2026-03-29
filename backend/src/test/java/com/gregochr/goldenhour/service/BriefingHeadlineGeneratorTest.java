@@ -215,7 +215,8 @@ class BriefingHeadlineGeneratorTest {
 
     private static BriefingSlot slotAt(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                null, false, null, null, false, false, List.of());
+                new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                        8.0, null, null, BigDecimal.ONE),
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 }

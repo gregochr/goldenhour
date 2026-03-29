@@ -141,18 +141,9 @@ public class BriefingHeadlineGenerator {
      * @return breakdown string
      */
     private String buildVerdictBreakdown(List<BriefingRegion> allRegions, int goCount) {
-        long marginal = allRegions.stream().filter(r -> r.verdict() == Verdict.MARGINAL).count();
-        long standdown = allRegions.stream().filter(r -> r.verdict() == Verdict.STANDDOWN).count();
         StringBuilder sb = new StringBuilder();
         sb.append(goCount).append(goCount == 1 ? " region GO" : " regions GO");
-        if (marginal > 0) {
-            sb.append(", ").append(marginal)
-                    .append(marginal == 1 ? " region MARGINAL" : " regions MARGINAL");
-        }
-        if (standdown > 0) {
-            sb.append(", ").append(standdown)
-                    .append(standdown == 1 ? " region STANDDOWN" : " regions STANDDOWN");
-        }
+        appendVerdictCounts(allRegions, sb);
         return sb.toString();
     }
 
@@ -164,9 +155,22 @@ public class BriefingHeadlineGenerator {
      * @return suffix string, e.g. ", 2 regions STANDDOWN"
      */
     private String buildNonGoSuffix(List<BriefingRegion> allRegions) {
-        long marginal = allRegions.stream().filter(r -> r.verdict() == Verdict.MARGINAL).count();
-        long standdown = allRegions.stream().filter(r -> r.verdict() == Verdict.STANDDOWN).count();
         StringBuilder sb = new StringBuilder();
+        appendVerdictCounts(allRegions, sb);
+        return sb.toString();
+    }
+
+    /**
+     * Appends MARGINAL and STANDDOWN region counts to the given builder.
+     *
+     * @param allRegions all regions for the event
+     * @param sb         the builder to append to
+     */
+    private void appendVerdictCounts(List<BriefingRegion> allRegions, StringBuilder sb) {
+        long marginal = allRegions.stream()
+                .filter(r -> r.verdict() == Verdict.MARGINAL).count();
+        long standdown = allRegions.stream()
+                .filter(r -> r.verdict() == Verdict.STANDDOWN).count();
         if (marginal > 0) {
             sb.append(", ").append(marginal)
                     .append(marginal == 1 ? " region MARGINAL" : " regions MARGINAL");
@@ -175,6 +179,5 @@ public class BriefingHeadlineGenerator {
             sb.append(", ").append(standdown)
                     .append(standdown == 1 ? " region STANDDOWN" : " regions STANDDOWN");
         }
-        return sb.toString();
     }
 }

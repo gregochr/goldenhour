@@ -9,16 +9,14 @@ import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.util.RegionGroupingUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -31,6 +29,9 @@ import java.util.stream.Collectors;
 public class BriefingAuroraSummaryBuilder {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingAuroraSummaryBuilder.class);
+
+    /** Cloud cover percentage below which a location is considered clear for aurora viewing. */
+    static final int CLEAR_SKY_THRESHOLD = 75;
 
     private final AuroraStateCache auroraStateCache;
     private final NoaaSwpcClient noaaSwpcClient;
@@ -61,29 +62,26 @@ public class BriefingAuroraSummaryBuilder {
         Double kp = auroraStateCache.getLastTriggerKp();
         List<AuroraForecastScore> scores = auroraStateCache.getCachedScores();
 
-        // Group locations by region
-        Map<String, List<AuroraLocationSlot>> regionSlots = new LinkedHashMap<>();
-        for (AuroraForecastScore score : scores) {
-            String regionName = score.location().getRegion() != null
-                    ? score.location().getRegion().getName()
-                    : score.location().getName();
-            boolean clear = score.cloudPercent() < 75;
-            AuroraLocationSlot slot = new AuroraLocationSlot(
-                    score.location().getName(),
-                    score.location().getBortleClass(),
-                    clear,
-                    score.cloudPercent());
-            regionSlots.computeIfAbsent(regionName, k -> new ArrayList<>()).add(slot);
-        }
+        // Group scores by region, then convert to location slots
+        RegionGroupingUtils.GroupResult<AuroraForecastScore> grouped =
+                RegionGroupingUtils.groupByRegion(scores, score ->
+                        score.location().getRegion() != null
+                                ? score.location().getRegion().getName()
+                                : score.location().getName());
 
-        List<AuroraRegionSummary> regions = regionSlots.entrySet().stream()
-                .map(e -> new AuroraRegionSummary(e.getKey(), e.getValue()))
+        List<AuroraRegionSummary> regions = grouped.grouped().entrySet().stream()
+                .map(e -> new AuroraRegionSummary(e.getKey(), e.getValue().stream()
+                        .map(s -> new AuroraLocationSlot(
+                                s.location().getName(),
+                                s.location().getBortleClass(),
+                                s.cloudPercent() < CLEAR_SKY_THRESHOLD,
+                                s.cloudPercent()))
+                        .toList()))
                 .collect(Collectors.toList());
 
-        int clearCount = scores.stream()
-                .filter(s -> s.cloudPercent() < 75)
-                .mapToInt(s -> 1)
-                .sum();
+        int clearCount = (int) scores.stream()
+                .filter(s -> s.cloudPercent() < CLEAR_SKY_THRESHOLD)
+                .count();
 
         return new AuroraTonightSummary(alertLevel, kp, clearCount, regions);
     }

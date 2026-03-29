@@ -293,8 +293,8 @@ class BriefingSlotBuilderTest {
                 TargetType.SUNSET);
 
         assertThat(slot).isNotNull();
-        assertThat(slot.isKingTide()).isTrue();
-        assertThat(slot.isSpringTide()).isTrue();
+        assertThat(slot.tide().isKingTide()).isTrue();
+        assertThat(slot.tide().isSpringTide()).isTrue();
         assertThat(slot.flags()).contains("Tide aligned");
     }
 

@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -429,14 +430,15 @@ public class BriefingBestBetAdvisor {
         long standdownCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.STANDDOWN).count();
         long tideAlignedCount = region.slots().stream()
-                .filter(BriefingSlot::tideAligned).count();
+                .filter(s -> s.tide().tideAligned()).count();
         long coastalCount = region.slots().stream()
-                .filter(s -> s.tideState() != null).count();
+                .filter(s -> s.tide().tideState() != null).count();
         List<String> kingTideLocations = region.slots().stream()
-                .filter(BriefingSlot::isKingTide)
+                .filter(s -> s.tide().isKingTide())
                 .map(BriefingSlot::locationName)
                 .toList();
-        boolean hasSpringTide = region.slots().stream().anyMatch(BriefingSlot::isSpringTide);
+        boolean hasSpringTide = region.slots().stream()
+                .anyMatch(s -> s.tide().isSpringTide());
 
         ObjectNode regionNode = regionsNode.addObject();
         regionNode.put("name", region.regionName());
@@ -548,7 +550,8 @@ public class BriefingBestBetAdvisor {
                         ? null : pick.path("event").asText(null);
                 String region = pick.path("region").isNull()
                         ? null : pick.path("region").asText(null);
-                String confidence = pick.path("confidence").asText("medium");
+                Confidence confidence = Confidence.fromString(
+                        pick.path("confidence").asText("medium"));
                 picks.add(new BestBet(rank, headline, detail, event, region, confidence, null));
             }
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());

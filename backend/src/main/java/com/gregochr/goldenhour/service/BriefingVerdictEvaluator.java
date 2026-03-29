@@ -39,6 +39,30 @@ public class BriefingVerdictEvaluator {
     static final int HUMIDITY_MARGINAL = 90;
 
     /**
+     * Core weather metrics used for verdict determination and flag generation.
+     *
+     * @param lowCloud   low cloud cover percentage
+     * @param precip     precipitation in mm
+     * @param visibility visibility in metres
+     * @param humidity   relative humidity percentage
+     */
+    public record WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity) {
+    }
+
+    /**
+     * Tide context for flag generation.
+     *
+     * @param tideState       HIGH/MID/LOW or null for inland
+     * @param tideAligned     whether tide matches the location's preference
+     * @param isKingTide      whether this is a king tide (exceeds P95)
+     * @param isSpringTide    whether this is a spring tide (exceeds 125% avg)
+     * @param tidesNotAligned true when the coastal tide demotion was applied
+     */
+    public record TideContext(String tideState, boolean tideAligned,
+            boolean isKingTide, boolean isSpringTide, boolean tidesNotAligned) {
+    }
+
+    /**
      * Determines the verdict for a slot based on weather conditions.
      *
      * @param lowCloud   low cloud cover percentage
@@ -62,48 +86,39 @@ public class BriefingVerdictEvaluator {
     /**
      * Builds human-readable flag strings for a slot.
      *
-     * @param lowCloud        low cloud cover percentage
-     * @param precip          precipitation in mm
-     * @param visibility      visibility in metres
-     * @param humidity        relative humidity percentage
-     * @param tideState       HIGH/MID/LOW or null
-     * @param tideAligned     whether tide matches preference
-     * @param isKingTide      whether this is a king tide
-     * @param isSpringTide    whether this is a spring tide
-     * @param tidesNotAligned true when the coastal tide demotion was applied
+     * @param weather the core weather metrics
+     * @param tide    the tide context (may have null tideState for inland locations)
      * @return list of flag strings
      */
-    public List<String> buildFlags(int lowCloud, BigDecimal precip, int visibility,
-            int humidity, String tideState, boolean tideAligned,
-            boolean isKingTide, boolean isSpringTide, boolean tidesNotAligned) {
+    public List<String> buildFlags(WeatherMetrics weather, TideContext tide) {
         List<String> flags = new ArrayList<>();
-        if (lowCloud > CLOUD_STANDDOWN) {
+        if (weather.lowCloud() > CLOUD_STANDDOWN) {
             flags.add("Sun blocked");
-        } else if (lowCloud > CLOUD_MARGINAL) {
+        } else if (weather.lowCloud() > CLOUD_MARGINAL) {
             flags.add("Partial cloud");
         }
-        if (precip.compareTo(PRECIP_STANDDOWN) > 0) {
+        if (weather.precip().compareTo(PRECIP_STANDDOWN) > 0) {
             flags.add("Active rain");
-        } else if (precip.compareTo(PRECIP_MARGINAL) > 0) {
+        } else if (weather.precip().compareTo(PRECIP_MARGINAL) > 0) {
             flags.add("Light rain");
         }
-        if (visibility < VISIBILITY_STANDDOWN) {
+        if (weather.visibility() < VISIBILITY_STANDDOWN) {
             flags.add("Poor visibility");
-        } else if (visibility < VISIBILITY_MARGINAL) {
+        } else if (weather.visibility() < VISIBILITY_MARGINAL) {
             flags.add("Reduced visibility");
         }
-        if (humidity > HUMIDITY_MARGINAL) {
+        if (weather.humidity() > HUMIDITY_MARGINAL) {
             flags.add("Mist risk");
         }
-        if (isKingTide) {
+        if (tide.isKingTide()) {
             flags.add("King tide");
-        } else if (isSpringTide) {
+        } else if (tide.isSpringTide()) {
             flags.add("Spring tide");
         }
-        if (tidesNotAligned) {
+        if (tide.tidesNotAligned()) {
             flags.add("Tide not aligned");
         }
-        if (tideAligned) {
+        if (tide.tideAligned()) {
             flags.add("Tide aligned");
         }
         return flags;
@@ -140,9 +155,9 @@ public class BriefingVerdictEvaluator {
     public List<String> buildTideHighlights(List<BriefingSlot> slots) {
         List<String> highlights = new ArrayList<>();
         for (BriefingSlot slot : slots) {
-            if (slot.isKingTide()) {
+            if (slot.tide().isKingTide()) {
                 highlights.add("King tide at " + slot.locationName());
-            } else if (slot.isSpringTide()) {
+            } else if (slot.tide().isSpringTide()) {
                 highlights.add("Spring tide at " + slot.locationName());
             }
         }

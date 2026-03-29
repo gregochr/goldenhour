@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -92,7 +93,7 @@ class BriefingBestBetAdvisorTest {
             assertThat(picks.get(0).headline()).isEqualTo("King tide sunset at Northumberland");
             assertThat(picks.get(0).event()).isEqualTo("tomorrow_sunset");
             assertThat(picks.get(0).region()).isEqualTo("Northumberland");
-            assertThat(picks.get(0).confidence()).isEqualTo("high");
+            assertThat(picks.get(0).confidence()).isEqualTo(Confidence.HIGH);
             assertThat(picks.get(1).rank()).isEqualTo(2);
         }
 
@@ -255,9 +256,11 @@ class BriefingBestBetAdvisorTest {
 
             BriefingSlot kingSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
-                    20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                    "HIGH", true, null, new BigDecimal("1.9"),
-                    true, false, List.of("King tide"));
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null,
+                            new BigDecimal("1.9"), true, false),
+                    List.of("King tide"));
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of("King tide at Bamburgh"),
                     List.of(kingSlot), 7.0, 5.0, 1.5, 1);
@@ -395,8 +398,10 @@ class BriefingBestBetAdvisorTest {
                 "Northumberland", "The Lake District", "The North York Moors");
         private static final Set<String> VALID_DAY_NAMES = Set.of("Saturday", "Sunday");
 
-        private BestBet pick(int rank, String event, String region, String headline, String detail) {
-            return new BestBet(rank, headline, detail, event, region, "high", null);
+        private BestBet pick(int rank, String event, String region,
+                String headline, String detail) {
+            return new BestBet(rank, headline, detail, event, region,
+                    Confidence.HIGH, null);
         }
 
         @Test
@@ -546,7 +551,8 @@ class BriefingBestBetAdvisorTest {
 
     private static BriefingSlot slot(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                null, false, null, null, false, false, List.of());
+                new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                        8.0, null, null, BigDecimal.ONE),
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 }

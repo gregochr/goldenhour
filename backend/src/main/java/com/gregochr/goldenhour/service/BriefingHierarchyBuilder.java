@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.util.RegionGroupingUtils;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -91,26 +92,16 @@ public class BriefingHierarchyBuilder {
      */
     BriefingEventSummary buildEventSummary(TargetType eventType, List<BriefingSlot> slots,
             Map<String, String> locationToRegion) {
-        // Group slots by region
-        Map<String, List<BriefingSlot>> regionSlots = new LinkedHashMap<>();
-        List<BriefingSlot> unregioned = new ArrayList<>();
+        RegionGroupingUtils.GroupResult<BriefingSlot> grouped =
+                RegionGroupingUtils.groupByRegion(slots,
+                        slot -> locationToRegion.get(slot.locationName()));
 
-        for (BriefingSlot slot : slots) {
-            String region = locationToRegion.get(slot.locationName());
-            if (region != null) {
-                regionSlots.computeIfAbsent(region, k -> new ArrayList<>()).add(slot);
-            } else {
-                unregioned.add(slot);
-            }
-        }
-
-        // Build region rollups
         List<BriefingRegion> regions = new ArrayList<>();
-        for (Map.Entry<String, List<BriefingSlot>> entry : regionSlots.entrySet()) {
+        for (Map.Entry<String, List<BriefingSlot>> entry : grouped.grouped().entrySet()) {
             regions.add(buildRegion(entry.getKey(), entry.getValue()));
         }
 
-        return new BriefingEventSummary(eventType, regions, unregioned);
+        return new BriefingEventSummary(eventType, regions, grouped.unregioned());
     }
 
     /**
@@ -134,24 +125,25 @@ public class BriefingHierarchyBuilder {
         }
 
         double rawTemp = repSlots.stream()
-                .filter(s -> s.temperatureCelsius() != null)
-                .mapToDouble(BriefingSlot::temperatureCelsius)
+                .filter(s -> s.weather().temperatureCelsius() != null)
+                .mapToDouble(s -> s.weather().temperatureCelsius())
                 .average().orElse(Double.NaN);
         double rawApparent = repSlots.stream()
-                .filter(s -> s.apparentTemperatureCelsius() != null)
-                .mapToDouble(BriefingSlot::apparentTemperatureCelsius)
+                .filter(s -> s.weather().apparentTemperatureCelsius() != null)
+                .mapToDouble(s -> s.weather().apparentTemperatureCelsius())
                 .average().orElse(Double.NaN);
         double rawWind = repSlots.stream()
-                .mapToDouble(s -> s.windSpeedMs().doubleValue())
+                .mapToDouble(s -> s.weather().windSpeedMs().doubleValue())
                 .average().orElse(Double.NaN);
 
         // Weather code: code of the median-temperature slot
         List<BriefingSlot> withCode = repSlots.stream()
-                .filter(s -> s.temperatureCelsius() != null && s.weatherCode() != null)
-                .sorted(Comparator.comparingDouble(BriefingSlot::temperatureCelsius))
+                .filter(s -> s.weather().temperatureCelsius() != null
+                        && s.weather().weatherCode() != null)
+                .sorted(Comparator.comparingDouble(s -> s.weather().temperatureCelsius()))
                 .toList();
         Integer medianWeatherCode = withCode.isEmpty() ? null
-                : withCode.get(withCode.size() / 2).weatherCode();
+                : withCode.get(withCode.size() / 2).weather().weatherCode();
 
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 Double.isNaN(rawTemp) ? null : rawTemp,

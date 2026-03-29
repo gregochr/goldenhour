@@ -152,10 +152,12 @@ class BriefingVerdictEvaluatorTest {
         void kingTide() {
             BriefingSlot s = new BriefingSlot("Bamburgh",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
-                    20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                    "HIGH", true,
-                    LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
-                    true, false, List.of("King tide"));
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true,
+                            LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
+                            true, false),
+                    List.of("King tide"));
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("King tide at Bamburgh");
         }
@@ -165,9 +167,10 @@ class BriefingVerdictEvaluatorTest {
         void springTide() {
             BriefingSlot s = new BriefingSlot("Seahouses",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
-                    20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                    "HIGH", true, null, null,
-                    false, true, List.of("Spring tide"));
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null, null, false, true),
+                    List.of("Spring tide"));
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Spring tide at Seahouses");
         }
@@ -185,31 +188,39 @@ class BriefingVerdictEvaluatorTest {
     @DisplayName("Flag generation")
     class FlagTests {
 
+        private static final BriefingVerdictEvaluator.TideContext NO_TIDE =
+                new BriefingVerdictEvaluator.TideContext(null, false, false, false, false);
+
         @Test
         @DisplayName("Sun blocked flag for cloud > 80%")
         void sunBlocked() {
-            assertThat(evaluator.buildFlags(85, BigDecimal.ZERO, 15000, 70, null, false, false, false, false))
-                    .contains("Sun blocked");
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(85, BigDecimal.ZERO, 15000, 70),
+                    NO_TIDE)).contains("Sun blocked");
         }
 
         @Test
         @DisplayName("Active rain flag for precip > 2mm")
         void activeRain() {
-            assertThat(evaluator.buildFlags(20, new BigDecimal("3.0"), 15000, 70, null, false, false, false, false))
-                    .contains("Active rain");
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, new BigDecimal("3.0"), 15000, 70),
+                    NO_TIDE)).contains("Active rain");
         }
 
         @Test
         @DisplayName("No flags when all clear")
         void noFlags() {
-            assertThat(evaluator.buildFlags(20, BigDecimal.ZERO, 15000, 70, null, false, false, false, false))
-                    .isEmpty();
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70),
+                    NO_TIDE)).isEmpty();
         }
 
         @Test
         @DisplayName("Multiple flags accumulate")
         void multipleFlags() {
-            assertThat(evaluator.buildFlags(85, new BigDecimal("5.0"), 3000, 95, "HIGH", true, true, false, false))
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(85, new BigDecimal("5.0"), 3000, 95),
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, true, false, false)))
                     .containsExactly("Sun blocked", "Active rain", "Poor visibility",
                             "Mist risk", "King tide", "Tide aligned");
         }
@@ -217,7 +228,9 @@ class BriefingVerdictEvaluatorTest {
         @Test
         @DisplayName("Tide not aligned flag when tidesNotAligned=true")
         void tideNotAligned() {
-            List<String> flags = evaluator.buildFlags(20, BigDecimal.ZERO, 15000, 70, "LOW", false, false, false, true);
+            List<String> flags = evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70),
+                    new BriefingVerdictEvaluator.TideContext("LOW", false, false, false, true));
             assertThat(flags).contains("Tide not aligned");
             assertThat(flags).doesNotContain("Tide aligned");
         }
@@ -225,10 +238,12 @@ class BriefingVerdictEvaluatorTest {
         @Test
         @DisplayName("Tide aligned and Tide not aligned are mutually exclusive")
         void tideAlignedAndNotAlignedMutuallyExclusive() {
-            List<String> aligned = evaluator.buildFlags(
-                    20, BigDecimal.ZERO, 15000, 70, "HIGH", true, false, false, false);
-            List<String> notAligned = evaluator.buildFlags(
-                    20, BigDecimal.ZERO, 15000, 70, "LOW", false, false, false, true);
+            var weather = new BriefingVerdictEvaluator.WeatherMetrics(
+                    20, BigDecimal.ZERO, 15000, 70);
+            List<String> aligned = evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, false, false));
+            List<String> notAligned = evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("LOW", false, false, false, true));
             assertThat(aligned).contains("Tide aligned").doesNotContain("Tide not aligned");
             assertThat(notAligned).contains("Tide not aligned").doesNotContain("Tide aligned");
         }
@@ -274,7 +289,8 @@ class BriefingVerdictEvaluatorTest {
     private static BriefingSlot slot(String name, Verdict verdict) {
         return new BriefingSlot(name,
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
-                20, BigDecimal.ZERO, 15000, 70, 8.0, null, null, BigDecimal.ONE,
-                null, false, null, null, false, false, List.of());
+                new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                        8.0, null, null, BigDecimal.ONE),
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 }

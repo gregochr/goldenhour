@@ -6,11 +6,11 @@ package com.gregochr.goldenhour.model;
  * @param rank                    ranking position — 1 = top pick, 2 = runner-up
  * @param headline                punchy one-sentence headline (≤15 words)
  * @param detail                  2–3 sentence explanation with specific conditions and region context
- * @param event                   event identifier, e.g. {@code "today_sunset"}, {@code "tomorrow_sunrise"},
+ * @param event                   event identifier, e.g. {@code "2026-03-30_sunset"},
  *                                {@code "aurora_tonight"}; null for a stay-home recommendation
  * @param region                  recommended region name, e.g. {@code "Northumberland"};
  *                                null for a stay-home recommendation
- * @param confidence              confidence level — {@code "high"}, {@code "medium"}, or {@code "low"}
+ * @param confidence              confidence level
  * @param nearestDriveMinutes     nearest location drive time in minutes for the recommended region,
  *                                or {@code null} if drive time data is unavailable
  */
@@ -20,6 +20,6 @@ public record BestBet(
         String detail,
         String event,
         String region,
-        String confidence,
+        Confidence confidence,
         Integer nearestDriveMinutes) {
 }
