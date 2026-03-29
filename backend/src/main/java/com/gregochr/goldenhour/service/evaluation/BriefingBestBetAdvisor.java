@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
@@ -358,7 +359,7 @@ public class BriefingBestBetAdvisor {
      */
     RollupResult buildRollupJson(List<BriefingDay> days, LocalDateTime now,
             Map<String, Integer> driveMap) throws JsonProcessingException {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
         Set<String> validEvents = new LinkedHashSet<>();
         Set<String> validRegions = new LinkedHashSet<>();
         Set<String> validDayNames = new LinkedHashSet<>();

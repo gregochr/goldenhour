@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -31,7 +32,7 @@ public class BriefingHeadlineGenerator {
      * @return one-line headline string
      */
     public String generateHeadline(List<BriefingDay> days) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
 
         record EventOpp(LocalDate date, TargetType event,

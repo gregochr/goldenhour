@@ -787,11 +787,11 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
     );
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
   const tomorrowStr = (() => {
     const d = new Date();
-    d.setUTCDate(d.getUTCDate() + 1);
-    return d.toISOString().slice(0, 10);
+    d.setDate(d.getDate() + 1);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
   })();
 
   // Upcoming events (not-yet-past) for the mobile compact summary rows.
