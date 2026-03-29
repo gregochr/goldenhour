@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -384,6 +385,65 @@ class BriefingBestBetAdvisorTest {
             assertThat(picks).hasSize(1);
             assertThat(picks.get(0).region()).isEqualTo("Northumberland");
         }
+
+        @Test
+        @DisplayName("Enriches picks with structured event data from triage")
+        void enrichesWithStructuredEventData() {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            LocalDateTime eventTime = tomorrow.atTime(18, 48);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Best light\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            regionWithTime("Northumberland", Verdict.GO, 3, 0, 0, eventTime)
+                    ), List.of())));
+            List<BestBet> picks = advisor.advise(List.of(day), 42L,
+                    Map.of("Loc0", 37));
+            assertThat(picks).hasSize(1);
+            BestBet pick = picks.get(0);
+            assertThat(pick.dayName()).isEqualTo("Tomorrow");
+            assertThat(pick.eventType()).isEqualTo("sunset");
+            assertThat(pick.eventTime()).isNotNull();
+            assertThat(pick.nearestDriveMinutes()).isEqualTo(37);
+        }
+
+        @Test
+        @DisplayName("Stay-home pick has null structured fields")
+        void stayHomePickNullStructuredFields() {
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Stay in\","
+                    + "\"detail\":\"Dreadful.\",\"event\":null,\"region\":null,"
+                    + "\"confidence\":\"high\"}]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of());
+            assertThat(picks).hasSize(1);
+            BestBet pick = picks.get(0);
+            assertThat(pick.dayName()).isNull();
+            assertThat(pick.eventType()).isNull();
+            assertThat(pick.eventTime()).isNull();
+        }
     }
 
     // ── validateAndFilterPicks ──
@@ -401,7 +461,7 @@ class BriefingBestBetAdvisorTest {
         private BestBet pick(int rank, String event, String region,
                 String headline, String detail) {
             return new BestBet(rank, headline, detail, event, region,
-                    Confidence.HIGH, null);
+                    Confidence.HIGH, null, null, null, null);
         }
 
         @Test

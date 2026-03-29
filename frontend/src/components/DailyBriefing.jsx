@@ -615,6 +615,15 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
                   </span>
                 )}
               </div>
+              {pick.dayName && pick.eventType && (
+                <p className="text-plex-text-secondary leading-snug mb-0.5"
+                  style={{ fontSize: '13px' }}>
+                  {pick.dayName} {pick.eventType}
+                  {pick.eventTime && <> · {pick.eventTime}</>}
+                  {pick.nearestDriveMinutes != null && pick.nearestDriveMinutes > 0
+                    && <> · {pick.nearestDriveMinutes} min drive</>}
+                </p>
+              )}
               <p className="font-medium leading-snug text-plex-text"
                 style={{ fontSize: '14px' }}>
                 {pick.headline}
@@ -640,6 +649,10 @@ BestBetBanner.propTypes = {
     event: PropTypes.string,
     region: PropTypes.string,
     confidence: PropTypes.string,
+    nearestDriveMinutes: PropTypes.number,
+    dayName: PropTypes.string,
+    eventType: PropTypes.string,
+    eventTime: PropTypes.string,
   })),
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,

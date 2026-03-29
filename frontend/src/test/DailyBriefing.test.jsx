@@ -1111,6 +1111,43 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('best-bet-banner'));
       expect(screen.getByText(/low confidence/i)).toBeInTheDocument();
     });
+
+    it('renders structured header with day, event type, time, and drive', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Best overall light', detail: 'Clear skies.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high',
+          dayName: 'Tomorrow', eventType: 'sunset', eventTime: '19:48',
+          nearestDriveMinutes: 37 },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByText(/Tomorrow sunset/)).toBeInTheDocument();
+      expect(screen.getByText(/19:48/)).toBeInTheDocument();
+      expect(screen.getByText(/37 min drive/)).toBeInTheDocument();
+    });
+
+    it('structured header omits drive time when not available', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Best light conditions', detail: 'Clear.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high',
+          dayName: 'Tomorrow', eventType: 'sunset', eventTime: '19:48' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByText(/Tomorrow sunset/)).toBeInTheDocument();
+      expect(screen.queryByText(/min drive/)).toBeNull();
+    });
+
+    it('stay-home pick has no structured header', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Stay in tonight', detail: 'Nothing worth it.',
+          event: null, region: null, confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.queryByText(/min drive/)).toBeNull();
+      expect(screen.queryByText(/Today sunset|Tomorrow sunrise/)).toBeNull();
+    });
   });
 
   // ────── Aurora tonight panel ──────

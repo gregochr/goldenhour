@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
@@ -88,6 +89,16 @@ public class BriefingBestBetAdvisor {
             - Pick 2 headline should mention proximity when relevant — "close to home",
               "under an hour", "quick evening dash"
 
+            The structured fields (day, event type, time, region, drive distance) are displayed
+            separately by the frontend — do not repeat them in the headline or detail.
+            Your headline should focus on WHY this is the pick — the conditions, the special
+            features, what makes it stand out. Not "Region X sunrise Saturday" — the frontend
+            already shows that.
+            Good headline: "Best overall light and tide conditions"
+            Good headline: "Perfect quick evening dash, all locations clear"
+            Bad headline: "North Yorkshire Coast sunset Wednesday — best overall light and tide"
+            Bad headline: "Tyne and Wear sunset tonight — 7 minutes from home"
+
             **When evaluating quality, consider:**
             - GO regions with the most clear locations are generally best
             - Tide alignment is a strong differentiator. A GO region with tide-aligned
@@ -99,8 +110,6 @@ public class BriefingBestBetAdvisor {
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the appeal
             - If multiple events are close in quality, prefer the sooner one
-            - Mention drive time in the detail text — "25 minutes from home" or
-              "90-minute drive but the king tide makes it worth it"
             - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
               Be human — tell the photographer to stay home, charge their batteries,
               maybe edit last weekend's shots. A bit of humour is fine.
@@ -111,7 +120,7 @@ public class BriefingBestBetAdvisor {
                 {
                   "rank": 1,
                   "headline": "One sentence, 15 words max, punchy — what to do",
-                  "detail": "2 sentences max, 40 words max. Mention region, key conditions, drive time.",
+                  "detail": "2 sentences max, 40 words max. Key conditions and what makes it special.",
                   "event": "<value from validEvents, e.g. 2026-03-30_sunset>",
                   "region": "<value from validRegions, e.g. Northumberland>",
                   "confidence": "high|medium|low"
@@ -119,7 +128,7 @@ public class BriefingBestBetAdvisor {
                 {
                   "rank": 2,
                   "headline": "One sentence, 15 words max — the closer/alternative option",
-                  "detail": "2 sentences max, 40 words max. Mention region, conditions, drive time.",
+                  "detail": "2 sentences max, 40 words max. Key conditions and what makes it special.",
                   "event": "<value from validEvents>",
                   "region": "<value from validRegions>",
                   "confidence": "high|medium|low"
@@ -224,7 +233,8 @@ public class BriefingBestBetAdvisor {
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            return enrichWithDriveTimes(validated, days, driveMap);
+            List<BestBet> withDrive = enrichWithDriveTimes(validated, days, driveMap);
+            return enrichWithEventData(withDrive, days);
         } catch (Exception e) {
             LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
             return List.of();
@@ -246,8 +256,68 @@ public class BriefingBestBetAdvisor {
             }
             Integer nearest = nearestDriveForRegion(pick.region(), days, driveMap);
             return new BestBet(pick.rank(), pick.headline(), pick.detail(),
-                    pick.event(), pick.region(), pick.confidence(), nearest);
+                    pick.event(), pick.region(), pick.confidence(), nearest,
+                    pick.dayName(), pick.eventType(), pick.eventTime());
         }).toList();
+    }
+
+    /**
+     * Enriches picks with structured display fields (dayName, eventType, eventTime)
+     * derived from the triage data hierarchy, not from Claude's output.
+     */
+    private List<BestBet> enrichWithEventData(List<BestBet> picks, List<BriefingDay> days) {
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+        return picks.stream().map(pick -> {
+            if (pick.event() == null || "aurora_tonight".equals(pick.event())) {
+                return pick;
+            }
+            String[] parts = pick.event().split("_", 2);
+            if (parts.length < 2) {
+                return pick;
+            }
+            LocalDate date = LocalDate.parse(parts[0]);
+            String eventType = parts[1];
+
+            String dayName;
+            if (date.equals(today)) {
+                dayName = "Today";
+            } else if (date.equals(today.plusDays(1))) {
+                dayName = "Tomorrow";
+            } else {
+                dayName = date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
+            }
+
+            String eventTime = findEventTime(date, eventType, days);
+
+            return new BestBet(pick.rank(), pick.headline(), pick.detail(),
+                    pick.event(), pick.region(), pick.confidence(), pick.nearestDriveMinutes(),
+                    dayName, eventType, eventTime);
+        }).toList();
+    }
+
+    /**
+     * Looks up the UK-local event time from the triage data for the given date and event type.
+     */
+    private String findEventTime(LocalDate date, String eventType, List<BriefingDay> days) {
+        TargetType targetType;
+        try {
+            targetType = TargetType.valueOf(eventType.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        ZoneId ukZone = ZoneId.of("Europe/London");
+        return days.stream()
+                .filter(d -> d.date().equals(date))
+                .flatMap(d -> d.eventSummaries().stream())
+                .filter(es -> es.targetType() == targetType)
+                .flatMap(es -> es.regions().stream())
+                .flatMap(r -> r.slots().stream())
+                .filter(s -> s.solarEventTime() != null)
+                .findFirst()
+                .map(s -> s.solarEventTime().atOffset(ZoneOffset.UTC)
+                        .atZoneSameInstant(ukZone)
+                        .format(DateTimeFormatter.ofPattern("HH:mm")))
+                .orElse(null);
     }
 
     /**
@@ -280,7 +350,8 @@ public class BriefingBestBetAdvisor {
         for (int i = 0; i < valid.size(); i++) {
             BestBet p = valid.get(i);
             reranked.add(new BestBet(i + 1, p.headline(), p.detail(),
-                    p.event(), p.region(), p.confidence(), p.nearestDriveMinutes()));
+                    p.event(), p.region(), p.confidence(), p.nearestDriveMinutes(),
+                    p.dayName(), p.eventType(), p.eventTime()));
         }
         if (valid.size() < picks.size()) {
             LOG.warn("Best bet validation: {}/{} picks passed", valid.size(), picks.size());
@@ -553,7 +624,8 @@ public class BriefingBestBetAdvisor {
                         ? null : pick.path("region").asText(null);
                 Confidence confidence = Confidence.fromString(
                         pick.path("confidence").asText("medium"));
-                picks.add(new BestBet(rank, headline, detail, event, region, confidence, null));
+                picks.add(new BestBet(rank, headline, detail, event, region, confidence,
+                        null, null, null, null));
             }
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
             return List.copyOf(picks);

@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Structured best bet banners
+
+Best bet pick banners now display day, event type, time, and drive distance as a structured header line derived server-side from triage data, instead of burying them in Claude's narrative text. Claude's headline and detail now focus on the "why" (conditions, special features) rather than repeating when/where.
+
+**Backend:**
+- `BestBet` record — added `dayName`, `eventType`, `eventTime` fields derived from triage data
+- `BriefingBestBetAdvisor.enrichWithEventData()` — new enrichment step that parses event IDs, resolves day names ("Today"/"Tomorrow"/weekday), and looks up UK-local event times from the slot hierarchy
+- System prompt updated to instruct Claude not to repeat structured fields in headline/detail
+
+**Frontend:**
+- `BestBetBanner` — renders structured header line (`Wednesday sunset · 18:48 · 37 min drive`) between rank label and Claude's headline
+- Drive time omitted when unavailable; entire structured line omitted for stay-home/aurora picks
+
 ### Refactored — Briefing subsystem code quality
 
 Seven targeted refactorings across the briefing pipeline:
