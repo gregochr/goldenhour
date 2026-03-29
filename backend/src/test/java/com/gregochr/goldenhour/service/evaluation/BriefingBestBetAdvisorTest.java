@@ -29,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -179,7 +180,7 @@ class BriefingBestBetAdvisorTest {
     class RollupJsonTests {
 
         @Test
-        @DisplayName("Future event is included in rollup")
+        @DisplayName("Future event is included with date-based ID and dayName")
         void futureEventIncluded() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -190,13 +191,17 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
-            assertThat(json).contains("tomorrow_sunset");
-            assertThat(json).contains("Northumberland");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            String expectedEventId = tomorrow.toString() + "_sunset";
+            assertThat(result.json()).contains(expectedEventId);
+            assertThat(result.json()).contains("Northumberland");
+            assertThat(result.json()).contains("dayName");
+            assertThat(result.validEvents()).contains(expectedEventId);
+            assertThat(result.validRegions()).contains("Northumberland");
         }
 
         @Test
-        @DisplayName("Past today event is skipped")
+        @DisplayName("Past today event is skipped and not in validEvents")
         void pastTodayEventSkipped() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate today = LocalDate.now(ZoneOffset.UTC);
@@ -208,12 +213,14 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
-            assertThat(json).doesNotContain("today_sunrise");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            String skippedId = today.toString() + "_sunrise";
+            assertThat(result.json()).doesNotContain(skippedId);
+            assertThat(result.validEvents()).doesNotContain(skippedId);
         }
 
         @Test
-        @DisplayName("Aurora event included when cache is active")
+        @DisplayName("Aurora event included when cache is active and added to validEvents")
         void auroraIncludedWhenActive() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(true);
             when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
@@ -222,10 +229,11 @@ class BriefingBestBetAdvisorTest {
                     mock(AuroraForecastScore.class)
             ));
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            String json = advisor.buildRollupJson(List.of(), now, Map.of());
-            assertThat(json).contains("aurora_tonight");
-            assertThat(json).contains("MODERATE");
-            assertThat(json).contains("5.2");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now, Map.of());
+            assertThat(result.json()).contains("aurora_tonight");
+            assertThat(result.json()).contains("MODERATE");
+            assertThat(result.json()).contains("5.2");
+            assertThat(result.validEvents()).contains("aurora_tonight");
         }
 
         @Test
@@ -233,8 +241,9 @@ class BriefingBestBetAdvisorTest {
         void auroraExcludedWhenInactive() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            String json = advisor.buildRollupJson(List.of(), now, Map.of());
-            assertThat(json).doesNotContain("aurora_tonight");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now, Map.of());
+            assertThat(result.json()).doesNotContain("aurora_tonight");
+            assertThat(result.validEvents()).doesNotContain("aurora_tonight");
         }
 
         @Test
@@ -256,10 +265,10 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
-            assertThat(json).contains("hasKingTide");
-            assertThat(json).contains("Bamburgh");
-            assertThat(json).contains("kingTideLocations");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            assertThat(result.json()).contains("hasKingTide");
+            assertThat(result.json()).contains("Bamburgh");
+            assertThat(result.json()).contains("kingTideLocations");
         }
 
         @Test
@@ -275,9 +284,35 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            String json = advisor.buildRollupJson(List.of(day), now, Map.of());
-            assertThat(json).doesNotContain("dayOfWeek");
-            assertThat(json).doesNotContain("isWeekday");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            assertThat(result.json()).doesNotContain("dayOfWeek");
+            assertThat(result.json()).doesNotContain("isWeekday");
+        }
+
+        @Test
+        @DisplayName("forecastWindow and validEvents/validRegions included in JSON")
+        void forecastWindowAndValidSetsIncluded() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDate dayAfter = LocalDate.now(ZoneOffset.UTC).plusDays(2);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            BriefingDay day1 = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 2, 0, 0)), List.of())));
+            BriefingDay day2 = new BriefingDay(dayAfter, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            region("The Lake District", Verdict.MARGINAL, 0, 1, 0)), List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
+                    List.of(day1, day2), now, Map.of());
+            assertThat(result.json()).contains("forecastWindow");
+            assertThat(result.json()).contains("startDate");
+            assertThat(result.json()).contains("availableDates");
+            assertThat(result.json()).contains("validEvents");
+            assertThat(result.json()).contains("validRegions");
+            assertThat(result.validEvents()).containsExactly(
+                    tomorrow.toString() + "_sunset", dayAfter.toString() + "_sunrise");
+            assertThat(result.validRegions()).containsExactly("Northumberland", "The Lake District");
         }
 
         @Test
@@ -296,10 +331,10 @@ class BriefingBestBetAdvisorTest {
             ));
 
             Map<String, Integer> driveMap = Map.of("Bamburgh", 30, "Dunstanburgh", 50);
-            String json = advisor.buildRollupJson(List.of(day), now, driveMap);
-            assertThat(json).contains("averageDriveMinutes");
-            assertThat(json).contains("nearestLocationDriveMinutes");
-            assertThat(json).contains("\"nearestLocationDriveMinutes\":30");
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, driveMap);
+            assertThat(result.json()).contains("averageDriveMinutes");
+            assertThat(result.json()).contains("nearestLocationDriveMinutes");
+            assertThat(result.json()).contains("\"nearestLocationDriveMinutes\":30");
         }
     }
 
@@ -321,15 +356,17 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Returns picks from valid Claude response")
+        @DisplayName("Returns picks from valid Claude response matching validEvents/validRegions")
         void returnsPicksFromValidResponse() {
             when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
 
             TextBlock textBlock = mock(TextBlock.class);
-            when(textBlock.text()).thenReturn("""
-                    {"picks":[{"rank":1,"headline":"Go shoot","detail":"Clear.",
-                    "event":"tomorrow_sunset","region":"Northumberland","confidence":"high"}]}
-                    """);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Go shoot\",\"detail\":\"Clear skies.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}");
             ContentBlock contentBlock = mock(ContentBlock.class);
             when(contentBlock.isText()).thenReturn(true);
             when(contentBlock.asText()).thenReturn(textBlock);
@@ -337,9 +374,139 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(anthropicApiClient.createMessage(any())).thenReturn(message);
 
-            List<BestBet> picks = advisor.advise(List.of(), 42L, Map.of());
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
             assertThat(picks).hasSize(1);
             assertThat(picks.get(0).region()).isEqualTo("Northumberland");
+        }
+    }
+
+    // ── validateAndFilterPicks ──
+
+    @Nested
+    @DisplayName("validateAndFilterPicks")
+    class ValidationTests {
+
+        private static final Set<String> VALID_EVENTS = Set.of(
+                "2026-03-29_sunset", "2026-03-30_sunrise", "2026-03-30_sunset");
+        private static final Set<String> VALID_REGIONS = Set.of(
+                "Northumberland", "The Lake District", "The North York Moors");
+        private static final Set<String> VALID_DAY_NAMES = Set.of("Saturday", "Sunday");
+
+        private BestBet pick(int rank, String event, String region, String headline, String detail) {
+            return new BestBet(rank, headline, detail, event, region, "high", null);
+        }
+
+        @Test
+        @DisplayName("Valid picks pass — both returned")
+        void validPicksPass() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_sunset", "Northumberland", "Go shoot", "Clear."),
+                    pick(2, "2026-03-30_sunrise", "The Lake District", "Also good", "Nice."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("Invalid event rejected")
+        void invalidEventRejected() {
+            List<BestBet> picks = List.of(
+                    pick(1, "thursday_sunrise", "Northumberland", "Go shoot", "Clear."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Invalid region rejected")
+        void invalidRegionRejected() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_sunset", "The Highlands", "Go shoot", "Clear."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Stay-home pick (null event and region) always valid")
+        void stayHomePickValid() {
+            List<BestBet> picks = List.of(
+                    pick(1, null, null, "Stay in — dreadful out there", "Charge your batteries."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("Narrative day outside forecast window rejects pick")
+        void narrativeInvalidDayRejectsPick() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_sunset", "Northumberland",
+                            "Great Thursday sunset", "Head north on Thursday."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Narrative with valid day name passes")
+        void narrativeValidDayPasses() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_sunset", "Northumberland",
+                            "Brilliant Sunday sunset", "Head north on Sunday."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("One valid pick survives and is re-ranked to 1")
+        void oneValidPickReranked() {
+            List<BestBet> picks = List.of(
+                    pick(1, "thursday_sunrise", "Northumberland", "Invalid", "Bad."),
+                    pick(2, "2026-03-30_sunrise", "The Lake District", "Also good", "Nice."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).rank()).isEqualTo(1);
+            assertThat(result.get(0).region()).isEqualTo("The Lake District");
+        }
+
+        @Test
+        @DisplayName("Both picks invalid returns empty list")
+        void bothInvalidReturnsEmpty() {
+            List<BestBet> picks = List.of(
+                    pick(1, "thursday_sunset", "Northumberland", "Bad", "Nope."),
+                    pick(2, "friday_sunrise", "The Highlands", "Also bad", "Nope."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Re-ranking: pick 1 invalid, pick 2 survives as rank 1")
+        void reRankingAfterDiscard() {
+            List<BestBet> picks = List.of(
+                    pick(1, "thursday_sunset", "Northumberland", "Bad", "Nope."),
+                    pick(2, "2026-03-29_sunset", "The North York Moors", "Good one", "Clear."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).rank()).isEqualTo(1);
+            assertThat(result.get(0).event()).isEqualTo("2026-03-29_sunset");
+        }
+
+        @Test
+        @DisplayName("Empty validEvents set skips event validation (no-day-data fallback)")
+        void emptyValidEventsSetsSkipValidation() {
+            List<BestBet> picks = List.of(
+                    pick(1, null, null, "Stay home", "Nothing to see."));
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, Set.of(), Set.of(), Set.of());
+            assertThat(result).hasSize(1);
         }
     }
 

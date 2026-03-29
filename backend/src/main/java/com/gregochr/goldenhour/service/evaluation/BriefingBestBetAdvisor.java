@@ -28,10 +28,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Makes a single Haiku call after briefing triage completes to produce Claude-generated
@@ -51,6 +55,10 @@ public class BriefingBestBetAdvisor {
 
     /** Maximum response tokens for the best-bet JSON. */
     private static final int MAX_TOKENS = 1024;
+
+    /** All English day names, used for narrative date validation. */
+    private static final List<String> ALL_DAY_NAMES = List.of(
+            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday");
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast advisor for PhotoCast, helping landscape photographers
@@ -102,16 +110,16 @@ public class BriefingBestBetAdvisor {
                   "rank": 1,
                   "headline": "One sentence, 15 words max, punchy — what to do",
                   "detail": "2 sentences max, 40 words max. Mention region, key conditions, drive time.",
-                  "event": "tomorrow_sunset",
-                  "region": "Northumberland",
+                  "event": "<value from validEvents, e.g. 2026-03-30_sunset>",
+                  "region": "<value from validRegions, e.g. Northumberland>",
                   "confidence": "high|medium|low"
                 },
                 {
                   "rank": 2,
                   "headline": "One sentence, 15 words max — the closer/alternative option",
                   "detail": "2 sentences max, 40 words max. Mention region, conditions, drive time.",
-                  "event": "today_sunset",
-                  "region": "The North York Moors",
+                  "event": "<value from validEvents>",
+                  "region": "<value from validRegions>",
                   "confidence": "high|medium|low"
                 }
               ]
@@ -120,6 +128,14 @@ public class BriefingBestBetAdvisor {
             If conditions only support one good pick, return a single item in the array.
             If everything is STANDDOWN, return a single pick with event and region as null.
             Return only valid JSON — no code fences, no markdown.
+
+            CRITICAL CONSTRAINTS — violating any of these makes your response invalid:
+            - Only recommend events present in the "validEvents" array. Never invent,
+              extrapolate, or reference events not in the input.
+            - Use the "dayName" field provided in each event — never calculate day of week.
+            - Your "event" field in each pick MUST exactly match one of the "validEvents" values.
+            - Your "region" field MUST exactly match one of the "validRegions" values.
+            - Do not reference any date outside the "forecastWindow".
 
             Never include raw data field names, codes, or technical identifiers in your response.
             Translate all data into natural language:
@@ -151,6 +167,18 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
+     * Carries the rollup JSON and derived validation sets out of {@link #buildRollupJson}.
+     *
+     * @param json          the compact JSON string sent to Claude as the user message
+     * @param validEvents   all event identifiers present in the rollup (e.g. {@code "2026-03-30_sunset"})
+     * @param validRegions  all region names present in the rollup
+     * @param validDayNames day names (e.g. {@code "Monday"}) for all dates in the forecast window
+     */
+    record RollupResult(String json, Set<String> validEvents,
+            Set<String> validRegions, Set<String> validDayNames) {
+    }
+
+    /**
      * Produces Claude-generated best-bet picks from the post-triage region rollup data.
      *
      * <p>Any failure (network error, timeout, parse failure) returns an empty list so the
@@ -165,7 +193,7 @@ public class BriefingBestBetAdvisor {
             Map<String, Integer> driveMap) {
         try {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            String rollupJson = buildRollupJson(days, now, driveMap);
+            RollupResult rollup = buildRollupJson(days, now, driveMap);
             long startMs = System.currentTimeMillis();
 
             Message response = anthropicApiClient.createMessage(
@@ -174,7 +202,7 @@ public class BriefingBestBetAdvisor {
                             .maxTokens(MAX_TOKENS)
                             .systemOfTextBlockParams(List.of(
                                     TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
-                            .addUserMessage(rollupJson)
+                            .addUserMessage(rollup.json())
                             .build());
 
             long durationMs = System.currentTimeMillis() - startMs;
@@ -191,7 +219,10 @@ public class BriefingBestBetAdvisor {
                     durationMs, 200, raw, true, null,
                     EvaluationModel.HAIKU, null, null);
 
-            return enrichWithDriveTimes(parseBestBets(raw), days, driveMap);
+            List<BestBet> parsed = parseBestBets(raw);
+            List<BestBet> validated = validateAndFilterPicks(
+                    parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
+            return enrichWithDriveTimes(validated, days, driveMap);
         } catch (Exception e) {
             LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
             return List.of();
@@ -218,6 +249,81 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
+     * Validates picks against the known-good event IDs, region names, and day names,
+     * discards any invalid picks, and re-ranks the survivors.
+     *
+     * <p>A pick is invalid if its {@code event} is not in {@code validEvents} (unless null),
+     * its {@code region} is not in {@code validRegions} (unless null or aurora event), or
+     * its narrative text references a day name outside the forecast window.
+     * If all picks fail validation the list is empty and the caller falls back to the
+     * mechanical headline.
+     *
+     * @param picks        parsed picks from Claude
+     * @param validEvents  event IDs present in the rollup input
+     * @param validRegions region names present in the rollup input
+     * @param validDayNames day names present in the forecast window
+     * @return validated, re-ranked list (may be empty)
+     */
+    List<BestBet> validateAndFilterPicks(List<BestBet> picks,
+            Set<String> validEvents, Set<String> validRegions, Set<String> validDayNames) {
+        List<BestBet> valid = new ArrayList<>();
+        for (BestBet pick : picks) {
+            if (isPickValid(pick, validEvents, validRegions, validDayNames)) {
+                valid.add(pick);
+            } else {
+                LOG.warn("Best bet pick #{} failed validation — discarding", pick.rank());
+            }
+        }
+        List<BestBet> reranked = new ArrayList<>();
+        for (int i = 0; i < valid.size(); i++) {
+            BestBet p = valid.get(i);
+            reranked.add(new BestBet(i + 1, p.headline(), p.detail(),
+                    p.event(), p.region(), p.confidence(), p.nearestDriveMinutes()));
+        }
+        if (valid.size() < picks.size()) {
+            LOG.warn("Best bet validation: {}/{} picks passed", valid.size(), picks.size());
+        }
+        return List.copyOf(reranked);
+    }
+
+    private boolean isPickValid(BestBet pick, Set<String> validEvents,
+            Set<String> validRegions, Set<String> validDayNames) {
+        // Stay-home pick (both null) is always valid
+        if (pick.event() == null && pick.region() == null) {
+            return true;
+        }
+        if (pick.event() != null && !validEvents.contains(pick.event())) {
+            LOG.warn("Best bet pick rejected: event '{}' not in validEvents", pick.event());
+            return false;
+        }
+        // Aurora events may reference any region — skip region validation
+        boolean isAurora = "aurora_tonight".equals(pick.event());
+        if (!isAurora && pick.region() != null && !validRegions.contains(pick.region())) {
+            LOG.warn("Best bet pick rejected: region '{}' not in validRegions", pick.region());
+            return false;
+        }
+        String narrative = (pick.headline() == null ? "" : pick.headline())
+                + " " + (pick.detail() == null ? "" : pick.detail());
+        if (narrativeReferencesInvalidDayName(narrative, validDayNames)) {
+            LOG.warn("Best bet pick #{} narrative references day outside forecast window", pick.rank());
+            return false;
+        }
+        return true;
+    }
+
+    private boolean narrativeReferencesInvalidDayName(String text, Set<String> validDayNames) {
+        if (validDayNames.isEmpty()) {
+            return false;
+        }
+        for (String day : ALL_DAY_NAMES) {
+            if (text.contains(day) && !validDayNames.contains(day)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Returns the nearest drive time in minutes for any location in the named region,
      * or null if no drive data is available for that region.
      */
@@ -235,32 +341,47 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
-     * Builds the region-level rollup JSON sent to Claude as the user message.
-     * Past solar events are excluded. Aurora data is included if an active alert is present.
+     * Builds the region-level rollup JSON sent to Claude as the user message, plus the
+     * validation sets derived from the same data.
+     *
+     * <p>Past solar events (today only) are excluded. Aurora data is appended when an
+     * active alert is present. The returned {@link RollupResult} carries the compact JSON
+     * and the sets of valid event IDs, region names, and day names needed for response
+     * validation.
      *
      * @param days     the briefing days
      * @param now      current UTC time for past-event filtering
      * @param driveMap map of location name to drive duration minutes (may be empty)
-     * @return compact JSON string
+     * @return rollup result containing the JSON and validation sets
      * @throws JsonProcessingException if Jackson serialization fails
      */
-    String buildRollupJson(List<BriefingDay> days, LocalDateTime now,
+    RollupResult buildRollupJson(List<BriefingDay> days, LocalDateTime now,
             Map<String, Integer> driveMap) throws JsonProcessingException {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Set<String> validEvents = new LinkedHashSet<>();
+        Set<String> validRegions = new LinkedHashSet<>();
+        Set<String> validDayNames = new LinkedHashSet<>();
+        Set<String> includedDates = new LinkedHashSet<>();
 
         ObjectNode root = objectMapper.createObjectNode();
         root.put("currentTime", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
-        ArrayNode eventsNode = root.putArray("events");
 
+        ArrayNode eventsNode = objectMapper.createArrayNode();
         for (BriefingDay day : days) {
-            String dayLabel = day.date().equals(today) ? "today" : "tomorrow";
             for (BriefingEventSummary es : day.eventSummaries()) {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
                 }
+                String eventId = day.date().toString() + "_" + es.targetType().name().toLowerCase();
+                String dayName = day.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
+                validEvents.add(eventId);
+                validDayNames.add(dayName);
+                includedDates.add(day.date().toString());
+
                 ObjectNode eventNode = eventsNode.addObject();
-                eventNode.put("event", dayLabel + "_" + es.targetType().name().toLowerCase());
+                eventNode.put("event", eventId);
                 eventNode.put("date", day.date().toString());
+                eventNode.put("dayName", dayName);
                 String eventTime = getEventTimeStr(es);
                 if (eventTime != null) {
                     eventNode.put("eventTime", eventTime);
@@ -268,6 +389,7 @@ public class BriefingBestBetAdvisor {
                 ArrayNode regionsNode = eventNode.putArray("regions");
                 for (BriefingRegion region : es.regions()) {
                     appendRegionNode(regionsNode, region, driveMap);
+                    validRegions.add(region.regionName());
                 }
             }
         }
@@ -276,9 +398,26 @@ public class BriefingBestBetAdvisor {
                 && auroraStateCache.getCurrentLevel() != null
                 && auroraStateCache.getCurrentLevel().isAlertWorthy()) {
             appendAuroraEvent(eventsNode);
+            validEvents.add("aurora_tonight");
         }
 
-        return objectMapper.writeValueAsString(root);
+        if (!includedDates.isEmpty()) {
+            List<String> dateList = new ArrayList<>(includedDates);
+            ObjectNode fwNode = root.putObject("forecastWindow");
+            fwNode.put("startDate", dateList.get(0));
+            fwNode.put("endDate", dateList.get(dateList.size() - 1));
+            fwNode.put("dayCount", dateList.size());
+            ArrayNode datesArray = fwNode.putArray("availableDates");
+            dateList.forEach(datesArray::add);
+        }
+
+        ArrayNode veArray = root.putArray("validEvents");
+        validEvents.forEach(veArray::add);
+        ArrayNode vrArray = root.putArray("validRegions");
+        validRegions.forEach(vrArray::add);
+        root.set("events", eventsNode);
+
+        return new RollupResult(objectMapper.writeValueAsString(root), validEvents, validRegions, validDayNames);
     }
 
     private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
