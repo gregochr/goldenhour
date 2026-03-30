@@ -232,6 +232,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
   evaluationScores = new Map(), evaluationProgress, onRunEvaluation, canRunEvaluation }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   const events = [];
   if (day) {
@@ -259,6 +260,11 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
     && evaluationProgress.date === date
     && evaluationProgress.targetType === targetType
     ? evaluationProgress : null;
+
+  // Count GO/MARGINAL slots for the confirmation dialog
+  const goMarginalSlots = events.flatMap(({ region }) =>
+    (region.slots || []).filter((s) => s.verdict === 'GO' || s.verdict === 'MARGINAL'),
+  );
 
   return (
     <div
@@ -382,11 +388,53 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
             <button
               data-testid="run-forecast-btn"
               className="btn-secondary text-xs"
-              onClick={() => onRunEvaluation?.(regionName, date, targetType)}
+              onClick={() => {
+                const count = goMarginalSlots.length;
+                setConfirmDialog({
+                  title: 'Run Claude Evaluation',
+                  message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with Claude? Estimated cost: ~${count * 3}p (${count} × ~3p).`,
+                  confirmLabel: 'Run',
+                  onConfirm: () => {
+                    setConfirmDialog(null);
+                    onRunEvaluation?.(regionName, date, targetType);
+                  },
+                });
+              }}
             >
               Run full forecast
             </button>
           )}
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          role="dialog"
+          aria-modal="true"
+          aria-label={confirmDialog.title}
+          data-testid="confirm-dialog"
+        >
+          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
+            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setConfirmDialog(null)}
+                data-testid="confirm-dialog-cancel"
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary text-sm"
+                onClick={confirmDialog.onConfirm}
+                data-testid="confirm-dialog-confirm"
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

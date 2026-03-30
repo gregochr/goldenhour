@@ -10,6 +10,11 @@ vi.mock('../context/AuthContext.jsx', () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock('../api/briefingEvaluationApi.js', () => ({
+  subscribeToBriefingEvaluation: vi.fn(() => () => {}),
+  getCachedEvaluationScores: vi.fn(() => Promise.resolve({})),
+}));
+
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
@@ -1431,6 +1436,124 @@ describe('DailyBriefing', () => {
       expect(enabledCells.length).toBeGreaterThanOrEqual(1);
       const goCell = enabledCells.find((c) => c.textContent.includes('GO'));
       expect(goCell).toBeTruthy();
+    });
+  });
+
+  // ────── Evaluation confirmation dialog ──────
+
+  describe('Evaluation confirmation dialog', () => {
+    async function openDrillDownWithGoSlots() {
+      const dateStr = futureDateStr();
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days: [{
+          date: dateStr,
+          eventSummaries: [{
+            targetType: 'SUNSET',
+            regions: [{
+              regionName: 'Northumberland',
+              verdict: 'GO',
+              summary: 'Clear',
+              tideHighlights: [],
+              slots: [
+                { locationName: 'Bamburgh', solarEventTime: `${dateStr}T18:30:00`, verdict: 'GO', tideAligned: false, flags: [] },
+                { locationName: 'Dunstanburgh', solarEventTime: `${dateStr}T18:30:00`, verdict: 'MARGINAL', tideAligned: false, flags: [] },
+                { locationName: 'Craster', solarEventTime: `${dateStr}T18:30:00`, verdict: 'STANDDOWN', tideAligned: false, flags: [] },
+              ],
+            }],
+            unregioned: [],
+          }],
+        }],
+      });
+      useAuth.mockReturnValue({ role: 'ADMIN' });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+
+      const cells = screen.getAllByTestId('heatmap-cell');
+      const enabledCell = cells.find((c) => !c.disabled);
+      fireEvent.click(enabledCell);
+      await waitFor(() => screen.getByTestId('drill-down-panel'));
+      return screen;
+    }
+
+    it('shows "Run full forecast" button for ADMIN users', async () => {
+      await openDrillDownWithGoSlots();
+      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('run-forecast-btn').textContent).toContain('Run full forecast');
+    });
+
+    it('does not show "Run full forecast" button for LITE_USER', async () => {
+      const dateStr = futureDateStr();
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days: [{
+          date: dateStr,
+          eventSummaries: [{
+            targetType: 'SUNSET',
+            regions: [{
+              regionName: 'Test',
+              verdict: 'GO',
+              summary: 'Clear',
+              tideHighlights: [],
+              slots: [{ locationName: 'A', solarEventTime: `${dateStr}T18:30:00`, verdict: 'GO', tideAligned: false, flags: [] }],
+            }],
+            unregioned: [],
+          }],
+        }],
+      });
+      useAuth.mockReturnValue({ role: 'LITE_USER' });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+
+      const cells = screen.getAllByTestId('heatmap-cell');
+      const enabledCell = cells.find((c) => !c.disabled);
+      fireEvent.click(enabledCell);
+      await waitFor(() => screen.getByTestId('drill-down-panel'));
+
+      expect(screen.queryByTestId('run-forecast-btn')).toBeNull();
+    });
+
+    it('clicking "Run full forecast" opens confirmation dialog', async () => {
+      await openDrillDownWithGoSlots();
+      fireEvent.click(screen.getByTestId('run-forecast-btn'));
+      await waitFor(() => screen.getByTestId('confirm-dialog'));
+      expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument();
+    });
+
+    it('confirmation dialog shows location count and cost estimate', async () => {
+      await openDrillDownWithGoSlots();
+      fireEvent.click(screen.getByTestId('run-forecast-btn'));
+      await waitFor(() => screen.getByTestId('confirm-dialog'));
+
+      const dialog = screen.getByTestId('confirm-dialog');
+      // 2 GO/MARGINAL locations (Bamburgh GO + Dunstanburgh MARGINAL; Craster STANDDOWN excluded)
+      expect(dialog.textContent).toContain('2 locations');
+      expect(dialog.textContent).toContain('~6p');
+    });
+
+    it('cancel button closes confirmation dialog without running evaluation', async () => {
+      await openDrillDownWithGoSlots();
+      fireEvent.click(screen.getByTestId('run-forecast-btn'));
+      await waitFor(() => screen.getByTestId('confirm-dialog'));
+
+      fireEvent.click(screen.getByTestId('confirm-dialog-cancel'));
+      expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+      // Button should still be in ready state
+      expect(screen.getByTestId('run-forecast-btn').textContent).toContain('Run full forecast');
+    });
+
+    it('confirm button closes dialog and triggers evaluation', async () => {
+      const { subscribeToBriefingEvaluation } = await import('../api/briefingEvaluationApi.js');
+      await openDrillDownWithGoSlots();
+      fireEvent.click(screen.getByTestId('run-forecast-btn'));
+      await waitFor(() => screen.getByTestId('confirm-dialog'));
+
+      fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+      expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+      // SSE subscription should have been called
+      expect(subscribeToBriefingEvaluation).toHaveBeenCalled();
     });
   });
 
