@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -104,7 +105,7 @@ class JobRunServiceTest {
     @Test
     @DisplayName("completeRun() aggregates both legacy pence and micro-dollar costs")
     void completeRun_aggregatesBothCostTypes() {
-        LocalDateTime startTime = LocalDateTime.now().minus(1, ChronoUnit.SECONDS);
+        LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
         JobRunEntity jobRun = JobRunEntity.builder()
                 .id(1L)
                 .runType(RunType.SHORT_TERM)
