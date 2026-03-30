@@ -6,6 +6,10 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SolarEventType;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
@@ -149,6 +153,110 @@ class BriefingServiceTest {
         assertThat(cached).isNotNull();
         assertThat(cached.days()).hasSize(4);
         assertThat(cached.headline()).isNotBlank();
+    }
+
+    @Nested
+    @DisplayName("Solar event type filtering in briefing triage")
+    class SolarEventFilterTests {
+
+        @Test
+        @DisplayName("SUNRISE-only location produces only sunrise event summaries")
+        void sunriseOnly_producesSunriseOnly() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("East Facing").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNRISE))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            stubForLocation(loc);
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            // Check first day (within 48h forecast window)
+            BriefingDay day = cached.days().getFirst();
+            BriefingEventSummary sunrise = findEvent(day, TargetType.SUNRISE);
+            BriefingEventSummary sunset = findEvent(day, TargetType.SUNSET);
+            assertThat(sunrise.regions()).isNotEmpty();
+            assertThat(sunset.regions()).isEmpty();
+            assertThat(sunset.unregioned()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("SUNSET-only location produces only sunset slots")
+        void sunsetOnly_producesSunsetOnly() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(2L).name("West Facing").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            stubForLocation(loc);
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            BriefingDay day = cached.days().getFirst();
+            BriefingEventSummary sunrise = findEvent(day, TargetType.SUNRISE);
+            BriefingEventSummary sunset = findEvent(day, TargetType.SUNSET);
+            assertThat(sunset.regions()).isNotEmpty();
+            assertThat(sunrise.regions()).isEmpty();
+            assertThat(sunrise.unregioned()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Empty solarEventType produces both sunrise and sunset slots")
+        void emptySolarEventType_producesBoth() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(3L).name("Both Facing").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of())
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            stubForLocation(loc);
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            BriefingDay day = cached.days().getFirst();
+            BriefingEventSummary sunrise = findEvent(day, TargetType.SUNRISE);
+            BriefingEventSummary sunset = findEvent(day, TargetType.SUNSET);
+            assertThat(sunrise.regions()).isNotEmpty();
+            assertThat(sunset.regions()).isNotEmpty();
+        }
+
+        private BriefingEventSummary findEvent(BriefingDay day, TargetType type) {
+            return day.eventSummaries().stream()
+                    .filter(e -> e.targetType() == type)
+                    .findFirst()
+                    .orElseThrow();
+        }
+
+        private void stubForLocation(LocationEntity loc) {
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                    .thenReturn(buildForecastResponse());
+        }
     }
 
     private static LocationEntity location(String name, String regionName) {

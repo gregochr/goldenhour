@@ -122,6 +122,13 @@ public class PromptBuilder {
             + "window is the photographic opportunity. Visibility worsening toward event = fog risk.\n"
             + "When mist is a positive factor, convey urgency in the summary: 'atmospheric', "
             + "'ethereal', 'light shafts possible', 'potential for dramatic mist layers'.\n\n"
+            + "LOCATION ORIENTATION: when provided, indicates the location's optimal solar event. "
+            + "A 'sunrise-optimised' location faces east toward the rising sun; a 'sunset-optimised' "
+            + "location faces west. If the current evaluation is for the OPPOSITE event (e.g. sunset "
+            + "at a sunrise-optimised location), the solar horizon is behind the photographer — light "
+            + "penetration and direct colour on the horizon will be weaker. Reduce fiery_sky by 10-20 "
+            + "and cap rating at 3 unless cloud canvas is exceptional. If no orientation is given, "
+            + "the location works for both events — score normally.\n\n"
             + "For coastal locations, tide data may be provided. When available:\n"
             + "- High tide can expose dramatic rock formations and alter water colour\n"
             + "- Low tide may reveal sand patterns and new horizon details\n"
@@ -239,6 +246,13 @@ public class PromptBuilder {
                 w.weatherCode(),
                 a.boundaryLayerHeightMetres(), w.shortwaveRadiationWm2(),
                 a.pm25(), a.dustUgm3(), a.aerosolOpticalDepth()));
+
+        if (data.locationOrientation() != null) {
+            sb.append(String.format("%nLocation orientation: %s (this location is best suited "
+                    + "for %s photography)",
+                    data.locationOrientation(),
+                    data.locationOrientation().replace("-optimised", "")));
+        }
 
         // Directional cloud data — sampled 113 km toward and away from the sun
         DirectionalCloudData dc = data.directionalCloud();

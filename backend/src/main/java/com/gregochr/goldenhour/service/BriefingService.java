@@ -160,7 +160,7 @@ public class BriefingService {
         List<BriefingSlotBuilder.LocationWeather> locationWeathers =
                 fetchWeatherSequential(colourLocations, jobRun);
 
-        // Build slots for each location × date × event type
+        // Build slots for each location × date × event type (filtered by solar event preference)
         List<BriefingSlot> allSlots = new ArrayList<>();
         for (BriefingSlotBuilder.LocationWeather lw : locationWeathers) {
             if (lw.forecast() == null) {
@@ -170,6 +170,9 @@ public class BriefingService {
             succeeded++;
             for (LocalDate date : dates) {
                 for (TargetType eventType : List.of(TargetType.SUNRISE, TargetType.SUNSET)) {
+                    if (!lw.location().supportsTargetType(eventType)) {
+                        continue;
+                    }
                     BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType);
                     if (slot != null) {
                         allSlots.add(slot);

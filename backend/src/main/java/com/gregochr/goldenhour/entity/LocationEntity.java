@@ -146,4 +146,26 @@ public class LocationEntity {
      */
     @Column(name = "bortle_class")
     private Integer bortleClass;
+
+    /**
+     * Returns whether this location supports the given target type based on its solar event preferences.
+     *
+     * <p>A location with null, empty, or {@code ALLDAY} solar event types supports all target types.
+     * Otherwise, {@code SUNRISE} and {@code SUNSET} match their respective enum values, and
+     * {@code HOURLY} is always supported.
+     *
+     * @param targetType the target type to check
+     * @return true if this location supports the given target type
+     */
+    public boolean supportsTargetType(TargetType targetType) {
+        if (solarEventType == null || solarEventType.isEmpty()
+                || solarEventType.contains(SolarEventType.ALLDAY)) {
+            return true;
+        }
+        return switch (targetType) {
+            case SUNRISE -> solarEventType.contains(SolarEventType.SUNRISE);
+            case SUNSET -> solarEventType.contains(SolarEventType.SUNSET);
+            case HOURLY -> true;
+        };
+    }
 }

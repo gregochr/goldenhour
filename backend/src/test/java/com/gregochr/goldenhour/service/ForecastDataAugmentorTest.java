@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -177,6 +178,70 @@ class ForecastDataAugmentorTest {
         AtmosphericData result = augmentor.augmentWithCloudApproach(
                 base, 54.77, -1.57, 250, EVENT_TIME,
                 EVENT_TIME.minusHours(4), null);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithLocationOrientation() sets sunrise-optimised for SUNRISE-only location")
+    void augmentWithLocationOrientation_sunriseOnly_setsSunriseOptimised() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithLocationOrientation(
+                base, Set.of(SolarEventType.SUNRISE));
+
+        assertThat(result.locationOrientation()).isEqualTo("sunrise-optimised");
+    }
+
+    @Test
+    @DisplayName("augmentWithLocationOrientation() sets sunset-optimised for SUNSET-only location")
+    void augmentWithLocationOrientation_sunsetOnly_setsSunsetOptimised() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithLocationOrientation(
+                base, Set.of(SolarEventType.SUNSET));
+
+        assertThat(result.locationOrientation()).isEqualTo("sunset-optimised");
+    }
+
+    @Test
+    @DisplayName("augmentWithLocationOrientation() returns original for null solarEventTypes")
+    void augmentWithLocationOrientation_null_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithLocationOrientation(base, null);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithLocationOrientation() returns original for empty solarEventTypes")
+    void augmentWithLocationOrientation_empty_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithLocationOrientation(base, Set.of());
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithLocationOrientation() returns original for ALLDAY")
+    void augmentWithLocationOrientation_allday_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithLocationOrientation(
+                base, Set.of(SolarEventType.ALLDAY));
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithLocationOrientation() returns original for multi-value set")
+    void augmentWithLocationOrientation_multiValue_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithLocationOrientation(
+                base, Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET));
 
         assertThat(result).isSameAs(base);
     }

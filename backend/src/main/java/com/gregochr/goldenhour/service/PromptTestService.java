@@ -8,7 +8,6 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.PromptTestResultEntity;
 import com.gregochr.goldenhour.entity.PromptTestRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
@@ -30,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Orchestrates prompt regression tests across all colour locations.
@@ -509,16 +507,7 @@ public class PromptTestService {
     }
 
     private boolean locationSupportsTargetType(LocationEntity location, TargetType targetType) {
-        Set<SolarEventType> solarTypes = location.getSolarEventType();
-        if (solarTypes == null || solarTypes.isEmpty()
-                || solarTypes.contains(SolarEventType.ALLDAY)) {
-            return true;
-        }
-        return switch (targetType) {
-            case SUNRISE -> solarTypes.contains(SolarEventType.SUNRISE);
-            case SUNSET -> solarTypes.contains(SolarEventType.SUNSET);
-            case HOURLY -> true;
-        };
+        return location.supportsTargetType(targetType);
     }
 
     // --- Private helpers ---

@@ -48,6 +48,7 @@ public final class TestAtmosphericData {
     private TideSnapshot tide = null;
     private CloudApproachData cloudApproach = null;
     private MistTrend mistTrend = null;
+    private String locationOrientation = null;
 
     private TestAtmosphericData() {
     }
@@ -195,6 +196,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData locationOrientation(String val) {
+        this.locationOrientation = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -208,6 +214,6 @@ public final class TestAtmosphericData {
                         precipitation, humidity, weatherCode, shortwaveRadiation, dewPoint),
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
-                directionalCloud, tide, cloudApproach, mistTrend);
+                directionalCloud, tide, cloudApproach, mistTrend, locationOrientation);
     }
 }

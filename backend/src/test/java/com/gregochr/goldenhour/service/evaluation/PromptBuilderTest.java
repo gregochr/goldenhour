@@ -383,6 +383,56 @@ public class PromptBuilderTest {
     }
 
     @Test
+    @DisplayName("buildUserMessage with location orientation includes orientation line")
+    void buildUserMessage_withOrientation_includesOrientationLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationOrientation("sunrise-optimised")
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Location orientation: sunrise-optimised")
+                .contains("best suited for sunrise photography");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with sunset orientation includes sunset orientation line")
+    void buildUserMessage_withSunsetOrientation_includesSunsetOrientationLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationOrientation("sunset-optimised")
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Location orientation: sunset-optimised")
+                .contains("best suited for sunset photography");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage without location orientation omits orientation line")
+    void buildUserMessage_noOrientation_omitsOrientationLine() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("Location orientation:");
+    }
+
+    @Test
+    @DisplayName("getSystemPrompt contains location orientation guidance")
+    void getSystemPrompt_containsOrientationGuidance() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("LOCATION ORIENTATION")
+                .contains("sunrise-optimised")
+                .contains("sunset-optimised")
+                .contains("Reduce fiery_sky by 10-20");
+    }
+
+    @Test
     @DisplayName("getSystemPrompt contains mist and visibility guidance")
     void getSystemPrompt_containsMistGuidance() {
         String prompt = promptBuilder.getSystemPrompt();

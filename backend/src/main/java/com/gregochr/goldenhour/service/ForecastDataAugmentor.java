@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -114,5 +115,26 @@ public class ForecastDataAugmentor {
                 base.weather().windDirectionDegrees(),
                 base.weather().windSpeedMs().doubleValue(), jobRun);
         return approach != null ? base.withCloudApproach(approach) : base;
+    }
+
+    /**
+     * Returns a copy of {@code base} with location orientation set based on the location's solar
+     * event type preferences. If the location supports both events (or has no preference),
+     * orientation is left null and scoring proceeds normally.
+     *
+     * @param base            atmospheric data to augment
+     * @param solarEventTypes the location's solar event type preferences (may be null or empty)
+     * @return a new {@link AtmosphericData} with orientation populated, or the original if not applicable
+     */
+    public AtmosphericData augmentWithLocationOrientation(AtmosphericData base,
+            Set<SolarEventType> solarEventTypes) {
+        if (solarEventTypes == null || solarEventTypes.isEmpty()
+                || solarEventTypes.contains(SolarEventType.ALLDAY)
+                || solarEventTypes.size() > 1) {
+            return base;
+        }
+        String orientation = solarEventTypes.contains(SolarEventType.SUNRISE)
+                ? "sunrise-optimised" : "sunset-optimised";
+        return base.withLocationOrientation(orientation);
     }
 }

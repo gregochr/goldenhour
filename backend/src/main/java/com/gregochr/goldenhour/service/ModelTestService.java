@@ -9,7 +9,6 @@ import com.gregochr.goldenhour.entity.ModelTestResultEntity;
 import com.gregochr.goldenhour.entity.ModelTestRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RerunType;
-import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
@@ -31,7 +30,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Set;
 
 /**
  * Orchestrates model comparison tests across regions.
@@ -746,16 +744,7 @@ public class ModelTestService {
     }
 
     private boolean locationSupportsTargetType(LocationEntity location, TargetType targetType) {
-        Set<SolarEventType> solarTypes = location.getSolarEventType();
-        if (solarTypes == null || solarTypes.isEmpty()
-                || solarTypes.contains(SolarEventType.ALLDAY)) {
-            return true;
-        }
-        return switch (targetType) {
-            case SUNRISE -> solarTypes.contains(SolarEventType.SUNRISE);
-            case SUNSET -> solarTypes.contains(SolarEventType.SUNSET);
-            case HOURLY -> true;
-        };
+        return location.supportsTargetType(targetType);
     }
 
     private ModelTestRunEntity completeRun(ModelTestRunEntity testRun, LocalDateTime startedAt,

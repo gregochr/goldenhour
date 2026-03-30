@@ -175,8 +175,10 @@ public class ForecastService {
 
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.FETCHING_TIDES);
-            AtmosphericData forecastData = augmentor.augmentWithTideData(
+            AtmosphericData withTide = augmentor.augmentWithTideData(
                     withApproach, locationId, eventTime, tideTypes);
+            AtmosphericData forecastData = augmentor.augmentWithLocationOrientation(
+                    withTide, location.getSolarEventType());
 
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.EVALUATING);
@@ -286,8 +288,10 @@ public class ForecastService {
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                     LocationTaskState.FETCHING_TIDES);
         }
-        AtmosphericData forecastData = augmentor.augmentWithTideData(
+        AtmosphericData withTide = augmentor.augmentWithTideData(
                 withApproach, locationId, eventTime, tideTypes);
+        AtmosphericData forecastData = augmentor.augmentWithLocationOrientation(
+                withTide, location.getSolarEventType());
 
         // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);

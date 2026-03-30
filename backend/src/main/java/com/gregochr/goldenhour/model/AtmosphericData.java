@@ -19,8 +19,9 @@ import java.time.LocalDateTime;
  * @param comfort          human comfort metrics (temperature, feels-like, precip probability)
  * @param directionalCloud cloud cover at solar/antisolar horizon points, or null if unavailable
  * @param tide             tide state snapshot, or null for inland locations
- * @param cloudApproach    cloud approach risk signals, or null if unavailable
- * @param mistTrend        hourly visibility and dew point trend around the event, or null
+ * @param cloudApproach       cloud approach risk signals, or null if unavailable
+ * @param mistTrend           hourly visibility and dew point trend around the event, or null
+ * @param locationOrientation orientation hint (e.g. "sunrise-optimised"), or null for both/allday
  */
 public record AtmosphericData(
         String locationName,
@@ -33,7 +34,8 @@ public record AtmosphericData(
         DirectionalCloudData directionalCloud,
         TideSnapshot tide,
         CloudApproachData cloudApproach,
-        MistTrend mistTrend) {
+        MistTrend mistTrend,
+        String locationOrientation) {
 
     /**
      * Returns a copy with directional cloud data set.
@@ -43,7 +45,8 @@ public record AtmosphericData(
      */
     public AtmosphericData withDirectionalCloud(DirectionalCloudData dc) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend);
+                cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend,
+                locationOrientation);
     }
 
     /**
@@ -55,7 +58,7 @@ public record AtmosphericData(
     public AtmosphericData withTide(TideSnapshot tideSnapshot) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
-                mistTrend);
+                mistTrend, locationOrientation);
     }
 
     /**
@@ -66,6 +69,19 @@ public record AtmosphericData(
      */
     public AtmosphericData withCloudApproach(CloudApproachData approach) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
-                cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend);
+                cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend,
+                locationOrientation);
+    }
+
+    /**
+     * Returns a copy with location orientation set.
+     *
+     * @param orientation the orientation hint (e.g. "sunrise-optimised"), or null
+     * @return a new instance with the location orientation populated
+     */
+    public AtmosphericData withLocationOrientation(String orientation) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
+                mistTrend, orientation);
     }
 }
