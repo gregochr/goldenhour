@@ -82,10 +82,12 @@ function getEventTime(es) {
   return null;
 }
 
+const AFTERGLOW_MS = 30 * 60 * 1000;
+
 function isEventPast(es) {
   const t = getEventTime(es);
   if (!t) return false;
-  return new Date(t + 'Z') < new Date();
+  return new Date(t + 'Z').getTime() + AFTERGLOW_MS < Date.now();
 }
 
 function getVerdictCounts(es) {
@@ -153,20 +155,23 @@ const LOCATION_TYPE_ICONS = {
 
 // ── Grid / day helpers ────────────────────────────────────────────────────────
 
+const MAX_VISIBLE_EVENTS = 6;
+
 /**
- * Returns up to 3 day date-strings (YYYY-MM-DD) that have at least one
- * upcoming (non-past) event. Automatically skips fully-past days.
+ * Returns up to 6 upcoming (non-past) solar event objects [{date, targetType}],
+ * ordered by date then event type. Replaces the old day-based column approach.
  */
-function selectDayDates(briefingDays) {
-  const result = [];
+function selectUpcomingEvents(briefingDays) {
+  const events = [];
   for (const day of briefingDays) {
-    const hasUpcoming = (day.eventSummaries || []).some((es) => !isEventPast(es));
-    if (hasUpcoming) {
-      result.push(day.date);
-      if (result.length === 3) break;
+    for (const es of day.eventSummaries || []) {
+      if (!isEventPast(es)) {
+        events.push({ date: day.date, targetType: es.targetType });
+        if (events.length === MAX_VISIBLE_EVENTS) return events;
+      }
     }
   }
-  return result;
+  return events;
 }
 
 /**
@@ -220,27 +225,26 @@ function getDayCellData(date, regionName, briefingDays) {
 }
 
 /**
- * Returns all unique region names that appear across the given day dates,
+ * Returns all unique region names that appear across the given upcoming events,
  * sorted by best verdict (GO first, then MARGINAL, then STANDDOWN), then A-Z.
  */
-function getSortedRegions(dayDates, briefingDays) {
+function getSortedRegions(upcomingEvents, briefingDays) {
   const regionBest = new Map(); // regionName → best VERDICT_ORDER value
   const regionSeen = [];
 
-  for (const date of dayDates) {
+  for (const { date, targetType } of upcomingEvents) {
     const day = briefingDays.find((d) => d.date === date);
     if (!day) continue;
-    for (const es of day.eventSummaries || []) {
-      if (isEventPast(es)) continue;
-      for (const region of es.regions || []) {
-        const name = region.regionName;
-        const v = VERDICT_ORDER[region.verdict] ?? 3;
-        if (!regionBest.has(name)) {
-          regionBest.set(name, v);
-          regionSeen.push(name);
-        } else if (v < regionBest.get(name)) {
-          regionBest.set(name, v);
-        }
+    const es = (day.eventSummaries || []).find((e) => e.targetType === targetType);
+    if (!es) continue;
+    for (const region of es.regions || []) {
+      const name = region.regionName;
+      const v = VERDICT_ORDER[region.verdict] ?? 3;
+      if (!regionBest.has(name)) {
+        regionBest.set(name, v);
+        regionSeen.push(name);
+      } else if (v < regionBest.get(name)) {
+        regionBest.set(name, v);
       }
     }
   }
@@ -805,40 +809,39 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     setIsExpanded(true);
   }, []);
 
-  // Day dates — computed before early returns (Rules of Hooks).
-  const dayDates = useMemo(() => {
+  // Upcoming events — computed before early returns (Rules of Hooks).
+  const upcomingEvents = useMemo(() => {
     if (!briefing) return [];
-    return selectDayDates(briefing.days);
+    return selectUpcomingEvents(briefing.days);
   }, [briefing]);
+
+  const dayDates = useMemo(() => [...new Set(upcomingEvents.map((e) => e.date))], [upcomingEvents]);
 
   const sortedRegions = useMemo(() => {
     if (!briefing) return [];
-    return getSortedRegions(dayDates, briefing.days);
-  }, [briefing, dayDates]);
+    return getSortedRegions(upcomingEvents, briefing.days);
+  }, [briefing, upcomingEvents]);
 
   /** Slider cell counts: total cells and visible cells at current qualityTier. */
   const sliderCounts = useMemo(() => {
     if (!briefing) return { showing: 0, total: 0 };
-    const TARGET_TYPES = ['SUNRISE', 'SUNSET'];
     let total = 0;
     let showing = 0;
     for (const regionName of sortedRegions) {
-      for (const date of dayDates) {
+      for (const { date, targetType } of upcomingEvents) {
         const day = briefing.days.find((d) => d.date === date);
         if (!day) continue;
-        for (const tt of TARGET_TYPES) {
-          const es = (day.eventSummaries || []).find((e) => e.targetType === tt);
-          if (!es) continue;
-          const region = (es.regions || []).find((r) => r.regionName === regionName);
-          if (!region) continue;
-          total += 1;
-          const tier = computeCellTier(region);
-          if (isCellVisible(tier, qualityTier)) showing += 1;
-        }
+        const es = (day.eventSummaries || []).find((e) => e.targetType === targetType);
+        if (!es) continue;
+        const region = (es.regions || []).find((r) => r.regionName === regionName);
+        if (!region) continue;
+        total += 1;
+        const tier = computeCellTier(region);
+        if (isCellVisible(tier, qualityTier)) showing += 1;
       }
     }
     return { showing, total };
-  }, [briefing, sortedRegions, dayDates, qualityTier]);
+  }, [briefing, sortedRegions, upcomingEvents, qualityTier]);
 
   if (loading) {
     return (
@@ -882,16 +885,12 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
   })();
 
-  // Upcoming events (not-yet-past) for the mobile compact summary rows.
-  const upcomingEvents = briefing.days.flatMap((day) =>
-    (day.eventSummaries || [])
-      .filter((es) => !isEventPast(es))
-      .map((es) => ({
-        es,
-        dayLabel: getDayLabel(day.date, todayStr, tomorrowStr),
-        date: day.date,
-      })),
-  );
+  // Mobile compact summary rows — enriched with dayLabel for display.
+  const mobileEvents = upcomingEvents.map(({ date, targetType }) => {
+    const day = briefing.days.find((d) => d.date === date);
+    const es = (day?.eventSummaries || []).find((e) => e.targetType === targetType);
+    return es ? { es, dayLabel: getDayLabel(date, todayStr, tomorrowStr), date } : null;
+  }).filter(Boolean);
 
   const toggleCard = (cardKey) => {
     setOpenCardKeys((prev) => {
@@ -962,12 +961,12 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       <div className="sm:hidden">
         {/* Compact event-summary rows — always visible */}
         <div className="mt-1" data-testid="briefing-collapsed-events">
-          {upcomingEvents.length === 0 ? (
+          {mobileEvents.length === 0 ? (
             <p className="text-plex-text-muted italic mt-1" style={{ fontSize: '12px' }}>
-              No upcoming events in the next three days
+              No upcoming events
             </p>
           ) : (
-            upcomingEvents.map(({ es, dayLabel, date }) => {
+            mobileEvents.map(({ es, dayLabel, date }) => {
               const eventKey = `${date}-${es.targetType}`;
               return (
                 <div key={eventKey} data-event-key={eventKey}>
@@ -1085,7 +1084,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
       {/* ── Desktop heatmap grid — always visible on sm+ ── */}
       <HeatmapGrid
-        dayDates={dayDates}
+        events={upcomingEvents}
         sortedRegions={sortedRegions}
         briefingDays={briefing.days}
         qualityTier={qualityTier}

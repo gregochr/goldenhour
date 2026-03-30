@@ -1631,4 +1631,114 @@ describe('DailyBriefing', () => {
       );
     });
   });
+
+  // ────── Event-based columns (next 6 solar events) ──────
+
+  describe('Event-based columns', () => {
+    function makeEventDay(date, types) {
+      return {
+        date,
+        eventSummaries: types.map((tt) => ({
+          targetType: tt,
+          regions: [{
+            regionName: 'North',
+            verdict: 'GO',
+            summary: 'Clear',
+            tideHighlights: [],
+            slots: [{
+              locationName: 'A',
+              solarEventTime: `${date}T${tt === 'SUNRISE' ? '06:00:00' : '18:00:00'}`,
+              verdict: 'GO',
+              tideAligned: false,
+              flags: [],
+            }],
+          }],
+          unregioned: [],
+        })),
+      };
+    }
+
+    it('shows up to 6 event columns across 4 days', async () => {
+      const day1 = futureDateStr(1);
+      const day2 = futureDateStr(2);
+      const day3 = futureDateStr(3);
+      const day4 = futureDateStr(4);
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days: [
+          makeEventDay(day1, ['SUNRISE', 'SUNSET']),
+          makeEventDay(day2, ['SUNRISE', 'SUNSET']),
+          makeEventDay(day3, ['SUNRISE', 'SUNSET']),
+          makeEventDay(day4, ['SUNRISE', 'SUNSET']),
+        ],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+
+      // 6 event columns = 6 heatmap cells (1 region)
+      const cells = screen.getAllByTestId('heatmap-cell');
+      expect(cells).toHaveLength(6);
+
+      // 3 day headers (first 3 days cover 6 events)
+      const headers = screen.getAllByTestId('heatmap-day-header');
+      expect(headers).toHaveLength(3);
+    });
+
+    it('shows dynamic day header spanning when today has only 1 event left', async () => {
+      const day1 = futureDateStr(1); // has both sunrise + sunset
+      const day2 = futureDateStr(2);
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days: [
+          makeEventDay(day1, ['SUNSET']),      // 1 event
+          makeEventDay(day2, ['SUNRISE', 'SUNSET']),  // 2 events
+        ],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+
+      const headers = screen.getAllByTestId('heatmap-day-header');
+      expect(headers).toHaveLength(2);
+      // First header spans 1 column (only sunset), second spans 2
+      expect(headers[0].style.gridColumn).toBe('span 1');
+      expect(headers[1].style.gridColumn).toBe('span 2');
+    });
+
+    it('limits to 6 events even when more are available', async () => {
+      const days = [];
+      for (let i = 1; i <= 5; i++) {
+        days.push(makeEventDay(futureDateStr(i), ['SUNRISE', 'SUNSET']));
+      }
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days,
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+
+      const cells = screen.getAllByTestId('heatmap-cell');
+      expect(cells).toHaveLength(6);
+    });
+
+    it('mobile compact rows show all upcoming events (not limited to 6)', async () => {
+      const days = [];
+      for (let i = 1; i <= 5; i++) {
+        days.push(makeEventDay(futureDateStr(i), ['SUNRISE', 'SUNSET']));
+      }
+      getDailyBriefing.mockResolvedValue({
+        generatedAt: new Date().toISOString().slice(0, 19),
+        headline: '',
+        days,
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      // Mobile rows are derived from upcomingEvents (max 6)
+      const rows = screen.getAllByTestId('event-summary-row');
+      expect(rows).toHaveLength(6);
+    });
+  });
 });

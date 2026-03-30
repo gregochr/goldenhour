@@ -59,6 +59,9 @@ public class BriefingBestBetAdvisor {
     /** Maximum response tokens for the best-bet JSON. */
     private static final int MAX_TOKENS = 1024;
 
+    /** Maximum number of solar events to include in the rollup (matches frontend grid). */
+    private static final int MAX_VISIBLE_EVENTS = 6;
+
     /** All English day names, used for narrative date validation. */
     private static final List<String> ALL_DAY_NAMES = List.of(
             "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday");
@@ -67,8 +70,8 @@ public class BriefingBestBetAdvisor {
             You are a photography forecast advisor for PhotoCast, helping landscape photographers
             decide when and where to go for the best light.
 
-            Given triage data for upcoming solar events and aurora conditions across regions,
-            identify the two best photographic opportunities in the next 3 days.
+            Given triage data for the next 6 upcoming solar events and aurora conditions across
+            regions, identify the two best photographic opportunities.
 
             **How to pick the two recommendations:**
 
@@ -440,11 +443,16 @@ public class BriefingBestBetAdvisor {
         root.put("currentTime", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
         ArrayNode eventsNode = objectMapper.createArrayNode();
+        int eventCount = 0;
         for (BriefingDay day : days) {
             for (BriefingEventSummary es : day.eventSummaries()) {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
                 }
+                if (eventCount >= MAX_VISIBLE_EVENTS) {
+                    break;
+                }
+                eventCount++;
                 String eventId = day.date().toString() + "_" + es.targetType().name().toLowerCase();
                 String dayName = day.date().getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
                 validEvents.add(eventId);
@@ -464,6 +472,9 @@ public class BriefingBestBetAdvisor {
                     appendRegionNode(regionsNode, region, driveMap);
                     validRegions.add(region.regionName());
                 }
+            }
+            if (eventCount >= MAX_VISIBLE_EVENTS) {
+                break;
             }
         }
 

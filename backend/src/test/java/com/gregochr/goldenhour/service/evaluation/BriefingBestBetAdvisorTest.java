@@ -320,6 +320,64 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("Limits rollup to 6 non-past events")
+        void limitsToSixEvents() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            // 4 days × 2 events = 8 total → should be limited to 6
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 1; i <= 4; i++) {
+                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                days.add(new BriefingDay(date, List.of(
+                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
+                        new BriefingEventSummary(TargetType.SUNSET, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
+                )));
+            }
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now, Map.of());
+            assertThat(result.validEvents()).hasSize(6);
+            // Events from day 4 sunset should not be included
+            LocalDate day4 = LocalDate.now(ZoneOffset.UTC).plusDays(4);
+            assertThat(result.validEvents()).doesNotContain(day4.toString() + "_sunset");
+        }
+
+        @Test
+        @DisplayName("Past events on today are skipped before counting the 6-event limit")
+        void pastEventsSkippedBeforeCounting() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime pastTime = now.minusHours(2);
+            // Today has 1 past event + 1 future event, then 3 more days × 2
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            days.add(new BriefingDay(today, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            regionWithTime("PastRegion", Verdict.GO, 1, 0, 0, pastTime)), List.of()),
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("TodayRegion", Verdict.GO, 1, 0, 0)), List.of())
+            )));
+            for (int i = 1; i <= 3; i++) {
+                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                days.add(new BriefingDay(date, List.of(
+                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
+                        new BriefingEventSummary(TargetType.SUNSET, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
+                )));
+            }
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now, Map.of());
+            // 1 past (skipped) + 1 today + 6 from future = 7, capped at 6
+            assertThat(result.validEvents()).hasSize(6);
+            // The past sunrise should be excluded
+            assertThat(result.validEvents()).doesNotContain(today.toString() + "_sunrise");
+            // Today sunset should be included
+            assertThat(result.validEvents()).contains(today.toString() + "_sunset");
+        }
+
+        @Test
         @DisplayName("Drive times included when driveMap has entries for region slots")
         void driveTimesIncluded() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);

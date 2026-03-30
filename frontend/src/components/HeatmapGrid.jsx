@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
@@ -12,17 +12,19 @@ function formatTime(isoString) {
   return isoString.substring(11, 16);
 }
 
+const AFTERGLOW_MS = 30 * 60 * 1000;
+
 function isEventPast(es) {
   for (const r of es.regions || []) {
     for (const s of r.slots || []) {
       if (s.solarEventTime) {
-        return new Date(s.solarEventTime + 'Z') < new Date();
+        return new Date(s.solarEventTime + 'Z').getTime() + AFTERGLOW_MS < Date.now();
       }
     }
   }
   for (const s of es.unregioned || []) {
     if (s.solarEventTime) {
-      return new Date(s.solarEventTime + 'Z') < new Date();
+      return new Date(s.solarEventTime + 'Z').getTime() + AFTERGLOW_MS < Date.now();
     }
   }
   return false;
@@ -569,9 +571,9 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 // ── HeatmapGrid (main export) ─────────────────────────────────────────────────
 
 /**
- * Desktop heatmap grid — 3 days × 2 sub-columns (sunrise + sunset).
+ * Desktop heatmap grid — up to 6 event columns with dynamic day-header spanning.
  *
- * @param {string[]}  dayDates       Up to 3 YYYY-MM-DD strings
+ * @param {object[]}  events         Up to 6 upcoming event objects [{date, targetType}]
  * @param {string[]}  sortedRegions  Region names ordered by quality (re-sorted internally by visible tier)
  * @param {object[]}  briefingDays   Raw briefing days array
  * @param {number}    qualityTier    Current slider position (0–5)
@@ -582,7 +584,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
  * @param {function}  onShowOnMap    (date, targetType) callback
  */
 export default function HeatmapGrid({
-  dayDates,
+  events,
   sortedRegions,
   briefingDays,
   qualityTier,
@@ -598,10 +600,24 @@ export default function HeatmapGrid({
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
-  if (sortedRegions.length === 0 || dayDates.length === 0) return null;
+  // Compute day groups from events for dynamic header spanning
+  const dayGroups = useMemo(() => {
+    const groups = [];
+    let current = null;
+    for (const ev of events) {
+      if (!current || current.date !== ev.date) {
+        current = { date: ev.date, count: 1 };
+        groups.push(current);
+      } else {
+        current.count++;
+      }
+    }
+    return groups;
+  }, [events]);
 
-  const TARGET_TYPES = ['SUNRISE', 'SUNSET'];
-  const numEventCols = dayDates.length * TARGET_TYPES.length;
+  if (sortedRegions.length === 0 || events.length === 0) return null;
+
+  const numEventCols = events.length;
   const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(0, 1fr))`;
 
   const toggleDrillDown = (date, regionName, targetType) => {
@@ -616,18 +632,16 @@ export default function HeatmapGrid({
   const reorderedRegions = [...sortedRegions].sort((a, b) => {
     let bestA = 6;
     let bestB = 6;
-    for (const date of dayDates) {
-      for (const tt of TARGET_TYPES) {
-        const cdA = getSubCellData(date, a, tt, briefingDays);
-        const cdB = getSubCellData(date, b, tt, briefingDays);
-        if (cdA && !cdA.past) {
-          const t = computeCellTier(cdA.region);
-          if (isCellVisible(t, qualityTier) && t < bestA) bestA = t;
-        }
-        if (cdB && !cdB.past) {
-          const t = computeCellTier(cdB.region);
-          if (isCellVisible(t, qualityTier) && t < bestB) bestB = t;
-        }
+    for (const { date, targetType } of events) {
+      const cdA = getSubCellData(date, a, targetType, briefingDays);
+      const cdB = getSubCellData(date, b, targetType, briefingDays);
+      if (cdA && !cdA.past) {
+        const t = computeCellTier(cdA.region);
+        if (isCellVisible(t, qualityTier) && t < bestA) bestA = t;
+      }
+      if (cdB && !cdB.past) {
+        const t = computeCellTier(cdB.region);
+        if (isCellVisible(t, qualityTier) && t < bestB) bestB = t;
       }
     }
     return bestA !== bestB ? bestA - bestB : a.localeCompare(b);
@@ -635,13 +649,11 @@ export default function HeatmapGrid({
 
   // Check whether all cells in a region row are hidden (for label fading)
   function isRegionFullyHidden(regionName) {
-    for (const date of dayDates) {
-      for (const tt of TARGET_TYPES) {
-        const cd = getSubCellData(date, regionName, tt, briefingDays);
-        if (!cd || cd.past) continue;
-        const t = computeCellTier(cd.region);
-        if (isCellVisible(t, qualityTier)) return false;
-      }
+    for (const { date, targetType } of events) {
+      const cd = getSubCellData(date, regionName, targetType, briefingDays);
+      if (!cd || cd.past) continue;
+      const t = computeCellTier(cd.region);
+      if (isCellVisible(t, qualityTier)) return false;
     }
     return true;
   }
@@ -656,12 +668,12 @@ export default function HeatmapGrid({
       <div className="px-1 py-1" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)' }}>
         Region
       </div>
-      {dayDates.map((date) => (
+      {dayGroups.map(({ date, count }) => (
         <div
           key={date}
           data-testid="heatmap-day-header"
           className="text-center py-1 px-1"
-          style={{ gridColumn: 'span 2' }}
+          style={{ gridColumn: `span ${count}` }}
         >
           <div className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
             {getDayLabel(date, todayStr, tomorrowStr)}
@@ -674,18 +686,16 @@ export default function HeatmapGrid({
 
       {/* ── Sub-column header row: 🌅 / 🌇 ── */}
       <div /> {/* empty corner */}
-      {dayDates.map((date) =>
-        TARGET_TYPES.map((tt) => (
-          <div
-            key={`${date}-${tt}`}
-            className="text-center text-plex-text-muted pb-0.5"
-            style={{ fontSize: '13px' }}
-            title={tt === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
-          >
-            {tt === 'SUNRISE' ? '🌅' : '🌇'}
-          </div>
-        )),
-      )}
+      {events.map(({ date, targetType }) => (
+        <div
+          key={`${date}-${targetType}`}
+          className="text-center text-plex-text-muted pb-0.5"
+          style={{ fontSize: '13px' }}
+          title={targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
+        >
+          {targetType === 'SUNRISE' ? '🌅' : '🌇'}
+        </div>
+      ))}
 
       {/* ── Region rows ── */}
       {reorderedRegions.map((regionName) => {
@@ -708,29 +718,27 @@ export default function HeatmapGrid({
               {regionName}
             </div>
 
-            {/* Sub-column cells: date × targetType */}
-            {dayDates.map((date) =>
-              TARGET_TYPES.map((targetType) => {
-                const drillKey = `${date}-${regionName}-${targetType}`;
-                const isActive =
-                  drillDown?.date === date &&
-                  drillDown?.regionName === regionName &&
-                  drillDown?.targetType === targetType;
-                return (
-                  <HeatmapCell
-                    key={drillKey}
-                    date={date}
-                    regionName={regionName}
-                    targetType={targetType}
-                    briefingDays={briefingDays}
-                    qualityTier={qualityTier}
-                    isActive={isActive}
-                    onToggle={toggleDrillDown}
-                    evaluationScores={evaluationScores}
-                  />
-                );
-              }),
-            )}
+            {/* Event cells */}
+            {events.map(({ date, targetType }) => {
+              const drillKey = `${date}-${regionName}-${targetType}`;
+              const isActive =
+                drillDown?.date === date &&
+                drillDown?.regionName === regionName &&
+                drillDown?.targetType === targetType;
+              return (
+                <HeatmapCell
+                  key={drillKey}
+                  date={date}
+                  regionName={regionName}
+                  targetType={targetType}
+                  briefingDays={briefingDays}
+                  qualityTier={qualityTier}
+                  isActive={isActive}
+                  onToggle={toggleDrillDown}
+                  evaluationScores={evaluationScores}
+                />
+              );
+            })}
 
             {/* Drill-down panel — spans full grid width */}
             {drillDown?.regionName === regionName && drillDown?.date && (
@@ -757,7 +765,10 @@ export default function HeatmapGrid({
 }
 
 HeatmapGrid.propTypes = {
-  dayDates: PropTypes.arrayOf(PropTypes.string).isRequired,
+  events: PropTypes.arrayOf(PropTypes.shape({
+    date: PropTypes.string.isRequired,
+    targetType: PropTypes.string.isRequired,
+  })).isRequired,
   sortedRegions: PropTypes.arrayOf(PropTypes.string).isRequired,
   briefingDays: PropTypes.array.isRequired,
   qualityTier: PropTypes.number.isRequired,
