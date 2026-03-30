@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
@@ -19,6 +20,7 @@ import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -55,6 +57,7 @@ public class BriefingService {
     private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
+    private final ApplicationEventPublisher eventPublisher;
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
     private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
 
@@ -71,6 +74,7 @@ public class BriefingService {
      * @param auroraSummaryBuilder    builder for aurora tonight/tomorrow summaries
      * @param hierarchyBuilder        builder for the day/event/region hierarchy
      * @param slotBuilder             builder for individual briefing slots
+     * @param eventPublisher          Spring event publisher for cache invalidation
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -79,7 +83,8 @@ public class BriefingService {
             BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
             BriefingHierarchyBuilder hierarchyBuilder,
-            BriefingSlotBuilder slotBuilder) {
+            BriefingSlotBuilder slotBuilder,
+            ApplicationEventPublisher eventPublisher) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -90,6 +95,7 @@ public class BriefingService {
         this.auroraSummaryBuilder = auroraSummaryBuilder;
         this.hierarchyBuilder = hierarchyBuilder;
         this.slotBuilder = slotBuilder;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -196,6 +202,7 @@ public class BriefingService {
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
+            eventPublisher.publishEvent(new BriefingRefreshedEvent(this));
             jobRunService.completeRun(jobRun, succeeded, failed, dates);
             LOG.info("Briefing complete: {}/{} succeeded, {} failed, stale=false",
                     succeeded, total, failed);

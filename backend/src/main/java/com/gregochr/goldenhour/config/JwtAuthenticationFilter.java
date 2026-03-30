@@ -138,7 +138,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private boolean isSsePath(String path) {
         return path.matches("/api/forecast/run/\\d+/progress")
                 || path.equals("/api/forecast/run/notifications")
-                || path.equals("/api/status/stream");
+                || path.equals("/api/status/stream")
+                || path.equals("/api/briefing/evaluate");
     }
 
     private void updateLastActiveIfStale(String username) {

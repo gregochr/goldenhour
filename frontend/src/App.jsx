@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { computeAutoSelection } from './utils/conversions.js';
 import ViewToggle from './components/ViewToggle.jsx';
 import DateStrip from './components/DateStrip.jsx';
@@ -87,6 +87,10 @@ function AppInner() {
 
   /** Pending handoff from Plan tab to Map tab (event type to pre-select). */
   const [mapHandoff, setMapHandoff] = useState(null);
+
+  /** Briefing evaluation scores lifted from DailyBriefing, passed to MapView. */
+  const [briefingScores, setBriefingScores] = useState(new Map());
+  const handleEvaluationScoresChange = useCallback((scores) => setBriefingScores(scores), []);
 
   /** Update viewMode and sync to URL hash. */
   const setViewMode = (mode) => {
@@ -279,7 +283,7 @@ function AppInner() {
             </div>
 
             {viewMode === 'plan' && (
-              <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} />
+              <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} />
             )}
 
             {viewMode === 'map' && allDates.length > 0 && effectiveDate && (
@@ -296,6 +300,7 @@ function AppInner() {
                 date={effectiveDate}
                 autoEventType={autoSelection?.eventType ?? null}
                 handoffEventType={mapHandoff?.eventType ?? null}
+                briefingScores={briefingScores}
               />
             )}
 

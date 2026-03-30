@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Briefing evaluation via SSE (Claude scoring from Plan tab)
+
+Wire the "Run full forecast" button in the Plan tab's heatmap drill-down to trigger Claude evaluations for GO/MARGINAL locations, streaming results back via SSE, and propagating scores to the grid cells and map pins.
+
+**Backend:**
+- `BriefingEvaluationService` — orchestrates per-region Claude evaluations with `ConcurrentHashMap` cache; filters to GO/MARGINAL slots only; cache cleared via `BriefingRefreshedEvent`
+- `BriefingEvaluationController` — SSE endpoint (`GET /api/briefing/evaluate`) streams `location-scored`/`progress`/`evaluation-complete` events; cache endpoint (`GET /api/briefing/evaluate/cache`) returns cached scores; gated to ADMIN/PRO_USER
+- `BriefingEvaluationResult` record, `BriefingRefreshedEvent` application event
+- `BriefingService` publishes `BriefingRefreshedEvent` after each refresh
+- `JwtAuthenticationFilter` — added `/api/briefing/evaluate` to SSE query-param auth paths
+
+**Frontend:**
+- `briefingEvaluationApi.js` — EventSource subscription + REST cache fetch
+- `DailyBriefing.jsx` — evaluation state, SSE subscription lifecycle, score lift to parent
+- `HeatmapGrid.jsx` — stateful "Run full forecast" button (ready/running/complete/error), score badges on location rows with re-sort by rating, mean score pill on heatmap cells
+- `App.jsx` — lifts `briefingScores` state to pass from DailyBriefing → MapView
+- `MapView.jsx` — overrides forecast scores with briefing evaluation scores when available
+
 ### Changed — SSE health status stream
 
 Replaced polling-based `/actuator/health` approach with a Server-Sent Events endpoint (`GET /api/status/stream`) that pushes enriched status every 30 seconds. The frontend `useHealthStatus` hook now uses native `EventSource` with automatic reconnection.

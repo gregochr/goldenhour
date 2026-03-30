@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
+import { subscribeToBriefingEvaluation } from '../api/briefingEvaluationApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import QualitySlider from './QualitySlider.jsx';
@@ -673,9 +674,10 @@ const DISMISSED_AT_KEY = 'briefing-dismissed-at';
  * Desktop (sm+): heatmap grid (3 day-columns × regions) always visible.
  * Aurora tonight section displayed when the aurora state machine is active.
  */
-export default function DailyBriefing({ locations, onShowOnMap }) {
+export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange }) {
   const { role } = useAuth();
   const canSeeBestBets = role === 'ADMIN' || role === 'PRO_USER';
+  const canRunEvaluation = role === 'ADMIN' || role === 'PRO_USER';
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissedAt, setDismissedAt] = useState(() => sessionStorage.getItem(DISMISSED_AT_KEY));
@@ -684,6 +686,61 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
   const [openCardKeys, setOpenCardKeys] = useState(new Set()); // "date-regionName"
   const [qualityTier, setQualityTier] = useLocalStorageState('plannerQualityTier', 2);
   const intervalRef = useRef(null);
+
+  // Evaluation state: keyed by "regionName|date|targetType|locationName"
+  const [evaluationScores, setEvaluationScores] = useState(new Map());
+  // { regionName, date, targetType, completed, total, failed, status: 'running'|'complete'|'error' }
+  const [evaluationProgress, setEvaluationProgress] = useState(null);
+  const evalCleanupRef = useRef(null);
+
+  /** Starts a Claude evaluation for the given drill-down cell. */
+  const handleRunEvaluation = useCallback((regionName, date, targetType) => {
+    // Clean up any previous subscription
+    if (evalCleanupRef.current) evalCleanupRef.current();
+
+    setEvaluationProgress({ regionName, date, targetType, completed: 0, total: 0, failed: 0, status: 'running' });
+
+    const cleanup = subscribeToBriefingEvaluation(
+      regionName, date, targetType,
+      // onLocationScored
+      (result) => {
+        setEvaluationScores((prev) => {
+          const next = new Map(prev);
+          next.set(`${regionName}|${date}|${targetType}|${result.locationName}`, result);
+          return next;
+        });
+      },
+      // onProgress
+      (progress) => {
+        setEvaluationProgress((prev) => prev ? {
+          ...prev, completed: progress.completed, total: progress.total, failed: progress.failed,
+        } : prev);
+      },
+      // onComplete
+      (data) => {
+        setEvaluationProgress((prev) => prev ? {
+          ...prev, completed: data.completed, total: data.total, failed: data.failed, status: 'complete',
+        } : prev);
+      },
+      // onLocationError
+      () => {},
+      // onError
+      () => {
+        setEvaluationProgress((prev) => prev ? { ...prev, status: 'error' } : prev);
+      },
+    );
+    evalCleanupRef.current = cleanup;
+  }, []);
+
+  // Clean up SSE on unmount
+  useEffect(() => {
+    return () => { if (evalCleanupRef.current) evalCleanupRef.current(); };
+  }, []);
+
+  // Lift scores to parent whenever they change
+  useEffect(() => {
+    onEvaluationScoresChange?.(evaluationScores);
+  }, [evaluationScores, onEvaluationScoresChange]);
 
   /** Map from location name → driveDurationMinutes. */
   const driveMap = useMemo(() => {
@@ -1037,6 +1094,10 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
         todayStr={todayStr}
         tomorrowStr={tomorrowStr}
         onShowOnMap={onShowOnMap}
+        evaluationScores={evaluationScores}
+        evaluationProgress={evaluationProgress}
+        onRunEvaluation={handleRunEvaluation}
+        canRunEvaluation={canRunEvaluation}
       />
 
       {/* ── Aurora row — below grid, not affected by quality slider ── */}
@@ -1057,4 +1118,5 @@ DailyBriefing.propTypes = {
     }),
   ),
   onShowOnMap: PropTypes.func,
+  onEvaluationScoresChange: PropTypes.func,
 };

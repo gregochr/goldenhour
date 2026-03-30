@@ -155,21 +155,52 @@ const LOCATION_TYPE_ICONS = {
 
 // ── LocationSlotList ──────────────────────────────────────────────────────────
 
-function LocationSlotList({ slots, driveMap, typeMap }) {
+/** Star rating badge colour: green 4-5, amber 3, red 1-2. */
+function ratingColour(rating) {
+  if (rating >= 4) return 'bg-green-600/80 text-white';
+  if (rating === 3) return 'bg-amber-600/80 text-white';
+  return 'bg-red-700/70 text-red-100';
+}
+
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map() }) {
   const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   if (visible.length === 0) return null;
+
+  // Re-sort by Claude score when scores are available
+  const sorted = scores.size > 0
+    ? [...visible].sort((a, b) => {
+      const sa = scores.get(a.locationName);
+      const sb = scores.get(b.locationName);
+      const ra = sa?.rating ?? 0;
+      const rb = sb?.rating ?? 0;
+      if (ra !== rb) return rb - ra; // higher score first
+      const diff = slotSortKey(a) - slotSortKey(b);
+      return diff !== 0 ? diff : a.locationName.localeCompare(b.locationName);
+    })
+    : visible;
+
   return (
     <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
-      {visible.map((slot) => {
+      {sorted.map((slot) => {
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
         const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+        const score = scores.get(slot.locationName);
         return (
           <div
             key={slot.locationName}
-            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30"
+            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 transition-all duration-500"
             data-testid="briefing-slot"
           >
-            <VerdictPill verdict={slot.verdict} />
+            {score?.rating != null ? (
+              <span
+                data-testid="score-badge"
+                className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold transition-opacity duration-300 ${ratingColour(score.rating)}`}
+              >
+                {score.rating}★
+              </span>
+            ) : (
+              <VerdictPill verdict={slot.verdict} />
+            )}
             <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
               {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
               {slot.locationName}
@@ -183,6 +214,11 @@ function LocationSlotList({ slots, driveMap, typeMap }) {
               </span>
             )}
             {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
+            {score?.summary && (
+              <span className="w-full text-plex-text-secondary truncate" style={{ fontSize: '11px' }}>
+                {score.summary}
+              </span>
+            )}
           </div>
         );
       })}
@@ -192,7 +228,8 @@ function LocationSlotList({ slots, driveMap, typeMap }) {
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,
+  evaluationScores = new Map(), evaluationProgress, onRunEvaluation, canRunEvaluation }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
 
@@ -205,6 +242,23 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       if (region) events.push({ es, region, past: isEventPast(es) });
     }
   }
+
+  // Build per-location scores map from evaluation results for this cell
+  const slotScores = new Map();
+  for (const [key, result] of evaluationScores) {
+    // key format: "regionName|date|targetType|locationName"
+    const prefix = `${regionName}|${date}|${targetType}|`;
+    if (key.startsWith(prefix)) {
+      slotScores.set(result.locationName, result);
+    }
+  }
+
+  // Match progress to this drill-down's cell
+  const progressMatch = evaluationProgress
+    && evaluationProgress.regionName === regionName
+    && evaluationProgress.date === date
+    && evaluationProgress.targetType === targetType
+    ? evaluationProgress : null;
 
   return (
     <div
@@ -288,31 +342,60 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
               </div>
 
               {isExpanded && (
-                <LocationSlotList slots={region.slots} driveMap={driveMap} typeMap={typeMap} />
+                <LocationSlotList slots={region.slots} driveMap={driveMap} typeMap={typeMap} scores={slotScores} />
               )}
             </div>
           );
         })}
       </div>
 
-      {/* "Run full forecast" placeholder */}
-      <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2">
-        <button
-          data-testid="run-forecast-btn"
-          disabled
-          className="btn-secondary opacity-40 cursor-not-allowed text-xs"
-          title="Full forecast run — coming soon"
-        >
-          Run full forecast
-        </button>
-      </div>
+      {/* "Run full forecast" button */}
+      {canRunEvaluation && (
+        <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2 items-center">
+          {progressMatch?.status === 'complete' ? (
+            <span data-testid="run-forecast-btn" className="text-green-400 text-xs font-medium">
+              Evaluation complete — {progressMatch.completed} scored
+            </span>
+          ) : progressMatch?.status === 'running' ? (
+            <>
+              <button data-testid="run-forecast-btn" disabled className="btn-secondary text-xs opacity-60">
+                Evaluating… {progressMatch.completed}/{progressMatch.total}
+              </button>
+              {progressMatch.total > 0 && (
+                <div className="flex-1 h-1 bg-plex-border/30 rounded overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 transition-all duration-300"
+                    style={{ width: `${Math.round(((progressMatch.completed) / progressMatch.total) * 100)}%` }}
+                  />
+                </div>
+              )}
+            </>
+          ) : progressMatch?.status === 'error' ? (
+            <button
+              data-testid="run-forecast-btn"
+              className="btn-secondary text-xs text-red-400 border-red-700"
+              onClick={() => onRunEvaluation?.(regionName, date, targetType)}
+            >
+              Forecast failed — retry?
+            </button>
+          ) : (
+            <button
+              data-testid="run-forecast-btn"
+              className="btn-secondary text-xs"
+              onClick={() => onRunEvaluation?.(regionName, date, targetType)}
+            >
+              Run full forecast
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle }) {
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map() }) {
   const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Empty cell — region doesn't appear in this event type
@@ -426,6 +509,30 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         </>
       )}
 
+      {/* Mean Claude score badge */}
+      {!isStanddown && (() => {
+        const prefix = `${regionName}|${date}|${targetType}|`;
+        const ratings = [];
+        for (const [key, result] of evaluationScores) {
+          if (key.startsWith(prefix) && result.rating != null) {
+            ratings.push(result.rating);
+          }
+        }
+        if (ratings.length === 0) return null;
+        const mean = (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
+        const meanNum = parseFloat(mean);
+        const pillColour = meanNum >= 4 ? 'bg-green-600/60 text-green-200'
+          : meanNum >= 3 ? 'bg-amber-600/60 text-amber-200'
+            : 'bg-red-700/50 text-red-200';
+        return (
+          <div className="mt-0.5" data-testid="mean-score-badge">
+            <span className={`rounded px-1 font-medium ${pillColour}`} style={{ fontSize: '10px' }}>
+              {mean}★
+            </span>
+          </div>
+        );
+      })()}
+
       {isStanddown && region?.summary && (
         <div className="text-red-400/50 mt-0.5" style={{ fontSize: '10px' }}>
           {region.summary.slice(0, 24)}
@@ -460,6 +567,10 @@ export default function HeatmapGrid({
   todayStr,
   tomorrowStr,
   onShowOnMap,
+  evaluationScores = new Map(),
+  evaluationProgress,
+  onRunEvaluation,
+  canRunEvaluation = false,
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
@@ -591,6 +702,7 @@ export default function HeatmapGrid({
                     qualityTier={qualityTier}
                     isActive={isActive}
                     onToggle={toggleDrillDown}
+                    evaluationScores={evaluationScores}
                   />
                 );
               }),
@@ -607,6 +719,10 @@ export default function HeatmapGrid({
                 typeMap={typeMap}
                 onClose={() => setDrillDown(null)}
                 onShowOnMap={onShowOnMap}
+                evaluationScores={evaluationScores}
+                evaluationProgress={evaluationProgress}
+                onRunEvaluation={onRunEvaluation}
+                canRunEvaluation={canRunEvaluation}
               />
             )}
           </React.Fragment>
@@ -626,4 +742,16 @@ HeatmapGrid.propTypes = {
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,
   onShowOnMap: PropTypes.func,
+  evaluationScores: PropTypes.instanceOf(Map),
+  evaluationProgress: PropTypes.shape({
+    regionName: PropTypes.string,
+    date: PropTypes.string,
+    targetType: PropTypes.string,
+    completed: PropTypes.number,
+    total: PropTypes.number,
+    failed: PropTypes.number,
+    status: PropTypes.string,
+  }),
+  onRunEvaluation: PropTypes.func,
+  canRunEvaluation: PropTypes.bool,
 };

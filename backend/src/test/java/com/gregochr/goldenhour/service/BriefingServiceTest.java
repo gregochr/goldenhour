@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -52,6 +53,8 @@ class BriefingServiceTest {
     private BriefingBestBetAdvisor bestBetAdvisor;
     @Mock
     private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private BriefingService briefingService;
 
@@ -71,7 +74,7 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder);
+                slotBuilder, eventPublisher);
     }
 
     @Nested

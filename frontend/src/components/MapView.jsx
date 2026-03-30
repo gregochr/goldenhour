@@ -218,6 +218,19 @@ const LOCATION_TYPE_LABELS = {
  * @param {string} date - The selected date (YYYY-MM-DD).
  * @returns {string} 'SUNRISE' or 'SUNSET'.
  */
+/**
+ * Looks up a briefing evaluation score for a location by scanning all keys in the scores map.
+ * Key format: "regionName|date|targetType|locationName".
+ */
+function getBriefingScore(briefingScores, locationName, date, eventType) {
+  if (!briefingScores || briefingScores.size === 0) return null;
+  const suffix = `|${date}|${eventType}|${locationName}`;
+  for (const [key, result] of briefingScores) {
+    if (key.endsWith(suffix)) return result;
+  }
+  return null;
+}
+
 function getNextEventType(locations, date) {
   const now = new Date();
   const todayStr = now.toLocaleDateString('en-CA'); // YYYY-MM-DD
@@ -234,7 +247,7 @@ function getNextEventType(locations, date) {
   return 'SUNSET';
 }
 
-function MapView({ locations, date, autoEventType, handoffEventType }) {
+function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map() }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -692,14 +705,16 @@ function MapView({ locations, date, autoEventType, handoffEventType }) {
             {visibleLocations.map((loc) => {
               const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
               const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
+              // Look up briefing evaluation score for this location (if any)
+              const briefingScore = !isAuroraMode ? getBriefingScore(briefingScores, loc.name, date, eventType) : null;
               const markerRating = isAuroraMode
                 ? (locAuroraScore?.stars ?? null)
-                : (forecast?.rating ?? null);
+                : (briefingScore?.rating ?? forecast?.rating ?? null);
               const markerFiery = (!isAuroraMode && role !== 'LITE_USER')
-                ? (forecast?.fierySkyPotential ?? null)
+                ? (briefingScore?.fierySkyPotential ?? forecast?.fierySkyPotential ?? null)
                 : null;
               const markerGolden = (!isAuroraMode && role !== 'LITE_USER')
-                ? (forecast?.goldenHourPotential ?? null)
+                ? (briefingScore?.goldenHourPotential ?? forecast?.goldenHourPotential ?? null)
                 : null;
               const icon = makeMarkerIcon(
                 markerRating,
@@ -801,6 +816,7 @@ MapView.propTypes = {
   date: PropTypes.string,
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
+  briefingScores: PropTypes.instanceOf(Map),
 };
 
 export default React.memo(MapView);
