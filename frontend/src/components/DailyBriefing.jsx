@@ -783,7 +783,25 @@ export default function DailyBriefing({ locations, onShowOnMap }) {
     return { showing, total };
   }, [briefing, sortedRegions, dayDates, qualityTier]);
 
-  if (loading || !briefing) return null;
+  if (loading) {
+    return (
+      <div data-testid="daily-briefing-loading" className="card mb-4">
+        <p className="text-plex-text-secondary animate-pulse" style={{ fontSize: '13px' }}>
+          Loading planner...
+        </p>
+      </div>
+    );
+  }
+
+  if (!briefing) {
+    return (
+      <div data-testid="daily-briefing-empty" className="card mb-4">
+        <p className="text-plex-text-secondary" style={{ fontSize: '13px' }}>
+          Briefing data is being prepared — refreshes automatically every 2 hours.
+        </p>
+      </div>
+    );
+  }
 
   const isDismissed = dismissedAt != null && briefing.generatedAt <= dismissedAt;
   if (isDismissed) {

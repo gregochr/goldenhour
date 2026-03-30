@@ -272,33 +272,7 @@ function AppInner() {
           </>
         )}
 
-        {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && viewMode !== 'manage' && (
-          <div className="card text-center py-16">
-            <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
-            <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
-            <div className="flex justify-center gap-3">
-              <button className="btn-primary" onClick={refresh}>
-                Refresh
-              </button>
-              {isAdmin && (
-                <button className="btn-secondary" onClick={() => setViewMode('manage')}>
-                  Manage Locations
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {!loading && !error && sortedLocations.length > 0 && allDates.length === 0 && viewMode === 'manage' && isAdmin && (
-          <>
-            <div className="mb-6">
-              <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
-            </div>
-            <ManageView onComplete={refresh} />
-          </>
-        )}
-
-        {!loading && !error && sortedLocations.length > 0 && allDates.length > 0 && (
+        {!loading && !error && sortedLocations.length > 0 && (
           <>
             <div className="mb-6">
               <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
@@ -308,7 +282,7 @@ function AppInner() {
               <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} />
             )}
 
-            {viewMode === 'map' && effectiveDate && (
+            {viewMode === 'map' && allDates.length > 0 && effectiveDate && (
               <DateStrip
                 dates={allDates}
                 selectedDate={effectiveDate}
@@ -316,13 +290,30 @@ function AppInner() {
               />
             )}
 
-            {viewMode === 'map' && (
+            {viewMode === 'map' && allDates.length > 0 && (
               <MapView
                 locations={visibleLocations}
                 date={effectiveDate}
                 autoEventType={autoSelection?.eventType ?? null}
                 handoffEventType={mapHandoff?.eventType ?? null}
               />
+            )}
+
+            {viewMode === 'map' && allDates.length === 0 && (
+              <div className="card text-center py-16">
+                <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
+                <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
+                <div className="flex justify-center gap-3">
+                  <button className="btn-primary" onClick={refresh}>
+                    Refresh
+                  </button>
+                  {isAdmin && (
+                    <button className="btn-secondary" onClick={() => setViewMode('manage')}>
+                      Manage Locations
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
 
             {viewMode === 'manage' && isAdmin && (
