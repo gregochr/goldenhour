@@ -131,6 +131,16 @@ public class JwtService {
         return parseClaims(token).getExpiration();
     }
 
+    /**
+     * Extracts the issued-at time from a JWT access token.
+     *
+     * @param token the compact JWT string
+     * @return the {@link Instant} when the token was issued
+     */
+    public Instant extractIssuedAt(String token) {
+        return parseClaims(token).getIssuedAt().toInstant();
+    }
+
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(signingKey())

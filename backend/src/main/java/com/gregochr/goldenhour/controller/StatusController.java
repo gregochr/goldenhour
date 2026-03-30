@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.model.StatusResponse;
 import com.gregochr.goldenhour.model.StatusResponse.BuildInfo;
 import com.gregochr.goldenhour.model.StatusResponse.ComponentStatus;
 import com.gregochr.goldenhour.model.StatusResponse.SessionInfo;
+import com.gregochr.goldenhour.service.JwtService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.health.actuate.endpoint.CompositeHealthDescriptor;
@@ -52,7 +54,7 @@ public class StatusController {
     private static final long EMITTER_TIMEOUT_MS = 0L;
 
     /** Components whose failure is a soft warning (DEGRADED), not a hard failure (DOWN). */
-    private static final Set<String> SOFT_COMPONENTS = Set.of("mail");
+    private static final Set<String> SOFT_COMPONENTS = Set.of("mail", "openMeteo", "tideCheck", "claudeApi");
 
     /**
      * Components to ignore when determining overall status.
@@ -60,8 +62,12 @@ public class StatusController {
      */
     private static final Set<String> IGNORED_COMPONENTS = Set.of("rateLimiters");
 
+    /** Health indicator component names that represent external service probes. */
+    private static final Set<String> PROBE_COMPONENTS = Set.of("openMeteo", "tideCheck", "claudeApi");
+
     private final HealthEndpoint healthEndpoint;
     private final GitProperties gitProperties;
+    private final JwtService jwtService;
     private final ScheduledExecutorService scheduler;
     private final List<EmitterEntry> emitters = new CopyOnWriteArrayList<>();
 
@@ -70,11 +76,14 @@ public class StatusController {
      *
      * @param healthEndpoint Spring Boot health endpoint bean
      * @param gitProperties  git metadata (null in dev if git.properties not generated)
+     * @param jwtService     JWT service for parsing issued-at claims
      */
     public StatusController(HealthEndpoint healthEndpoint,
-            GitProperties gitProperties) {
+            GitProperties gitProperties,
+            JwtService jwtService) {
         this.healthEndpoint = healthEndpoint;
         this.gitProperties = gitProperties;
+        this.jwtService = jwtService;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "status-sse-push");
             t.setDaemon(true);
@@ -85,12 +94,13 @@ public class StatusController {
     /**
      * SSE stream that pushes the full {@link StatusResponse} on connection and every 30 seconds.
      *
-     * @param auth the authenticated principal (captured at connection time for session info)
+     * @param auth    the authenticated principal (captured at connection time for session info)
+     * @param request the HTTP request (used to extract JWT issued-at for login time)
      * @return the SSE emitter
      */
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(Authentication auth) {
-        SessionInfo session = extractSession(auth);
+    public SseEmitter stream(Authentication auth, HttpServletRequest request) {
+        SessionInfo session = extractSession(auth, request);
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
 
         // Send initial status immediately
@@ -174,10 +184,10 @@ public class StatusController {
 
     private Map<String, ComponentStatus> extractServices(Map<String, HealthDescriptor> components) {
         Map<String, ComponentStatus> services = new LinkedHashMap<>();
-        HealthDescriptor cbRoot = components.get("circuitBreakers");
-        if (cbRoot instanceof CompositeHealthDescriptor composite) {
-            for (Map.Entry<String, HealthDescriptor> e : composite.getComponents().entrySet()) {
-                services.put(e.getKey(), toComponentStatus(e.getValue()));
+        for (String name : PROBE_COMPONENTS) {
+            HealthDescriptor descriptor = components.get(name);
+            if (descriptor != null) {
+                services.put(name, toComponentStatus(descriptor));
             }
         }
         return services;
@@ -185,16 +195,22 @@ public class StatusController {
 
     private ComponentStatus toComponentStatus(HealthDescriptor descriptor) {
         if (descriptor == null) {
-            return new ComponentStatus("UNKNOWN", null);
+            return new ComponentStatus("UNKNOWN", null, null);
         }
         String detail = null;
+        Long latencyMs = null;
         if (descriptor instanceof IndicatedHealthDescriptor indicated) {
             Map<String, Object> details = indicated.getDetails();
-            if (details != null && details.containsKey("state")) {
-                detail = String.valueOf(details.get("state"));
+            if (details != null) {
+                if (details.containsKey("state")) {
+                    detail = String.valueOf(details.get("state"));
+                }
+                if (details.containsKey("latencyMs")) {
+                    latencyMs = ((Number) details.get("latencyMs")).longValue();
+                }
             }
         }
-        return new ComponentStatus(descriptor.getStatus().getCode(), detail);
+        return new ComponentStatus(descriptor.getStatus().getCode(), detail, latencyMs);
     }
 
     private BuildInfo buildInfo() {
@@ -208,7 +224,7 @@ public class StatusController {
                 "true".equals(gitProperties.get("dirty")));
     }
 
-    private SessionInfo extractSession(Authentication auth) {
+    private SessionInfo extractSession(Authentication auth, HttpServletRequest request) {
         String username = auth != null ? auth.getName() : "anonymous";
         String role = auth != null
                 ? auth.getAuthorities().stream()
@@ -217,7 +233,31 @@ public class StatusController {
                 .map(a -> a.replace("ROLE_", ""))
                 .orElse("UNKNOWN")
                 : "UNKNOWN";
-        return new SessionInfo(username, role);
+        Instant loginTime = extractLoginTime(request);
+        return new SessionInfo(username, role, loginTime);
+    }
+
+    /**
+     * Extracts the issued-at time from the JWT token in the request.
+     * Falls back to the {@code token} query parameter (used by SSE connections).
+     */
+    private Instant extractLoginTime(HttpServletRequest request) {
+        try {
+            String token = null;
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                token = authHeader.substring(7);
+            }
+            if (token == null) {
+                token = request.getParameter("token");
+            }
+            if (token != null && jwtService != null) {
+                return jwtService.extractIssuedAt(token);
+            }
+        } catch (Exception ex) {
+            LOG.debug("Could not extract login time from JWT", ex);
+        }
+        return null;
     }
 
     private record EmitterEntry(SseEmitter emitter, ScheduledFuture<?> task) {

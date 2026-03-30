@@ -181,6 +181,8 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      cache:
+        time-to-live: 30s
   health:
     circuitbreakers:
       enabled: true

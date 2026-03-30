@@ -31,7 +31,7 @@ class StatusControllerTest {
 
     @Mock private HealthEndpoint healthEndpoint;
 
-    private static final SessionInfo TEST_SESSION = new SessionInfo("admin", "ADMIN");
+    private static final SessionInfo TEST_SESSION = new SessionInfo("admin", "ADMIN", null);
 
     @Nested
     @DisplayName("buildStatus")
@@ -41,22 +41,24 @@ class StatusControllerTest {
         @DisplayName("UP when all components are healthy")
         void upWhenAllHealthy() {
             HealthDescriptor dbHealth = indicated(Status.UP, null);
-            HealthDescriptor anthropicSvc = indicated(Status.UP, "CLOSED");
-            HealthDescriptor openMeteoSvc = indicated(Status.UP, null);
-            HealthDescriptor cbHealth = compositeOf(
-                    Map.of("anthropic", anthropicSvc, "open-meteo", openMeteoSvc));
+            HealthDescriptor openMeteoProbe = indicatedWithLatency(Status.UP, 42L);
+            HealthDescriptor tideCheckProbe = indicatedWithLatency(Status.UP, 118L);
+            HealthDescriptor claudeApiProbe = indicatedWithLatency(Status.UP, 89L);
             HealthDescriptor root = compositeOf(
-                    Map.of("db", dbHealth, "circuitBreakers", cbHealth));
+                    Map.of("db", dbHealth,
+                            "openMeteo", openMeteoProbe,
+                            "tideCheck", tideCheckProbe,
+                            "claudeApi", claudeApiProbe));
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.status()).isEqualTo("UP");
             assertThat(response.degraded()).isEmpty();
             assertThat(response.database().status()).isEqualTo("UP");
-            assertThat(response.services()).containsKeys("anthropic", "open-meteo");
-            assertThat(response.services().get("anthropic").detail()).isEqualTo("CLOSED");
+            assertThat(response.services()).containsKeys("openMeteo", "tideCheck", "claudeApi");
+            assertThat(response.services().get("openMeteo").latencyMs()).isEqualTo(42L);
             assertThat(response.session().username()).isEqualTo("admin");
         }
 
@@ -67,7 +69,7 @@ class StatusControllerTest {
             HealthDescriptor root = compositeOf(Map.of("db", dbHealth));
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.status()).isEqualTo("DOWN");
@@ -82,7 +84,7 @@ class StatusControllerTest {
             HealthDescriptor root = compositeOf(Map.of("db", dbHealth, "mail", mailHealth));
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.status()).isEqualTo("DEGRADED");
@@ -98,7 +100,7 @@ class StatusControllerTest {
                     Map.of("db", dbHealth, "rateLimiters", rlHealth));
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.status()).isEqualTo("UP");
@@ -117,7 +119,7 @@ class StatusControllerTest {
             props.setProperty("dirty", "false");
             GitProperties gitProperties = new GitProperties(props);
 
-            StatusController controller = new StatusController(healthEndpoint, gitProperties);
+            StatusController controller = new StatusController(healthEndpoint, gitProperties, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.build().commitId()).isEqualTo("abc1234");
@@ -126,12 +128,28 @@ class StatusControllerTest {
         }
 
         @Test
+        @DisplayName("DEGRADED when probe component is down (soft failure)")
+        void degradedWhenProbeDown() {
+            HealthDescriptor dbHealth = indicated(Status.UP, null);
+            HealthDescriptor openMeteoProbe = indicatedWithLatency(Status.DOWN, 5001L);
+            HealthDescriptor root = compositeOf(
+                    Map.of("db", dbHealth, "openMeteo", openMeteoProbe));
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.status()).isEqualTo("DEGRADED");
+            assertThat(response.degraded()).contains("openMeteo");
+        }
+
+        @Test
         @DisplayName("Null GitProperties produces empty build info")
         void nullGitProperties() {
             HealthDescriptor root = compositeOf(Map.of());
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.build().commitId()).isNull();
@@ -149,6 +167,20 @@ class StatusControllerTest {
         lenient().when(descriptor.getStatus()).thenReturn(status);
         if (stateDetail != null) {
             lenient().when(descriptor.getDetails()).thenReturn(Map.of("state", stateDetail));
+        } else {
+            lenient().when(descriptor.getDetails()).thenReturn(Map.of());
+        }
+        return descriptor;
+    }
+
+    /**
+     * Creates an {@link IndicatedHealthDescriptor} mock with latencyMs detail (probe-style).
+     */
+    private static HealthDescriptor indicatedWithLatency(Status status, Long latencyMs) {
+        IndicatedHealthDescriptor descriptor = mock(IndicatedHealthDescriptor.class);
+        lenient().when(descriptor.getStatus()).thenReturn(status);
+        if (latencyMs != null) {
+            lenient().when(descriptor.getDetails()).thenReturn(Map.of("latencyMs", latencyMs));
         } else {
             lenient().when(descriptor.getDetails()).thenReturn(Map.of());
         }

@@ -178,6 +178,8 @@ management:
   endpoint:
     health:
       show-details: always
+      cache:
+        time-to-live: 30s
   health:
     circuitbreakers:
       enabled: true

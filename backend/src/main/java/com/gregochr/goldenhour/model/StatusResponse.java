@@ -27,10 +27,11 @@ public record StatusResponse(
     /**
      * Health status of a single component.
      *
-     * @param status status string ({@code "UP"}, {@code "DOWN"}, {@code "UNKNOWN"})
-     * @param detail optional detail (e.g. circuit breaker state)
+     * @param status    status string ({@code "UP"}, {@code "DOWN"}, {@code "UNKNOWN"})
+     * @param detail    optional detail (e.g. circuit breaker state)
+     * @param latencyMs optional probe latency in milliseconds
      */
-    public record ComponentStatus(String status, String detail) {
+    public record ComponentStatus(String status, String detail, Long latencyMs) {
     }
 
     /**
@@ -47,9 +48,10 @@ public record StatusResponse(
     /**
      * Authenticated session info.
      *
-     * @param username the authenticated user's username
-     * @param role     the user's role (e.g. {@code "ADMIN"}, {@code "PRO_USER"})
+     * @param username  the authenticated user's username
+     * @param role      the user's role (e.g. {@code "ADMIN"}, {@code "PRO_USER"})
+     * @param loginTime the instant the current JWT was issued (may be {@code null})
      */
-    public record SessionInfo(String username, String role) {
+    public record SessionInfo(String username, String role, Instant loginTime) {
     }
 }

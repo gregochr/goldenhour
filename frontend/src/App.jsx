@@ -72,7 +72,8 @@ function AppInner() {
   const { locations, loading, error, refresh } = useForecasts();
   const {
     status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
-    build: healthBuild, services: healthServices,
+    build: healthBuild, services: healthServices, database: healthDatabase,
+    session: healthSession,
   } = useHealthStatus();
   const { lastCompletedRun } = useRunNotifications(!!token);
   const [showRunBanner, setShowRunBanner] = useState(false);
@@ -171,7 +172,7 @@ function AppInner() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} />}
+            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} database={healthDatabase} session={healthSession} />}
             <button
               className="btn-secondary text-xs"
               onClick={logout}

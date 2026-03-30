@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -105,5 +106,17 @@ class JwtServiceTest {
     void extractExpiry_returnsNonNullDate() {
         String token = jwtService.generateAccessToken("bob", UserRole.LITE_USER);
         assertThat(jwtService.extractExpiry(token)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("extractIssuedAt returns an Instant close to now")
+    void extractIssuedAt_returnsInstantCloseToNow() {
+        Instant before = Instant.now().minusSeconds(1);
+        String token = jwtService.generateAccessToken("alice", UserRole.ADMIN);
+        Instant issuedAt = jwtService.extractIssuedAt(token);
+
+        assertThat(issuedAt).isNotNull();
+        assertThat(issuedAt).isAfterOrEqualTo(before);
+        assertThat(issuedAt).isBeforeOrEqualTo(Instant.now().plusSeconds(1));
     }
 }
