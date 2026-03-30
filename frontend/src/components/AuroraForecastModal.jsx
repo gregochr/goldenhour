@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { getAuroraForecastPreview, runAuroraForecast } from '../api/auroraApi';
+import Modal from './shared/Modal.jsx';
 
 /** Rough cost estimate per Claude call in USD (Haiku model). */
 const COST_PER_NIGHT_USD = 0.01;
@@ -79,21 +80,7 @@ function AuroraForecastModal({ onClose, onComplete }) {
     : null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      data-testid="aurora-forecast-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Aurora forecast night selector"
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal panel */}
+    <Modal label="Aurora forecast night selector" onClose={onClose} bare data-testid="aurora-forecast-modal">
       <div className="relative w-full max-w-md bg-plex-surface border border-plex-border rounded-xl shadow-2xl z-10">
         {/* Header */}
         <div className="px-5 py-4 border-b border-plex-border">
@@ -208,7 +195,7 @@ function AuroraForecastModal({ onClose, onComplete }) {
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

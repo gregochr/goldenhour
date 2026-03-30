@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
+import Modal from './shared/Modal.jsx';
 import { simulateAurora, clearSimulation } from '../api/auroraApi';
 
 const PRESETS = [
@@ -67,20 +68,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      data-testid="aurora-simulate-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Aurora simulation controls"
-    >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
+    <Modal label="Aurora simulation controls" onClose={onClose} bare data-testid="aurora-simulate-modal">
       {/* Modal panel */}
       <div className="relative w-full max-w-md bg-plex-surface border border-plex-border rounded-xl shadow-2xl z-10">
         {/* Header */}
@@ -209,7 +197,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

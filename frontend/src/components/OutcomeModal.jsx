@@ -1,6 +1,7 @@
 import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { recordOutcome } from '../api/forecastApi.js';
+import Modal from './shared/Modal.jsx';
 
 /**
  * Modal dialog for recording an actual observed sunrise/sunset outcome.
@@ -51,12 +52,7 @@ export default function OutcomeModal({
   }, null);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="outcome-modal-title"
-    >
+    <Modal label={`Record ${type.charAt(0) + type.slice(1).toLowerCase()} Outcome — ${date}`} onClose={onClose} bare>
       <div data-testid="outcome-form" className="card w-full max-w-md mx-4">
         <h2 id="outcome-modal-title" className="text-lg font-semibold text-plex-text mb-4">
           Record {type.charAt(0) + type.slice(1).toLowerCase()} Outcome — {date}
@@ -178,7 +174,7 @@ export default function OutcomeModal({
           </form>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }
 

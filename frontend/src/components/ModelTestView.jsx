@@ -3,6 +3,10 @@ import { runModelTest, runModelTestForLocation, rerunModelTest, rerunModelTestDe
 import { fetchLocations } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
+import useConfirmDialog from '../hooks/useConfirmDialog.js';
+import ConfirmDialog from './shared/ConfirmDialog.jsx';
+import ErrorBanner from './shared/ErrorBanner.jsx';
+import Modal from './shared/Modal.jsx';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -18,7 +22,7 @@ const ModelTestView = () => {
   const [running, setRunning] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
   const [error, setError] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const [allLocations, setAllLocations] = useState([]);
   const [allRegions, setAllRegions] = useState([]);
   const [locationPickerOpen, setLocationPickerOpen] = useState(false);
@@ -112,14 +116,14 @@ const ModelTestView = () => {
 
   const handleRunTest = () => {
     const testEntries = getTestSummary();
-    setConfirmDialog({
+    openDialog({
       title: 'Run Model Test',
       message: 'This will call all three Claude models (Haiku, Sonnet, Opus) for one location per region. This may incur significant API costs.',
       confirmLabel: 'Run Test',
       destructive: false,
       testEntries,
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setRunning(true);
         setError(null);
         try {
@@ -185,14 +189,14 @@ const ModelTestView = () => {
       const r = results.find((res) => res.locationName === name);
       return { region: r?.regionName || '', location: name };
     });
-    setConfirmDialog({
+    openDialog({
       title: 'Re-run (Fresh Data)',
       message: 'Same locations, fresh weather data, all 3 models.',
       confirmLabel: 'Re-run',
       destructive: false,
       testEntries,
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setRerunning(true);
         setError(null);
         try {
@@ -223,14 +227,14 @@ const ModelTestView = () => {
       setError('Cannot replay — this run has no stored atmospheric data (pre-V39 run).');
       return;
     }
-    setConfirmDialog({
+    openDialog({
       title: 'Re-run (Same Data — Determinism Test)',
       message: 'Same locations, identical weather data replayed from storage, all 3 models. Tests whether Claude produces consistent evaluations.',
       confirmLabel: 'Re-run (Same Data)',
       destructive: false,
       testEntries,
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setRerunningDeterministic(true);
         setError(null);
         try {
@@ -363,11 +367,7 @@ const ModelTestView = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
-          <p className="text-red-400 text-sm" data-testid="model-test-error">{error}</p>
-        </div>
-      )}
+      <ErrorBanner message={error} data-testid="model-test-error" />
 
       {/* Recent runs */}
       <div>
@@ -609,18 +609,7 @@ const ModelTestView = () => {
 
       {/* Expanded summary modal */}
       {expandedSummary && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Summary"
-          data-testid="summary-dialog"
-        >
-          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- backdrop dismiss */}
-          <div className="absolute inset-0" onClick={() => setExpandedSummary(null)} />
-          <div
-            className="relative bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-3"
-          >
+        <Modal label="Summary" onClose={() => setExpandedSummary(null)} maxWidth="lg" className="gap-3" data-testid="summary-dialog">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-plex-text">
                 {expandedSummary.model} — {expandedSummary.region}
@@ -636,20 +625,12 @@ const ModelTestView = () => {
             <p className="text-sm text-plex-text-secondary leading-relaxed whitespace-pre-wrap">
               {expandedSummary.text}
             </p>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Location picker modal */}
       {locationPickerOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Test One Location"
-          data-testid="location-picker-dialog"
-        >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+        <Modal label="Test One Location" onClose={() => setLocationPickerOpen(false)} data-testid="location-picker-dialog">
             <p className="text-sm font-semibold text-plex-text">Test One Location</p>
             <p className="text-sm text-plex-text-secondary">
               Select a location to test with all three Claude models using identical weather data.
@@ -703,57 +684,33 @@ const ModelTestView = () => {
                 Run Test
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Confirmation dialog */}
       {confirmDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmDialog.title}
-          data-testid="confirm-dialog"
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={closeDialog}
+          destructive={confirmDialog.destructive}
         >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
-            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
-            {confirmDialog.testEntries && confirmDialog.testEntries.length > 0 && (
-              <div className="max-h-48 overflow-y-auto text-xs space-y-1">
-                {confirmDialog.testEntries.map((e) => (
-                  <div key={e.region} className="flex gap-2">
-                    <span className="text-plex-text font-medium">{e.region}:</span>
-                    <span className="text-plex-text-muted">{e.location}</span>
-                  </div>
-                ))}
-                <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
-                  {confirmDialog.testEntries.length} region{confirmDialog.testEntries.length !== 1 ? 's' : ''} &times; 3 models = {confirmDialog.testEntries.length * 3} API calls
-                </p>
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-secondary text-sm"
-                onClick={() => setConfirmDialog(null)}
-                data-testid="confirm-dialog-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                className={`text-sm px-4 py-1.5 rounded font-medium ${
-                  confirmDialog.destructive
-                    ? 'bg-red-700 hover:bg-red-600 text-white'
-                    : 'btn-primary'
-                }`}
-                onClick={confirmDialog.onConfirm}
-                data-testid="confirm-dialog-confirm"
-              >
-                {confirmDialog.confirmLabel}
-              </button>
+          {confirmDialog.testEntries && confirmDialog.testEntries.length > 0 && (
+            <div className="max-h-48 overflow-y-auto text-xs space-y-1">
+              {confirmDialog.testEntries.map((e) => (
+                <div key={e.region} className="flex gap-2">
+                  <span className="text-plex-text font-medium">{e.region}:</span>
+                  <span className="text-plex-text-muted">{e.location}</span>
+                </div>
+              ))}
+              <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
+                {confirmDialog.testEntries.length} region{confirmDialog.testEntries.length !== 1 ? 's' : ''} &times; 3 models = {confirmDialog.testEntries.length * 3} API calls
+              </p>
             </div>
-          </div>
-        </div>
+          )}
+        </ConfirmDialog>
       )}
     </div>
   );

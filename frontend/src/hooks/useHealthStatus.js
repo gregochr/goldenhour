@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
+import createEventSource from '../utils/createEventSource.js';
 
 /**
  * Connects to the SSE status stream and pushes health updates into state.
@@ -17,35 +18,32 @@ export function useHealthStatus() {
   useEffect(() => {
     if (!token) return;
 
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-    const url = `${baseUrl}/api/status/stream?token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-
-    es.addEventListener('status', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        setHealth({
-          status: data.status,
-          degraded: data.degraded || [],
-          checkedAt: new Date(),
-          build: data.build || null,
-          session: data.session || null,
-          database: data.database || null,
-          services: data.services || null,
-        });
-      } catch {
-        // Ignore malformed events
-      }
-    });
-
-    es.onerror = () => {
-      setHealth((prev) => ({
-        ...prev,
-        status: prev.status === null ? 'DOWN' : prev.status,
-      }));
-    };
-
-    return () => es.close();
+    return createEventSource(
+      '/api/status/stream',
+      {},
+      {
+        status: (data) => {
+          setHealth({
+            status: data.status,
+            degraded: data.degraded || [],
+            checkedAt: new Date(),
+            build: data.build || null,
+            session: data.session || null,
+            database: data.database || null,
+            services: data.services || null,
+          });
+        },
+      },
+      {
+        getToken: () => token,
+        onError: () => {
+          setHealth((prev) => ({
+            ...prev,
+            status: prev.status === null ? 'DOWN' : prev.status,
+          }));
+        },
+      },
+    );
   }, [token]);
 
   return health;

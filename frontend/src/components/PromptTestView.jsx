@@ -3,6 +3,10 @@ import { runPromptTest, replayPromptTest, getPromptTestRun, getPromptTestRuns, g
 import { getAvailableModels } from '../api/modelsApi';
 import { fetchLocations } from '../api/forecastApi';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
+import useConfirmDialog from '../hooks/useConfirmDialog.js';
+import ConfirmDialog from './shared/ConfirmDialog.jsx';
+import ErrorBanner from './shared/ErrorBanner.jsx';
+import Modal from './shared/Modal.jsx';
 import MarkerPopupContent from './MarkerPopupContent';
 
 const USD_TO_GBP = 0.79;
@@ -29,7 +33,7 @@ const PromptTestView = () => {
   const [replaying, setReplaying] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
   const [error, setError] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const [selectedModel, setSelectedModel] = useState('HAIKU');
   const [selectedRunType, setSelectedRunType] = useState('VERY_SHORT_TERM');
   const [gitInfo, setGitInfo] = useState(null);
@@ -193,13 +197,13 @@ const PromptTestView = () => {
     const totalSlots = colourLocationCount * runTypeInfo.days;
     const estimatedCostUsd = COST_PER_CALL[selectedModel] * totalSlots;
     const estimatedCostGbp = estimatedCostUsd * USD_TO_GBP;
-    setConfirmDialog({
+    openDialog({
       title: 'Run Prompt Test',
       message: `This will evaluate ${colourLocationCount} colour location${colourLocationCount !== 1 ? 's' : ''} \u00D7 ${runTypeInfo.days} days (${runTypeInfo.desc}) using ${selectedModel}.`,
       costLine: `Estimated cost: ~\u00A3${estimatedCostGbp.toFixed(3)} (~$${estimatedCostUsd.toFixed(3)}) \u2014 ${totalSlots} evaluations`,
       confirmLabel: 'Run Test',
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setRunning(true);
         setError(null);
         try {
@@ -230,7 +234,7 @@ const PromptTestView = () => {
     const currentGit = formatGitBadge(gitInfo);
     const sameCode = parentGit && currentGit && parentGit === currentGit;
 
-    setConfirmDialog({
+    openDialog({
       title: 'Replay Prompt Test',
       message: `Re-evaluates ${run.locationsCount || '?'} location${run.locationsCount !== 1 ? 's' : ''} using stored data from Run #${runId}. Model: ${run.evaluationModel}.`,
       gitComparison: {
@@ -242,7 +246,7 @@ const PromptTestView = () => {
       },
       confirmLabel: 'Replay',
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setReplaying(true);
         setError(null);
         try {
@@ -606,11 +610,7 @@ const PromptTestView = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
-          <p className="text-red-400 text-sm" data-testid="prompt-test-error">{error}</p>
-        </div>
-      )}
+      <ErrorBanner message={error} data-testid="prompt-test-error" />
 
       {/* Comparison panel — shown when exactly 2 runs checked */}
       {renderComparisonPanel()}
@@ -860,16 +860,7 @@ const PromptTestView = () => {
 
       {/* Expanded summary modal */}
       {expandedSummary && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Summary"
-          data-testid="summary-dialog"
-        >
-          {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- backdrop dismiss */}
-          <div className="absolute inset-0" onClick={() => setExpandedSummary(null)} />
-          <div className="relative bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-3">
+        <Modal label="Summary" onClose={() => setExpandedSummary(null)} maxWidth="lg" className="gap-3" data-testid="summary-dialog">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-plex-text">
                 {expandedSummary.location}
@@ -885,8 +876,7 @@ const PromptTestView = () => {
             <p className="text-sm text-plex-text-secondary leading-relaxed whitespace-pre-wrap">
               {expandedSummary.text}
             </p>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Preview popup modal */}
@@ -896,16 +886,7 @@ const PromptTestView = () => {
         const forecast = mapResultToForecast(previewResult);
         const eventType = previewResult.targetType === 'SUNRISE' ? 'SUNRISE' : 'SUNSET';
         return (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Preview popup"
-            data-testid="preview-dialog"
-          >
-            {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events -- backdrop dismiss */}
-            <div className="absolute inset-0" onClick={() => setPreviewResult(null)} />
-            <div className="relative bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-3">
+          <Modal label="Preview popup" onClose={() => setPreviewResult(null)} className="gap-3" data-testid="preview-dialog">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs text-plex-text-muted">Popup Preview</p>
                 <button
@@ -926,61 +907,40 @@ const PromptTestView = () => {
                 date={previewResult.targetDate || ''}
                 darkMode={true}
               />
-            </div>
-          </div>
+          </Modal>
         );
       })()}
 
       {/* Confirmation dialog */}
       {confirmDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmDialog.title}
-          data-testid="confirm-dialog"
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={closeDialog}
         >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
-            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
-            {confirmDialog.costLine && (
-              <p className="text-xs text-plex-text-muted">{confirmDialog.costLine}</p>
-            )}
-            {confirmDialog.gitComparison && (
-              <div className="text-xs space-y-1 bg-plex-bg rounded-lg p-3 border border-plex-border">
-                <div className="flex justify-between">
-                  <span className="text-plex-text-muted">{confirmDialog.gitComparison.parentLabel}:</span>
-                  <span className="font-mono text-plex-text-secondary">{confirmDialog.gitComparison.parentGit}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-plex-text-muted">{confirmDialog.gitComparison.currentLabel}:</span>
-                  <span className="font-mono text-plex-text-secondary">{confirmDialog.gitComparison.currentGit}</span>
-                </div>
-                {confirmDialog.gitComparison.sameCode && (
-                  <p className="text-amber-400 pt-1 border-t border-plex-border">
-                    Same commit — prompts are identical. Consider committing changes first.
-                  </p>
-                )}
+          {confirmDialog.costLine && (
+            <p className="text-xs text-plex-text-muted">{confirmDialog.costLine}</p>
+          )}
+          {confirmDialog.gitComparison && (
+            <div className="text-xs space-y-1 bg-plex-bg rounded-lg p-3 border border-plex-border">
+              <div className="flex justify-between">
+                <span className="text-plex-text-muted">{confirmDialog.gitComparison.parentLabel}:</span>
+                <span className="font-mono text-plex-text-secondary">{confirmDialog.gitComparison.parentGit}</span>
               </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-secondary text-sm"
-                onClick={() => setConfirmDialog(null)}
-                data-testid="confirm-dialog-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary text-sm"
-                onClick={confirmDialog.onConfirm}
-                data-testid="confirm-dialog-confirm"
-              >
-                {confirmDialog.confirmLabel}
-              </button>
+              <div className="flex justify-between">
+                <span className="text-plex-text-muted">{confirmDialog.gitComparison.currentLabel}:</span>
+                <span className="font-mono text-plex-text-secondary">{confirmDialog.gitComparison.currentGit}</span>
+              </div>
+              {confirmDialog.gitComparison.sameCode && (
+                <p className="text-amber-400 pt-1 border-t border-plex-border">
+                  Same commit — prompts are identical. Consider committing changes first.
+                </p>
+              )}
             </div>
-          </div>
-        </div>
+          )}
+        </ConfirmDialog>
       )}
     </div>
   );

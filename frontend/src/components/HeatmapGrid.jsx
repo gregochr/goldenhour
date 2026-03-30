@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
+import useConfirmDialog from '../hooks/useConfirmDialog.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
 
@@ -232,7 +233,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
   evaluationScores = new Map(), evaluationProgress, onRunEvaluation, canRunEvaluation }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
 
   const events = [];
   if (day) {
@@ -379,7 +380,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
           ) : progressMatch?.status === 'error' ? (
             <button
               data-testid="run-forecast-btn"
-              className="btn-secondary text-xs text-red-400 border-red-700"
+              className="btn-secondary text-xs text-red-400 border-red-700 hover:bg-red-900/40"
               onClick={() => onRunEvaluation?.(regionName, date, targetType)}
             >
               Forecast failed — retry?
@@ -387,15 +388,16 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
           ) : (
             <button
               data-testid="run-forecast-btn"
-              className="btn-secondary text-xs"
+              className="btn-secondary text-xs hover:bg-green-800/60 hover:text-green-200"
               onClick={() => {
                 const count = goMarginalSlots.length;
-                setConfirmDialog({
+                openDialog({
                   title: 'Run Claude Evaluation',
                   message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with Claude? Estimated cost: ~${count * 3}p (${count} × ~3p).`,
                   confirmLabel: 'Run',
+                  maxWidth: 'sm',
                   onConfirm: () => {
-                    setConfirmDialog(null);
+                    closeDialog();
                     onRunEvaluation?.(regionName, date, targetType);
                   },
                 });
@@ -407,36 +409,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
         </div>
       )}
 
-      {confirmDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmDialog.title}
-          data-testid="confirm-dialog"
-        >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
-            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-secondary text-sm"
-                onClick={() => setConfirmDialog(null)}
-                data-testid="confirm-dialog-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary text-sm"
-                onClick={confirmDialog.onConfirm}
-                data-testid="confirm-dialog-confirm"
-              >
-                {confirmDialog.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {dialogElement}
     </div>
   );
 }

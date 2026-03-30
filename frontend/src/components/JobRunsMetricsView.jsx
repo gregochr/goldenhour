@@ -8,6 +8,9 @@ import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import MetricsSummary from './MetricsSummary';
+import useConfirmDialog from '../hooks/useConfirmDialog.js';
+import ConfirmDialog from './shared/ConfirmDialog.jsx';
+import ErrorBanner from './shared/ErrorBanner.jsx';
 import JobRunsGrid from './JobRunsGrid';
 import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
@@ -168,7 +171,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
   const [runStatus, setRunStatus] = useState(null);
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const { config: confirmDialog, openDialog, closeDialog, setConfig: setConfirmDialog } = useConfirmDialog();
   const [allLocations, setAllLocations] = useState([]);
   const [dateRange, setDateRange] = useState('7d');
   const [showBriefingRuns, setShowBriefingRuns] = useState(false);
@@ -242,7 +245,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       : null;
     // Whether any location has a cached drive time (enables the filter UI)
     const hasDriveTimes = allLocations.some((loc) => loc.driveDurationMinutes != null);
-    setConfirmDialog({
+    openDialog({
       title,
       message,
       confirmLabel,
@@ -255,7 +258,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       hasDriveTimes,
       driveTimeThreshold: 0,
       onConfirm: async (resolvedSlots, threshold) => {
-        setConfirmDialog(null);
+        closeDialog();
         setRunning(true);
         setRunStatus(null);
         try {
@@ -381,14 +384,14 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       allLocations.filter((loc) => (loc.locationType || []).includes('SEASCAPE')),
       'TIDE',
     );
-    setConfirmDialog({
+    openDialog({
       title: 'Backfill Tide History',
       message: `Backfill 12 months of historical tide data for ${seascapeCoastal.length} SEASCAPE location(s)? This fetches in 7-day chunks, skipping dates where data already exists. Multiple WorldTides API calls will be made per location.`,
       confirmLabel: 'Backfill',
       destructive: false,
       locationSummary: summary,
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setRunningBackfill(true);
         setRunStatus(null);
         try {
@@ -539,11 +542,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         />
       )}
 
-      {error && (
-        <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
-          <p className="text-red-400 text-sm">{error}</p>
-        </div>
-      )}
+      <ErrorBanner message={error} />
 
       {/* Summary cards */}
       <MetricsSummary runs={runs} apiCalls={allApiCalls} range={dateRange} onRangeChange={setDateRange} />
@@ -594,157 +593,133 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
 
       {/* Styled confirmation dialog */}
       {confirmDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmDialog.title}
-          data-testid="confirm-dialog"
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          onConfirm={() => confirmDialog.onConfirm(confirmDialog.slots, confirmDialog.driveTimeThreshold || 0)}
+          onCancel={closeDialog}
+          destructive={confirmDialog.destructive}
         >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
-            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
-
-            {/* Slot selector — VST and ST only */}
-            {confirmDialog.slots && (() => {
-              const slots = confirmDialog.slots;
-              const anyDeselected = slots.some((s) => !s.isPast && !s.selected);
-              const hasJfdi = confirmDialog.activeStrategies?.some((s) => s.type === 'FORCE_IMMINENT');
-              const hasNextEventOnly = confirmDialog.activeStrategies?.some((s) => s.type === 'NEXT_EVENT_ONLY');
-              const uniqueDates = [...new Set(slots.map((s) => s.date))];
-              return (
-                <div data-testid="confirm-dialog-slots">
-                  <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Slots to evaluate</p>
-                  <div className="flex flex-col gap-1.5">
-                    {uniqueDates.map((date, di) => (
-                      <div key={date} className="flex items-center gap-3">
-                        <span className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
-                        {slots.filter((s) => s.date === date).map((slot) => {
-                          const id = `slot-${slot.date}-${slot.targetType}`;
-                          return (
-                            <label
-                              key={id}
-                              htmlFor={id}
-                              className={`flex items-center gap-1.5 text-xs cursor-pointer select-none ${slot.isPast ? 'opacity-40 cursor-not-allowed' : 'text-plex-text'}`}
-                            >
-                              <input
-                                id={id}
-                                type="checkbox"
-                                checked={slot.selected}
-                                disabled={slot.isPast}
-                                data-testid={id}
-                                onChange={() => {
-                                  if (slot.isPast) return;
-                                  setConfirmDialog((prev) => ({
-                                    ...prev,
-                                    slots: prev.slots.map((s) =>
-                                      s.date === slot.date && s.targetType === slot.targetType
-                                        ? { ...s, selected: !s.selected }
-                                        : s,
-                                    ),
-                                  }));
-                                }}
-                                className="accent-blue-400"
-                              />
-                              {slot.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
-                              {slot.isPast && <span className="text-plex-text-muted italic">(past)</span>}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                  {anyDeselected && (hasJfdi || hasNextEventOnly) && (
-                    <p className="mt-2 text-xs text-amber-400" data-testid="slot-override-warning">
-                      ⚠️{' '}
-                      {hasJfdi && hasNextEventOnly
-                        ? 'JFDI and Next Event Only are'
-                        : hasJfdi
-                          ? 'JFDI (Always Evaluate Today) is'
-                          : 'Next Event Only is'}{' '}
-                      active — {hasJfdi && hasNextEventOnly ? 'they' : 'it'} will override your slot selection.
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
-
-            {/* Drive time threshold — only for VST/ST with cached drive times */}
-            {confirmDialog.hasDriveTimes && confirmDialog.slots && (() => {
-              const threshold = confirmDialog.driveTimeThreshold || 0;
-              const excludedCount = threshold > 0
-                ? allLocations.filter((loc) => loc.driveDurationMinutes == null || loc.driveDurationMinutes > threshold).length
-                : 0;
-              return (
-                <div data-testid="confirm-dialog-drive-time">
-                  <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Drive time limit</p>
-                  <div className="flex items-center gap-3">
-                    <select
-                      value={threshold}
-                      onChange={(e) => setConfirmDialog((prev) => ({ ...prev, driveTimeThreshold: parseInt(e.target.value, 10) }))}
-                      className="text-xs px-2 py-1 bg-plex-surface-light border border-plex-border rounded text-plex-text"
-                      data-testid="drive-time-threshold-select"
-                    >
-                      <option value={0}>All distances</option>
-                      <option value={30}>Within 30 min</option>
-                      <option value={45}>Within 45 min</option>
-                      <option value={60}>Within 60 min</option>
-                      <option value={90}>Within 90 min</option>
-                      <option value={120}>Within 2 hours</option>
-                    </select>
-                    {excludedCount > 0 && (
-                      <span className="text-xs text-amber-400">
-                        {excludedCount} location{excludedCount !== 1 ? 's' : ''} excluded
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {confirmDialog.activeStrategies?.length > 0 && (
-              <div data-testid="confirm-dialog-strategies">
-                <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Active optimisations</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {confirmDialog.activeStrategies.map((s) => (
-                    <span
-                      key={s.type}
-                      className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40"
-                    >
-                      {s.label}{s.param != null ? ` (${s.param})` : ''}
-                    </span>
+          {/* Slot selector — VST and ST only */}
+          {confirmDialog.slots && (() => {
+            const slots = confirmDialog.slots;
+            const anyDeselected = slots.some((s) => !s.isPast && !s.selected);
+            const hasJfdi = confirmDialog.activeStrategies?.some((s) => s.type === 'FORCE_IMMINENT');
+            const hasNextEventOnly = confirmDialog.activeStrategies?.some((s) => s.type === 'NEXT_EVENT_ONLY');
+            const uniqueDates = [...new Set(slots.map((s) => s.date))];
+            return (
+              <div data-testid="confirm-dialog-slots">
+                <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Slots to evaluate</p>
+                <div className="flex flex-col gap-1.5">
+                  {uniqueDates.map((date, di) => (
+                    <div key={date} className="flex items-center gap-3">
+                      <span className="text-xs text-plex-text-muted w-20 shrink-0">{formatSlotDate(date, di)}</span>
+                      {slots.filter((s) => s.date === date).map((slot) => {
+                        const id = `slot-${slot.date}-${slot.targetType}`;
+                        return (
+                          <label
+                            key={id}
+                            htmlFor={id}
+                            className={`flex items-center gap-1.5 text-xs cursor-pointer select-none ${slot.isPast ? 'opacity-40 cursor-not-allowed' : 'text-plex-text'}`}
+                          >
+                            <input
+                              id={id}
+                              type="checkbox"
+                              checked={slot.selected}
+                              disabled={slot.isPast}
+                              data-testid={id}
+                              onChange={() => {
+                                if (slot.isPast) return;
+                                setConfirmDialog((prev) => ({
+                                  ...prev,
+                                  slots: prev.slots.map((s) =>
+                                    s.date === slot.date && s.targetType === slot.targetType
+                                      ? { ...s, selected: !s.selected }
+                                      : s,
+                                  ),
+                                }));
+                              }}
+                              className="accent-blue-400"
+                            />
+                            {slot.targetType === 'SUNRISE' ? '🌅 Sunrise' : '🌇 Sunset'}
+                            {slot.isPast && <span className="text-plex-text-muted italic">(past)</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
                   ))}
                 </div>
+                {anyDeselected && (hasJfdi || hasNextEventOnly) && (
+                  <p className="mt-2 text-xs text-amber-400" data-testid="slot-override-warning">
+                    ⚠️{' '}
+                    {hasJfdi && hasNextEventOnly
+                      ? 'JFDI and Next Event Only are'
+                      : hasJfdi
+                        ? 'JFDI (Always Evaluate Today) is'
+                        : 'Next Event Only is'}{' '}
+                    active — {hasJfdi && hasNextEventOnly ? 'they' : 'it'} will override your slot selection.
+                  </p>
+                )}
               </div>
-            )}
-            {confirmDialog.locationSummary && (
-              <LocationSummary
-                groups={confirmDialog.locationSummary.groups}
-                total={confirmDialog.locationSummary.total}
-              />
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-secondary text-sm"
-                onClick={() => setConfirmDialog(null)}
-                data-testid="confirm-dialog-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                className={`text-sm px-4 py-1.5 rounded font-medium ${
-                  confirmDialog.destructive
-                    ? 'bg-red-700 hover:bg-red-600 text-white'
-                    : 'btn-primary'
-                }`}
-                onClick={() => confirmDialog.onConfirm(confirmDialog.slots, confirmDialog.driveTimeThreshold || 0)}
-                data-testid="confirm-dialog-confirm"
-              >
-                {confirmDialog.confirmLabel}
-              </button>
+            );
+          })()}
+
+          {/* Drive time threshold — only for VST/ST with cached drive times */}
+          {confirmDialog.hasDriveTimes && confirmDialog.slots && (() => {
+            const threshold = confirmDialog.driveTimeThreshold || 0;
+            const excludedCount = threshold > 0
+              ? allLocations.filter((loc) => loc.driveDurationMinutes == null || loc.driveDurationMinutes > threshold).length
+              : 0;
+            return (
+              <div data-testid="confirm-dialog-drive-time">
+                <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Drive time limit</p>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={threshold}
+                    onChange={(e) => setConfirmDialog((prev) => ({ ...prev, driveTimeThreshold: parseInt(e.target.value, 10) }))}
+                    className="text-xs px-2 py-1 bg-plex-surface-light border border-plex-border rounded text-plex-text"
+                    data-testid="drive-time-threshold-select"
+                  >
+                    <option value={0}>All distances</option>
+                    <option value={30}>Within 30 min</option>
+                    <option value={45}>Within 45 min</option>
+                    <option value={60}>Within 60 min</option>
+                    <option value={90}>Within 90 min</option>
+                    <option value={120}>Within 2 hours</option>
+                  </select>
+                  {excludedCount > 0 && (
+                    <span className="text-xs text-amber-400">
+                      {excludedCount} location{excludedCount !== 1 ? 's' : ''} excluded
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {confirmDialog.activeStrategies?.length > 0 && (
+            <div data-testid="confirm-dialog-strategies">
+              <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-1.5">Active optimisations</p>
+              <div className="flex flex-wrap gap-1.5">
+                {confirmDialog.activeStrategies.map((s) => (
+                  <span
+                    key={s.type}
+                    className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-900/40 text-blue-300 border border-blue-700/40"
+                  >
+                    {s.label}{s.param != null ? ` (${s.param})` : ''}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-        </div>
+          )}
+          {confirmDialog.locationSummary && (
+            <LocationSummary
+              groups={confirmDialog.locationSummary.groups}
+              total={confirmDialog.locationSummary.total}
+            />
+          )}
+        </ConfirmDialog>
       )}
 
       {/* Aurora forecast night selector modal */}

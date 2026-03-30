@@ -230,10 +230,8 @@ describe('AuroraForecastModal', () => {
     renderModal(onClose);
     await waitFor(() => screen.getByTestId('aurora-forecast-modal'));
 
-    // Click the backdrop (the div behind the panel)
-    const modal = screen.getByTestId('aurora-forecast-modal');
-    // The backdrop is the first child div
-    const backdrop = modal.querySelector('[aria-hidden="true"]');
+    // Click the backdrop (created by Modal component)
+    const backdrop = screen.getByTestId('aurora-forecast-modal-backdrop');
     fireEvent.click(backdrop);
     expect(onClose).toHaveBeenCalled();
   });

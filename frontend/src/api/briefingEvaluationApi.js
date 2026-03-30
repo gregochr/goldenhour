@@ -1,3 +1,5 @@
+import createEventSource from '../utils/createEventSource.js';
+
 const BASE_URL = '/api';
 const TOKEN_KEY = 'goldenhour_token';
 
@@ -19,58 +21,17 @@ export function subscribeToBriefingEvaluation(
   regionName, date, targetType,
   onLocationScored, onProgress, onComplete, onLocationError, onError,
 ) {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const params = new URLSearchParams({
-    regionName,
-    date,
-    targetType,
-    token,
-  });
-  const url = `${BASE_URL}/briefing/evaluate?${params.toString()}`;
-  const source = new EventSource(url);
-
-  source.addEventListener('location-scored', (event) => {
-    try {
-      onLocationScored(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  source.addEventListener('progress', (event) => {
-    try {
-      onProgress(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  source.addEventListener('evaluation-complete', (event) => {
-    try {
-      onComplete(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-    source.close();
-  });
-
-  source.addEventListener('evaluation-error', (event) => {
-    try {
-      onLocationError(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  source.onerror = () => {
-    if (source.readyState === EventSource.CLOSED) {
-      return;
-    }
-    // Don't close — let EventSource's built-in reconnect handle transient errors.
-    onError?.();
-  };
-
-  return () => source.close();
+  return createEventSource(
+    `${BASE_URL}/briefing/evaluate`,
+    { regionName, date, targetType },
+    {
+      'location-scored': onLocationScored,
+      'progress': onProgress,
+      'evaluation-complete': onComplete,
+      'evaluation-error': onLocationError,
+    },
+    { onError, closeOn: 'evaluation-complete' },
+  );
 }
 
 /**

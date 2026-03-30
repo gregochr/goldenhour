@@ -7,6 +7,7 @@ import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
+import Modal from './shared/Modal.jsx';
 
 const SOLAR_EVENT_TYPES = [
   { value: 'SUNRISE', label: 'Sunrise', emoji: '🌅' },
@@ -1258,14 +1259,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
 
       {/* Confirm modal (add only) */}
       {confirmData && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Confirm location"
-          data-testid="confirm-location-modal"
-        >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+        <Modal label="Confirm location" onClose={() => setConfirmData(null)} data-testid="confirm-location-modal">
             <p className="text-sm font-semibold text-plex-text">
               Confirm New Location
             </p>
@@ -1324,20 +1318,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Tide stats modal */}
       {tideStatsModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Tide statistics"
-          data-testid="tide-stats-modal"
-        >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-lg flex flex-col gap-4">
+        <Modal label="Tide statistics" onClose={() => setTideStatsModal(null)} maxWidth="lg" data-testid="tide-stats-modal">
             <p className="text-sm font-semibold text-plex-text">
               Tide Statistics: <span className="text-cyan-400">{tideStatsModal.name}</span>
             </p>
@@ -1441,8 +1427,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             >
               Close
             </button>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

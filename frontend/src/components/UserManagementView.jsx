@@ -4,6 +4,8 @@ import axios from 'axios';
 import { resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser, resendVerification } from '../api/userApi.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
+import useConfirmDialog from '../hooks/useConfirmDialog.js';
+import Modal from './shared/Modal.jsx';
 
 /**
  * Sortable, filterable header cell for data tables.
@@ -160,7 +162,7 @@ export default function UserManagementView() {
   const [resetPasswordError, setResetPasswordError] = useState('');
 
   // Confirmation dialog state (shared for reset password and delete)
-  const [confirmDialog, setConfirmDialog] = useState(null);
+  const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
   // Delete state
   const [deleteError, setDeleteError] = useState('');
 
@@ -314,12 +316,13 @@ export default function UserManagementView() {
   }
 
   function handleResetPassword(user) {
-    setConfirmDialog({
+    openDialog({
       title: 'Reset Password',
       message: `Reset password for ${user.username}? A temporary password will be generated and emailed to them. They will be required to set a new password on next login.`,
       confirmLabel: 'Reset',
+      maxWidth: 'sm',
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setResetPasswordLoadingId(user.id);
         setResetPasswordError('');
         try {
@@ -335,12 +338,13 @@ export default function UserManagementView() {
   }
 
   function handleResendVerification(user) {
-    setConfirmDialog({
+    openDialog({
       title: 'Resend Verification',
       message: `Resend verification email to ${user.email}?`,
       confirmLabel: 'Send',
+      maxWidth: 'sm',
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setResendLoadingId(user.id);
         setResendError('');
         setResendSuccess('');
@@ -357,13 +361,14 @@ export default function UserManagementView() {
   }
 
   function handleDeleteUser(user) {
-    setConfirmDialog({
+    openDialog({
       title: 'Delete User',
       message: `Permanently delete ${user.username}? This action cannot be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
+      maxWidth: 'sm',
       onConfirm: async () => {
-        setConfirmDialog(null);
+        closeDialog();
         setDeleteError('');
         try {
           await deleteUser(user.id);
@@ -699,14 +704,7 @@ export default function UserManagementView() {
 
       {/* Temp password modal */}
       {tempPasswordModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Temporary password"
-          data-testid="temp-password-modal"
-        >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-md flex flex-col gap-4">
+        <Modal label="Temporary password" onClose={() => setTempPasswordModal(null)} data-testid="temp-password-modal">
             <p className="text-sm font-semibold text-plex-text">
               Temporary password for <span className="text-plex-gold">{tempPasswordModal.username}</span>
             </p>
@@ -735,44 +733,9 @@ export default function UserManagementView() {
             >
               Close
             </button>
-          </div>
-        </div>
+        </Modal>
       )}
-      {/* Confirmation dialog */}
-      {confirmDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmDialog.title}
-          data-testid="confirm-dialog"
-        >
-          <div className="bg-plex-surface border border-plex-border rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">{confirmDialog.title}</p>
-            <p className="text-sm text-plex-text-secondary">{confirmDialog.message}</p>
-            <div className="flex justify-end gap-2">
-              <button
-                className="btn-secondary text-sm"
-                onClick={() => setConfirmDialog(null)}
-                data-testid="confirm-dialog-cancel"
-              >
-                Cancel
-              </button>
-              <button
-                className={`text-sm px-4 py-1.5 rounded font-medium ${
-                  confirmDialog.destructive
-                    ? 'bg-red-700 hover:bg-red-600 text-white'
-                    : 'btn-primary'
-                }`}
-                onClick={confirmDialog.onConfirm}
-                data-testid="confirm-dialog-confirm"
-              >
-                {confirmDialog.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {dialogElement}
     </div>
   );
 }

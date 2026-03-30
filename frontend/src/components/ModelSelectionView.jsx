@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import InfoTip from './InfoTip.jsx';
+import ErrorBanner from './shared/ErrorBanner.jsx';
 
 const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
@@ -273,11 +274,7 @@ export default function ModelSelectionView() {
         ))}
       </div>
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-700 text-red-400 px-4 py-3 rounded-lg text-sm">
-          {error}
-        </div>
-      )}
+      <ErrorBanner message={error} />
 
       {success && (
         <div className="bg-green-900/30 border border-green-700 text-green-400 px-4 py-3 rounded-lg text-sm">

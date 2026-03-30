@@ -1,10 +1,9 @@
+import createEventSource from '../utils/createEventSource.js';
+
 const BASE_URL = '/api';
-const TOKEN_KEY = 'goldenhour_token';
 
 /**
  * Subscribes to live progress updates for a specific forecast run via SSE.
- * Reads the JWT from localStorage at connection time so the token is always
- * current, even if the axios interceptor has silently refreshed it.
  *
  * @param {number} runId - The job run ID.
  * @param {function} onTaskUpdate - Called with task update data on each state change.
@@ -14,77 +13,33 @@ const TOKEN_KEY = 'goldenhour_token';
  * @returns {function} Cleanup function to close the EventSource.
  */
 export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError) {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const url = `${BASE_URL}/forecast/run/${runId}/progress?token=${encodeURIComponent(token)}`;
-  const source = new EventSource(url);
-
-  source.addEventListener('task-update', (event) => {
-    try {
-      onTaskUpdate(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  source.addEventListener('run-summary', (event) => {
-    try {
-      onRunSummary(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  source.addEventListener('run-complete', (event) => {
-    try {
-      onRunComplete(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-    source.close();
-  });
-
-  source.onerror = () => {
-    if (source.readyState === EventSource.CLOSED) {
-      return;
-    }
-    // Don't close — let EventSource's built-in reconnect handle transient errors.
-    onError?.();
-  };
-
-  return () => source.close();
+  return createEventSource(
+    `${BASE_URL}/forecast/run/${runId}/progress`,
+    {},
+    {
+      'task-update': onTaskUpdate,
+      'run-summary': onRunSummary,
+      'run-complete': onRunComplete,
+    },
+    { onError, closeOn: 'run-complete' },
+  );
 }
 
 /**
  * Subscribes to run-complete notifications for the map view via SSE.
  * Fires a single event per completed run (lightweight, no per-location detail).
- * Reads the JWT from localStorage at connection time.
  *
  * @param {function} onRunComplete - Called with run complete data.
  * @param {function} onError - Called on connection error.
  * @returns {function} Cleanup function to close the EventSource.
  */
 export function subscribeToRunNotifications(onRunComplete, onError) {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const url = `${BASE_URL}/forecast/run/notifications?token=${encodeURIComponent(token)}`;
-  const source = new EventSource(url);
-
-  source.addEventListener('run-complete', (event) => {
-    try {
-      onRunComplete(JSON.parse(event.data));
-    } catch {
-      // ignore parse errors
-    }
-  });
-
-  source.onerror = () => {
-    if (source.readyState === EventSource.CLOSED) {
-      return;
-    }
-    // Don't close — let EventSource's built-in reconnect handle transient errors.
-    onError?.();
-  };
-
-  return () => source.close();
+  return createEventSource(
+    `${BASE_URL}/forecast/run/notifications`,
+    {},
+    { 'run-complete': onRunComplete },
+    { onError },
+  );
 }
 
 /**

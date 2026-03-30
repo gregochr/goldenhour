@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser } from '../api/authApi.js';
 import TurnstileWidget from './TurnstileWidget.jsx';
+import Modal from './shared/Modal.jsx';
 
 const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS' };
 
@@ -26,7 +27,7 @@ CheckItem.propTypes = {
  */
 function PrivacyModal({ onClose }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+    <Modal label="Privacy Policy" onClose={onClose} bare>
       <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto bg-plex-surface border border-plex-border rounded-lg shadow-xl">
         <div className="flex items-center justify-between border-b border-plex-border px-6 py-4">
           <h2 className="text-lg font-semibold text-plex-text">Privacy Policy</h2>
@@ -62,7 +63,7 @@ function PrivacyModal({ onClose }) {
           </section>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
