@@ -8,6 +8,7 @@ import QualitySlider from './QualitySlider.jsx';
 import AuroraGridRow from './AuroraGridRow.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
+import { formatEventTimeUk } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -56,7 +57,7 @@ function Chevron({ open, className = '' }) {
 
 function formatTime(isoString) {
   if (!isoString) return '';
-  return isoString.substring(11, 16);
+  return formatEventTimeUk(isoString) ?? '';
 }
 
 function formatAge(isoString) {

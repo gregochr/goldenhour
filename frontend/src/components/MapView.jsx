@@ -241,7 +241,7 @@ function getNextEventType(locations, date) {
     const dayData = loc.forecastsByDate.get(date);
     const sunriseTime = dayData?.sunrise?.solarEventTime;
     if (sunriseTime) {
-      return new Date(sunriseTime) > now ? 'SUNRISE' : 'SUNSET';
+      return new Date(sunriseTime + 'Z') > now ? 'SUNRISE' : 'SUNSET';
     }
   }
   return 'SUNSET';

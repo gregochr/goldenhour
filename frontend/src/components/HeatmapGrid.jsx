@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
+import { formatEventTimeUk } from '../utils/conversions.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
 
@@ -9,7 +10,7 @@ const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
 function formatTime(isoString) {
   if (!isoString) return '';
-  return isoString.substring(11, 16);
+  return formatEventTimeUk(isoString) ?? '';
 }
 
 const AFTERGLOW_MS = 30 * 60 * 1000;

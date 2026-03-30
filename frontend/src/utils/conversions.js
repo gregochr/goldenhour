@@ -275,7 +275,7 @@ export function computeAutoSelection(locations, now) {
     if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
     const sunsetTime = loc.forecastsByDate.get(todayStr)?.sunset?.solarEventTime;
     if (sunsetTime) {
-      const t = new Date(sunsetTime);
+      const t = new Date(sunsetTime + 'Z');
       if (!earliestSunset || t < earliestSunset) earliestSunset = t;
     }
   }

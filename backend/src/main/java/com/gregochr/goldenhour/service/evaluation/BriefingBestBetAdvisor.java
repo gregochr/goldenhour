@@ -589,14 +589,18 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
-     * Returns the HH:mm event time from the first slot with a non-null solarEventTime, or null.
+     * Returns the UK-local HH:mm event time from the first slot with a non-null solarEventTime,
+     * or null. Converts from UTC to Europe/London (handles GMT/BST automatically).
      */
     private String getEventTimeStr(BriefingEventSummary es) {
+        ZoneId ukZone = ZoneId.of("Europe/London");
         return es.regions().stream()
                 .flatMap(r -> r.slots().stream())
                 .filter(s -> s.solarEventTime() != null)
                 .findFirst()
-                .map(s -> s.solarEventTime().format(DateTimeFormatter.ofPattern("HH:mm")))
+                .map(s -> s.solarEventTime().atOffset(ZoneOffset.UTC)
+                        .atZoneSameInstant(ukZone)
+                        .format(DateTimeFormatter.ofPattern("HH:mm")))
                 .orElse(null);
     }
 
