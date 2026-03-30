@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
@@ -148,31 +149,60 @@ class BriefingVerdictEvaluatorTest {
     class TideTests {
 
         @Test
-        @DisplayName("King tide highlighted")
-        void kingTide() {
+        @DisplayName("Statistical king tide highlighted as Extra Extra High")
+        void statKingTide() {
             BriefingSlot s = new BriefingSlot("Bamburgh",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                             8.0, null, null, BigDecimal.ONE),
                     new BriefingSlot.TideInfo("HIGH", true,
                             LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
-                            true, false),
-                    List.of("King tide"));
+                            true, false, null, null, null),
+                    List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
-                    .containsExactly("King tide at Bamburgh");
+                    .containsExactly("Extra Extra High at Bamburgh");
         }
 
         @Test
-        @DisplayName("Spring tide highlighted when not king")
-        void springTide() {
+        @DisplayName("Statistical spring tide highlighted as Extra High")
+        void statSpringTide() {
             BriefingSlot s = new BriefingSlot("Seahouses",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                             8.0, null, null, BigDecimal.ONE),
-                    new BriefingSlot.TideInfo("HIGH", true, null, null, false, true),
-                    List.of("Spring tide"));
+                    new BriefingSlot.TideInfo("HIGH", true, null, null, false, true,
+                            null, null, null),
+                    List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
-                    .containsExactly("Spring tide at Seahouses");
+                    .containsExactly("Extra High at Seahouses");
+        }
+
+        @Test
+        @DisplayName("Lunar spring tide highlighted")
+        void lunarSpringTide() {
+            BriefingSlot s = new BriefingSlot("Bamburgh",
+                    LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null, null, false, false,
+                            LunarTideType.SPRING_TIDE, "Full Moon", false),
+                    List.of());
+            assertThat(evaluator.buildTideHighlights(List.of(s)))
+                    .containsExactly("Spring Tide at Bamburgh");
+        }
+
+        @Test
+        @DisplayName("Combined lunar king + statistical extra extra high")
+        void combinedKingAndStatKing() {
+            BriefingSlot s = new BriefingSlot("Bamburgh",
+                    LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null, null, true, false,
+                            LunarTideType.KING_TIDE, "New Moon", true),
+                    List.of());
+            assertThat(evaluator.buildTideHighlights(List.of(s)))
+                    .containsExactly("King Tide, Extra Extra High at Bamburgh");
         }
 
         @Test
@@ -189,7 +219,7 @@ class BriefingVerdictEvaluatorTest {
     class FlagTests {
 
         private static final BriefingVerdictEvaluator.TideContext NO_TIDE =
-                new BriefingVerdictEvaluator.TideContext(null, false, false, false, false);
+                new BriefingVerdictEvaluator.TideContext(null, false, false, false, null, false);
 
         @Test
         @DisplayName("Sun blocked flag for cloud > 80%")
@@ -220,9 +250,10 @@ class BriefingVerdictEvaluatorTest {
         void multipleFlags() {
             assertThat(evaluator.buildFlags(
                     new BriefingVerdictEvaluator.WeatherMetrics(85, new BigDecimal("5.0"), 3000, 95),
-                    new BriefingVerdictEvaluator.TideContext("HIGH", true, true, false, false)))
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, true, false,
+                            LunarTideType.KING_TIDE, false)))
                     .containsExactly("Sun blocked", "Active rain", "Poor visibility",
-                            "Mist risk", "King tide", "Tide aligned");
+                            "Mist risk", "King Tide, Extra Extra High", "Tide aligned");
         }
 
         @Test
@@ -230,7 +261,7 @@ class BriefingVerdictEvaluatorTest {
         void tideNotAligned() {
             List<String> flags = evaluator.buildFlags(
                     new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70),
-                    new BriefingVerdictEvaluator.TideContext("LOW", false, false, false, true));
+                    new BriefingVerdictEvaluator.TideContext("LOW", false, false, false, null, true));
             assertThat(flags).contains("Tide not aligned");
             assertThat(flags).doesNotContain("Tide aligned");
         }
@@ -241,11 +272,75 @@ class BriefingVerdictEvaluatorTest {
             var weather = new BriefingVerdictEvaluator.WeatherMetrics(
                     20, BigDecimal.ZERO, 15000, 70);
             List<String> aligned = evaluator.buildFlags(weather,
-                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, false, false));
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, false, null, false));
             List<String> notAligned = evaluator.buildFlags(weather,
-                    new BriefingVerdictEvaluator.TideContext("LOW", false, false, false, true));
+                    new BriefingVerdictEvaluator.TideContext("LOW", false, false, false, null, true));
             assertThat(aligned).contains("Tide aligned").doesNotContain("Tide not aligned");
             assertThat(notAligned).contains("Tide not aligned").doesNotContain("Tide aligned");
+        }
+
+        @Test
+        @DisplayName("Combined label for all 9 lunar × statistical combinations")
+        void allNineCombinations() {
+            var weather = new BriefingVerdictEvaluator.WeatherMetrics(
+                    20, BigDecimal.ZERO, 15000, 70);
+
+            // KING_TIDE × statKing → "King Tide, Extra Extra High"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, true, false,
+                            LunarTideType.KING_TIDE, false)))
+                    .contains("King Tide, Extra Extra High");
+
+            // KING_TIDE × statSpring → "King Tide, Extra High"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, true,
+                            LunarTideType.KING_TIDE, false)))
+                    .contains("King Tide, Extra High");
+
+            // KING_TIDE × none → "King Tide"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, false,
+                            LunarTideType.KING_TIDE, false)))
+                    .contains("King Tide");
+
+            // SPRING_TIDE × statKing → "Spring Tide, Extra Extra High"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, true, false,
+                            LunarTideType.SPRING_TIDE, false)))
+                    .contains("Spring Tide, Extra Extra High");
+
+            // SPRING_TIDE × statSpring → "Spring Tide, Extra High"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, true,
+                            LunarTideType.SPRING_TIDE, false)))
+                    .contains("Spring Tide, Extra High");
+
+            // SPRING_TIDE × none → "Spring Tide"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, false,
+                            LunarTideType.SPRING_TIDE, false)))
+                    .contains("Spring Tide");
+
+            // REGULAR × statKing → "Extra Extra High"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, true, false,
+                            LunarTideType.REGULAR_TIDE, false)))
+                    .contains("Extra Extra High");
+
+            // REGULAR × statSpring → "Extra High"
+            assertThat(evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, true,
+                            LunarTideType.REGULAR_TIDE, false)))
+                    .contains("Extra High");
+
+            // REGULAR × none → no tide classification flag (only "Tide aligned" remains)
+            List<String> regularNone = evaluator.buildFlags(weather,
+                    new BriefingVerdictEvaluator.TideContext("HIGH", true, false, false,
+                            LunarTideType.REGULAR_TIDE, false));
+            assertThat(regularNone)
+                    .noneMatch(f -> f.contains("King") || f.contains("Spring")
+                            || f.contains("Extra"))
+                    .contains("Tide aligned");
         }
     }
 
@@ -279,8 +374,9 @@ class BriefingVerdictEvaluatorTest {
         @DisplayName("Tide highlights appended to summary")
         void tideInSummary() {
             List<BriefingSlot> slots = List.of(slot("Bamburgh", Verdict.GO));
-            assertThat(evaluator.buildRegionSummary(Verdict.GO, slots, List.of("King tide at Bamburgh")))
-                    .contains("king tide at bamburgh");
+            assertThat(evaluator.buildRegionSummary(Verdict.GO, slots,
+                    List.of("King Tide, Extra Extra High at Bamburgh")))
+                    .contains("king tide, extra extra high at bamburgh");
         }
     }
 

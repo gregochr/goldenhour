@@ -459,6 +459,72 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('lunar tide combined labels', () => {
+    const STAT_KING_CLASSIFICATION = [
+      { time: '2026-03-03T18:00:00', height: 6.1, isSpring: false, isKing: true, nearSolarEvent: true },
+    ];
+    const STAT_SPRING_CLASSIFICATION = [
+      { time: '2026-03-03T18:00:00', height: 5.2, isSpring: true, isKing: false, nearSolarEvent: true },
+    ];
+    const LUNAR_SPRING_FORECAST = { ...BASE_FORECAST, lunarTideType: 'SPRING_TIDE', lunarPhase: 'Full Moon' };
+    const LUNAR_KING_FORECAST = { ...BASE_FORECAST, lunarTideType: 'KING_TIDE', lunarPhase: 'New Moon' };
+
+    it('shows combined "King Tide, Extra Extra High" when lunar=KING + stat=king', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: LUNAR_KING_FORECAST,
+        tideClassification: STAT_KING_CLASSIFICATION,
+      });
+      expect(screen.getByTestId('king-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/King Tide, Extra Extra High/)).toBeInTheDocument();
+    });
+
+    it('shows combined "Spring Tide, Extra High" when lunar=SPRING + stat=spring', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: LUNAR_SPRING_FORECAST,
+        tideClassification: STAT_SPRING_CLASSIFICATION,
+      });
+      expect(screen.getByTestId('spring-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Spring Tide, Extra High/)).toBeInTheDocument();
+    });
+
+    it('shows "Spring Tide" when lunar=SPRING but stat neither king nor spring', () => {
+      const regularStatClassification = [
+        { time: '2026-03-03T18:00:00', height: 4.0, isSpring: false, isKing: false, nearSolarEvent: true },
+      ];
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: LUNAR_SPRING_FORECAST,
+        tideClassification: regularStatClassification,
+      });
+      expect(screen.getByTestId('spring-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Spring Tide/)).toBeInTheDocument();
+    });
+
+    it('shows king-tide-badge when lunar=KING even if stat is not king', () => {
+      const regularStatClassification = [
+        { time: '2026-03-03T18:00:00', height: 4.0, isSpring: false, isKing: false, nearSolarEvent: true },
+      ];
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: LUNAR_KING_FORECAST,
+        tideClassification: regularStatClassification,
+      });
+      expect(screen.getByTestId('king-tide-badge')).toBeInTheDocument();
+      expect(screen.getByText(/King Tide/)).toBeInTheDocument();
+    });
+
+    it('shows moon phase info in badge when lunar tide is present', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: LUNAR_KING_FORECAST,
+        tideClassification: STAT_KING_CLASSIFICATION,
+      });
+      expect(screen.getByText(/King Tide, Extra Extra High/)).toBeInTheDocument();
+    });
+  });
+
   describe('comfort rows', () => {
     it('shows temperature and wind when expanded', () => {
       renderPopup({ role: 'PRO_USER' });

@@ -465,7 +465,7 @@ class BriefingEvaluationServiceTest {
                 LocalDateTime.of(2026, 3, 30, 18, 30),
                 verdict,
                 new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null),
-                new BriefingSlot.TideInfo(null, false, null, null, false, false),
+                new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
                 List.of());
     }
 

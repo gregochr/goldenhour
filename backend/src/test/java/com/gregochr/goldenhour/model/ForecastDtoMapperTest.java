@@ -3,8 +3,10 @@ package com.gregochr.goldenhour.model;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.service.LunarPhaseService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ForecastDtoMapperTest {
 
-    private final ForecastDtoMapper mapper = new ForecastDtoMapper();
+    private final ForecastDtoMapper mapper = new ForecastDtoMapper(new LunarPhaseService());
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
             .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
@@ -139,6 +141,40 @@ class ForecastDtoMapperTest {
         List<ForecastEvaluationDto> dtos = mapper.toDtoList(List.of(), false);
 
         assertThat(dtos).isEmpty();
+    }
+
+    @Test
+    @DisplayName("toDto() populates lunar fields from target date")
+    void toDto_populatesLunarFields() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.lunarTideType()).isNotNull();
+        assertThat(dto.lunarTideType()).isIn(
+                LunarTideType.REGULAR_TIDE, LunarTideType.SPRING_TIDE, LunarTideType.KING_TIDE);
+        assertThat(dto.lunarPhase()).isNotNull();
+        assertThat(dto.lunarPhase()).isIn(
+                "New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
+                "Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent");
+    }
+
+    @Test
+    @DisplayName("toDto() returns null lunar fields when targetDate is null")
+    void toDto_nullTargetDate_nullLunarFields() {
+        ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()
+                .id(3L)
+                .locationLat(BigDecimal.valueOf(54.77))
+                .locationLon(BigDecimal.valueOf(-1.58))
+                .targetType(TargetType.SUNRISE)
+                .forecastRunAt(LocalDateTime.of(2026, 3, 8, 6, 0))
+                .daysAhead(0)
+                .build();
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.lunarTideType()).isNull();
+        assertThat(dto.lunarPhase()).isNull();
     }
 
     @Test

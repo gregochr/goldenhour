@@ -260,7 +260,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                             8.0, null, null, BigDecimal.ONE),
                     new BriefingSlot.TideInfo("HIGH", true, null,
-                            new BigDecimal("1.9"), true, false),
+                            new BigDecimal("1.9"), true, false, null, null, null),
                     List.of("King tide"));
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of("King tide at Bamburgh"),

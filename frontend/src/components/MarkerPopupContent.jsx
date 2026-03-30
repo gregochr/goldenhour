@@ -431,20 +431,38 @@ export default function MarkerPopupContent({
           {tideClassification && tideClassification.map((tc) => {
             const isKing = tc.isKing;
             const near = tc.nearSolarEvent;
-            const label = isKing ? 'King tide' : 'Spring tide';
-            const emoji = isKing ? '👑' : '🌊';
+            const lunar = forecast?.lunarTideType;
+            const hasLunarData = lunar != null;
+
+            // Build combined label from lunar + statistical dimensions
+            // When lunar data is present, use new naming; otherwise fall back to legacy labels
+            let label;
+            if (hasLunarData) {
+              const lunarLabel = lunar === 'KING_TIDE' ? 'King Tide'
+                : lunar === 'SPRING_TIDE' ? 'Spring Tide' : null;
+              const statLabel = isKing ? 'Extra Extra High'
+                : tc.isSpring ? 'Extra High' : null;
+              label = lunarLabel && statLabel ? `${lunarLabel}, ${statLabel}`
+                : lunarLabel || statLabel || (isKing ? 'King tide' : 'Spring tide');
+            } else {
+              label = isKing ? 'King tide' : 'Spring tide';
+            }
+
+            const isLunarKing = lunar === 'KING_TIDE';
+            const isHighPriority = isKing || isLunarKing;
+            const emoji = isHighPriority ? '👑' : '🌊';
             return (
-              <div key={tc.time} style={{ marginBottom: '6px' }} data-testid={isKing ? 'king-tide-badge' : 'spring-tide-badge'}>
+              <div key={tc.time} style={{ marginBottom: '6px' }} data-testid={isHighPriority ? 'king-tide-badge' : 'spring-tide-badge'}>
                 <span style={{
                   ...POPUP_PILL,
                   background: near
-                    ? (isKing ? 'rgba(220, 38, 38, 0.15)' : 'rgba(245, 158, 11, 0.15)')
+                    ? (isHighPriority ? 'rgba(220, 38, 38, 0.15)' : 'rgba(245, 158, 11, 0.15)')
                     : 'rgba(107, 114, 128, 0.15)',
                   color: near
-                    ? (isKing ? '#fca5a5' : '#fbbf24')
+                    ? (isHighPriority ? '#fca5a5' : '#fbbf24')
                     : '#9ca3af',
                   border: `1px solid ${near
-                    ? (isKing ? 'rgba(220, 38, 38, 0.4)' : 'rgba(245, 158, 11, 0.4)')
+                    ? (isHighPriority ? 'rgba(220, 38, 38, 0.4)' : 'rgba(245, 158, 11, 0.4)')
                     : 'rgba(107, 114, 128, 0.3)'}`,
                 }}>
                   {near

@@ -66,8 +66,9 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(java.util.List.of());
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService();
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
-                solarService, locationService, tideService, verdictEvaluator);
+                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
         briefingService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),

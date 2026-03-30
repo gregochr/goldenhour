@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 
@@ -67,6 +68,8 @@ import java.time.LocalDateTime;
  * @param upwindCurrentLowCloud          low cloud at upwind point now (nullable)
  * @param upwindEventLowCloud            low cloud at upwind point at event time (nullable)
  * @param upwindDistanceKm               distance to upwind sample point in km (nullable)
+ * @param lunarTideType                  astronomical tide classification (nullable for inland)
+ * @param lunarPhase                     human-readable moon phase name (nullable for inland)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -119,5 +122,7 @@ public record ForecastEvaluationDto(
         Boolean solarTrendBuilding,
         Integer upwindCurrentLowCloud,
         Integer upwindEventLowCloud,
-        Integer upwindDistanceKm) {
+        Integer upwindDistanceKm,
+        LunarTideType lunarTideType,
+        String lunarPhase) {
 }

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import org.springframework.stereotype.Component;
@@ -54,12 +55,14 @@ public class BriefingVerdictEvaluator {
      *
      * @param tideState       HIGH/MID/LOW or null for inland
      * @param tideAligned     whether tide matches the location's preference
-     * @param isKingTide      whether this is a king tide (exceeds P95)
-     * @param isSpringTide    whether this is a spring tide (exceeds 125% avg)
+     * @param isKingTide      whether this is a statistically exceptional tide (exceeds P95)
+     * @param isSpringTide    whether this is a statistically high tide (exceeds 125% avg)
+     * @param lunarTideType   astronomical tide classification, or null for inland
      * @param tidesNotAligned true when the coastal tide demotion was applied
      */
     public record TideContext(String tideState, boolean tideAligned,
-            boolean isKingTide, boolean isSpringTide, boolean tidesNotAligned) {
+            boolean isKingTide, boolean isSpringTide,
+            LunarTideType lunarTideType, boolean tidesNotAligned) {
     }
 
     /**
@@ -110,10 +113,9 @@ public class BriefingVerdictEvaluator {
         if (weather.humidity() > HUMIDITY_MARGINAL) {
             flags.add("Mist risk");
         }
-        if (tide.isKingTide()) {
-            flags.add("King tide");
-        } else if (tide.isSpringTide()) {
-            flags.add("Spring tide");
+        String combinedLabel = combinedTideLabel(tide);
+        if (combinedLabel != null) {
+            flags.add(combinedLabel);
         }
         if (tide.tidesNotAligned()) {
             flags.add("Tide not aligned");
@@ -147,21 +149,59 @@ public class BriefingVerdictEvaluator {
     }
 
     /**
-     * Extracts tide highlights from slots.
+     * Extracts tide highlights from slots using combined lunar + statistical labels.
      *
      * @param slots the location slots
-     * @return list of notable tide events (e.g. "King tide at Bamburgh")
+     * @return list of notable tide events (e.g. "King Tide, Extra Extra High at Bamburgh")
      */
     public List<String> buildTideHighlights(List<BriefingSlot> slots) {
         List<String> highlights = new ArrayList<>();
         for (BriefingSlot slot : slots) {
-            if (slot.tide().isKingTide()) {
-                highlights.add("King tide at " + slot.locationName());
-            } else if (slot.tide().isSpringTide()) {
-                highlights.add("Spring tide at " + slot.locationName());
+            TideContext ctx = new TideContext(
+                    slot.tide().tideState(), slot.tide().tideAligned(),
+                    slot.tide().isKingTide(), slot.tide().isSpringTide(),
+                    slot.tide().lunarTideType(), false);
+            String label = combinedTideLabel(ctx);
+            if (label != null) {
+                highlights.add(label + " at " + slot.locationName());
             }
         }
         return highlights;
+    }
+
+    /**
+     * Generates a combined tide label from lunar and statistical dimensions.
+     *
+     * <p>Examples: "King Tide, Extra Extra High", "Spring Tide", "Extra High".
+     * Returns null when neither dimension is noteworthy.
+     *
+     * @param tide the tide context
+     * @return combined label, or null if nothing notable
+     */
+    static String combinedTideLabel(TideContext tide) {
+        // Lunar dimension
+        String lunarLabel = null;
+        if (tide.lunarTideType() == LunarTideType.KING_TIDE) {
+            lunarLabel = "King Tide";
+        } else if (tide.lunarTideType() == LunarTideType.SPRING_TIDE) {
+            lunarLabel = "Spring Tide";
+        }
+
+        // Statistical dimension (renamed from "King"/"Spring" to avoid confusion)
+        String statLabel = null;
+        if (tide.isKingTide()) {
+            statLabel = "Extra Extra High";
+        } else if (tide.isSpringTide()) {
+            statLabel = "Extra High";
+        }
+
+        if (lunarLabel != null && statLabel != null) {
+            return lunarLabel + ", " + statLabel;
+        }
+        if (lunarLabel != null) {
+            return lunarLabel;
+        }
+        return statLabel;
     }
 
     /**

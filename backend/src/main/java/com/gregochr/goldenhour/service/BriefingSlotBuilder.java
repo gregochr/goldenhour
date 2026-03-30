@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -39,21 +40,25 @@ public class BriefingSlotBuilder {
     private final SolarService solarService;
     private final LocationService locationService;
     private final TideService tideService;
+    private final LunarPhaseService lunarPhaseService;
     private final BriefingVerdictEvaluator verdictEvaluator;
 
     /**
      * Constructs a {@code BriefingSlotBuilder}.
      *
-     * @param solarService     service for calculating sunrise/sunset times
-     * @param locationService  service for location metadata (coastal checks)
-     * @param tideService      service for tide data lookups
-     * @param verdictEvaluator evaluator for slot verdicts and flag generation
+     * @param solarService      service for calculating sunrise/sunset times
+     * @param locationService   service for location metadata (coastal checks)
+     * @param tideService       service for tide data lookups
+     * @param lunarPhaseService service for lunar phase and tide classification
+     * @param verdictEvaluator  evaluator for slot verdicts and flag generation
      */
     public BriefingSlotBuilder(SolarService solarService, LocationService locationService,
-            TideService tideService, BriefingVerdictEvaluator verdictEvaluator) {
+            TideService tideService, LunarPhaseService lunarPhaseService,
+            BriefingVerdictEvaluator verdictEvaluator) {
         this.solarService = solarService;
         this.locationService = locationService;
         this.tideService = tideService;
+        this.lunarPhaseService = lunarPhaseService;
         this.verdictEvaluator = verdictEvaluator;
     }
 
@@ -121,7 +126,8 @@ public class BriefingSlotBuilder {
                 new BriefingVerdictEvaluator.WeatherMetrics(lowCloud, precip, visibility, humidity);
         BriefingVerdictEvaluator.TideContext tideContext = new BriefingVerdictEvaluator.TideContext(
                 tideResult.tideState(), tideResult.tideAligned(),
-                tideResult.isKingTide(), tideResult.isSpringTide(), tidesNotAligned);
+                tideResult.isKingTide(), tideResult.isSpringTide(),
+                tideResult.lunarTideType(), tidesNotAligned);
         List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext);
 
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
@@ -129,7 +135,9 @@ public class BriefingSlotBuilder {
         BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.nearestHighTime(), tideResult.nearestHighHeight(),
-                tideResult.isKingTide(), tideResult.isSpringTide());
+                tideResult.isKingTide(), tideResult.isSpringTide(),
+                tideResult.lunarTideType(), tideResult.lunarPhase(),
+                tideResult.moonAtPerigee());
 
         return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags);
     }
@@ -139,9 +147,11 @@ public class BriefingSlotBuilder {
      */
     record TideResult(String tideState, boolean tideAligned,
             LocalDateTime nearestHighTime, BigDecimal nearestHighHeight,
-            boolean isKingTide, boolean isSpringTide) {
+            boolean isKingTide, boolean isSpringTide,
+            LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee) {
 
-        static final TideResult NONE = new TideResult(null, false, null, null, false, false);
+        static final TideResult NONE =
+                new TideResult(null, false, null, null, false, false, null, null, null);
     }
 
     /**
@@ -187,8 +197,15 @@ public class BriefingSlotBuilder {
             }
         }
 
+        // Lunar classification — deterministic from date
+        LocalDate eventDate = solarTime.toLocalDate();
+        LunarTideType lunarTideType = lunarPhaseService.classifyTide(eventDate);
+        String lunarPhase = lunarPhaseService.getMoonPhase(eventDate);
+        Boolean moonAtPerigee = lunarPhaseService.isMoonAtPerigee(eventDate);
+
         return new TideResult(tideState, tideAligned, nearestHighTime,
-                nearestHighHeight, isKingTide, isSpringTide);
+                nearestHighHeight, isKingTide, isSpringTide,
+                lunarTideType, lunarPhase, moonAtPerigee);
     }
 
     /**

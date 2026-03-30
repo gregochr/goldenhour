@@ -438,8 +438,11 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   const isStanddown = region.verdict === 'STANDDOWN';
 
-  const hasKingTide = (region.tideHighlights || [])
-    .some((h) => h.toLowerCase().includes('king'));
+  // Extract the best tide label from tideHighlights (e.g. "King Tide, Extra Extra High at Bamburgh" → "King Tide, Extra Extra High")
+  const tideHighlight = (region.tideHighlights || []).find((h) =>
+    h.toLowerCase().includes('king') || h.toLowerCase().includes('spring') || h.toLowerCase().includes('extra'));
+  const tideLabel = tideHighlight ? tideHighlight.replace(/ at .+$/, '') : null;
+  const hasKingTide = tideLabel?.toLowerCase().includes('king');
   const alignedCount = (region.slots || []).filter((s) => s.tideAligned).length;
 
   // Cell background colour by tier
@@ -511,15 +514,15 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
                 && ` ${msToMph(region.regionWindSpeedMs)}mph`}
             </div>
           )}
-          {(hasKingTide || alignedCount > 0) && (
+          {(tideLabel || alignedCount > 0) && (
             <div className="flex flex-wrap gap-0.5 mt-0.5">
-              {hasKingTide && (
-                <span className="rounded px-1 bg-amber-500/20 text-amber-300 font-medium"
+              {tideLabel && (
+                <span className={`rounded px-1 font-medium ${hasKingTide ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'}`}
                   style={{ fontSize: '9px' }}>
-                  King tide
+                  {tideLabel}
                 </span>
               )}
-              {alignedCount > 0 && !hasKingTide && (
+              {alignedCount > 0 && !tideLabel && (
                 <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium"
                   style={{ fontSize: '9px' }}>
                   {alignedCount} aligned

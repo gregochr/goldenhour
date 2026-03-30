@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
@@ -43,13 +44,15 @@ class BriefingSlotBuilderTest {
     private LocationService locationService;
     @Mock
     private TideService tideService;
+    @Mock
+    private LunarPhaseService lunarPhaseService;
 
     private BriefingSlotBuilder slotBuilder;
 
     @BeforeEach
     void setUp() {
         slotBuilder = new BriefingSlotBuilder(solarService, locationService,
-                tideService, new BriefingVerdictEvaluator());
+                tideService, lunarPhaseService, new BriefingVerdictEvaluator());
     }
 
     @Nested
@@ -268,6 +271,12 @@ class BriefingSlotBuilderTest {
         when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                 .thenReturn(solarTime);
         when(locationService.isCoastal(loc)).thenReturn(true);
+        when(lunarPhaseService.classifyTide(solarTime.toLocalDate()))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.getMoonPhase(solarTime.toLocalDate()))
+                .thenReturn("Waxing Crescent");
+        when(lunarPhaseService.isMoonAtPerigee(solarTime.toLocalDate()))
+                .thenReturn(false);
 
         // HIGH tide within 90 min of solar event, with height data
         TideData td = new TideData(TideState.HIGH, false, null,
@@ -296,6 +305,144 @@ class BriefingSlotBuilderTest {
         assertThat(slot.tide().isKingTide()).isTrue();
         assertThat(slot.tide().isSpringTide()).isTrue();
         assertThat(slot.flags()).contains("Tide aligned");
+    }
+
+    @Nested
+    @DisplayName("Lunar tide fields in buildSlot")
+    class LunarTideTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity coastalLoc() {
+            return LocationEntity.builder()
+                    .id(10L).name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of(TideType.HIGH)).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        @Test
+        @DisplayName("Lunar spring tide flag when new/full moon")
+        void lunarSpringTide_flagGenerated() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(
+                            new TideData(TideState.HIGH, false, null, null, null, null,
+                                    SOLAR_TIME.plusMinutes(30), null)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            when(lunarPhaseService.classifyTide(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.getMoonPhase(SOLAR_TIME.toLocalDate()))
+                    .thenReturn("Full Moon");
+            when(lunarPhaseService.isMoonAtPerigee(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(false);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide().lunarTideType()).isEqualTo(LunarTideType.SPRING_TIDE);
+            assertThat(slot.tide().lunarPhase()).isEqualTo("Full Moon");
+            assertThat(slot.tide().moonAtPerigee()).isFalse();
+            assertThat(slot.flags()).contains("Spring Tide");
+        }
+
+        @Test
+        @DisplayName("Lunar king tide flag when spring + perigee")
+        void lunarKingTide_flagGenerated() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(
+                            new TideData(TideState.HIGH, false, null, null, null, null,
+                                    SOLAR_TIME.plusMinutes(30), null)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            when(lunarPhaseService.classifyTide(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(LunarTideType.KING_TIDE);
+            when(lunarPhaseService.getMoonPhase(SOLAR_TIME.toLocalDate()))
+                    .thenReturn("New Moon");
+            when(lunarPhaseService.isMoonAtPerigee(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(true);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide().lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
+            assertThat(slot.tide().lunarPhase()).isEqualTo("New Moon");
+            assertThat(slot.tide().moonAtPerigee()).isTrue();
+            assertThat(slot.flags()).contains("King Tide");
+        }
+
+        @Test
+        @DisplayName("Inland location has null lunar fields")
+        void inland_nullLunarFields() throws Exception {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(11L).name("Durham").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide().lunarTideType()).isNull();
+            assertThat(slot.tide().lunarPhase()).isNull();
+            assertThat(slot.tide().moonAtPerigee()).isNull();
+        }
+
+        @Test
+        @DisplayName("Combined label: Spring Tide + Extra High")
+        void combinedLabel_springPlusStatHigh() throws Exception {
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(lunarPhaseService.classifyTide(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+            when(lunarPhaseService.getMoonPhase(SOLAR_TIME.toLocalDate()))
+                    .thenReturn("Full Moon");
+            when(lunarPhaseService.isMoonAtPerigee(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(false);
+
+            TideData td = new TideData(TideState.HIGH, false, null,
+                    new BigDecimal("5.20"), null, null,
+                    SOLAR_TIME.plusMinutes(30), null);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+                    .thenReturn(Optional.of(td));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            TideStats stats = new TideStats(
+                    new BigDecimal("4.00"), new BigDecimal("6.00"),
+                    new BigDecimal("1.00"), new BigDecimal("0.50"),
+                    200, new BigDecimal("3.00"),
+                    new BigDecimal("4.50"), new BigDecimal("5.00"), new BigDecimal("5.50"),
+                    10, new BigDecimal("0.05"), new BigDecimal("5.00"),
+                    new BigDecimal("5.50"), 5);
+            when(tideService.getTideStats(loc.getId())).thenReturn(Optional.of(stats));
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.flags()).contains("Spring Tide, Extra High");
+        }
     }
 
     private static OpenMeteoForecastResponse buildForecastResponse() {

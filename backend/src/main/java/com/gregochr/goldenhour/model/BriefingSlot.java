@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.gregochr.goldenhour.entity.LunarTideType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -58,8 +59,11 @@ public record BriefingSlot(
      * @param tideAligned         true if tide matches location preference
      * @param nearestHighTideTime UTC time of nearest high tide, or null
      * @param nearestHighTideHeight height of nearest high tide in metres, or null
-     * @param isKingTide          true if the nearest high tide exceeds P95
-     * @param isSpringTide        true if the nearest high tide exceeds 125% avg
+     * @param isKingTide          true if the nearest high tide exceeds P95 (statistical)
+     * @param isSpringTide        true if the nearest high tide exceeds 125% avg (statistical)
+     * @param lunarTideType       astronomical tide classification, or null for inland
+     * @param lunarPhase          human-readable moon phase name, or null for inland
+     * @param moonAtPerigee       true if the moon is near perigee, or null for inland
      */
     public record TideInfo(
             String tideState,
@@ -67,10 +71,13 @@ public record BriefingSlot(
             LocalDateTime nearestHighTideTime,
             BigDecimal nearestHighTideHeight,
             boolean isKingTide,
-            boolean isSpringTide) {
+            boolean isSpringTide,
+            LunarTideType lunarTideType,
+            String lunarPhase,
+            Boolean moonAtPerigee) {
 
         /** Tide info for inland locations with no tide data. */
         public static final TideInfo NONE =
-                new TideInfo(null, false, null, null, false, false);
+                new TideInfo(null, false, null, null, false, false, null, null, null);
     }
 }

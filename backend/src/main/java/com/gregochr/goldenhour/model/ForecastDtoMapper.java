@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.service.LunarPhaseService;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -15,6 +17,17 @@ import java.util.List;
  */
 @Component
 public class ForecastDtoMapper {
+
+    private final LunarPhaseService lunarPhaseService;
+
+    /**
+     * Constructs a {@code ForecastDtoMapper}.
+     *
+     * @param lunarPhaseService service for lunar phase and tide classification
+     */
+    public ForecastDtoMapper(LunarPhaseService lunarPhaseService) {
+        this.lunarPhaseService = lunarPhaseService;
+    }
 
     /**
      * Maps a list of entities to DTOs for the given role.
@@ -53,6 +66,14 @@ public class ForecastDtoMapper {
             fierySky = entity.getFierySkyPotential();
             goldenHour = entity.getGoldenHourPotential();
             summary = entity.getSummary();
+        }
+
+        // Lunar classification — deterministic from target date
+        LunarTideType lunarTideType = null;
+        String lunarPhase = null;
+        if (entity.getTargetDate() != null) {
+            lunarTideType = lunarPhaseService.classifyTide(entity.getTargetDate());
+            lunarPhase = lunarPhaseService.getMoonPhase(entity.getTargetDate());
         }
 
         return new ForecastEvaluationDto(
@@ -106,6 +127,8 @@ public class ForecastDtoMapper {
                 entity.getSolarTrendBuilding(),
                 entity.getUpwindCurrentLowCloud(),
                 entity.getUpwindEventLowCloud(),
-                entity.getUpwindDistanceKm());
+                entity.getUpwindDistanceKm(),
+                lunarTideType,
+                lunarPhase);
     }
 }
