@@ -30,7 +30,6 @@ describe('HealthIndicator', () => {
     const indicator = screen.getByTestId('health-indicator');
     expect(indicator).toHaveClass('bg-amber-900/30');
     expect(indicator).toHaveClass('text-amber-400');
-    // InfoTip is rendered inside the indicator
     expect(screen.getByTestId('infotip-trigger')).toBeInTheDocument();
   });
 
@@ -39,5 +38,30 @@ describe('HealthIndicator', () => {
     fireEvent.click(screen.getByTestId('infotip-trigger'));
     expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
     expect(screen.getByTestId('infotip-popover').textContent).toContain('Up at');
+  });
+
+  it('includes build info in tooltip when provided', () => {
+    render(
+      <HealthIndicator
+        status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')}
+        build={{ commitId: 'abc123', branch: 'main', dirty: false }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    expect(screen.getByTestId('infotip-popover').textContent).toContain('abc123');
+    expect(screen.getByTestId('infotip-popover').textContent).toContain('main');
+  });
+
+  it('includes service statuses in tooltip when provided', () => {
+    render(
+      <HealthIndicator
+        status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')}
+        services={{ anthropic: { status: 'UP', detail: 'CLOSED' }, 'open-meteo': { status: 'UP', detail: null } }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    const text = screen.getByTestId('infotip-popover').textContent;
+    expect(text).toContain('anthropic: UP (CLOSED)');
+    expect(text).toContain('open-meteo: UP');
   });
 });

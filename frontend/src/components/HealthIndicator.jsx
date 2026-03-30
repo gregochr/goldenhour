@@ -3,34 +3,48 @@ import InfoTip from './InfoTip.jsx';
 
 /**
  * Health status indicator: green (UP), amber (DEGRADED), red (DOWN).
- * Tooltip shows status, timestamp, and which components are degraded.
+ * Tooltip shows enriched status: timestamp, build info, services, and degraded components.
  */
-export default function HealthIndicator({ status, degraded, checkedAt }) {
+export default function HealthIndicator({ status, degraded, checkedAt, build, services }) {
   if (!status) return null;
 
   const timeStr = checkedAt
     ? checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '';
 
-  let label, tooltip, dotClass, bgClass;
+  let label, dotClass, bgClass;
+  const tooltipParts = [];
 
   if (status === 'UP') {
     label = 'UP';
-    tooltip = `Up at ${timeStr}`;
+    tooltipParts.push(`Up at ${timeStr}`);
     dotClass = 'bg-green-400';
     bgClass = 'bg-green-900/30 border-green-700 text-green-400';
   } else if (status === 'DEGRADED') {
-    const failedParts = degraded.join(', ');
+    const failedParts = (degraded || []).join(', ');
     label = 'DEGRADED';
-    tooltip = `Degraded at ${timeStr} \u2014 ${failedParts} unavailable`;
+    tooltipParts.push(`Degraded at ${timeStr} \u2014 ${failedParts} unavailable`);
     dotClass = 'bg-amber-400';
     bgClass = 'bg-amber-900/30 border-amber-700 text-amber-400';
   } else {
     label = 'DOWN';
-    tooltip = `Down at ${timeStr}`;
+    tooltipParts.push(`Down at ${timeStr}`);
     dotClass = 'bg-red-400';
     bgClass = 'bg-red-900/30 border-red-700 text-red-400';
   }
+
+  if (build?.commitId) {
+    tooltipParts.push(`Build: ${build.commitId}${build.dirty ? ' (dirty)' : ''} on ${build.branch || 'unknown'}`);
+  }
+
+  if (services && Object.keys(services).length > 0) {
+    const svcParts = Object.entries(services)
+      .map(([name, svc]) => `${name}: ${svc.status}${svc.detail ? ` (${svc.detail})` : ''}`)
+      .join(', ');
+    tooltipParts.push(`Services: ${svcParts}`);
+  }
+
+  const tooltip = tooltipParts.join(' | ');
 
   return (
     <div
@@ -48,4 +62,14 @@ HealthIndicator.propTypes = {
   status: PropTypes.oneOf(['UP', 'DOWN', 'DEGRADED', null]),
   degraded: PropTypes.arrayOf(PropTypes.string),
   checkedAt: PropTypes.instanceOf(Date),
+  build: PropTypes.shape({
+    commitId: PropTypes.string,
+    branch: PropTypes.string,
+    commitTime: PropTypes.string,
+    dirty: PropTypes.bool,
+  }),
+  services: PropTypes.objectOf(PropTypes.shape({
+    status: PropTypes.string,
+    detail: PropTypes.string,
+  })),
 };

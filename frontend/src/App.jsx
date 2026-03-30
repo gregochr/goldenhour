@@ -70,7 +70,10 @@ function AuthGate() {
 function AppInner() {
   const { isAdmin, logout, username, sessionDaysRemaining, token } = useAuth();
   const { locations, loading, error, refresh } = useForecasts();
-  const { status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt } = useHealthStatus();
+  const {
+    status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
+    build: healthBuild, services: healthServices,
+  } = useHealthStatus();
   const { lastCompletedRun } = useRunNotifications(!!token);
   const [showRunBanner, setShowRunBanner] = useState(false);
   const [viewMode, setViewModeState] = useState(() => {
@@ -168,7 +171,7 @@ function AppInner() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} />}
+            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} />}
             <button
               className="btn-secondary text-xs"
               onClick={logout}

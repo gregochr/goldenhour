@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — SSE health status stream
+
+Replaced polling-based `/actuator/health` approach with a Server-Sent Events endpoint (`GET /api/status/stream`) that pushes enriched status every 30 seconds. The frontend `useHealthStatus` hook now uses native `EventSource` with automatic reconnection.
+
+**Backend:**
+- `StatusController` — new SSE endpoint using `SseEmitter` with 30-second push interval; assembles `StatusResponse` from `HealthEndpoint` + `GitProperties`
+- `StatusResponse` — rich status record: overall status, degraded components, DB health, per-service circuit breaker statuses (with detail like CB state), build/git info, session info
+- Soft components (mail) trigger DEGRADED not DOWN; ignored components (rateLimiters) are excluded
+- `JwtAuthenticationFilter` — added `/api/status/stream` to SSE query-param token auth paths
+
+**Frontend:**
+- `useHealthStatus` — rewritten from `setInterval`/axios polling to `EventSource` SSE consumer
+- `HealthIndicator` — enriched tooltip now shows build info (commit, branch, dirty) and service statuses with circuit breaker detail
+- `healthApi.js` — orphaned (no longer imported); can be removed
+
 ### Changed — Structured best bet banners
 
 Best bet pick banners now display day, event type, time, and drive distance as a structured header line derived server-side from triage data, instead of burying them in Claude's narrative text. Claude's headline and detail now focus on the "why" (conditions, special features) rather than repeating when/where.
