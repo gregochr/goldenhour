@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -155,7 +157,7 @@ public class PromptBuilderTest {
                         new BigDecimal("1.20"),
                         true,
                         LocalDateTime.of(2026, 6, 21, 18, 30),
-                        null))
+                        null, null, null, null, null))
                 .build();
 
         String message = promptBuilder.buildUserMessage(data);
@@ -442,5 +444,108 @@ public class PromptBuilderTest {
                 .contains("temp-dew gap")
                 .contains("SUNRISE SPECIFIC")
                 .contains("SUNSET SPECIFIC");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with king tide shows lunar + statistical labels")
+    void buildUserMessage_kingTideWithExtraExtraHigh_showsBothLabels() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("6.20"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.20"),
+                        true,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null,
+                        LunarTideType.KING_TIDE, "New Moon", true,
+                        TideStatisticalSize.EXTRA_EXTRA_HIGH))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Tide: KING TIDE, Extra Extra High")
+                .contains("range: 6.20m")
+                .contains("moon: New Moon")
+                .contains("perigee: yes")
+                .contains("aligned: yes");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with spring tide and extra high shows both labels")
+    void buildUserMessage_springTideWithExtraHigh_showsBothLabels() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("5.10"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.30"),
+                        false,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null,
+                        LunarTideType.SPRING_TIDE, "Full Moon", false,
+                        TideStatisticalSize.EXTRA_HIGH))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Tide: SPRING TIDE, Extra High")
+                .contains("moon: Full Moon")
+                .contains("perigee: no")
+                .contains("aligned: no");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with regular tide and no statistical size omits size label")
+    void buildUserMessage_regularTide_omitsSizeLabel() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.MID,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("3.80"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.50"),
+                        true,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null,
+                        LunarTideType.REGULAR_TIDE, "Waxing Crescent", false,
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Tide: REGULAR TIDE (range:")
+                .doesNotContain("Extra Extra High")
+                .doesNotContain("Extra High")
+                .contains("moon: Waxing Crescent")
+                .contains("perigee: no");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with null lunar fields falls back to Regular Tide")
+    void buildUserMessage_nullLunarFields_fallsBackToRegularTide() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("4.50"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.20"),
+                        true,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null, null, null, null, null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Tide: Regular Tide (range:")
+                .doesNotContain("moon:")
+                .doesNotContain("perigee:");
     }
 }

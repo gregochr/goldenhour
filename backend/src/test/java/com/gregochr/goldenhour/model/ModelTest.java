@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -141,7 +143,7 @@ class ModelTest {
                 new BigDecimal("1.20"),
                 true,
                 LocalDateTime.of(2026, 6, 21, 18, 30),
-                null);
+                null, null, null, null, null);
 
         AtmosphericData result = base.withTide(tide);
 
@@ -161,5 +163,63 @@ class ModelTest {
 
         assertThat(first).isEqualTo(second);
         assertThat(first.hashCode()).isEqualTo(second.hashCode());
+    }
+
+    @Test
+    @DisplayName("TideSnapshot carries lunar and statistical fields")
+    void tideSnapshot_lunarAndStatisticalFields() {
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH,
+                LocalDateTime.of(2026, 6, 21, 18, 30),
+                new BigDecimal("6.20"),
+                LocalDateTime.of(2026, 6, 22, 0, 45),
+                new BigDecimal("0.80"),
+                true,
+                LocalDateTime.of(2026, 6, 21, 18, 30),
+                null,
+                LunarTideType.KING_TIDE, "New Moon", true,
+                TideStatisticalSize.EXTRA_EXTRA_HIGH);
+
+        assertThat(tide.lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
+        assertThat(tide.lunarPhase()).isEqualTo("New Moon");
+        assertThat(tide.moonAtPerigee()).isTrue();
+        assertThat(tide.statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_EXTRA_HIGH);
+    }
+
+    @Test
+    @DisplayName("BriefingSlot.TideInfo.statisticalSize() derives from isKingTide")
+    void tideInfo_statisticalSize_kingTide() {
+        var info = new BriefingSlot.TideInfo("HIGH", true, null,
+                new BigDecimal("6.2"), true, false,
+                LunarTideType.KING_TIDE, "New Moon", true);
+
+        assertThat(info.statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_EXTRA_HIGH);
+    }
+
+    @Test
+    @DisplayName("BriefingSlot.TideInfo.statisticalSize() derives from isSpringTide")
+    void tideInfo_statisticalSize_springTide() {
+        var info = new BriefingSlot.TideInfo("HIGH", true, null,
+                new BigDecimal("5.1"), false, true,
+                LunarTideType.SPRING_TIDE, "Full Moon", false);
+
+        assertThat(info.statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_HIGH);
+    }
+
+    @Test
+    @DisplayName("BriefingSlot.TideInfo.statisticalSize() returns null for regular tide")
+    void tideInfo_statisticalSize_regular() {
+        var info = new BriefingSlot.TideInfo("MID", false, null,
+                new BigDecimal("3.5"), false, false,
+                LunarTideType.REGULAR_TIDE, "Waxing Crescent", false);
+
+        assertThat(info.statisticalSize()).isNull();
+    }
+
+    @Test
+    @DisplayName("BriefingSlot.TideInfo.NONE has null statisticalSize")
+    void tideInfo_none_hasNullStatisticalSize() {
+        assertThat(BriefingSlot.TideInfo.NONE.statisticalSize()).isNull();
+        assertThat(BriefingSlot.TideInfo.NONE.lunarTideType()).isNull();
     }
 }

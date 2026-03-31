@@ -1,14 +1,18 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
+import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.goldenhour.model.TideStats;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Set;
 
@@ -24,16 +28,20 @@ public class ForecastDataAugmentor {
 
     private final OpenMeteoService openMeteoService;
     private final TideService tideService;
+    private final LunarPhaseService lunarPhaseService;
 
     /**
      * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment.
      *
-     * @param openMeteoService retrieves directional cloud data from Open-Meteo
-     * @param tideService      fetches tide data for coastal locations
+     * @param openMeteoService  retrieves directional cloud data from Open-Meteo
+     * @param tideService       fetches tide data for coastal locations
+     * @param lunarPhaseService computes lunar tide classification and moon phase
      */
-    public ForecastDataAugmentor(OpenMeteoService openMeteoService, TideService tideService) {
+    public ForecastDataAugmentor(OpenMeteoService openMeteoService, TideService tideService,
+            LunarPhaseService lunarPhaseService) {
         this.openMeteoService = openMeteoService;
         this.tideService = tideService;
+        this.lunarPhaseService = lunarPhaseService;
     }
 
     /**
@@ -80,6 +88,17 @@ public class ForecastDataAugmentor {
         }
         TideData tideData = tideMaybe.get();
         Boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
+
+        // Lunar classification (deterministic, from moon phase + perigee)
+        var eventDate = eventTime.toLocalDate();
+        LunarTideType lunarTideType = lunarPhaseService.classifyTide(eventDate);
+        String lunarPhase = lunarPhaseService.getMoonPhase(eventDate);
+        Boolean moonAtPerigee = lunarPhaseService.isMoonAtPerigee(eventDate);
+
+        // Statistical size (empirical, from historical tide data)
+        TideStatisticalSize statisticalSize = deriveStatisticalSize(
+                locationId, tideData.nextHighTideHeightMetres());
+
         return base.withTide(new TideSnapshot(
                 tideData.tideState(),
                 tideData.nextHighTideTime(),
@@ -88,7 +107,42 @@ public class ForecastDataAugmentor {
                 tideData.nextLowTideHeightMetres(),
                 tideAligned,
                 tideData.nearestHighTideTime(),
-                tideData.nearestLowTideTime()));
+                tideData.nearestLowTideTime(),
+                lunarTideType,
+                lunarPhase,
+                moonAtPerigee,
+                statisticalSize));
+    }
+
+    /**
+     * Derives the statistical tide size by comparing the next high tide height against
+     * historical percentiles for the location.
+     *
+     * @param locationId the location primary key
+     * @param highTideHeight the next high tide height, or null
+     * @return the statistical classification, or null if data is insufficient
+     */
+    private TideStatisticalSize deriveStatisticalSize(Long locationId, BigDecimal highTideHeight) {
+        if (highTideHeight == null) {
+            return null;
+        }
+        return tideService.getTideStats(locationId)
+                .map(stats -> classifyStatisticalSize(highTideHeight, stats))
+                .orElse(null);
+    }
+
+    /**
+     * Classifies tide height against historical thresholds.
+     */
+    private static TideStatisticalSize classifyStatisticalSize(BigDecimal height, TideStats stats) {
+        if (stats.p95HighMetres() != null && height.compareTo(stats.p95HighMetres()) > 0) {
+            return TideStatisticalSize.EXTRA_EXTRA_HIGH;
+        }
+        if (stats.springTideThreshold() != null
+                && height.compareTo(stats.springTideThreshold()) > 0) {
+            return TideStatisticalSize.EXTRA_HIGH;
+        }
+        return null;
     }
 
     /**

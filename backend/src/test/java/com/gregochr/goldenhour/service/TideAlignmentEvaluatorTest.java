@@ -219,21 +219,21 @@ class TideAlignmentEvaluatorTest {
     private AtmosphericData dataWithHighTideAt(LocalDateTime highTime) {
         return TestAtmosphericData.builder()
                 .tide(new TideSnapshot(TideState.MID, null, null, null, null,
-                        false, highTime, null))
+                        false, highTime, null, null, null, null, null))
                 .build();
     }
 
     private AtmosphericData dataWithLowTideAt(LocalDateTime lowTime) {
         return TestAtmosphericData.builder()
                 .tide(new TideSnapshot(TideState.MID, null, null, null, null,
-                        false, null, lowTime))
+                        false, null, lowTime, null, null, null, null))
                 .build();
     }
 
     private AtmosphericData dataWithNoNearestTides(TideState state) {
         return TestAtmosphericData.builder()
                 .tide(new TideSnapshot(state, null, null, null, null,
-                        false, null, null))
+                        false, null, null, null, null, null, null))
                 .build();
     }
 
@@ -241,7 +241,7 @@ class TideAlignmentEvaluatorTest {
             LocalDateTime lowTime) {
         return TestAtmosphericData.builder()
                 .tide(new TideSnapshot(TideState.MID, null, null, null, null,
-                        false, highTime, lowTime))
+                        false, highTime, lowTime, null, null, null, null))
                 .build();
     }
 }

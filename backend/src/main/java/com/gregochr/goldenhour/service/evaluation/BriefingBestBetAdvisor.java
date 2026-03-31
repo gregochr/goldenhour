@@ -107,12 +107,37 @@ public class BriefingBestBetAdvisor {
             - Tide alignment is a strong differentiator. A GO region with tide-aligned
               coastal locations ranks above an equally clear inland-only region.
               Matching tides add foreground drama — mention the tide when it's a factor.
-            - King tides at coastal locations are rare and highly valuable
-            - Spring tides are notable but less rare than king tides
+            - Tide classifications: Tides now have BOTH a lunar type (King/Spring/Regular)
+              AND a statistical size (Extra Extra High / Extra High / regular).
+              These are independent dimensions.
+            - King Tide (lunar) = New/Full Moon + Moon at perigee. Rare (~5-10 per year).
+              When also Extra Extra High statistically, it's exceptional.
+            - Spring Tide (lunar) = New/Full Moon (without perigee requirement). Happens
+              ~24 times per year. When also Extra High or Extra Extra High statistically,
+              it's a strong day for coastal photography.
+            - Regular Tide (lunar) = any other lunar phase. Can still be Extra Extra High
+              if weather or other factors push the range up (storm surge).
+            - Consider the COMBINATION: King Tide + Extra Extra High is rare and dramatic.
+              Spring Tide + Extra High is more common but still excellent.
+              Extra Extra High alone (on a Regular Tide) suggests weather-driven effects.
+            - Tide alignment matters: matched tides add foreground drama and composition
+              opportunities. Always mention when tide is aligned with the event.
             - Aurora events (MODERATE or above with clear dark-sky locations) are rare and exciting
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the appeal
             - If multiple events are close in quality, prefer the sooner one
+            **Tide data in the rollup now includes:**
+              - lunarKingTideCount: how many locations have a lunar King Tide this event
+              - lunarSpringTideCount: how many locations have a lunar Spring Tide this event
+              - extraExtraHighCount: how many locations are statistically extreme (top 5%)
+              - extraHighCount: how many locations are statistically large (>125% avg)
+              - tideAlignedCount: how many locations have tide aligned with photographer preference
+
+            Use these fields to identify COMBINATIONS:
+              - If lunarKingTideCount > 0 AND extraExtraHighCount > 0: rare, dramatic — Pick 1
+              - If lunarSpringTideCount > 0 AND extraHighCount > 0: strong combo — competitive
+              - If extraExtraHighCount > 0 but lunarKingTideCount = 0: weather-driven, mention caution
+
             - If everything is STANDDOWN, say so honestly. Don't oversell marginal conditions.
               Be human — tell the photographer to stay home, charge their batteries,
               maybe edit last weekend's shots. A bit of humour is fine.
@@ -516,10 +541,34 @@ public class BriefingBestBetAdvisor {
                 .filter(s -> s.tide().tideAligned()).count();
         long coastalCount = region.slots().stream()
                 .filter(s -> s.tide().tideState() != null).count();
+
+        // Lunar classifications (deterministic, from moon phase + perigee)
+        long lunarKingTideCount = region.slots().stream()
+                .filter(s -> s.tide().lunarTideType() != null
+                        && s.tide().lunarTideType().name().equals("KING_TIDE"))
+                .count();
+        long lunarSpringTideCount = region.slots().stream()
+                .filter(s -> s.tide().lunarTideType() != null
+                        && s.tide().lunarTideType().name().equals("SPRING_TIDE"))
+                .count();
+
+        // Statistical sizes (empirical, from historical data)
+        long extraExtraHighCount = region.slots().stream()
+                .filter(s -> s.tide().statisticalSize() != null
+                        && s.tide().statisticalSize().name().equals("EXTRA_EXTRA_HIGH"))
+                .count();
+        long extraHighCount = region.slots().stream()
+                .filter(s -> s.tide().statisticalSize() != null
+                        && s.tide().statisticalSize().name().equals("EXTRA_HIGH"))
+                .count();
+
+        // Legacy: statistical "king tide" detection (P95)
         List<String> kingTideLocations = region.slots().stream()
                 .filter(s -> s.tide().isKingTide())
                 .map(BriefingSlot::locationName)
                 .toList();
+
+        // Legacy: statistical "spring tide" detection (>125% avg)
         boolean hasSpringTide = region.slots().stream()
                 .anyMatch(s -> s.tide().isSpringTide());
 
@@ -543,12 +592,23 @@ public class BriefingBestBetAdvisor {
             regionNode.put("weatherCode", region.regionWeatherCode());
         }
         regionNode.put("tideAlignedCount", tideAlignedCount);
+
+        // Lunar classifications (new)
+        regionNode.put("lunarKingTideCount", lunarKingTideCount);
+        regionNode.put("lunarSpringTideCount", lunarSpringTideCount);
+
+        // Statistical sizes (new)
+        regionNode.put("extraExtraHighCount", extraExtraHighCount);
+        regionNode.put("extraHighCount", extraHighCount);
+
+        // Legacy fields (kept for backward compatibility)
         regionNode.put("hasKingTide", !kingTideLocations.isEmpty());
         if (!kingTideLocations.isEmpty()) {
             ArrayNode kingTideLocs = regionNode.putArray("kingTideLocations");
             kingTideLocations.forEach(kingTideLocs::add);
         }
         regionNode.put("hasSpringTide", hasSpringTide);
+
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
         List<Integer> driveTimes = region.slots().stream()

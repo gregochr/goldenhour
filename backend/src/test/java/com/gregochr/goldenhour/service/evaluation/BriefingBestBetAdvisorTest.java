@@ -5,6 +5,7 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.BestBet;
@@ -273,6 +274,124 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.json()).contains("hasKingTide");
             assertThat(result.json()).contains("Bamburgh");
             assertThat(result.json()).contains("kingTideLocations");
+        }
+
+        @Test
+        @DisplayName("Lunar king tide count included in rollup when slot has KING_TIDE")
+        void lunarKingTideCountInRollup() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingSlot lunarKingSlot = new BriefingSlot(
+                    "Bamburgh", null, Verdict.GO,
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null,
+                            new BigDecimal("6.2"), true, false,
+                            LunarTideType.KING_TIDE, "New Moon", true),
+                    List.of("King tide"));
+            BriefingRegion region = new BriefingRegion(
+                    "Northumberland", Verdict.GO, "Clear", List.of(),
+                    List.of(lunarKingSlot), 7.0, 5.0, 1.5, 1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
+            ));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
+                    List.of(day), now, Map.of());
+            assertThat(result.json()).contains("\"lunarKingTideCount\":1");
+            assertThat(result.json()).contains("\"lunarSpringTideCount\":0");
+        }
+
+        @Test
+        @DisplayName("Lunar spring tide count included in rollup when slot has SPRING_TIDE")
+        void lunarSpringTideCountInRollup() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingSlot springSlot = new BriefingSlot(
+                    "Dunstanburgh", null, Verdict.GO,
+                    new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                            9.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null,
+                            new BigDecimal("5.1"), false, true,
+                            LunarTideType.SPRING_TIDE, "Full Moon", false),
+                    List.of());
+            BriefingRegion region = new BriefingRegion(
+                    "Northumberland", Verdict.GO, "Clear", List.of(),
+                    List.of(springSlot), 7.0, 5.0, 1.5, 1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
+            ));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
+                    List.of(day), now, Map.of());
+            assertThat(result.json()).contains("\"lunarSpringTideCount\":1");
+            assertThat(result.json()).contains("\"lunarKingTideCount\":0");
+            assertThat(result.json()).contains("\"extraHighCount\":1");
+        }
+
+        @Test
+        @DisplayName("Statistical size counts reflect TideInfo.statisticalSize() derivation")
+        void statisticalSizeCountsInRollup() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            // isKingTide=true → statisticalSize()=EXTRA_EXTRA_HIGH
+            BriefingSlot extraExtraHighSlot = new BriefingSlot(
+                    "Bamburgh", null, Verdict.GO,
+                    new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
+                            8.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null,
+                            new BigDecimal("6.5"), true, false,
+                            LunarTideType.KING_TIDE, "New Moon", true),
+                    List.of());
+            // isSpringTide=true → statisticalSize()=EXTRA_HIGH
+            BriefingSlot extraHighSlot = new BriefingSlot(
+                    "Dunstanburgh", null, Verdict.GO,
+                    new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                            9.0, null, null, BigDecimal.ONE),
+                    new BriefingSlot.TideInfo("HIGH", true, null,
+                            new BigDecimal("5.3"), false, true,
+                            LunarTideType.SPRING_TIDE, "Full Moon", false),
+                    List.of());
+            BriefingRegion region = new BriefingRegion(
+                    "Northumberland", Verdict.GO, "Clear", List.of(),
+                    List.of(extraExtraHighSlot, extraHighSlot), 7.0, 5.0, 1.5, 1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
+            ));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
+                    List.of(day), now, Map.of());
+            assertThat(result.json()).contains("\"extraExtraHighCount\":1");
+            assertThat(result.json()).contains("\"extraHighCount\":1");
+        }
+
+        @Test
+        @DisplayName("Inland slots produce zero counts for all tide fields")
+        void inlandSlotsZeroTideCounts() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Lake District", Verdict.GO, 3, 0, 0)
+                    ), List.of())
+            ));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
+                    List.of(day), now, Map.of());
+            assertThat(result.json()).contains("\"lunarKingTideCount\":0");
+            assertThat(result.json()).contains("\"lunarSpringTideCount\":0");
+            assertThat(result.json()).contains("\"extraExtraHighCount\":0");
+            assertThat(result.json()).contains("\"extraHighCount\":0");
+            assertThat(result.json()).contains("\"tideAlignedCount\":0");
+            assertThat(result.json()).contains("\"coastalLocationCount\":0");
         }
 
         @Test

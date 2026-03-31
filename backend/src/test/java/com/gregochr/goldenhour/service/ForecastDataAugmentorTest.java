@@ -1,14 +1,17 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.TideStats;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +45,9 @@ class ForecastDataAugmentorTest {
 
     @Mock
     private TideService tideService;
+
+    @Mock
+    private LunarPhaseService lunarPhaseService;
 
     @InjectMocks
     private ForecastDataAugmentor augmentor;
@@ -88,6 +94,13 @@ class ForecastDataAugmentorTest {
                 highTide, null);
         when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
+        when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
+                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(lunarPhaseService.getMoonPhase(EVENT_TIME.toLocalDate()))
+                .thenReturn("Full Moon");
+        when(lunarPhaseService.isMoonAtPerigee(EVENT_TIME.toLocalDate()))
+                .thenReturn(false);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
 
         AtmosphericData result = augmentor.augmentWithTideData(
                 base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
@@ -95,6 +108,137 @@ class ForecastDataAugmentorTest {
         assertThat(result.tide()).isNotNull();
         assertThat(result.tide().tideState()).isEqualTo(TideState.HIGH);
         assertThat(result.tide().tideAligned()).isTrue();
+        assertThat(result.tide().lunarTideType()).isEqualTo(LunarTideType.SPRING_TIDE);
+        assertThat(result.tide().lunarPhase()).isEqualTo("Full Moon");
+        assertThat(result.tide().moonAtPerigee()).isFalse();
+        assertThat(result.tide().statisticalSize()).isNull();
+    }
+
+    @Test
+    @DisplayName("augmentWithTideData() sets KING_TIDE lunar type when perigee + new/full moon")
+    void augmentWithTideData_kingTide_setsLunarKingTide() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        LocalDateTime highTide = EVENT_TIME.plusHours(2);
+        LocalDateTime lowTide = EVENT_TIME.minusHours(4);
+        TideData tideData = new TideData(TideState.HIGH, false,
+                highTide, new BigDecimal("6.2"), lowTide, new BigDecimal("0.8"),
+                highTide, null);
+        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
+        when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
+                .thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(EVENT_TIME.toLocalDate()))
+                .thenReturn("New Moon");
+        when(lunarPhaseService.isMoonAtPerigee(EVENT_TIME.toLocalDate()))
+                .thenReturn(true);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
+
+        AtmosphericData result = augmentor.augmentWithTideData(
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+
+        assertThat(result.tide().lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
+        assertThat(result.tide().lunarPhase()).isEqualTo("New Moon");
+        assertThat(result.tide().moonAtPerigee()).isTrue();
+    }
+
+    @Test
+    @DisplayName("augmentWithTideData() classifies EXTRA_EXTRA_HIGH when height exceeds P95")
+    void augmentWithTideData_heightAboveP95_setsExtraExtraHigh() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        LocalDateTime highTide = EVENT_TIME.plusHours(2);
+        LocalDateTime lowTide = EVENT_TIME.minusHours(4);
+        TideData tideData = new TideData(TideState.HIGH, false,
+                highTide, new BigDecimal("6.50"), lowTide, new BigDecimal("0.80"),
+                highTide, null);
+        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
+        when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
+                .thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(EVENT_TIME.toLocalDate()))
+                .thenReturn("New Moon");
+        when(lunarPhaseService.isMoonAtPerigee(EVENT_TIME.toLocalDate()))
+                .thenReturn(true);
+        TideStats stats = new TideStats(
+                new BigDecimal("4.50"), new BigDecimal("6.00"),
+                new BigDecimal("1.20"), new BigDecimal("0.50"),
+                200, new BigDecimal("3.30"),
+                new BigDecimal("5.20"), new BigDecimal("5.80"),
+                new BigDecimal("6.00"),
+                15, new BigDecimal("0.08"),
+                new BigDecimal("5.63"), new BigDecimal("6.00"), 5);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
+
+        AtmosphericData result = augmentor.augmentWithTideData(
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+
+        assertThat(result.tide().statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_EXTRA_HIGH);
+    }
+
+    @Test
+    @DisplayName("augmentWithTideData() classifies EXTRA_HIGH when height exceeds spring threshold but not P95")
+    void augmentWithTideData_heightAboveSpringNotP95_setsExtraHigh() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        LocalDateTime highTide = EVENT_TIME.plusHours(2);
+        LocalDateTime lowTide = EVENT_TIME.minusHours(4);
+        TideData tideData = new TideData(TideState.HIGH, false,
+                highTide, new BigDecimal("5.80"), lowTide, new BigDecimal("0.80"),
+                highTide, null);
+        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
+        when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
+                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(lunarPhaseService.getMoonPhase(EVENT_TIME.toLocalDate()))
+                .thenReturn("Full Moon");
+        when(lunarPhaseService.isMoonAtPerigee(EVENT_TIME.toLocalDate()))
+                .thenReturn(false);
+        TideStats stats = new TideStats(
+                new BigDecimal("4.50"), new BigDecimal("6.20"),
+                new BigDecimal("1.20"), new BigDecimal("0.50"),
+                200, new BigDecimal("3.30"),
+                new BigDecimal("5.20"), new BigDecimal("5.80"),
+                new BigDecimal("6.00"),
+                15, new BigDecimal("0.08"),
+                new BigDecimal("5.63"), new BigDecimal("6.00"), 5);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
+
+        AtmosphericData result = augmentor.augmentWithTideData(
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+
+        assertThat(result.tide().statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_HIGH);
+    }
+
+    @Test
+    @DisplayName("augmentWithTideData() returns null statistical size when height is below thresholds")
+    void augmentWithTideData_heightBelowThresholds_nullStatisticalSize() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        LocalDateTime highTide = EVENT_TIME.plusHours(2);
+        LocalDateTime lowTide = EVENT_TIME.minusHours(4);
+        TideData tideData = new TideData(TideState.HIGH, false,
+                highTide, new BigDecimal("4.00"), lowTide, new BigDecimal("1.20"),
+                highTide, null);
+        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
+        when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.getMoonPhase(EVENT_TIME.toLocalDate()))
+                .thenReturn("Waxing Crescent");
+        when(lunarPhaseService.isMoonAtPerigee(EVENT_TIME.toLocalDate()))
+                .thenReturn(false);
+        TideStats stats = new TideStats(
+                new BigDecimal("4.50"), new BigDecimal("6.20"),
+                new BigDecimal("1.20"), new BigDecimal("0.50"),
+                200, new BigDecimal("3.30"),
+                new BigDecimal("5.20"), new BigDecimal("5.80"),
+                new BigDecimal("6.00"),
+                15, new BigDecimal("0.08"),
+                new BigDecimal("5.63"), new BigDecimal("6.00"), 5);
+        when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
+
+        AtmosphericData result = augmentor.augmentWithTideData(
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+
+        assertThat(result.tide().statisticalSize()).isNull();
+        assertThat(result.tide().lunarTideType()).isEqualTo(LunarTideType.REGULAR_TIDE);
     }
 
     @Test

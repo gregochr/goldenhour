@@ -354,14 +354,46 @@ public class PromptBuilder {
         // Include tide data if available (coastal location)
         TideSnapshot tide = data.tide();
         if (tide != null && tide.tideState() != null) {
-            sb.append(String.format(
-                    "%nTide: %s (next high: %.2fm at %s, next low: %.2fm at %s), Aligned: %s",
-                    tide.tideState(),
+            StringBuilder tideStr = new StringBuilder();
+
+            // Lunar classification (primary)
+            if (tide.lunarTideType() != null) {
+                tideStr.append(tide.lunarTideType().name().replace("_", " "));
+            } else {
+                tideStr.append("Regular Tide");
+            }
+
+            // Statistical size (secondary, only if Extra High or higher)
+            if (tide.statisticalSize() != null) {
+                String sizeLabel = switch (tide.statisticalSize()) {
+                    case EXTRA_EXTRA_HIGH -> ", Extra Extra High";
+                    case EXTRA_HIGH -> ", Extra High";
+                };
+                tideStr.append(sizeLabel);
+            }
+
+            // Range and alignment
+            tideStr.append(String.format(" (range: %.2fm, next high at %s, next low at %s)",
                     tide.nextHighTideHeightMetres(),
                     tide.nextHighTideTime(),
-                    tide.nextLowTideHeightMetres(),
-                    tide.nextLowTideTime(),
-                    tide.tideAligned()));
+                    tide.nextLowTideTime()));
+
+            // Moon phase and perigee info
+            if (tide.lunarPhase() != null) {
+                tideStr.append(String.format(", moon: %s", tide.lunarPhase()));
+            }
+            if (tide.moonAtPerigee() != null && tide.moonAtPerigee()) {
+                tideStr.append(", perigee: yes");
+            } else if (tide.moonAtPerigee() != null) {
+                tideStr.append(", perigee: no");
+            }
+
+            // Tidal alignment for photography
+            if (tide.tideAligned() != null) {
+                tideStr.append(String.format(", aligned: %s", tide.tideAligned() ? "yes" : "no"));
+            }
+
+            sb.append("\nTide: ").append(tideStr);
         }
 
         sb.append("\n").append(getPromptSuffix());

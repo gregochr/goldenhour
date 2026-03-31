@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.entity.TideStatisticalSize;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -79,5 +80,22 @@ public record BriefingSlot(
         /** Tide info for inland locations with no tide data. */
         public static final TideInfo NONE =
                 new TideInfo(null, false, null, null, false, false, null, null, null);
+
+        /**
+         * Derives the statistical size classification from the existing boolean flags.
+         *
+         * @return {@link TideStatisticalSize#EXTRA_EXTRA_HIGH} if {@code isKingTide},
+         *         {@link TideStatisticalSize#EXTRA_HIGH} if {@code isSpringTide},
+         *         or {@code null} for regular-sized tides
+         */
+        public TideStatisticalSize statisticalSize() {
+            if (isKingTide) {
+                return TideStatisticalSize.EXTRA_EXTRA_HIGH;
+            }
+            if (isSpringTide) {
+                return TideStatisticalSize.EXTRA_HIGH;
+            }
+            return null;
+        }
     }
 }
