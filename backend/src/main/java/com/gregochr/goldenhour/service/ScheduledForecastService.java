@@ -137,10 +137,10 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Refreshes the daily briefing every 2 hours — a zero-Claude-cost pre-flight check
+     * Refreshes the daily briefing at 04:00, 14:00 and 22:00 UTC — a pre-flight check
      * of weather and tide conditions across all enabled colour locations.
      */
-    @Scheduled(cron = "${briefing.schedule.cron:0 0 */2 * * *}")
+    @Scheduled(cron = "${briefing.schedule.cron:0 0 4,14,22 * * *}")
     public void refreshDailyBriefing() {
         try {
             briefingService.refreshBriefing();

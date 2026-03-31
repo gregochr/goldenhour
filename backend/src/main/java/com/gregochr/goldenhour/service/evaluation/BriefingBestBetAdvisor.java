@@ -55,8 +55,8 @@ public class BriefingBestBetAdvisor {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
 
-    /** Claude model used for best-bet advisory (Haiku — fast, cost-effective). */
-    private static final String MODEL = EvaluationModel.HAIKU.getModelId();
+    /** Claude model used for best-bet advisory. */
+    private static final String MODEL = EvaluationModel.OPUS.getModelId();
 
     /** Maximum response tokens for the best-bet JSON. */
     private static final int MAX_TOKENS = 1024;
@@ -262,7 +262,7 @@ public class BriefingBestBetAdvisor {
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-best-bet", null,
                     durationMs, 200, raw, true, null,
-                    EvaluationModel.HAIKU, null, null);
+                    EvaluationModel.OPUS, null, null);
 
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
