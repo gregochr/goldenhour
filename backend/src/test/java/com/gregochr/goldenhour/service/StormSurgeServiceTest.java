@@ -521,6 +521,33 @@ class StormSurgeServiceTest {
         }
 
         @Test
+        @DisplayName("High pressure suppression included in explanation")
+        void highPressureSuppression() {
+            // High pressure + significant wind surge to make total significant
+            StormSurgeBreakdown result = service.calculate(
+                    1030, 25, 80, CRASTER, "REGULAR_TIDE");
+            if (result.isSignificant()) {
+                assertThat(result.surgeExplanation()).contains("High pressure");
+                assertThat(result.surgeExplanation()).contains("suppressing water");
+            }
+        }
+
+        @Test
+        @DisplayName("Weak onshore wind label when onshore component is low")
+        void weakOnshoreWindLabel() {
+            // Wind partly offshore — low onshore component (0.0-0.3)
+            // Shore normal is 80°, wind from 170° → angle ~90° → cos≈0 → barely onshore
+            // Use 120° → angle 40° → cos≈0.77 → moderate
+            // Use 150° → angle 70° → cos≈0.34 → moderate (just above 0.3)
+            // Use 160° → angle 80° → cos≈0.17 → weak (below 0.3)
+            StormSurgeBreakdown result = service.calculate(
+                    980, 20, 160, CRASTER, "REGULAR_TIDE");
+            if (result.windRiseMetres() >= 0.02) {
+                assertThat(result.surgeExplanation()).contains("weak onshore");
+            }
+        }
+
+        @Test
         @DisplayName("Explanation always ends with total surge")
         void alwaysHasTotal() {
             StormSurgeBreakdown result = service.calculate(

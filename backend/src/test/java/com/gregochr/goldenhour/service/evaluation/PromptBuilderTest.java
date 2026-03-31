@@ -10,6 +10,8 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
+import com.gregochr.goldenhour.model.StormSurgeBreakdown;
+import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.DisplayName;
@@ -524,6 +526,200 @@ public class PromptBuilderTest {
                 .doesNotContain("Extra High")
                 .contains("moon: Waxing Crescent")
                 .contains("perigee: no");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with thick mid cloud (>80%) includes annotation")
+    void buildUserMessage_thickMidCloud_includesAnnotation() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(30, 85, 10, 5, 45, 30, null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).contains("[THICK MID CLOUD — rate 4, not 5]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with thin strip detection includes THIN STRIP annotation")
+    void buildUserMessage_thinStrip_includesAnnotation() {
+        // Solar low cloud 60%, far solar 25% → drop of 35pp ≥ 30 → thin strip
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(60, 20, 10, 5, 45, 30, 25))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Beyond horizon (226km, solar azimuth): Low 25%")
+                .contains("[THIN STRIP — soften low-cloud penalty]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with extensive blanket includes BLANKET annotation")
+    void buildUserMessage_extensiveBlanket_includesAnnotation() {
+        // Solar low cloud 70%, far solar 65% → both ≥ 50 → extensive blanket
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(70, 20, 10, 5, 45, 30, 65))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Beyond horizon (226km, solar azimuth): Low 65%")
+                .contains("[EXTENSIVE BLANKET — full penalty applies]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage far solar with no thin strip or blanket omits annotation")
+    void buildUserMessage_farSolarNeitherThinStripNorBlanket_noAnnotation() {
+        // Solar low cloud 40% (< 50) → neither condition triggers
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(40, 20, 10, 5, 45, 30, 10))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Beyond horizon (226km, solar azimuth): Low 10%")
+                .doesNotContain("[THIN STRIP")
+                .doesNotContain("[EXTENSIVE BLANKET");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage BUILDING + thin strip confirmed uses priority annotation")
+    void buildUserMessage_buildingWithThinStrip_usesPriorityAnnotation() {
+        // Thin strip: solar 60%, far 25% (drop 35pp ≥ 30) + building trend
+        DirectionalCloudData dc = new DirectionalCloudData(60, 20, 10, 5, 45, 30, 25);
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(dc)
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(3, 5),
+                                new SolarCloudTrend.SolarCloudSlot(2, 15),
+                                new SolarCloudTrend.SolarCloudSlot(1, 35),
+                                new SolarCloudTrend.SolarCloudSlot(0, 60))),
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("[BUILDING — but THIN STRIP CONFIRMED at event time")
+                .doesNotContain("[BUILDING]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with dew point but null temperature shows NaN gap")
+    void buildUserMessage_dewPointWithNullTemperature_showsNanGap() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(null)
+                .dewPoint(3.5)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).contains("3.5").contains("NaN");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage mist trend with positive hour shows T+ prefix")
+    void buildUserMessage_mistTrendPositiveHour_showsTPlus() {
+        MistTrend mistTrend = new MistTrend(List.of(
+                new MistTrend.MistSlot(1, 12000, 8.0, 5.0),
+                new MistTrend.MistSlot(2, 15000, 9.0, 4.0)
+        ));
+        AtmosphericData data = TestAtmosphericData.builder()
+                .mistTrend(mistTrend)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("T+1h")
+                .contains("T+2h");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage mist trend with gap 1.0-2.0 shows NEAR DEW POINT label")
+    void buildUserMessage_mistTrendNearDewPoint_showsLabel() {
+        MistTrend mistTrend = new MistTrend(List.of(
+                new MistTrend.MistSlot(0, 3000, 6.0, 7.5) // dew=6.0, temp=7.5, gap=1.5°C → NEAR DEW POINT
+        ));
+        AtmosphericData data = TestAtmosphericData.builder()
+                .mistTrend(mistTrend)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("[NEAR DEW POINT]")
+                .doesNotContain("[AT/NEAR DEW POINT]");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage surge section included when significant surge present")
+    void buildUserMessage_withSurge_includesSurgeBlock() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
+                TideRiskLevel.MODERATE, "Test surge");
+
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data, surge, 4.15, 3.80);
+
+        assertThat(message)
+                .contains("STORM SURGE FORECAST:")
+                .contains("Pressure effect: +0.23m")
+                .contains("low pressure 990 hPa")
+                .contains("Wind effect: +0.12m")
+                .contains("Total estimated surge: +0.35m (upper bound)")
+                .contains("Adjusted tidal range: up to 4.2m (predicted 3.8m + 0.35m surge)")
+                .contains("Risk level: MODERATE");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage surge with high pressure shows 'high' label")
+    void buildUserMessage_surgeHighPressure_showsHighLabel() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                -0.17, 0.0, 0.0, 1030.0, 5.0, 270.0, 0.0,
+                TideRiskLevel.NONE, "No significant surge expected");
+
+        // Non-significant surge should not be included
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String message = promptBuilder.buildUserMessage(data, surge, null, null);
+        assertThat(message).doesNotContain("STORM SURGE FORECAST:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage surge without wind component omits wind line")
+    void buildUserMessage_surgeNoWindComponent_omitsWindLine() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.15, 0.01, 0.15, 998.0, 3.0, 180.0, 0.1,
+                TideRiskLevel.LOW, "Pressure only");
+
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String message = promptBuilder.buildUserMessage(data, surge, null, null);
+
+        assertThat(message)
+                .contains("STORM SURGE FORECAST:")
+                .contains("Pressure effect:")
+                .doesNotContain("Wind effect:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage surge without adjusted range omits tidal range line")
+    void buildUserMessage_surgeNoAdjustedRange_omitsRangeLine() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.15, 0.05, 0.20, 998.0, 10.0, 80.0, 0.8,
+                TideRiskLevel.LOW, "Test");
+
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String message = promptBuilder.buildUserMessage(data, surge, null, null);
+
+        assertThat(message)
+                .contains("STORM SURGE FORECAST:")
+                .doesNotContain("Adjusted tidal range:");
     }
 
     @Test

@@ -352,6 +352,80 @@ class ForecastDataAugmentorSurgeTest {
     }
 
     @Test
+    @DisplayName("Missing weather data at high-tide time returns unchanged")
+    void missingWeatherAtHighTideTimeReturnsUnchanged() {
+        AtmosphericData base = baseDataWithTide();
+        // Forecast response with null surface pressure list
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(List.of(
+                "2026-03-30T18:00", "2026-03-30T19:00", "2026-03-30T20:00"));
+        hourly.setSurfacePressure(null); // null pressure list
+        hourly.setWindSpeed10m(List.of(15.0, 15.0, 15.0));
+        hourly.setWindDirection10m(List.of(60, 60, 60));
+        response.setHourly(hourly);
+
+        AtmosphericData result = augmentor.augmentWithStormSurge(
+                base, CRASTER_COASTAL, 1L, "Craster", response);
+
+        assertThat(result.surge()).isNull();
+    }
+
+    @Test
+    @DisplayName("Null low tide height defaults to zero for range calculation")
+    void nullLowTideHeightDefaultsToZero() {
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH, HIGH_TIDE_TIME, BigDecimal.valueOf(4.80),
+                LocalDateTime.of(2026, 3, 30, 13, 0), null,
+                true, HIGH_TIDE_TIME, LocalDateTime.of(2026, 3, 30, 13, 0),
+                null, null, null, null);
+        AtmosphericData base = TestAtmosphericData.builder()
+                .locationName("Craster")
+                .tide(tide)
+                .build();
+        OpenMeteoForecastResponse response = buildForecastResponse(990, 15, 60);
+
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
+                TideRiskLevel.MODERATE, "Test surge");
+        when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
+        when(weatherAugmentedTideService.augment(
+                anyDouble(), anyDouble(), anyDouble(), any(), anyString(),
+                // astronomicalRange should be 4.80 - 0.0 = 4.80
+                org.mockito.ArgumentMatchers.eq(4.80),
+                anyDouble()))
+                .thenReturn(new WeatherAugmentedTideService.AugmentedTideResult(
+                        surge, 5.15, 5.15));
+
+        AtmosphericData result = augmentor.augmentWithStormSurge(
+                base, CRASTER_COASTAL, 1L, "Craster", response);
+
+        assertThat(result.surge()).isNotNull();
+        assertThat(result.astronomicalRangeMetres()).isCloseTo(4.80,
+                org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    @Test
+    @DisplayName("Null high tide height in deriveStatisticalSize returns null")
+    void nullHighTideHeightReturnsNullStatisticalSize() {
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH, HIGH_TIDE_TIME, null,
+                null, null, true, HIGH_TIDE_TIME, null,
+                null, null, null, null);
+        AtmosphericData base = TestAtmosphericData.builder()
+                .locationName("Craster")
+                .tide(tide)
+                .build();
+
+        // Should return unchanged because nextHighTideHeightMetres is null (guard clause)
+        AtmosphericData result = augmentor.augmentWithStormSurge(
+                base, CRASTER_COASTAL, 1L, "Craster",
+                buildForecastResponse(990, 15, 60));
+
+        assertThat(result.surge()).isNull();
+    }
+
+    @Test
     @DisplayName("Calibration logger is called for significant surge")
     void calibrationLoggerCalled() {
         AtmosphericData base = baseDataWithTide();

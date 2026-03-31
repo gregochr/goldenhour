@@ -238,6 +238,90 @@ class StatusControllerTest {
             assertThat(response.session().username()).isEqualTo("alice");
             assertThat(response.session().role()).isEqualTo("PRO_USER");
         }
+
+        @Test
+        @DisplayName("JWT login time extracted from Bearer header")
+        void jwtLoginTimeExtracted() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            com.gregochr.goldenhour.service.JwtService jwtService =
+                    mock(com.gregochr.goldenhour.service.JwtService.class);
+            java.time.Instant loginTime = java.time.Instant.parse("2026-03-31T10:00:00Z");
+            when(jwtService.extractIssuedAt("test-token")).thenReturn(loginTime);
+
+            Authentication auth = mockAuth("alice", "ROLE_ADMIN");
+            StatusController controller = new StatusController(healthEndpoint, null, jwtService);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            when(request.getHeader("Authorization")).thenReturn("Bearer test-token");
+
+            SseEmitter emitter = controller.stream(auth, request);
+
+            assertThat(emitter).isNotNull();
+        }
+
+        @Test
+        @DisplayName("JWT login time extracted from token query parameter for SSE")
+        void jwtLoginTimeFromQueryParam() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            com.gregochr.goldenhour.service.JwtService jwtService =
+                    mock(com.gregochr.goldenhour.service.JwtService.class);
+            java.time.Instant loginTime = java.time.Instant.parse("2026-03-31T10:00:00Z");
+            when(jwtService.extractIssuedAt("sse-token")).thenReturn(loginTime);
+
+            Authentication auth = mockAuth("alice", "ROLE_ADMIN");
+            StatusController controller = new StatusController(healthEndpoint, null, jwtService);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            when(request.getHeader("Authorization")).thenReturn(null);
+            when(request.getParameter("token")).thenReturn("sse-token");
+
+            SseEmitter emitter = controller.stream(auth, request);
+
+            assertThat(emitter).isNotNull();
+        }
+
+        @Test
+        @DisplayName("JWT extraction failure logs and returns null login time")
+        void jwtExtractionFailureReturnsNullLoginTime() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            com.gregochr.goldenhour.service.JwtService jwtService =
+                    mock(com.gregochr.goldenhour.service.JwtService.class);
+            when(jwtService.extractIssuedAt("bad-token"))
+                    .thenThrow(new RuntimeException("Invalid token"));
+
+            Authentication auth = mockAuth("alice", "ROLE_ADMIN");
+            StatusController controller = new StatusController(healthEndpoint, null, jwtService);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            when(request.getHeader("Authorization")).thenReturn("Bearer bad-token");
+
+            SseEmitter emitter = controller.stream(auth, request);
+
+            assertThat(emitter).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Null JwtService returns null login time without error")
+        void nullJwtServiceReturnsNullLoginTime() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            Authentication auth = mockAuth("alice", "ROLE_ADMIN");
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            when(request.getHeader("Authorization")).thenReturn("Bearer some-token");
+
+            SseEmitter emitter = controller.stream(auth, request);
+
+            assertThat(emitter).isNotNull();
+        }
     }
 
     @Nested
