@@ -18,7 +18,6 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
@@ -252,7 +251,7 @@ public class BriefingEvaluationService {
     private void sendSafe(SseEmitter emitter, String eventName, Object data) {
         try {
             emitter.send(SseEmitter.event().name(eventName).data(data));
-        } catch (IOException e) {
+        } catch (Exception e) {
             LOG.debug("SSE send failed for event '{}': {}", eventName, e.getMessage());
         }
     }
