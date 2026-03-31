@@ -66,7 +66,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V56 Flyway migrations
+│       └── db/migration/            V1–V63 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -133,7 +133,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V56)
+## Database Migrations (V1–V63)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -154,8 +154,15 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V52 | SENTINEL_SAMPLING optimisation strategy rows; remove stale REQUIRE_PRIOR rows |
 | V53 | far_solar_low_cloud column on forecast_evaluation (strip vs blanket detection) |
 | V54 | TIDE_ALIGNMENT optimisation strategy rows for all colour run types |
-| V55 | bortle_class column on locations (nullable integer) |
-| V56 | briefing_model_test_run + briefing_model_test_result tables |
+| V55 | drive_duration_minutes column on locations |
+| V56 | bortle_class column on locations (nullable integer) |
+| V57 | aurora_forecast_result table |
+| V58 | dew_point column on forecast_evaluation |
+| V59 | daily_briefing_cache table |
+| V60 | storm surge coastal parameters on locations |
+| V61 | storm surge forecast columns on forecast_evaluation |
+| V62 | sky_brightness_sqm column on locations |
+| V63 | briefing_model_test_run + briefing_model_test_result tables |
 
 ---
 
