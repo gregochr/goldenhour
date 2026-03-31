@@ -95,6 +95,23 @@ class NoaaSwpcClientTest {
         assertThat(readings).isEmpty();
     }
 
+    @Test
+    @DisplayName("parseKpReadings parses new NOAA object format")
+    void parseKpReadings_objectFormat() throws Exception {
+        String json = """
+                [
+                  {"time_tag": "2026-03-24T00:00:00", "Kp": 2.67, "a_running": 12, "station_count": 8},
+                  {"time_tag": "2026-03-24T03:00:00", "Kp": 3.67, "a_running": 22, "station_count": 8}
+                ]
+                """;
+
+        List<KpReading> readings = client.parseKpReadings(json);
+
+        assertThat(readings).hasSize(2);
+        assertThat(readings.get(0).kp()).isEqualTo(2.67);
+        assertThat(readings.get(1).kp()).isEqualTo(3.67);
+    }
+
     // -------------------------------------------------------------------------
     // Kp forecast parsing
     // -------------------------------------------------------------------------
@@ -116,6 +133,24 @@ class NoaaSwpcClientTest {
         KpForecast first = forecasts.get(0);
         assertThat(first.kp()).isEqualTo(3.0);
         assertThat(first.to()).isEqualTo(first.from().plusHours(3));
+    }
+
+    @Test
+    @DisplayName("parseKpForecasts parses new NOAA object format with lowercase kp")
+    void parseKpForecasts_objectFormat() throws Exception {
+        String json = """
+                [
+                  {"time_tag": "2026-03-24T00:00:00", "kp": 2.67, "observed": "observed", "noaa_scale": null},
+                  {"time_tag": "2026-03-24T03:00:00", "kp": 5.00, "observed": "predicted", "noaa_scale": "G1"}
+                ]
+                """;
+
+        List<KpForecast> forecasts = client.parseKpForecasts(json);
+
+        assertThat(forecasts).hasSize(2);
+        assertThat(forecasts.get(0).kp()).isEqualTo(2.67);
+        assertThat(forecasts.get(1).kp()).isEqualTo(5.0);
+        assertThat(forecasts.get(0).to()).isEqualTo(forecasts.get(0).from().plusHours(3));
     }
 
     // -------------------------------------------------------------------------

@@ -232,7 +232,11 @@ public class NoaaSwpcClient {
     /**
      * Parses the NOAA Kp index JSON (array-of-arrays, first row is headers).
      *
-     * <p>Row format: {@code ["time_tag", "Kp", "Kp_fraction", "Kp_int"]}
+     * <p>Supports two formats:
+     * <ul>
+     *   <li>Object format (current): {@code [{"time_tag": "...", "Kp": 2.67, ...}, ...]}</li>
+     *   <li>Array format (legacy): {@code [["time_tag", "Kp", ...], ...]} (first row is headers)</li>
+     * </ul>
      *
      * @param json raw JSON from NOAA
      * @return list of Kp readings (oldest first)
@@ -241,19 +245,29 @@ public class NoaaSwpcClient {
     List<KpReading> parseKpReadings(String json) throws Exception {
         JsonNode root = mapper.readTree(json);
         List<KpReading> result = new ArrayList<>();
-        boolean isHeader = true;
+        boolean isFirstRow = true;
         for (JsonNode row : root) {
-            if (isHeader) {
-                isHeader = false;
-                continue;
-            }
-            if (row.size() < 2) {
-                continue;
-            }
-            String timeTag = row.get(0).asText();
-            double kp = parseDouble(row.get(1));
-            if (!Double.isNaN(kp)) {
-                parseUtcDateTime(timeTag).ifPresent(ts -> result.add(new KpReading(ts, kp)));
+            if (row.isObject()) {
+                // New NOAA format: array of objects {"time_tag": "...", "Kp": ...}
+                String timeTag = row.path("time_tag").asText("");
+                double kp = parseDouble(row.get("Kp"));
+                if (!Double.isNaN(kp)) {
+                    parseUtcDateTime(timeTag).ifPresent(ts -> result.add(new KpReading(ts, kp)));
+                }
+            } else {
+                // Legacy format: array of arrays, first row is headers
+                if (isFirstRow) {
+                    isFirstRow = false;
+                    continue;
+                }
+                if (row.size() < 2) {
+                    continue;
+                }
+                String timeTag = row.get(0).asText();
+                double kp = parseDouble(row.get(1));
+                if (!Double.isNaN(kp)) {
+                    parseUtcDateTime(timeTag).ifPresent(ts -> result.add(new KpReading(ts, kp)));
+                }
             }
         }
         return result;
@@ -262,8 +276,12 @@ public class NoaaSwpcClient {
     /**
      * Parses the NOAA Kp 3-day forecast JSON (array-of-arrays, first row is headers).
      *
-     * <p>Row format: {@code ["time_tag", "Kp", "observed"|"predicted", "noaa_scale"]}
-     * Each row is a 3-hour window starting at {@code time_tag}.
+     * <p>Supports two formats:
+     * <ul>
+     *   <li>Object format (current): {@code [{"time_tag": "...", "kp": 2.67, ...}, ...]}</li>
+     *   <li>Array format (legacy): {@code [["time_tag", "Kp", ...], ...]} (first row is headers)</li>
+     * </ul>
+     * Each entry is a 3-hour window starting at {@code time_tag}.
      *
      * @param json raw JSON from NOAA
      * @return list of Kp forecast windows (oldest first)
@@ -272,20 +290,31 @@ public class NoaaSwpcClient {
     List<KpForecast> parseKpForecasts(String json) throws Exception {
         JsonNode root = mapper.readTree(json);
         List<KpForecast> result = new ArrayList<>();
-        boolean isHeader = true;
+        boolean isFirstRow = true;
         for (JsonNode row : root) {
-            if (isHeader) {
-                isHeader = false;
-                continue;
-            }
-            if (row.size() < 2) {
-                continue;
-            }
-            String timeTag = row.get(0).asText();
-            double kp = parseDouble(row.get(1));
-            if (!Double.isNaN(kp)) {
-                parseUtcDateTime(timeTag)
-                        .ifPresent(from -> result.add(new KpForecast(from, from.plusHours(3), kp)));
+            if (row.isObject()) {
+                // New NOAA format: array of objects {"time_tag": "...", "kp": ...}
+                String timeTag = row.path("time_tag").asText("");
+                double kp = parseDouble(row.get("kp"));
+                if (!Double.isNaN(kp)) {
+                    parseUtcDateTime(timeTag)
+                            .ifPresent(from -> result.add(new KpForecast(from, from.plusHours(3), kp)));
+                }
+            } else {
+                // Legacy format: array of arrays, first row is headers
+                if (isFirstRow) {
+                    isFirstRow = false;
+                    continue;
+                }
+                if (row.size() < 2) {
+                    continue;
+                }
+                String timeTag = row.get(0).asText();
+                double kp = parseDouble(row.get(1));
+                if (!Double.isNaN(kp)) {
+                    parseUtcDateTime(timeTag)
+                            .ifPresent(from -> result.add(new KpForecast(from, from.plusHours(3), kp)));
+                }
             }
         }
         return result;
