@@ -22,6 +22,9 @@ import java.time.LocalDateTime;
  * @param cloudApproach       cloud approach risk signals, or null if unavailable
  * @param mistTrend           hourly visibility and dew point trend around the event, or null
  * @param locationOrientation orientation hint (e.g. "sunrise-optimised"), or null for both/allday
+ * @param surge               storm surge breakdown, or null for inland/non-coastal locations
+ * @param adjustedRangeMetres     tidal range adjusted for surge (upper bound), or null
+ * @param astronomicalRangeMetres predicted astronomical tidal range, or null
  */
 public record AtmosphericData(
         String locationName,
@@ -35,7 +38,34 @@ public record AtmosphericData(
         TideSnapshot tide,
         CloudApproachData cloudApproach,
         MistTrend mistTrend,
-        String locationOrientation) {
+        String locationOrientation,
+        StormSurgeBreakdown surge,
+        Double adjustedRangeMetres,
+        Double astronomicalRangeMetres) {
+
+    /**
+     * Backward-compatible constructor for callers that don't supply surge or orientation data.
+     *
+     * @param locationName     human-readable location name
+     * @param solarEventTime   UTC time of the solar event
+     * @param targetType       SUNRISE or SUNSET
+     * @param cloud            observer-point cloud cover
+     * @param weather          core weather observations
+     * @param aerosol          aerosol measurements
+     * @param comfort          comfort metrics
+     * @param directionalCloud directional cloud data, or null
+     * @param tide             tide snapshot, or null
+     * @param cloudApproach    cloud approach data, or null
+     * @param mistTrend        mist trend, or null
+     */
+    public AtmosphericData(
+            String locationName, LocalDateTime solarEventTime, TargetType targetType,
+            CloudData cloud, WeatherData weather, AerosolData aerosol, ComfortData comfort,
+            DirectionalCloudData directionalCloud, TideSnapshot tide,
+            CloudApproachData cloudApproach, MistTrend mistTrend) {
+        this(locationName, solarEventTime, targetType, cloud, weather, aerosol, comfort,
+                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null);
+    }
 
     /**
      * Returns a copy with directional cloud data set.
@@ -46,7 +76,7 @@ public record AtmosphericData(
     public AtmosphericData withDirectionalCloud(DirectionalCloudData dc) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend,
-                locationOrientation);
+                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
     }
 
     /**
@@ -58,7 +88,7 @@ public record AtmosphericData(
     public AtmosphericData withTide(TideSnapshot tideSnapshot) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
-                mistTrend, locationOrientation);
+                mistTrend, locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
     }
 
     /**
@@ -70,7 +100,7 @@ public record AtmosphericData(
     public AtmosphericData withCloudApproach(CloudApproachData approach) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend,
-                locationOrientation);
+                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
     }
 
     /**
@@ -82,6 +112,21 @@ public record AtmosphericData(
     public AtmosphericData withLocationOrientation(String orientation) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
-                mistTrend, orientation);
+                mistTrend, orientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
+    }
+
+    /**
+     * Returns a copy with storm surge data set.
+     *
+     * @param surgeBreakdown      the storm surge breakdown
+     * @param adjustedRange       tidal range adjusted for surge (upper bound), or null
+     * @param astronomicalRange   predicted astronomical tidal range, or null
+     * @return a new instance with the surge data populated
+     */
+    public AtmosphericData withSurge(StormSurgeBreakdown surgeBreakdown,
+            Double adjustedRange, Double astronomicalRange) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
+                mistTrend, locationOrientation, surgeBreakdown, adjustedRange, astronomicalRange);
     }
 }

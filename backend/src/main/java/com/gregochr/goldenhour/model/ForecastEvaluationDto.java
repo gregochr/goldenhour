@@ -70,6 +70,12 @@ import java.time.LocalDateTime;
  * @param upwindDistanceKm               distance to upwind sample point in km (nullable)
  * @param lunarTideType                  astronomical tide classification (nullable for inland)
  * @param lunarPhase                     human-readable moon phase name (nullable for inland)
+ * @param surgeTotalMetres               total storm surge in metres (nullable)
+ * @param surgePressureMetres            pressure-driven surge component in metres (nullable)
+ * @param surgeWindMetres                wind-driven surge component in metres (nullable)
+ * @param surgeRiskLevel                 surge risk classification string (nullable)
+ * @param surgeAdjustedRangeMetres       tidal range adjusted for surge (nullable)
+ * @param surgeAstronomicalRangeMetres   predicted astronomical tidal range (nullable)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -124,5 +130,11 @@ public record ForecastEvaluationDto(
         Integer upwindEventLowCloud,
         Integer upwindDistanceKm,
         LunarTideType lunarTideType,
-        String lunarPhase) {
+        String lunarPhase,
+        Double surgeTotalMetres,
+        Double surgePressureMetres,
+        Double surgeWindMetres,
+        String surgeRiskLevel,
+        Double surgeAdjustedRangeMetres,
+        Double surgeAstronomicalRangeMetres) {
 }

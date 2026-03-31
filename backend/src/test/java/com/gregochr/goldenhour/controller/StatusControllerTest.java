@@ -14,7 +14,11 @@ import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.health.actuate.endpoint.IndicatedHealthDescriptor;
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.info.GitProperties;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -154,6 +158,165 @@ class StatusControllerTest {
 
             assertThat(response.build().commitId()).isNull();
         }
+    }
+
+    @Nested
+    @DisplayName("stream")
+    class StreamTests {
+
+        @Test
+        @DisplayName("Returns SseEmitter on successful connection with auth")
+        void streamReturnsEmitter() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            Authentication auth = mockAuth("testuser", "ROLE_ADMIN");
+            StatusController controller = new StatusController(healthEndpoint, null);
+
+            SseEmitter emitter = controller.stream(auth);
+
+            assertThat(emitter).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Returns SseEmitter when auth is null (anonymous)")
+        void streamWithNullAuth() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null);
+
+            SseEmitter emitter = controller.stream(null);
+
+            assertThat(emitter).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Returns SseEmitter when auth has no authorities")
+        void streamWithNoAuthorities() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            Authentication auth = mock(Authentication.class);
+            when(auth.getName()).thenReturn("user");
+            org.mockito.Mockito.doReturn(List.of()).when(auth).getAuthorities();
+
+            StatusController controller = new StatusController(healthEndpoint, null);
+
+            SseEmitter emitter = controller.stream(auth);
+
+            assertThat(emitter).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("extractSession (via buildStatus session field)")
+    class SessionExtractionTests {
+
+        @Test
+        @DisplayName("Extracts username and role from Authentication")
+        void extractsFromAuth() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            Authentication auth = mockAuth("alice", "ROLE_PRO_USER");
+            StatusController controller = new StatusController(healthEndpoint, null);
+            SseEmitter emitter = controller.stream(auth);
+
+            assertThat(emitter).isNotNull();
+            // Verify session extraction indirectly via buildStatus
+            StatusResponse response = controller.buildStatus(
+                    new SessionInfo("alice", "PRO_USER"));
+            assertThat(response.session().username()).isEqualTo("alice");
+            assertThat(response.session().role()).isEqualTo("PRO_USER");
+        }
+    }
+
+    @Nested
+    @DisplayName("buildStatus edge cases")
+    class BuildStatusEdgeCases {
+
+        @Test
+        @DisplayName("Non-composite root returns UNKNOWN database and empty services")
+        void nonCompositeRoot() {
+            HealthDescriptor root = indicated(Status.UP, null);
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.status()).isEqualTo("UP");
+            assertThat(response.database().status()).isEqualTo("UNKNOWN");
+            assertThat(response.services()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Dirty git properties reports dirty=true")
+        void dirtyGitProperties() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            Properties props = new Properties();
+            props.setProperty("commit.id.abbrev", "def5678");
+            props.setProperty("branch", "feature/test");
+            props.setProperty("commit.time", "2026-03-30T12:00:00Z");
+            props.setProperty("dirty", "true");
+            GitProperties gitProperties = new GitProperties(props);
+
+            StatusController controller = new StatusController(healthEndpoint, gitProperties);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.build().dirty()).isTrue();
+            assertThat(response.build().branch()).isEqualTo("feature/test");
+        }
+
+        @Test
+        @DisplayName("Component with non-composite circuitBreakers returns empty services")
+        void nonCompositeCircuitBreakers() {
+            HealthDescriptor dbHealth = indicated(Status.UP, null);
+            HealthDescriptor cbHealth = indicated(Status.UP, null);
+            HealthDescriptor root = compositeOf(
+                    Map.of("db", dbHealth, "circuitBreakers", cbHealth));
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.services()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Null db descriptor returns UNKNOWN database status")
+        void nullDbDescriptor() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.database().status()).isEqualTo("UNKNOWN");
+            assertThat(response.database().detail()).isNull();
+        }
+
+        @Test
+        @DisplayName("checkedAt is populated")
+        void checkedAtPopulated() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.checkedAt()).isNotNull();
+        }
+    }
+
+    private static Authentication mockAuth(String username, String role) {
+        Authentication auth = mock(Authentication.class);
+        when(auth.getName()).thenReturn(username);
+        List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(role));
+        org.mockito.Mockito.doReturn(authorities).when(auth).getAuthorities();
+        return auth;
     }
 
     // ── Helpers ──

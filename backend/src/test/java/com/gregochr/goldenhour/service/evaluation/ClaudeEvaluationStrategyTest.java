@@ -15,7 +15,9 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
+import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TokenUsage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -197,6 +199,41 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.basicFierySkyPotential()).isNull();
         assertThat(result.basicGoldenHourPotential()).isNull();
         assertThat(result.basicSummary()).isNull();
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() uses surge-aware prompt when surge is non-null")
+    void evaluateWithDetails_withSurge_usesSurgeAwarePrompt() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
+                TideRiskLevel.MODERATE, "Moderate surge conditions");
+        AtmosphericData data = TestAtmosphericData.defaults()
+                .withSurge(surge, 5.4, 5.0);
+        String rawJson = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Surge conditions.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
+
+        assertThat(detail.promptSent()).contains("STORM SURGE");
+        assertThat(detail.evaluation().fierySkyPotential()).isEqualTo(70);
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() uses standard prompt when surge is null")
+    void evaluateWithDetails_withoutSurge_usesStandardPrompt() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String rawJson = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Standard.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
+
+        assertThat(detail.promptSent()).doesNotContain("STORM SURGE");
     }
 
     // --- Helper methods ---

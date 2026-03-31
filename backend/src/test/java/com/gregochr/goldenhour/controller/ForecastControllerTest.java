@@ -507,7 +507,20 @@ class ForecastControllerTest {
                 .build();
     }
 
+    @SuppressWarnings("all")
     private ForecastEvaluationDto buildDto(String locationName, int fierySky, int goldenHour) {
+        // id, locationName, lat, lon, targetDate, targetType, forecastRunAt, daysAhead,
+        // rating, fierySky, goldenHour, summary, solarEventTime, azimuthDeg, evaluationModel,
+        // lowCloud, midCloud, highCloud, visibility, windSpeed, windDirection, precipitation,
+        // humidity, weatherCode, boundaryLayerHeight, shortwaveRadiation, pm25, dust, aod,
+        // temperatureCelsius, apparentTemp, precipProb, dewPoint,
+        // tideState, nextHighTideTime, nextHighTideHeight, nextLowTideTime, nextLowTideHeight,
+        // tideAligned, solarLowCloud, solarMidCloud, solarHighCloud,
+        // antisolarLowCloud, antisolarMidCloud, antisolarHighCloud,
+        // solarTrendEventLow, solarTrendEarliestLow, solarTrendBuilding,
+        // upwindCurrentLow, upwindEventLow, upwindDistanceKm,
+        // surgeTotalMetres, surgePressureMetres, surgeWindMetres, surgeRiskLevel,
+        // surgeAdjustedRange, surgeAstronomicalRange
         return new ForecastEvaluationDto(
                 1L, locationName,
                 BigDecimal.valueOf(54.7753), BigDecimal.valueOf(-1.5849),
@@ -521,6 +534,7 @@ class ForecastControllerTest {
                 null, null, null, null, null, null,
                 null, null, null, null, null, null,
                 null, null, null, null, null, null, null,
-                null, null);
+                null, null,
+                null, null, null, null, null, null);
     }
 }

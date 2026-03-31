@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherData;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.util.GeoUtils;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.springframework.stereotype.Service;
@@ -122,6 +123,22 @@ public class OpenMeteoService {
      */
     public AtmosphericData getAtmosphericData(ForecastRequest request, LocalDateTime solarEventTime,
             JobRunEntity jobRun) {
+        return getAtmosphericDataWithResponse(request, solarEventTime, jobRun).atmosphericData();
+    }
+
+    /**
+     * Fetches atmospheric data and returns both the extracted data and the raw forecast response.
+     *
+     * <p>The raw response is needed by callers that must extract values at times other than
+     * the solar event (e.g. storm surge calculation at high-tide time).
+     *
+     * @param request        the forecast request (location, date, target type)
+     * @param solarEventTime UTC time of the sunrise or sunset being evaluated
+     * @param jobRun         the parent job run for metrics tracking, or {@code null}
+     * @return extraction result containing atmospheric data and raw forecast response
+     */
+    public WeatherExtractionResult getAtmosphericDataWithResponse(ForecastRequest request,
+            LocalDateTime solarEventTime, JobRunEntity jobRun) {
         LOG.info("Open-Meteo <- {} {} {}", request.locationName(), request.targetType(),
                 solarEventTime.toLocalDate());
         long startMs = System.currentTimeMillis();
@@ -153,7 +170,7 @@ public class OpenMeteoService {
 
             LOG.info("Open-Meteo -> {} {}: {}ms", request.locationName(), request.targetType(),
                     durationMs);
-            return data;
+            return new WeatherExtractionResult(data, forecast);
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             if (jobRun != null) {
@@ -309,7 +326,8 @@ public class OpenMeteoService {
                 h.getWeatherCode().get(idx),
                 BigDecimal.valueOf(h.getShortwaveRadiation().get(idx))
                         .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
-                getDoubleValue(h.getDewPoint2m(), idx));
+                getDoubleValue(h.getDewPoint2m(), idx),
+                getDoubleValue(h.getSurfacePressure(), idx));
 
         AerosolData aerosol = new AerosolData(
                 toDecimal(pm25Raw, PRECIP_SCALE),

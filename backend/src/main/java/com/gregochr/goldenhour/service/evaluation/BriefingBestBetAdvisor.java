@@ -114,9 +114,13 @@ public class BriefingBestBetAdvisor {
               These are independent dimensions.
             - King Tide (lunar) = New/Full Moon + Moon at perigee. Rare (~5-10 per year).
               When also Extra Extra High statistically, it's exceptional.
+              When combined with storm surge (low pressure + onshore wind),
+              these can produce exceptional foreground drama — mention this when
+              "hasSurgeBoost" is true for a region.
             - Spring Tide (lunar) = New/Full Moon (without perigee requirement). Happens
               ~24 times per year. When also Extra High or Extra Extra High statistically,
               it's a strong day for coastal photography.
+              Spring + significant surge is also worth highlighting.
             - Regular Tide (lunar) = any other lunar phase. Can still be Extra Extra High
               if weather or other factors push the range up (storm surge).
             - Consider the COMBINATION: King Tide + Extra Extra High is rare and dramatic.
@@ -610,6 +614,7 @@ public class BriefingBestBetAdvisor {
             kingTideLocations.forEach(kingTideLocs::add);
         }
         regionNode.put("hasSpringTide", hasSpringTide);
+        regionNode.put("hasSurgeBoost", !kingTideLocations.isEmpty() || hasSpringTide);
 
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);

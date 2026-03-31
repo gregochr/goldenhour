@@ -44,6 +44,7 @@ public final class TestAtmosphericData {
     private Double apparentTemperature = null;
     private Integer precipProbability = null;
     private Double dewPoint = null;
+    private Double pressure = 1013.25;
     private DirectionalCloudData directionalCloud = null;
     private TideSnapshot tide = null;
     private CloudApproachData cloudApproach = null;
@@ -176,6 +177,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData pressure(Double val) {
+        this.pressure = val;
+        return this;
+    }
+
     public TestAtmosphericData directionalCloud(DirectionalCloudData val) {
         this.directionalCloud = val;
         return this;
@@ -211,7 +217,7 @@ public final class TestAtmosphericData {
                 locationName, solarEventTime, targetType,
                 new CloudData(lowCloud, midCloud, highCloud),
                 new WeatherData(visibility, windSpeed, windDirection,
-                        precipitation, humidity, weatherCode, shortwaveRadiation, dewPoint),
+                        precipitation, humidity, weatherCode, shortwaveRadiation, dewPoint, pressure),
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend, locationOrientation);

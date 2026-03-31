@@ -64,4 +64,26 @@ public final class TimeSlotUtils {
 
         return bestIdx;
     }
+
+    /**
+     * Finds the index of the hourly slot nearest to the target time, with no directional bias.
+     *
+     * @param times      list of ISO-8601 time strings from the API response
+     * @param targetTime the target time to match
+     * @return the index of the nearest slot
+     */
+    public static int findNearestIndex(List<String> times, LocalDateTime targetTime) {
+        int bestIdx = 0;
+        long bestDiff = Long.MAX_VALUE;
+
+        for (int i = 0; i < times.size(); i++) {
+            long diff = Math.abs(ChronoUnit.SECONDS.between(
+                    LocalDateTime.parse(times.get(i)), targetTime));
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
 }

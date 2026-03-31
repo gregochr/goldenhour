@@ -112,7 +112,10 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     @Override
     public EvaluationDetail evaluateWithDetails(AtmosphericData data) {
         long startMs = System.currentTimeMillis();
-        String userMessage = promptBuilder.buildUserMessage(data);
+        String userMessage = data.surge() != null
+                ? promptBuilder.buildUserMessage(data, data.surge(),
+                        data.adjustedRangeMetres(), data.astronomicalRangeMetres())
+                : promptBuilder.buildUserMessage(data);
 
         Message response = invokeClaude(userMessage);
         TokenUsage tokenUsage = extractTokenUsage(response);

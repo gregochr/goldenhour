@@ -61,6 +61,12 @@ class ForecastDtoMapperTest {
         assertThat(dto.upwindCurrentLowCloud()).isEqualTo(70);
         assertThat(dto.upwindEventLowCloud()).isEqualTo(15);
         assertThat(dto.upwindDistanceKm()).isEqualTo(87);
+        assertThat(dto.surgeTotalMetres()).isEqualTo(0.35);
+        assertThat(dto.surgePressureMetres()).isEqualTo(0.20);
+        assertThat(dto.surgeWindMetres()).isEqualTo(0.15);
+        assertThat(dto.surgeRiskLevel()).isEqualTo("MODERATE");
+        assertThat(dto.surgeAdjustedRangeMetres()).isEqualTo(3.65);
+        assertThat(dto.surgeAstronomicalRangeMetres()).isEqualTo(3.30);
     }
 
     @Test
@@ -192,6 +198,42 @@ class ForecastDtoMapperTest {
         assertThat(dto.summary()).isEqualTo("Enhanced summary.");
     }
 
+    @Test
+    @DisplayName("toDto() maps surge fields identically for LITE user")
+    void toDto_liteUser_mapsSurgeFields() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, true);
+
+        assertThat(dto.surgeTotalMetres()).isEqualTo(0.35);
+        assertThat(dto.surgePressureMetres()).isEqualTo(0.20);
+        assertThat(dto.surgeWindMetres()).isEqualTo(0.15);
+        assertThat(dto.surgeRiskLevel()).isEqualTo("MODERATE");
+        assertThat(dto.surgeAdjustedRangeMetres()).isEqualTo(3.65);
+        assertThat(dto.surgeAstronomicalRangeMetres()).isEqualTo(3.30);
+    }
+
+    @Test
+    @DisplayName("toDto() returns null surge fields when entity has no surge data")
+    void toDto_nullSurge_returnsNullFields() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+        entity.setSurgeTotalMetres(null);
+        entity.setSurgePressureMetres(null);
+        entity.setSurgeWindMetres(null);
+        entity.setSurgeRiskLevel(null);
+        entity.setSurgeAdjustedRangeMetres(null);
+        entity.setSurgeAstronomicalRangeMetres(null);
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.surgeTotalMetres()).isNull();
+        assertThat(dto.surgePressureMetres()).isNull();
+        assertThat(dto.surgeWindMetres()).isNull();
+        assertThat(dto.surgeRiskLevel()).isNull();
+        assertThat(dto.surgeAdjustedRangeMetres()).isNull();
+        assertThat(dto.surgeAstronomicalRangeMetres()).isNull();
+    }
+
     private ForecastEvaluationEntity buildFullEntity() {
         return ForecastEvaluationEntity.builder()
                 .id(1L)
@@ -246,6 +288,12 @@ class ForecastDtoMapperTest {
                 .upwindCurrentLowCloud(70)
                 .upwindEventLowCloud(15)
                 .upwindDistanceKm(87)
+                .surgeTotalMetres(0.35)
+                .surgePressureMetres(0.20)
+                .surgeWindMetres(0.15)
+                .surgeRiskLevel("MODERATE")
+                .surgeAdjustedRangeMetres(3.65)
+                .surgeAstronomicalRangeMetres(3.30)
                 .build();
     }
 }

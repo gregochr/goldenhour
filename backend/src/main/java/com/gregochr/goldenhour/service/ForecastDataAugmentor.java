@@ -7,17 +7,23 @@ import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
+import com.gregochr.goldenhour.model.CoastalParameters;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TideStats;
+import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
- * Augments {@link AtmosphericData} with directional cloud data and tide information.
+ * Augments {@link AtmosphericData} with directional cloud data, tide information,
+ * and storm surge calculations.
  *
  * <p>Extracted from {@link ForecastService} to separate the data-enrichment pipeline
  * from forecast orchestration. Used by {@code ForecastService}, {@code ModelTestService},
@@ -26,22 +32,32 @@ import java.util.Set;
 @Service
 public class ForecastDataAugmentor {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ForecastDataAugmentor.class);
+
     private final OpenMeteoService openMeteoService;
     private final TideService tideService;
     private final LunarPhaseService lunarPhaseService;
+    private final WeatherAugmentedTideService weatherAugmentedTideService;
+    private final SurgeCalibrationLogger surgeCalibrationLogger;
 
     /**
      * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment.
      *
-     * @param openMeteoService  retrieves directional cloud data from Open-Meteo
-     * @param tideService       fetches tide data for coastal locations
-     * @param lunarPhaseService computes lunar tide classification and moon phase
+     * @param openMeteoService             retrieves directional cloud data from Open-Meteo
+     * @param tideService                  fetches tide data for coastal locations
+     * @param lunarPhaseService            computes lunar tide classification and moon phase
+     * @param weatherAugmentedTideService  storm surge calculation service
+     * @param surgeCalibrationLogger       structured logging for surge calibration
      */
     public ForecastDataAugmentor(OpenMeteoService openMeteoService, TideService tideService,
-            LunarPhaseService lunarPhaseService) {
+            LunarPhaseService lunarPhaseService,
+            WeatherAugmentedTideService weatherAugmentedTideService,
+            SurgeCalibrationLogger surgeCalibrationLogger) {
         this.openMeteoService = openMeteoService;
         this.tideService = tideService;
         this.lunarPhaseService = lunarPhaseService;
+        this.weatherAugmentedTideService = weatherAugmentedTideService;
+        this.surgeCalibrationLogger = surgeCalibrationLogger;
     }
 
     /**
@@ -190,5 +206,100 @@ public class ForecastDataAugmentor {
         String orientation = solarEventTypes.contains(SolarEventType.SUNRISE)
                 ? "sunrise-optimised" : "sunset-optimised";
         return base.withLocationOrientation(orientation);
+    }
+
+    /**
+     * Returns a copy of {@code base} with storm surge data for coastal tidal locations.
+     *
+     * <p>Extracts pressure, wind speed, and wind direction from the raw Open-Meteo hourly
+     * forecast at the <strong>time of next high tide</strong> (not at the solar event time),
+     * then delegates to {@link WeatherAugmentedTideService} for the surge calculation.
+     *
+     * <p>Returns the original data unchanged if the location is not coastal, has no tide
+     * data, or if any required field is missing.
+     *
+     * @param base            atmospheric data with tide snapshot already populated
+     * @param coastalParams   per-location coastal parameters (shore normal, fetch, depth)
+     * @param locationId      the location database ID for tide stats lookup
+     * @param locationName    location name for logging
+     * @param forecastResponse the raw Open-Meteo forecast response for high-tide time extraction
+     * @return a new {@link AtmosphericData} with surge data populated where applicable
+     */
+    public AtmosphericData augmentWithStormSurge(AtmosphericData base,
+            CoastalParameters coastalParams, Long locationId, String locationName,
+            OpenMeteoForecastResponse forecastResponse) {
+        if (!coastalParams.isCoastalTidal() || base.tide() == null
+                || base.tide().nextHighTideTime() == null
+                || base.tide().nextHighTideHeightMetres() == null
+                || forecastResponse == null) {
+            return base;
+        }
+
+        try {
+            LocalDateTime highTideTime = base.tide().nextHighTideTime();
+            OpenMeteoForecastResponse.Hourly h = forecastResponse.getHourly();
+            List<String> times = h.getTime();
+            int idx = TimeSlotUtils.findNearestIndex(times, highTideTime);
+
+            Double pressure = h.getSurfacePressure() != null && idx < h.getSurfacePressure().size()
+                    ? h.getSurfacePressure().get(idx) : null;
+            Double windSpeed = h.getWindSpeed10m() != null && idx < h.getWindSpeed10m().size()
+                    ? h.getWindSpeed10m().get(idx) : null;
+            Integer windDir = h.getWindDirection10m() != null && idx < h.getWindDirection10m().size()
+                    ? h.getWindDirection10m().get(idx) : null;
+
+            if (pressure == null || windSpeed == null || windDir == null) {
+                LOG.debug("Surge skipped for {}: missing weather at high-tide time {}", locationName,
+                        highTideTime);
+                return base;
+            }
+
+            // Derive lunar tide type from tide stats
+            String lunarTideType = deriveLunarTideType(locationId, base.tide().nextHighTideHeightMetres());
+
+            // Calculate astronomical tidal range
+            double highTide = base.tide().nextHighTideHeightMetres().doubleValue();
+            double lowTide = base.tide().nextLowTideHeightMetres() != null
+                    ? base.tide().nextLowTideHeightMetres().doubleValue() : 0.0;
+            double astronomicalRange = highTide - lowTide;
+
+            var result = weatherAugmentedTideService.augment(
+                    pressure, windSpeed, windDir, coastalParams, lunarTideType,
+                    astronomicalRange, highTide);
+
+            surgeCalibrationLogger.logPrediction(locationId, locationName,
+                    highTideTime.toInstant(java.time.ZoneOffset.UTC), result.surgeBreakdown());
+
+            return base.withSurge(result.surgeBreakdown(), result.adjustedRangeMetres(),
+                    astronomicalRange);
+        } catch (Exception e) {
+            LOG.warn("Surge calculation failed for {} — continuing without surge: {}",
+                    locationName, e.getMessage());
+            return base;
+        }
+    }
+
+    /**
+     * Derives a lunar tide type string from tide stats and the predicted high tide height.
+     *
+     * @param locationId   the location database ID
+     * @param highTideHeight the predicted next high tide height
+     * @return "KING_TIDE", "SPRING_TIDE", or "REGULAR_TIDE"
+     */
+    private String deriveLunarTideType(Long locationId, BigDecimal highTideHeight) {
+        Optional<TideStats> statsOpt = tideService.getTideStats(locationId);
+        if (statsOpt.isEmpty() || highTideHeight == null) {
+            return "REGULAR_TIDE";
+        }
+        TideStats stats = statsOpt.get();
+        if (stats.p95HighMetres() != null
+                && highTideHeight.compareTo(stats.p95HighMetres()) > 0) {
+            return "KING_TIDE";
+        }
+        if (stats.springTideThreshold() != null
+                && highTideHeight.compareTo(stats.springTideThreshold()) > 0) {
+            return "SPRING_TIDE";
+        }
+        return "REGULAR_TIDE";
     }
 }

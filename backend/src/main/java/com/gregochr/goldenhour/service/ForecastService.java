@@ -13,8 +13,10 @@ import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TriageResult;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
@@ -141,9 +143,9 @@ public class ForecastService {
             // Fetch weather data with explicit error handling
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.FETCHING_WEATHER);
-            AtmosphericData baseData;
+            WeatherExtractionResult extraction;
             try {
-                baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
+                extraction = openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun);
             } catch (Exception e) {
                 String msg = "Weather data fetch failed for " + locationName + " " + type + ": " + e.getMessage();
                 LOG.error(msg);
@@ -151,6 +153,9 @@ public class ForecastService {
                         LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
                 throw new WeatherDataFetchException(msg, locationName, type.name(), e);
             }
+
+            AtmosphericData baseData = extraction.atmosphericData();
+            OpenMeteoForecastResponse forecastResponse = extraction.forecastResponse();
 
             // Validate weather data was successfully retrieved (null can be returned without exception)
             if (baseData == null) {
@@ -177,8 +182,11 @@ public class ForecastService {
                     LocationTaskState.FETCHING_TIDES);
             AtmosphericData withTide = augmentor.augmentWithTideData(
                     withApproach, locationId, eventTime, tideTypes);
-            AtmosphericData forecastData = augmentor.augmentWithLocationOrientation(
+            AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                     withTide, location.getSolarEventType());
+            AtmosphericData forecastData = augmentor.augmentWithStormSurge(
+                    withOrientation, location.toCoastalParameters(), locationId, locationName,
+                    forecastResponse);
 
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.EVALUATING);
@@ -250,9 +258,9 @@ public class ForecastService {
         // Fetch weather data
         publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                 LocationTaskState.FETCHING_WEATHER);
-        AtmosphericData baseData;
+        WeatherExtractionResult extraction;
         try {
-            baseData = openMeteoService.getAtmosphericData(request, eventTime, jobRun);
+            extraction = openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun);
         } catch (Exception e) {
             String msg = "Weather data fetch failed for " + locationName + " " + targetType
                     + ": " + e.getMessage();
@@ -261,6 +269,9 @@ public class ForecastService {
                     LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
             throw new WeatherDataFetchException(msg, locationName, targetType.name(), e);
         }
+
+        AtmosphericData baseData = extraction.atmosphericData();
+        OpenMeteoForecastResponse forecastResponse = extraction.forecastResponse();
 
         if (baseData == null) {
             String msg = "Weather service returned null for " + locationName + " " + targetType;
@@ -290,8 +301,11 @@ public class ForecastService {
         }
         AtmosphericData withTide = augmentor.augmentWithTideData(
                 withApproach, locationId, eventTime, tideTypes);
-        AtmosphericData forecastData = augmentor.augmentWithLocationOrientation(
+        AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                 withTide, location.getSolarEventType());
+        AtmosphericData forecastData = augmentor.augmentWithStormSurge(
+                withOrientation, location.toCoastalParameters(), locationId, locationName,
+                forecastResponse);
 
         // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
@@ -568,6 +582,16 @@ public class ForecastService {
                         ? ca.upwindSample().eventLowCloudPercent() : null)
                 .upwindDistanceKm(ca != null && ca.upwindSample() != null
                         ? ca.upwindSample().distanceKm() : null)
+                .surgeTotalMetres(data.surge() != null
+                        ? data.surge().totalSurgeMetres() : null)
+                .surgePressureMetres(data.surge() != null
+                        ? data.surge().pressureRiseMetres() : null)
+                .surgeWindMetres(data.surge() != null
+                        ? data.surge().windRiseMetres() : null)
+                .surgeRiskLevel(data.surge() != null
+                        ? data.surge().riskLevel().name() : null)
+                .surgeAdjustedRangeMetres(data.adjustedRangeMetres())
+                .surgeAstronomicalRangeMetres(data.astronomicalRangeMetres())
                 .build();
     }
 }

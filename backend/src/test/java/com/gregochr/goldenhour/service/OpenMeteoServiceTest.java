@@ -429,6 +429,82 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("extractAtmosphericData() extracts surface pressure into WeatherData")
+    void extractAtmosphericData_extractsSurfacePressure() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(10), List.of(20), List.of(30),
+                List.of(20000.0), List.of(4.0), List.of(225),
+                List.of(0.0), List.of(1), List.of(60),
+                List.of(1000.0), List.of(100.0),
+                List.of(14.5), List.of(11.2), List.of(35), null);
+        forecast.getHourly().setSurfacePressure(List.of(985.5));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(1.0), List.of(0.5), List.of(0.05));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.weather().pressureHpa()).isEqualTo(985.5);
+    }
+
+    @Test
+    @DisplayName("extractAtmosphericData() returns null pressure when not in API response")
+    void extractAtmosphericData_nullPressure_returnsNull() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(10), List.of(20), List.of(30),
+                List.of(20000.0), List.of(4.0), List.of(225),
+                List.of(0.0), List.of(1), List.of(60),
+                List.of(1000.0), List.of(100.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(1.0), List.of(0.5), List.of(0.05));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
+
+        assertThat(result.weather().pressureHpa()).isNull();
+    }
+
+    @Test
+    @DisplayName("getAtmosphericDataWithResponse() returns both data and raw response")
+    void getAtmosphericDataWithResponse_returnsBoth() {
+        LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(10), List.of(50), List.of(30),
+                List.of(22000.0), List.of(4.0), List.of(225),
+                List.of(0.0), List.of(1), List.of(62),
+                List.of(1200.0), List.of(180.0));
+        forecast.getHourly().setSurfacePressure(List.of(1013.0));
+
+        OpenMeteoAirQualityResponse airQuality = buildAirQualityResponse(
+                List.of("2026-06-21T20:47"),
+                List.of(8.5), List.of(2.1), List.of(0.12));
+
+        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
+        when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble())).thenReturn(airQuality);
+
+        ForecastRequest request = new ForecastRequest(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
+
+        var result = openMeteoService.getAtmosphericDataWithResponse(request, solarEvent, null);
+
+        assertThat(result.atmosphericData()).isNotNull();
+        assertThat(result.forecastResponse()).isSameAs(forecast);
+        assertThat(result.atmosphericData().weather().pressureHpa()).isEqualTo(1013.0);
+    }
+
+    @Test
     @DisplayName("extractAtmosphericData() returns null comfort fields when not provided by API")
     void extractAtmosphericData_nullComfortFields_returnsNull() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);

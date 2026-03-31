@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.DailyBriefingCacheEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -25,14 +26,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -257,6 +261,202 @@ class BriefingServiceTest {
             when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
                     .thenReturn(buildForecastResponse());
         }
+    }
+
+    @Test
+    @DisplayName("Refresh with no colour locations skips and completes run")
+    void refresh_noColourLocations_skips() {
+        LocationEntity wildlife = LocationEntity.builder()
+                .id(2L).name("Wildlife Hide").lat(55).lon(-1)
+                .locationType(Set.of(LocationType.WILDLIFE))
+                .tideType(Set.of()).solarEventType(Set.of())
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+
+        when(locationService.findAllEnabled()).thenReturn(List.of(wildlife));
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+
+        briefingService.refreshBriefing();
+
+        assertThat(briefingService.getCachedBriefing()).isNull();
+        verify(jobRunService).completeRun(any(), eq(0), eq(0));
+    }
+
+    @Test
+    @DisplayName("Refresh with weather fetch failure marks location as failed")
+    void refresh_weatherFetchFailure_partialResult() {
+        LocationEntity loc = location("Durham", null);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                .thenThrow(new RuntimeException("API timeout"));
+
+        briefingService.refreshBriefing();
+
+        // All locations failed → below 50% threshold, no LKG → partial result served
+        DailyBriefingResponse cached = briefingService.getCachedBriefing();
+        assertThat(cached).isNotNull();
+        assertThat(cached.failedLocationCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Below 50% threshold with LKG serves stale response")
+    void refresh_belowThresholdWithLkg_servesStale() {
+        LocationEntity loc = location("Durham", null);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+
+        // First: successful refresh to populate LKG
+        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                .thenReturn(buildForecastResponse());
+        when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+        when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+
+        briefingService.refreshBriefing();
+        DailyBriefingResponse firstCached = briefingService.getCachedBriefing();
+        assertThat(firstCached).isNotNull();
+        assertThat(firstCached.stale()).isFalse();
+
+        // Second: failed refresh → below 50%, LKG exists → stale response
+        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                .thenThrow(new RuntimeException("API down"));
+
+        briefingService.refreshBriefing();
+
+        DailyBriefingResponse staleCached = briefingService.getCachedBriefing();
+        assertThat(staleCached).isNotNull();
+        assertThat(staleCached.stale()).isTrue();
+        assertThat(staleCached.partialFailure()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Refresh with multiple locations where some fail — partial success above threshold")
+    void refresh_partialFailureAboveThreshold() {
+        LocationEntity loc1 = location("Durham", null);
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Bamburgh").lat(55.6).lon(-1.7)
+                .locationType(Set.of(LocationType.SEASCAPE))
+                .tideType(Set.of()).solarEventType(Set.of())
+                .region(null).enabled(true).createdAt(LocalDateTime.now()).build();
+
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+        when(solarService.sunriseUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+        when(solarService.sunsetUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+        // loc1 succeeds
+        when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
+                .thenReturn(buildForecastResponse());
+        // loc2 fails
+        when(openMeteoClient.fetchForecastBriefing(loc2.getLat(), loc2.getLon()))
+                .thenThrow(new RuntimeException("Timeout"));
+
+        briefingService.refreshBriefing();
+
+        DailyBriefingResponse cached = briefingService.getCachedBriefing();
+        assertThat(cached).isNotNull();
+        assertThat(cached.stale()).isFalse();
+        assertThat(cached.partialFailure()).isTrue();
+        assertThat(cached.failedLocationCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("loadPersistedBriefing restores cache from DB entity")
+    void loadPersistedBriefing_restoresCache() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        DailyBriefingResponse persisted = new DailyBriefingResponse(
+                LocalDateTime.now(ZoneOffset.UTC), "Test headline", List.of(), List.of(),
+                null, null, false, false, 0);
+        DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+        entity.setId(1);
+        entity.setGeneratedAt(persisted.generatedAt());
+        entity.setPayload(mapper.writeValueAsString(persisted));
+
+        when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
+
+        // Re-create service to trigger @PostConstruct
+        BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+        BriefingService freshService = new BriefingService(
+                locationService, openMeteoClient,
+                jobRunService, briefingCacheRepository, mapper,
+                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                auroraSummaryBuilder,
+                new BriefingHierarchyBuilder(verdictEvaluator),
+                slotBuilder, eventPublisher);
+        freshService.loadPersistedBriefing();
+
+        DailyBriefingResponse cached = freshService.getCachedBriefing();
+        assertThat(cached).isNotNull();
+        assertThat(cached.headline()).isEqualTo("Test headline");
+    }
+
+    @Test
+    @DisplayName("loadPersistedBriefing handles corrupt JSON gracefully")
+    void loadPersistedBriefing_corruptJson_doesNotThrow() {
+        DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+        entity.setId(1);
+        entity.setGeneratedAt(LocalDateTime.now());
+        entity.setPayload("{invalid json!!!");
+
+        when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
+
+        BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+        BriefingService freshService = new BriefingService(
+                locationService, openMeteoClient,
+                jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
+                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                auroraSummaryBuilder,
+                new BriefingHierarchyBuilder(verdictEvaluator),
+                slotBuilder, eventPublisher);
+        freshService.loadPersistedBriefing();
+
+        assertThat(freshService.getCachedBriefing()).isNull();
+    }
+
+    @Test
+    @DisplayName("loadPersistedBriefing with empty repository leaves cache null")
+    void loadPersistedBriefing_emptyRepo_cachNull() {
+        when(briefingCacheRepository.findById(1)).thenReturn(Optional.empty());
+
+        BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+        LunarPhaseService lunarPhaseService = new LunarPhaseService();
+        BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+        BriefingService freshService = new BriefingService(
+                locationService, openMeteoClient,
+                jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
+                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                auroraSummaryBuilder,
+                new BriefingHierarchyBuilder(verdictEvaluator),
+                slotBuilder, eventPublisher);
+        freshService.loadPersistedBriefing();
+
+        assertThat(freshService.getCachedBriefing()).isNull();
+    }
+
+    @Test
+    @DisplayName("Refresh with all locations returning empty (no enabled) completes run")
+    void refresh_emptyEnabledLocations_skips() {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+
+        briefingService.refreshBriefing();
+
+        assertThat(briefingService.getCachedBriefing()).isNull();
+        verify(jobRunService).completeRun(any(), eq(0), eq(0));
     }
 
     private static LocationEntity location(String name, String regionName) {

@@ -264,6 +264,30 @@ public class ForecastEvaluationEntity {
     @Column(name = "upwind_distance_km")
     private Integer upwindDistanceKm;
 
+    /** Total storm surge in metres (pressure + wind components). */
+    @Column(name = "surge_total_metres")
+    private Double surgeTotalMetres;
+
+    /** Pressure-driven surge component in metres (inverse barometer effect). */
+    @Column(name = "surge_pressure_metres")
+    private Double surgePressureMetres;
+
+    /** Wind-driven surge component in metres (quadratic wind stress). */
+    @Column(name = "surge_wind_metres")
+    private Double surgeWindMetres;
+
+    /** Storm surge risk classification (NONE, LOW, MODERATE, HIGH). */
+    @Column(name = "surge_risk_level", length = 10)
+    private String surgeRiskLevel;
+
+    /** Tidal range adjusted for surge — upper bound estimate in metres. */
+    @Column(name = "surge_adjusted_range_metres")
+    private Double surgeAdjustedRangeMetres;
+
+    /** Predicted astronomical tidal range in metres. */
+    @Column(name = "surge_astronomical_range_metres")
+    private Double surgeAstronomicalRangeMetres;
+
     /**
      * Returns the location name for JSON serialisation, preserving the API contract.
      *

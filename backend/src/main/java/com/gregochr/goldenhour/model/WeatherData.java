@@ -13,6 +13,7 @@ import java.math.BigDecimal;
  * @param weatherCode               WMO weather condition code
  * @param shortwaveRadiationWm2     incoming shortwave solar radiation in W/m²
  * @param dewPointCelsius           dew point temperature at 2 m above ground in °C, or null
+ * @param pressureHpa               mean sea-level pressure in hPa, or null if unavailable
  */
 public record WeatherData(
         int visibilityMetres,
@@ -22,5 +23,6 @@ public record WeatherData(
         int humidityPercent,
         int weatherCode,
         BigDecimal shortwaveRadiationWm2,
-        Double dewPointCelsius) {
+        Double dewPointCelsius,
+        Double pressureHpa) {
 }

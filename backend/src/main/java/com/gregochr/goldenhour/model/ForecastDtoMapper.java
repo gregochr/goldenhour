@@ -129,6 +129,12 @@ public class ForecastDtoMapper {
                 entity.getUpwindEventLowCloud(),
                 entity.getUpwindDistanceKm(),
                 lunarTideType,
-                lunarPhase);
+                lunarPhase,
+                entity.getSurgeTotalMetres(),
+                entity.getSurgePressureMetres(),
+                entity.getSurgeWindMetres(),
+                entity.getSurgeRiskLevel(),
+                entity.getSurgeAdjustedRangeMetres(),
+                entity.getSurgeAstronomicalRangeMetres());
     }
 }

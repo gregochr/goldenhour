@@ -60,4 +60,40 @@ class TimeSlotUtilsTest {
 
         assertThat(idx).isEqualTo(0); // exact match at 17:00
     }
+
+    @Test
+    @DisplayName("findNearestIndex picks absolute nearest slot regardless of direction")
+    void findNearestIndex_picksAbsoluteNearest() {
+        List<String> times = List.of(
+                "2026-03-30T18:00", "2026-03-30T19:00", "2026-03-30T20:00");
+        // Target at 19:15 — nearest is 19:00 (index 1, 15 min away)
+        LocalDateTime target = LocalDateTime.of(2026, 3, 30, 19, 15);
+
+        int idx = TimeSlotUtils.findNearestIndex(times, target);
+
+        assertThat(idx).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("findNearestIndex with exact match returns that index")
+    void findNearestIndex_exactMatch() {
+        List<String> times = List.of(
+                "2026-03-30T18:00", "2026-03-30T19:00", "2026-03-30T20:00");
+        LocalDateTime target = LocalDateTime.of(2026, 3, 30, 19, 0);
+
+        int idx = TimeSlotUtils.findNearestIndex(times, target);
+
+        assertThat(idx).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("findNearestIndex with single slot returns index 0")
+    void findNearestIndex_singleSlot() {
+        List<String> times = List.of("2026-03-30T18:00");
+        LocalDateTime target = LocalDateTime.of(2026, 3, 30, 22, 0);
+
+        int idx = TimeSlotUtils.findNearestIndex(times, target);
+
+        assertThat(idx).isEqualTo(0);
+    }
 }

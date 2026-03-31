@@ -305,6 +305,7 @@ class BriefingBestBetAdvisorTest {
                     List.of(day), now, Map.of());
             assertThat(result.json()).contains("\"lunarKingTideCount\":1");
             assertThat(result.json()).contains("\"lunarSpringTideCount\":0");
+            assertThat(result.json()).contains("\"hasSurgeBoost\":true");
         }
 
         @Test
@@ -334,6 +335,7 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.json()).contains("\"lunarSpringTideCount\":1");
             assertThat(result.json()).contains("\"lunarKingTideCount\":0");
             assertThat(result.json()).contains("\"extraHighCount\":1");
+            assertThat(result.json()).contains("\"hasSurgeBoost\":true");
         }
 
         @Test
@@ -395,6 +397,7 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.json()).contains("\"extraHighCount\":0");
             assertThat(result.json()).contains("\"tideAlignedCount\":0");
             assertThat(result.json()).contains("\"coastalLocationCount\":0");
+            assertThat(result.json()).contains("\"hasSurgeBoost\":false");
         }
 
         @Test

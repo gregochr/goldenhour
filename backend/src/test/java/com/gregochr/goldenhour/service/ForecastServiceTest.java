@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.model.TriageRule;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
@@ -99,6 +100,8 @@ class ForecastServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithLocationOrientation(any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithStormSurge(any(), any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
         // Tide alignment passes by default (non-SEASCAPE locations in most tests)
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
@@ -117,8 +120,8 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(forecastData);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
         when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
@@ -143,8 +146,8 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(forecastData);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
         when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenReturn(savedEntity);
@@ -169,8 +172,8 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(forecastData);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
         when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -208,8 +211,8 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(forecastData);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
         when(evaluationService.evaluate(eq(forecastData), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -295,7 +298,7 @@ class ForecastServiceTest {
         LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenThrow(new RuntimeException("Network error: API timeout"));
 
         assertThatThrownBy(() -> forecastService.runForecasts(
@@ -311,7 +314,7 @@ class ForecastServiceTest {
         LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenThrow(new RuntimeException("Connection refused"));
 
         assertThatThrownBy(() -> forecastService.runForecasts(
@@ -328,8 +331,8 @@ class ForecastServiceTest {
         LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(null);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(null, null));
 
         assertThatThrownBy(() -> forecastService.runForecasts(
                 DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null))
@@ -350,8 +353,8 @@ class ForecastServiceTest {
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(data);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
@@ -377,8 +380,8 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(data);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any()))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(repository.save(any())).thenReturn(savedEntity);
@@ -399,7 +402,7 @@ class ForecastServiceTest {
         LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenThrow(new RuntimeException("API timeout"));
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
@@ -416,8 +419,8 @@ class ForecastServiceTest {
         LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(null);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(null, null));
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
@@ -437,8 +440,8 @@ class ForecastServiceTest {
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
-        when(openMeteoService.getAtmosphericData(any(ForecastRequest.class), any(), any()))
-                .thenReturn(data);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -468,7 +471,8 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
         when(solarService.civilDuskUtc(55.6, -1.7, date))
                 .thenReturn(sunset.plusMinutes(45));
-        when(openMeteoService.getAtmosphericData(any(), any(), any())).thenReturn(data);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
         when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
                 .thenReturn(Optional.of(new TriageResult(
@@ -499,7 +503,8 @@ class ForecastServiceTest {
 
         when(solarService.sunsetUtc(55.6, -1.7, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(55.6, -1.7, date)).thenReturn(300);
-        when(openMeteoService.getAtmosphericData(any(), any(), any())).thenReturn(data);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
@@ -520,7 +525,8 @@ class ForecastServiceTest {
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
-        when(openMeteoService.getAtmosphericData(any(), any(), any())).thenReturn(data);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(

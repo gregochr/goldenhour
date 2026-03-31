@@ -37,7 +37,7 @@ class PromptBuilderSurgeTest {
                 TargetType.SUNSET,
                 new CloudData(20, 45, 60),
                 new WeatherData(15000, BigDecimal.valueOf(8.5), 80, BigDecimal.ZERO, 75,
-                        3, BigDecimal.valueOf(150.0), 2.5),
+                        3, BigDecimal.valueOf(150.0), 2.5, 985.0),
                 new AerosolData(BigDecimal.valueOf(5.0), BigDecimal.valueOf(10.0),
                         BigDecimal.valueOf(0.1), 800),
                 new ComfortData(12.0, 10.5, 15),

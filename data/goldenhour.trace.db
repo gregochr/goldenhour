@@ -1,0 +1,3 @@
+2026-03-31 09:25:50.947059+01:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "LOCATIONS" not found (this database is empty); SQL statement:
+SELECT id, name, region_id, lat, lon FROM locations ORDER BY region_id, name [42104-240]
