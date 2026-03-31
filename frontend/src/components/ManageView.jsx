@@ -6,6 +6,7 @@ import RegionManagementView from './RegionManagementView.jsx';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import ModelTestView from './ModelTestView.jsx';
+import BriefingModelTestView from './BriefingModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 
@@ -26,7 +27,8 @@ const GROUPS = [
     tabs: [
       { value: 'metrics', label: 'Job Runs' },
       { value: 'models', label: 'Run Config' },
-      { value: 'modeltest', label: 'Model Test' },
+      { value: 'modeltest', label: 'Location Model Test' },
+      { value: 'briefingmodeltest', label: 'Briefing Model Test' },
       { value: 'prompttest', label: 'Prompt Test' },
     ],
   },
@@ -154,8 +156,15 @@ export default function ManageView({ onComplete }) {
 
         {activeTab === 'modeltest' && (
           <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Model Comparison Test</p>
+            <p className="text-sm font-semibold text-plex-text">Location Model Comparison Test</p>
             <ModelTestView />
+          </div>
+        )}
+
+        {activeTab === 'briefingmodeltest' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Briefing Model Comparison Test</p>
+            <BriefingModelTestView />
           </div>
         )}
 

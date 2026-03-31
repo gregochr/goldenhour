@@ -3,17 +3,20 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
+import com.anthropic.models.messages.Usage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -749,6 +752,130 @@ class BriefingBestBetAdvisorTest {
             List<BestBet> result = advisor.validateAndFilterPicks(
                     picks, Set.of(), Set.of(), Set.of());
             assertThat(result).hasSize(1);
+        }
+    }
+
+    // ── compareModels ──
+
+    @Nested
+    @DisplayName("compareModels")
+    class CompareModelsTests {
+
+        @Test
+        @DisplayName("Fans out to 3 models with the same rollup JSON")
+        void fansOutToThreeModels() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+
+            Message message = stubMessage(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Go\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
+                    List.of(day), Map.of());
+
+            assertThat(result.results()).hasSize(3);
+            assertThat(result.results().get(0).model()).isEqualTo(EvaluationModel.HAIKU);
+            assertThat(result.results().get(1).model()).isEqualTo(EvaluationModel.SONNET);
+            assertThat(result.results().get(2).model()).isEqualTo(EvaluationModel.OPUS);
+            assertThat(result.rollupJson()).isNotBlank();
+
+            // All 3 should have the same parsed picks
+            for (BriefingBestBetAdvisor.ModelComparisonResult r : result.results()) {
+                assertThat(r.rawResponse()).isNotNull();
+                assertThat(r.validatedPicks()).hasSize(1);
+                assertThat(r.validatedPicks().get(0).region()).isEqualTo("Northumberland");
+            }
+        }
+
+        @Test
+        @DisplayName("Per-model failure is isolated — other models still succeed")
+        void perModelFailureIsolated() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+
+            Message goodMessage = stubMessage(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Go\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}");
+
+            // First call succeeds, second fails, third succeeds
+            when(anthropicApiClient.createMessage(any()))
+                    .thenReturn(goodMessage)
+                    .thenThrow(new RuntimeException("overloaded"))
+                    .thenReturn(goodMessage);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
+                    List.of(day), Map.of());
+
+            assertThat(result.results()).hasSize(3);
+            assertThat(result.results().get(0).rawResponse()).isNotNull(); // HAIKU ok
+            assertThat(result.results().get(1).rawResponse()).isNull();    // SONNET failed
+            assertThat(result.results().get(2).rawResponse()).isNotNull(); // OPUS ok
+            assertThat(result.results().get(1).tokenUsage()).isEqualTo(TokenUsage.EMPTY);
+        }
+
+        @Test
+        @DisplayName("Correct validation counts returned")
+        void correctValidationCounts() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+
+            // Two picks: one valid (event in rollup), one invalid (bad event)
+            Message message = stubMessage(
+                    "{\"picks\":["
+                    + "{\"rank\":1,\"headline\":\"Go\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"Also\",\"detail\":\"Nice.\","
+                    + "\"event\":\"bogus_event\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"medium\"}"
+                    + "]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
+                    List.of(day), Map.of());
+
+            for (BriefingBestBetAdvisor.ModelComparisonResult r : result.results()) {
+                assertThat(r.parsedPicks()).hasSize(2);
+                assertThat(r.validatedPicks()).hasSize(1);
+            }
+        }
+
+        private Message stubMessage(String text) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(text);
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+
+            Usage usage = mock(Usage.class);
+            when(usage.inputTokens()).thenReturn(500L);
+            when(usage.outputTokens()).thenReturn(100L);
+            when(usage.cacheCreationInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(usage.cacheReadInputTokens()).thenReturn(java.util.Optional.of(0L));
+
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(message.usage()).thenReturn(usage);
+            return message;
         }
     }
 

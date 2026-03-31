@@ -26,6 +26,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import com.gregochr.goldenhour.model.TokenUsage;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -662,6 +664,97 @@ public class BriefingBestBetAdvisor {
                         .atZoneSameInstant(ukZone)
                         .format(DateTimeFormatter.ofPattern("HH:mm")))
                 .orElse(null);
+    }
+
+    /**
+     * Result of evaluating the briefing rollup with a single Claude model.
+     *
+     * @param model           the model used
+     * @param rawResponse     raw text from Claude, or null on failure
+     * @param parsedPicks     picks before validation (empty on failure)
+     * @param validatedPicks  picks after validation (empty on failure)
+     * @param durationMs      API call duration in milliseconds
+     * @param tokenUsage      token counts from the API response
+     */
+    public record ModelComparisonResult(EvaluationModel model, String rawResponse,
+            List<BestBet> parsedPicks, List<BestBet> validatedPicks,
+            long durationMs, TokenUsage tokenUsage) {
+    }
+
+    /**
+     * Aggregated result of a multi-model comparison run.
+     *
+     * @param rollupJson the JSON sent to all three models
+     * @param results    one result per model (HAIKU, SONNET, OPUS)
+     */
+    public record ComparisonRun(String rollupJson, List<ModelComparisonResult> results) {
+    }
+
+    /**
+     * Calls all three Claude models (Haiku, Sonnet, Opus) with the same briefing rollup
+     * and returns the parsed, validated picks for each.
+     *
+     * <p>Per-model failures are caught and returned as failed results with null rawResponse,
+     * so partial success is possible.
+     *
+     * @param days     the fully assembled briefing days (triage complete)
+     * @param driveMap map of location name to drive duration minutes
+     * @return comparison run containing the rollup JSON and all model results
+     * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
+     */
+    public ComparisonRun compareModels(List<BriefingDay> days,
+            Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        RollupResult rollup = buildRollupJson(days, now, driveMap);
+        List<EvaluationModel> models = List.of(
+                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
+
+        List<ModelComparisonResult> results = new ArrayList<>();
+        for (EvaluationModel model : models) {
+            results.add(callModel(model, rollup, days, driveMap));
+        }
+        return new ComparisonRun(rollup.json(), results);
+    }
+
+    private ModelComparisonResult callModel(EvaluationModel model, RollupResult rollup,
+            List<BriefingDay> days, Map<String, Integer> driveMap) {
+        try {
+            long startMs = System.currentTimeMillis();
+            Message response = anthropicApiClient.createMessage(
+                    MessageCreateParams.builder()
+                            .model(model.getModelId())
+                            .maxTokens(MAX_TOKENS)
+                            .systemOfTextBlockParams(List.of(
+                                    TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
+                            .addUserMessage(rollup.json())
+                            .build());
+            long durationMs = System.currentTimeMillis() - startMs;
+
+            String raw = response.content().stream()
+                    .filter(ContentBlock::isText)
+                    .map(ContentBlock::asText)
+                    .map(TextBlock::text)
+                    .findFirst()
+                    .orElse("");
+
+            TokenUsage tokenUsage = new TokenUsage(
+                    response.usage().inputTokens(),
+                    response.usage().outputTokens(),
+                    response.usage().cacheCreationInputTokens().orElse(0L),
+                    response.usage().cacheReadInputTokens().orElse(0L));
+
+            List<BestBet> parsed = parseBestBets(raw);
+            List<BestBet> validated = validateAndFilterPicks(
+                    parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
+            List<BestBet> withDrive = enrichWithDriveTimes(validated, days, driveMap);
+            List<BestBet> enriched = enrichWithEventData(withDrive, days);
+
+            LOG.info("Model comparison {} completed ({}ms, {} picks)", model, durationMs, enriched.size());
+            return new ModelComparisonResult(model, raw, parsed, enriched, durationMs, tokenUsage);
+        } catch (Exception e) {
+            LOG.warn("Model comparison {} failed: {}", model, e.getMessage());
+            return new ModelComparisonResult(model, null, List.of(), List.of(), 0, TokenUsage.EMPTY);
+        }
     }
 
     /**

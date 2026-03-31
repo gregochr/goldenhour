@@ -19,7 +19,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Aurora photography**: NOAA SWPC polling (`AuroraPollingJob`, 5 min, night-only) via `NoaaSwpcClient` (Kp, forecast, OVATION, solar wind Bz, G-scale alerts; per-endpoint caching) | `AuroraStateCache` FSM (IDLE → MONITORING → MODERATE/STRONG) | `WeatherTriageService` (3-point northward transect triage, any-clear-hour pass at < 75% overcast) | `ClaudeAuroraInterpreter` (single `claude-haiku-4-5` call for all viable locations; returns 1–5★ + summary + detail) | `AuroraOrchestrator` (orchestrates full pipeline; dual-signal `deriveAlertLevel()` using Kp + OVATION) | `MetOfficeSpaceWeatherScraper` (Jsoup scraper, 60 min refresh) | Bortle enrichment via lightpollutionmap.info (`LightPollutionClient`, `BortleEnrichmentService`) | Map filter + popup aurora section | `AuroraBanner` React component (shows Kp reading) | Alert levels: QUIET/MINOR/MODERATE/STRONG
 
-**Daily Briefing**: Zero-Claude-cost "go or movie night?" pre-flight check | `BriefingService` scheduled every 2 hours via `@Scheduled` | Open-Meteo weather + DB tide lookup for all enabled colour locations | Per-slot verdict (GO/MARGINAL/STANDDOWN) based on low cloud, precipitation, visibility, humidity thresholds aligned with `WeatherTriageEvaluator` | Region rollup via majority vote | Tide classification (king/spring) from `TideService.getTideStats()` | `AtomicReference` in-memory cache | `DailyBriefing.jsx` collapsible card above map | Admin metrics: BRIEFING runs hidden by default
+**Daily Briefing**: Zero-Claude-cost "go or movie night?" pre-flight check | `BriefingService` scheduled every 2 hours via `@Scheduled` | Open-Meteo weather + DB tide lookup for all enabled colour locations | Per-slot verdict (GO/MARGINAL/STANDDOWN) based on low cloud, precipitation, visibility, humidity thresholds aligned with `WeatherTriageEvaluator` | Region rollup via majority vote | Tide classification (king/spring) from `TideService.getTideStats()` | `AtomicReference` in-memory cache | `DailyBriefing.jsx` collapsible card above map | Admin metrics: BRIEFING runs hidden by default | Briefing model comparison test: `BriefingModelTestService` calls Haiku/Sonnet/Opus with same rollup, persists to `briefing_model_test_run/result` tables, `BriefingModelTestView` with agreement highlighting
 
 **Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
 
@@ -66,7 +66,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V55 Flyway migrations
+│       └── db/migration/            V1–V56 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -133,7 +133,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V55)
+## Database Migrations (V1–V56)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -155,6 +155,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V53 | far_solar_low_cloud column on forecast_evaluation (strip vs blanket detection) |
 | V54 | TIDE_ALIGNMENT optimisation strategy rows for all colour run types |
 | V55 | bortle_class column on locations (nullable integer) |
+| V56 | briefing_model_test_run + briefing_model_test_result tables |
 
 ---
 
@@ -197,8 +198,8 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 ### Aurora (Bearer / ADMIN for writes)
 `GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN)
 
-### Briefing (Bearer)
-`GET /api/briefing`
+### Briefing (Bearer / ADMIN for writes)
+`GET /api/briefing` | `POST /api/briefing/run` (ADMIN) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
 
 ### Tides (ADMIN)
 `GET /api/tides` | `GET /api/tides/stats`

@@ -1,0 +1,35 @@
+-- Briefing model comparison test: one row per test run
+CREATE TABLE briefing_model_test_run (
+    id                          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    started_at                  TIMESTAMP NOT NULL,
+    completed_at                TIMESTAMP,
+    duration_ms                 BIGINT,
+    succeeded                   INT NOT NULL DEFAULT 0,
+    failed                      INT NOT NULL DEFAULT 0,
+    total_cost_micro_dollars    BIGINT,
+    exchange_rate_gbp_per_usd   DOUBLE,
+    rollup_json                 TEXT,
+    briefing_generated_at       TIMESTAMP
+);
+
+-- Briefing model comparison test: one row per model per run
+CREATE TABLE briefing_model_test_result (
+    id                              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    test_run_id                     BIGINT NOT NULL,
+    evaluation_model                VARCHAR(10) NOT NULL,
+    picks_json                      TEXT,
+    picks_returned                  INT,
+    picks_valid                     INT,
+    raw_response                    TEXT,
+    duration_ms                     BIGINT,
+    input_tokens                    BIGINT,
+    output_tokens                   BIGINT,
+    cache_creation_input_tokens     BIGINT,
+    cache_read_input_tokens         BIGINT,
+    cost_micro_dollars              BIGINT,
+    succeeded                       BOOLEAN NOT NULL DEFAULT FALSE,
+    error_message                   VARCHAR(500),
+    created_at                      TIMESTAMP NOT NULL,
+    CONSTRAINT fk_briefing_test_result_run
+        FOREIGN KEY (test_run_id) REFERENCES briefing_model_test_run(id)
+);
