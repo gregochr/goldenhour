@@ -15,27 +15,46 @@ const TOKEN_KEY = 'goldenhour_token';
  * @returns {Function} Cleanup function that closes the connection
  */
 export default function createEventSource(path, params = {}, eventHandlers = {}, options = {}) {
-  const token = options.getToken ? options.getToken() : localStorage.getItem(TOKEN_KEY);
-  const qp = new URLSearchParams({ ...params, token });
-  const url = `${BASE_URL}${path}?${qp.toString()}`;
-  const source = new EventSource(url);
+  const RECONNECT_DELAY = 5000;
+  let closed = false;
+  let source;
 
-  for (const [eventName, handler] of Object.entries(eventHandlers)) {
-    source.addEventListener(eventName, (event) => {
-      try {
-        handler(JSON.parse(event.data));
-      } catch {
-        // ignore parse errors
+  function connect() {
+    const token = options.getToken ? options.getToken() : localStorage.getItem(TOKEN_KEY);
+    const qp = new URLSearchParams({ ...params, token });
+    const url = `${BASE_URL}${path}?${qp.toString()}`;
+    source = new EventSource(url);
+
+    for (const [eventName, handler] of Object.entries(eventHandlers)) {
+      source.addEventListener(eventName, (event) => {
+        try {
+          handler(JSON.parse(event.data));
+        } catch {
+          // ignore parse errors
+        }
+        if (options.closeOn === eventName) {
+          closed = true;
+          source.close();
+        }
+      });
+    }
+
+    source.onerror = () => {
+      options.onError?.();
+      // EventSource with readyState CLOSED won't auto-reconnect (e.g. non-200
+      // response from server). Manually retry after a delay.
+      if (!closed && source.readyState === EventSource.CLOSED) {
+        setTimeout(() => {
+          if (!closed) connect();
+        }, RECONNECT_DELAY);
       }
-      if (options.closeOn === eventName) {
-        source.close();
-      }
-    });
+    };
   }
 
-  source.onerror = () => {
-    options.onError?.();
-  };
+  connect();
 
-  return () => source.close();
+  return () => {
+    closed = true;
+    source.close();
+  };
 }

@@ -114,4 +114,38 @@ describe('createEventSource', () => {
     const url = MockEventSource.instances[0].url;
     expect(url).toContain('token=custom-tok');
   });
+
+  it('reconnects when EventSource enters CLOSED state', () => {
+    vi.useFakeTimers();
+    const onError = vi.fn();
+    createEventSource('/api/test', {}, {}, { onError });
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    const source = MockEventSource.instances[0];
+    source.readyState = MockEventSource.CLOSED;
+    source.onerror();
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(5000);
+    expect(MockEventSource.instances).toHaveLength(2);
+
+    vi.useRealTimers();
+  });
+
+  it('does not reconnect after cleanup is called', () => {
+    vi.useFakeTimers();
+    const cleanup = createEventSource('/api/test');
+    const source = MockEventSource.instances[0];
+
+    cleanup();
+    source.readyState = MockEventSource.CLOSED;
+    source.onerror();
+
+    vi.advanceTimersByTime(10000);
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    vi.useRealTimers();
+  });
 });
