@@ -39,7 +39,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness returns result when API returns a brightness value")
     void querySkyBrightness_success_returnsResult() {
-        setupGetChain("{\"result\": 0.05}");
+        setupGetChain("0.05");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -72,7 +72,7 @@ class LightPollutionClientHttpTest {
     }
 
     @Test
-    @DisplayName("querySkyBrightness returns null when response result field is null")
+    @DisplayName("querySkyBrightness returns null when JSON object has null result field")
     void querySkyBrightness_nullResultField_returnsNull() {
         setupGetChain("{\"result\": null}");
 
@@ -80,6 +80,18 @@ class LightPollutionClientHttpTest {
                 client.querySkyBrightness(54.77, -1.57, "test-key");
 
         assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("querySkyBrightness parses JSON object format as well as bare number")
+    void querySkyBrightness_jsonObjectFormat_returnsResult() {
+        setupGetChain("{\"result\": 0.05}");
+
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
+
+        assertThat(result).isNotNull();
+        assertThat(result.bortle()).isBetween(1, 8);
     }
 
     @Test
@@ -111,7 +123,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness maps bright urban sky to Bortle 8")
     void querySkyBrightness_brightUrbanSky_returnsBortle8() {
-        setupGetChain("{\"result\": 20.0}");
+        setupGetChain("20.0");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(51.5, -0.1, "key");
@@ -123,7 +135,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness maps very dark remote sky to Bortle 1")
     void querySkyBrightness_darkRemoteSky_returnsBortle1() {
-        setupGetChain("{\"result\": 0.001}");
+        setupGetChain("0.001");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(57.0, -5.0, "key");

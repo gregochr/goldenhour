@@ -94,13 +94,20 @@ public class LightPollutionClient {
                 LOG.warn("Empty response from light pollution API for ({}, {})", latitude, longitude);
                 return null;
             }
-            BrightnessResponse response = objectMapper.readValue(raw, BrightnessResponse.class);
 
-            if (response.result() == null) {
-                LOG.warn("Null result from light pollution API for ({}, {})", latitude, longitude);
-                return null;
+            // API returns either a bare number (e.g. "0.0145") or a JSON object {"result": 0.0145}
+            double mcd;
+            String trimmed = raw.trim();
+            if (trimmed.startsWith("{")) {
+                BrightnessResponse response = objectMapper.readValue(trimmed, BrightnessResponse.class);
+                if (response.result() == null) {
+                    LOG.warn("Null result from light pollution API for ({}, {})", latitude, longitude);
+                    return null;
+                }
+                mcd = response.result();
+            } else {
+                mcd = Double.parseDouble(trimmed);
             }
-            double mcd = response.result();
             double sqm = mcdToSqm(mcd);
             int bortle = sqmToBortle(sqm);
             return new SkyBrightnessResult(sqm, bortle);
@@ -108,7 +115,7 @@ public class LightPollutionClient {
             LOG.warn("Light pollution API call failed for ({}, {}): {}", latitude, longitude,
                     e.getMessage());
             return null;
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | NumberFormatException e) {
             LOG.warn("Failed to parse light pollution response for ({}, {}): {}", latitude, longitude,
                     e.getMessage());
             return null;
