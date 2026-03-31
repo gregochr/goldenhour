@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.client;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,7 @@ public class LightPollutionClient {
     private static final String DEFAULT_QUERY_LAYER = "sb_2025";
 
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
     private final String apiUrl;
     private final String queryLayer;
 
@@ -43,10 +45,13 @@ public class LightPollutionClient {
      * Constructs the client with the shared {@link RestClient} and aurora configuration.
      *
      * @param restClient      shared HTTP client
+     * @param objectMapper    Jackson mapper for deserializing text/plain JSON responses
      * @param auroraProperties aurora configuration including light pollution API settings
      */
-    public LightPollutionClient(RestClient restClient, AuroraProperties auroraProperties) {
+    public LightPollutionClient(RestClient restClient, ObjectMapper objectMapper,
+                               AuroraProperties auroraProperties) {
         this.restClient = restClient;
+        this.objectMapper = objectMapper;
         AuroraProperties.LightPollutionConfig lpConfig = auroraProperties.getLightPollution();
         if (lpConfig != null) {
             this.apiUrl = lpConfig.getApiUrl();
@@ -78,13 +83,21 @@ public class LightPollutionClient {
                     + "&qd=" + longitude + "," + latitude
                     + "&key=" + apiKey);
 
-            BrightnessResponse response = restClient.get()
+            // API returns JSON body but with text/plain content type,
+            // so retrieve as String and deserialize manually.
+            String raw = restClient.get()
                     .uri(uri)
                     .retrieve()
-                    .body(BrightnessResponse.class);
+                    .body(String.class);
 
-            if (response == null || response.result() == null) {
-                LOG.warn("Null response from light pollution API for ({}, {})", latitude, longitude);
+            if (raw == null || raw.isBlank()) {
+                LOG.warn("Empty response from light pollution API for ({}, {})", latitude, longitude);
+                return null;
+            }
+            BrightnessResponse response = objectMapper.readValue(raw, BrightnessResponse.class);
+
+            if (response.result() == null) {
+                LOG.warn("Null result from light pollution API for ({}, {})", latitude, longitude);
                 return null;
             }
             double mcd = response.result();
@@ -93,6 +106,10 @@ public class LightPollutionClient {
             return new SkyBrightnessResult(sqm, bortle);
         } catch (RestClientException e) {
             LOG.warn("Light pollution API call failed for ({}, {}): {}", latitude, longitude,
+                    e.getMessage());
+            return null;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            LOG.warn("Failed to parse light pollution response for ({}, {}): {}", latitude, longitude,
                     e.getMessage());
             return null;
         }

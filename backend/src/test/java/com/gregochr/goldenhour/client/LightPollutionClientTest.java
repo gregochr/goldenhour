@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.client;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +22,7 @@ class LightPollutionClientTest {
     void setUp() {
         AuroraProperties props = new AuroraProperties();
         client = new LightPollutionClient(
-                org.springframework.web.client.RestClient.create(), props);
+                org.springframework.web.client.RestClient.create(), new ObjectMapper(), props);
     }
 
     // -------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.client;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,13 +33,13 @@ class LightPollutionClientHttpTest {
     @BeforeEach
     void setUp() {
         AuroraProperties props = new AuroraProperties();
-        client = new LightPollutionClient(restClient, props);
+        client = new LightPollutionClient(restClient, new ObjectMapper(), props);
     }
 
     @Test
     @DisplayName("querySkyBrightness returns result when API returns a brightness value")
     void querySkyBrightness_success_returnsResult() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(0.05));
+        setupGetChain("{\"result\": 0.05}");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -60,9 +61,20 @@ class LightPollutionClientHttpTest {
     }
 
     @Test
+    @DisplayName("querySkyBrightness returns null when API response body is blank")
+    void querySkyBrightness_blankResponseBody_returnsNull() {
+        setupGetChain("  ");
+
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
+
+        assertThat(result).isNull();
+    }
+
+    @Test
     @DisplayName("querySkyBrightness returns null when response result field is null")
     void querySkyBrightness_nullResultField_returnsNull() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(null));
+        setupGetChain("{\"result\": null}");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(54.77, -1.57, "test-key");
@@ -86,9 +98,20 @@ class LightPollutionClientHttpTest {
     }
 
     @Test
+    @DisplayName("querySkyBrightness returns null on malformed JSON")
+    void querySkyBrightness_malformedJson_returnsNull() {
+        setupGetChain("not valid json");
+
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
+
+        assertThat(result).isNull();
+    }
+
+    @Test
     @DisplayName("querySkyBrightness maps bright urban sky to Bortle 8")
     void querySkyBrightness_brightUrbanSky_returnsBortle8() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(20.0));
+        setupGetChain("{\"result\": 20.0}");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(51.5, -0.1, "key");
@@ -100,7 +123,7 @@ class LightPollutionClientHttpTest {
     @Test
     @DisplayName("querySkyBrightness maps very dark remote sky to Bortle 1")
     void querySkyBrightness_darkRemoteSky_returnsBortle1() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(0.001));
+        setupGetChain("{\"result\": 0.001}");
 
         LightPollutionClient.SkyBrightnessResult result =
                 client.querySkyBrightness(57.0, -5.0, "key");
@@ -114,7 +137,7 @@ class LightPollutionClientHttpTest {
     // -------------------------------------------------------------------------
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private void setupGetChain(Object responseBody) {
+    private void setupGetChain(String responseBody) {
         RestClient.RequestHeadersUriSpec<?> uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
         RestClient.RequestHeadersSpec<?> headersSpec = mock(RestClient.RequestHeadersSpec.class);
         RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
@@ -122,6 +145,6 @@ class LightPollutionClientHttpTest {
         when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) uriSpec);
         when(uriSpec.uri(any(java.net.URI.class))).thenReturn((RestClient.RequestHeadersSpec) headersSpec);
         when(headersSpec.retrieve()).thenReturn(responseSpec);
-        when(responseSpec.body(any(Class.class))).thenReturn(responseBody);
+        when(responseSpec.body(String.class)).thenReturn(responseBody);
     }
 }
