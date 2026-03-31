@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
+import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 
@@ -213,6 +214,49 @@ public class PromptBuilder {
      * @param data the atmospheric forecast data
      * @return formatted user message string
      */
+    /**
+     * Builds the user message from atmospheric data with optional storm surge context.
+     *
+     * @param data  the atmospheric forecast data
+     * @param surge storm surge breakdown, or null if not a coastal tidal location
+     * @param adjustedRangeM adjusted tidal range including surge, or null
+     * @param astronomicalRangeM astronomical tidal range before surge, or null
+     * @return formatted user message string
+     */
+    public String buildUserMessage(AtmosphericData data, StormSurgeBreakdown surge,
+                                   Double adjustedRangeM, Double astronomicalRangeM) {
+        String base = buildUserMessage(data);
+        if (surge == null || !surge.isSignificant()) {
+            return base;
+        }
+        int suffixIdx = base.lastIndexOf(getPromptSuffix());
+        String beforeSuffix = suffixIdx >= 0 ? base.substring(0, suffixIdx) : base + "\n";
+        String suffix = suffixIdx >= 0 ? base.substring(suffixIdx) : "";
+
+        var sb = new StringBuilder(beforeSuffix);
+        sb.append("STORM SURGE FORECAST:\n");
+        sb.append(String.format("- Pressure effect: %+.2fm (%s pressure %.0f hPa)%n",
+                surge.pressureRiseMetres(),
+                surge.pressureRiseMetres() > 0 ? "low" : "high",
+                surge.pressureHpa()));
+        if (surge.windRiseMetres() >= 0.02) {
+            double windKnots = surge.windSpeedMs() * 1.94384;
+            sb.append(String.format("- Wind effect: +%.2fm (onshore wind %.0f kn)%n",
+                    surge.windRiseMetres(), windKnots));
+        }
+        sb.append(String.format("- Total estimated surge: +%.2fm (upper bound)%n",
+                surge.totalSurgeMetres()));
+        if (adjustedRangeM != null && astronomicalRangeM != null) {
+            sb.append(String.format("- Adjusted tidal range: up to %.1fm (predicted %.1fm + %.2fm surge)%n",
+                    adjustedRangeM, astronomicalRangeM, surge.totalSurgeMetres()));
+        }
+        sb.append(String.format("- Risk level: %s%n", surge.riskLevel()));
+        sb.append("- Note: Upper-bound estimate. Tide-surge interaction means actual level at HW"
+                + " is typically less.\n");
+        sb.append(suffix);
+        return sb.toString();
+    }
+
     public String buildUserMessage(AtmosphericData data) {
         var cloud = data.cloud();
         var w = data.weather();

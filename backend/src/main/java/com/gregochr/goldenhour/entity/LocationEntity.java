@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import com.gregochr.goldenhour.model.CoastalParameters;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -147,6 +148,23 @@ public class LocationEntity {
     @Column(name = "bortle_class")
     private Integer bortleClass;
 
+    /** Compass bearing of the outward shore-normal (0–360°), seaward perpendicular. */
+    @Column(name = "shore_normal_bearing_degrees")
+    private Double shoreNormalBearingDegrees;
+
+    /** Open-water fetch distance for dominant storm winds (metres). */
+    @Column(name = "effective_fetch_metres")
+    private Double effectiveFetchMetres;
+
+    /** Representative water depth over the fetch (metres). */
+    @Column(name = "avg_shelf_depth_metres")
+    private Double avgShelfDepthMetres;
+
+    /** Whether this location has meaningful tidal surge exposure. */
+    @Column(name = "is_coastal_tidal", nullable = false)
+    @Builder.Default
+    private boolean coastalTidal = false;
+
     /**
      * Returns whether this location supports the given target type based on its solar event preferences.
      *
@@ -167,5 +185,22 @@ public class LocationEntity {
             case SUNSET -> solarEventType.contains(SolarEventType.SUNSET);
             case HOURLY -> true;
         };
+    }
+
+    /**
+     * Builds a {@link CoastalParameters} from this entity's coastal columns.
+     *
+     * @return coastal parameters, or {@link CoastalParameters#NON_TIDAL} for inland locations
+     */
+    public CoastalParameters toCoastalParameters() {
+        if (!coastalTidal) {
+            return CoastalParameters.NON_TIDAL;
+        }
+        return new CoastalParameters(
+                shoreNormalBearingDegrees != null ? shoreNormalBearingDegrees : 0,
+                effectiveFetchMetres != null ? effectiveFetchMetres : 0,
+                avgShelfDepthMetres != null ? avgShelfDepthMetres : 1,
+                true
+        );
     }
 }
