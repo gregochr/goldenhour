@@ -83,13 +83,13 @@ describe('createEventSource', () => {
     expect(onError).toHaveBeenCalledOnce();
   });
 
-  it('skips onError when readyState is CLOSED', () => {
+  it('calls onError even when readyState is CLOSED', () => {
     const onError = vi.fn();
     createEventSource('/api/test', {}, {}, { onError });
     const source = MockEventSource.instances[0];
     source.readyState = MockEventSource.CLOSED;
     source.onerror();
-    expect(onError).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledOnce();
   });
 
   it('closes source on closeOn event', () => {

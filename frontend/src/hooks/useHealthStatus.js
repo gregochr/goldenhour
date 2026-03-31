@@ -39,7 +39,8 @@ export function useHealthStatus() {
         onError: () => {
           setHealth((prev) => ({
             ...prev,
-            status: prev.status === null ? 'DOWN' : prev.status,
+            status: 'DOWN',
+            checkedAt: new Date(),
           }));
         },
       },

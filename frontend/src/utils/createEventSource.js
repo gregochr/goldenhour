@@ -34,9 +34,6 @@ export default function createEventSource(path, params = {}, eventHandlers = {},
   }
 
   source.onerror = () => {
-    if (source.readyState === EventSource.CLOSED) {
-      return;
-    }
     options.onError?.();
   };
 
