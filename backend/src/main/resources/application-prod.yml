@@ -362,6 +362,28 @@ tide:
     # Weekly: Monday at 02:00 UTC
     cron: "${TIDE_SCHEDULE_CRON:0 0 2 * * MON}"
 
+aurora:
+  enabled: true
+  poll-interval-minutes: 5
+  light-pollution-api-key: ${LIGHT_POLLUTION_API_KEY}
+  light-pollution:
+    api-url: https://www.lightpollutionmap.info/api/queryraster
+    query-layer: sb_2025
+    daily-limit: 1000
+    delay-between-calls-ms: 500
+  noaa:
+    kp-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json
+    kp-forecast-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json
+    ovation-url: https://services.swpc.noaa.gov/json/ovation_aurora_latest.json
+    solar-wind-url: https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json
+    solar-wind-plasma-url: https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json
+    alerts-url: https://services.swpc.noaa.gov/products/alerts.json
+  met-office:
+    space-weather-url: https://weather.metoffice.gov.uk/specialist-forecasts/space-weather/
+    scrape-interval-minutes: 60
+  triggers:
+    kp-threshold: 5.0
+
 logging:
   level:
     root: INFO
