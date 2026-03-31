@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.client.LightPollutionClient;
+import com.gregochr.goldenhour.client.LightPollutionClient.SkyBrightnessResult;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -57,21 +58,24 @@ class BortleEnrichmentServiceTest {
 
         assertThat(result.enriched()).isZero();
         assertThat(result.failed()).isEmpty();
-        verify(lightPollutionClient, never()).queryBortleClass(anyDouble(), anyDouble(), anyString());
+        verify(lightPollutionClient, never())
+                .querySkyBrightness(anyDouble(), anyDouble(), anyString());
     }
 
     @Test
-    @DisplayName("enrichAll saves Bortle class when API returns a value")
+    @DisplayName("enrichAll saves Bortle class and SQM when API returns a value")
     void enrichAll_apiReturnsValue_savesAndCounts() {
         var loc = locationEntity("Bamburgh", 55.6, -1.7);
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc));
-        when(lightPollutionClient.queryBortleClass(55.6, -1.7, "key")).thenReturn(3);
+        when(lightPollutionClient.querySkyBrightness(55.6, -1.7, "key"))
+                .thenReturn(new SkyBrightnessResult(21.75, 3));
 
         BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
 
         assertThat(result.enriched()).isEqualTo(1);
         assertThat(result.failed()).isEmpty();
         assertThat(loc.getBortleClass()).isEqualTo(3);
+        assertThat(loc.getSkyBrightnessSqm()).isEqualTo(21.75);
         verify(locationRepository, times(1)).save(loc);
     }
 
@@ -80,7 +84,7 @@ class BortleEnrichmentServiceTest {
     void enrichAll_apiReturnsNull_recordsFailure() {
         var loc = locationEntity("Urban Site", 53.5, -2.2);
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc));
-        when(lightPollutionClient.queryBortleClass(anyDouble(), anyDouble(), anyString()))
+        when(lightPollutionClient.querySkyBrightness(anyDouble(), anyDouble(), anyString()))
                 .thenReturn(null);
 
         BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
@@ -97,9 +101,12 @@ class BortleEnrichmentServiceTest {
         var loc2 = locationEntity("City Centre", 53.5, -2.2);
         var loc3 = locationEntity("Coast", 55.7, -1.5);
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc1, loc2, loc3));
-        when(lightPollutionClient.queryBortleClass(eq(53.4), eq(-1.8), anyString())).thenReturn(4);
-        when(lightPollutionClient.queryBortleClass(eq(53.5), eq(-2.2), anyString())).thenReturn(null);
-        when(lightPollutionClient.queryBortleClass(eq(55.7), eq(-1.5), anyString())).thenReturn(2);
+        when(lightPollutionClient.querySkyBrightness(eq(53.4), eq(-1.8), anyString()))
+                .thenReturn(new SkyBrightnessResult(20.8, 4));
+        when(lightPollutionClient.querySkyBrightness(eq(53.5), eq(-2.2), anyString()))
+                .thenReturn(null);
+        when(lightPollutionClient.querySkyBrightness(eq(55.7), eq(-1.5), anyString()))
+                .thenReturn(new SkyBrightnessResult(21.95, 2));
 
         BortleEnrichmentService.EnrichmentResult result = service.enrichAll("key", stubJobRun);
 
@@ -113,12 +120,13 @@ class BortleEnrichmentServiceTest {
         var loc1 = locationEntity("A", 54.0, -1.0);
         var loc2 = locationEntity("B", 55.0, -2.0);
         when(locationRepository.findByBortleClassIsNull()).thenReturn(List.of(loc1, loc2));
-        when(lightPollutionClient.queryBortleClass(anyDouble(), anyDouble(), anyString())).thenReturn(5);
+        when(lightPollutionClient.querySkyBrightness(anyDouble(), anyDouble(), anyString()))
+                .thenReturn(new SkyBrightnessResult(19.8, 5));
 
         service.enrichAll("key", stubJobRun);
 
-        verify(lightPollutionClient, times(1)).queryBortleClass(54.0, -1.0, "key");
-        verify(lightPollutionClient, times(1)).queryBortleClass(55.0, -2.0, "key");
+        verify(lightPollutionClient, times(1)).querySkyBrightness(54.0, -1.0, "key");
+        verify(lightPollutionClient, times(1)).querySkyBrightness(55.0, -2.0, "key");
     }
 
     // -------------------------------------------------------------------------

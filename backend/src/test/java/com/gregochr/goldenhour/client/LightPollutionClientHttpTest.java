@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.client;
 
+import com.gregochr.goldenhour.config.AuroraProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,10 +16,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link LightPollutionClient#queryBortleClass(double, double, String)}.
+ * Unit tests for {@link LightPollutionClient#querySkyBrightness(double, double, String)}.
  *
  * <p>HTTP-related paths — success, null response, and network failure.
- * The Bortle conversion logic is tested separately in {@link LightPollutionClientTest}.
+ * The SQM/Bortle conversion logic is tested separately in {@link LightPollutionClientTest}.
  */
 @ExtendWith(MockitoExtension.class)
 class LightPollutionClientHttpTest {
@@ -30,71 +31,82 @@ class LightPollutionClientHttpTest {
 
     @BeforeEach
     void setUp() {
-        client = new LightPollutionClient(restClient);
+        AuroraProperties props = new AuroraProperties();
+        client = new LightPollutionClient(restClient, props);
     }
 
     @Test
-    @DisplayName("queryBortleClass returns Bortle class when API returns a brightness value")
-    void queryBortleClass_success_returnsBortleClass() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(0.05)); // Bortle 3
+    @DisplayName("querySkyBrightness returns result when API returns a brightness value")
+    void querySkyBrightness_success_returnsResult() {
+        setupGetChain(new LightPollutionClient.BrightnessResponse(0.05));
 
-        Integer result = client.queryBortleClass(54.77, -1.57, "test-key");
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
 
-        assertThat(result).isEqualTo(3);
+        assertThat(result).isNotNull();
+        assertThat(result.bortle()).isBetween(1, 8);
+        assertThat(result.sqm()).isGreaterThan(18.0);
     }
 
     @Test
-    @DisplayName("queryBortleClass returns null when API response body is null")
-    void queryBortleClass_nullResponseBody_returnsNull() {
+    @DisplayName("querySkyBrightness returns null when API response body is null")
+    void querySkyBrightness_nullResponseBody_returnsNull() {
         setupGetChain(null);
 
-        Integer result = client.queryBortleClass(54.77, -1.57, "test-key");
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
 
         assertThat(result).isNull();
     }
 
     @Test
-    @DisplayName("queryBortleClass returns null when response result field is null")
-    void queryBortleClass_nullResultField_returnsNull() {
+    @DisplayName("querySkyBrightness returns null when response result field is null")
+    void querySkyBrightness_nullResultField_returnsNull() {
         setupGetChain(new LightPollutionClient.BrightnessResponse(null));
 
-        Integer result = client.queryBortleClass(54.77, -1.57, "test-key");
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
 
         assertThat(result).isNull();
     }
 
     @Test
-    @DisplayName("queryBortleClass returns null on RestClientException (network error)")
-    void queryBortleClass_networkError_returnsNull() {
+    @DisplayName("querySkyBrightness returns null on RestClientException (network error)")
+    void querySkyBrightness_networkError_returnsNull() {
         @SuppressWarnings("unchecked")
         RestClient.RequestHeadersUriSpec<?> uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
         when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class)))
+        when(uriSpec.uri(any(java.net.URI.class)))
                 .thenThrow(new RestClientException("Connection refused"));
 
-        Integer result = client.queryBortleClass(54.77, -1.57, "test-key");
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(54.77, -1.57, "test-key");
 
         assertThat(result).isNull();
     }
 
     @Test
-    @DisplayName("queryBortleClass maps bright urban sky to Bortle 9")
-    void queryBortleClass_brightUrbanSky_returnsBortle9() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(20.0)); // > 15 mcd → Bortle 9
+    @DisplayName("querySkyBrightness maps bright urban sky to Bortle 8")
+    void querySkyBrightness_brightUrbanSky_returnsBortle8() {
+        setupGetChain(new LightPollutionClient.BrightnessResponse(20.0));
 
-        Integer result = client.queryBortleClass(51.5, -0.1, "key");
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(51.5, -0.1, "key");
 
-        assertThat(result).isEqualTo(9);
+        assertThat(result).isNotNull();
+        assertThat(result.bortle()).isEqualTo(8);
     }
 
     @Test
-    @DisplayName("queryBortleClass maps very dark remote sky to Bortle 1")
-    void queryBortleClass_darkRemoteSky_returnsBortle1() {
-        setupGetChain(new LightPollutionClient.BrightnessResponse(0.005)); // < 0.01 mcd → Bortle 1
+    @DisplayName("querySkyBrightness maps very dark remote sky to Bortle 1")
+    void querySkyBrightness_darkRemoteSky_returnsBortle1() {
+        setupGetChain(new LightPollutionClient.BrightnessResponse(0.001));
 
-        Integer result = client.queryBortleClass(57.0, -5.0, "key");
+        LightPollutionClient.SkyBrightnessResult result =
+                client.querySkyBrightness(57.0, -5.0, "key");
 
-        assertThat(result).isEqualTo(1);
+        assertThat(result).isNotNull();
+        assertThat(result.bortle()).isEqualTo(1);
     }
 
     // -------------------------------------------------------------------------
@@ -104,11 +116,12 @@ class LightPollutionClientHttpTest {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void setupGetChain(Object responseBody) {
         RestClient.RequestHeadersUriSpec<?> uriSpec = mock(RestClient.RequestHeadersUriSpec.class);
+        RestClient.RequestHeadersSpec<?> headersSpec = mock(RestClient.RequestHeadersSpec.class);
         RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class);
 
         when(restClient.get()).thenReturn((RestClient.RequestHeadersUriSpec) uriSpec);
-        when(uriSpec.uri(any(java.util.function.Function.class))).thenReturn(uriSpec);
-        when(uriSpec.retrieve()).thenReturn(responseSpec);
+        when(uriSpec.uri(any(java.net.URI.class))).thenReturn((RestClient.RequestHeadersSpec) headersSpec);
+        when(headersSpec.retrieve()).thenReturn(responseSpec);
         when(responseSpec.body(any(Class.class))).thenReturn(responseBody);
     }
 }

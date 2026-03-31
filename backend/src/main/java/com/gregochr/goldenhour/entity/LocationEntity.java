@@ -139,7 +139,7 @@ public class LocationEntity {
     private Integer driveDurationMinutes;
 
     /**
-     * Bortle dark-sky class at this location (1 = darkest, 9 = most light-polluted).
+     * Bortle dark-sky class at this location (1 = darkest, 8 = city sky).
      *
      * <p>Populated by {@code BortleEnrichmentService} via the lightpollutionmap.info API.
      * Null until enrichment has been run. Used by aurora scoring to filter candidates
@@ -147,6 +147,16 @@ public class LocationEntity {
      */
     @Column(name = "bortle_class")
     private Integer bortleClass;
+
+    /**
+     * Sky Quality Meter value at this location (magnitudes per square arcsecond).
+     *
+     * <p>Higher values indicate darker skies. Populated alongside {@code bortleClass}
+     * by {@code BortleEnrichmentService}. More granular than Bortle for fine-grained
+     * aurora scoring.
+     */
+    @Column(name = "sky_brightness_sqm")
+    private Double skyBrightnessSqm;
 
     /** Compass bearing of the outward shore-normal (0–360°), seaward perpendicular. */
     @Column(name = "shore_normal_bearing_degrees")

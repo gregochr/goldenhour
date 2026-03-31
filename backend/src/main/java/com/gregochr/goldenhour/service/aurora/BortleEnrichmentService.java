@@ -18,11 +18,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * One-time enrichment service that populates the {@code bortle_class} column
- * on all un-enriched locations using the lightpollutionmap.info QueryRaster API.
+ * One-time enrichment service that populates the {@code bortle_class} and
+ * {@code sky_brightness_sqm} columns on all un-enriched locations using the
+ * lightpollutionmap.info QueryRaster API.
  *
- * <p>The API allows 500 requests/day. With ~200 locations and a 500 ms inter-call
- * delay, a full run takes ~2 minutes and stays well within the daily limit.
+ * <p>The API allows 1000 requests/day (quota resets at GMT+1). With ~200 locations
+ * and a 500 ms inter-call delay, a full run takes ~2 minutes and stays well
+ * within the daily limit.
  *
  * <p>Triggered via {@code POST /api/aurora/admin/enrich-bortle}. Safe to re-run —
  * only locations with a {@code null} Bortle class are processed.
@@ -32,7 +34,7 @@ public class BortleEnrichmentService {
 
     private static final Logger LOG = LoggerFactory.getLogger(BortleEnrichmentService.class);
 
-    /** Delay in milliseconds between API calls to respect the 500/day rate limit. */
+    /** Delay in milliseconds between API calls to respect the 1000/day rate limit. */
     private static final long INTER_CALL_DELAY_MS = 500L;
 
     private final LocationRepository locationRepository;
@@ -92,15 +94,18 @@ public class BortleEnrichmentService {
         for (LocationEntity location : pending) {
             publishEvent(jobRun.getId(), location, LocationTaskState.EVALUATING, null);
 
-            Integer bortleClass = lightPollutionClient.queryBortleClass(
-                    location.getLat(), location.getLon(), apiKey);
+            LightPollutionClient.SkyBrightnessResult brightness =
+                    lightPollutionClient.querySkyBrightness(
+                            location.getLat(), location.getLon(), apiKey);
 
-            if (bortleClass != null) {
-                location.setBortleClass(bortleClass);
+            if (brightness != null) {
+                location.setSkyBrightnessSqm(brightness.sqm());
+                location.setBortleClass(brightness.bortle());
                 locationRepository.save(location);
                 enriched++;
                 publishEvent(jobRun.getId(), location, LocationTaskState.COMPLETE, null);
-                LOG.debug("Enriched '{}': Bortle {}", location.getName(), bortleClass);
+                LOG.debug("Enriched '{}': SQM {}, Bortle {}",
+                        location.getName(), brightness.sqm(), brightness.bortle());
             } else {
                 failed.add(location.getName());
                 publishEvent(jobRun.getId(), location, LocationTaskState.FAILED, "API returned no data");

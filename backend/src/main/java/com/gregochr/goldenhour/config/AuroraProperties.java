@@ -27,6 +27,9 @@ public class AuroraProperties {
     /** API key for lightpollutionmap.info QueryRaster endpoint. */
     private String lightPollutionApiKey;
 
+    /** Light pollution API configuration. */
+    private LightPollutionConfig lightPollution = new LightPollutionConfig();
+
     /** NOAA SWPC endpoint configuration. */
     private NoaaConfig noaa = new NoaaConfig();
 
@@ -107,6 +110,26 @@ public class AuroraProperties {
 
         /** OVATION probability below which de-escalation toward CLEAR is considered. Defaults to 15. */
         private double ovationClearThreshold = 15.0;
+    }
+
+    /**
+     * Light pollution API configuration (lightpollutionmap.info).
+     */
+    @Getter
+    @Setter
+    public static class LightPollutionConfig {
+
+        /** Base URL for the QueryRaster API. */
+        private String apiUrl = "https://www.lightpollutionmap.info/api/queryraster";
+
+        /** Data layer to query (e.g. sb_2025 for Sky Brightness 2025). */
+        private String queryLayer = "sb_2025";
+
+        /** Maximum API requests per day. Quota resets at GMT+1. */
+        private int dailyLimit = 1000;
+
+        /** Delay in milliseconds between consecutive API calls. */
+        private int delayBetweenCallsMs = 500;
     }
 
     /**

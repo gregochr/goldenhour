@@ -1,25 +1,28 @@
 package com.gregochr.goldenhour.client;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.gregochr.goldenhour.config.AuroraProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.net.URI;
+
 /**
  * HTTP client for the lightpollutionmap.info QueryRaster API.
  *
  * <p>Used by {@code BortleEnrichmentService} to look up the artificial sky brightness
- * at a coordinate and convert it to a Bortle class (1–9).
+ * at a coordinate and convert it to a Bortle class (1–9) via an intermediate SQM value.
  *
- * <p>The API allows 500 requests/day. With ~200 locations and a 500 ms delay between
- * calls, a full enrichment run takes ~2 minutes and stays within the daily limit.
+ * <p>The API allows 1000 requests/day (quota resets at GMT+1). With ~200 locations
+ * and a 500 ms delay between calls, a full enrichment run takes ~2 minutes.
  *
  * <p>API endpoint format:
  * <pre>
- *   GET https://www.lightpollutionmap.info/QueryRaster/
- *       ?ql=wa_2015
+ *   GET https://www.lightpollutionmap.info/api/queryraster
+ *       ?ql=sb_2025
  *       &amp;qt=point
  *       &amp;qd={longitude},{latitude}   (longitude FIRST)
  *       &amp;key={apiKey}
@@ -29,26 +32,34 @@ import org.springframework.web.client.RestClientException;
 public class LightPollutionClient {
 
     private static final Logger LOG = LoggerFactory.getLogger(LightPollutionClient.class);
-
-    /** World Atlas 2015 data layer identifier. */
-    private static final String QUERY_LAYER = "wa_2015";
-
-    /** Upper bounds (mcd/m²) for each Bortle class, index 0 = Bortle 1, index 7 = Bortle 8. */
-    private static final double[] BORTLE_UPPER_MCD = {0.01, 0.02, 0.06, 0.17, 0.50, 1.70, 5.00, 15.0};
+    private static final String DEFAULT_API_URL = "https://www.lightpollutionmap.info/api/queryraster";
+    private static final String DEFAULT_QUERY_LAYER = "sb_2025";
 
     private final RestClient restClient;
+    private final String apiUrl;
+    private final String queryLayer;
 
     /**
-     * Constructs the client with the shared {@link RestClient}.
+     * Constructs the client with the shared {@link RestClient} and aurora configuration.
      *
-     * @param restClient shared HTTP client
+     * @param restClient      shared HTTP client
+     * @param auroraProperties aurora configuration including light pollution API settings
      */
-    public LightPollutionClient(RestClient restClient) {
+    public LightPollutionClient(RestClient restClient, AuroraProperties auroraProperties) {
         this.restClient = restClient;
+        AuroraProperties.LightPollutionConfig lpConfig = auroraProperties.getLightPollution();
+        if (lpConfig != null) {
+            this.apiUrl = lpConfig.getApiUrl();
+            this.queryLayer = lpConfig.getQueryLayer();
+        } else {
+            this.apiUrl = DEFAULT_API_URL;
+            this.queryLayer = DEFAULT_QUERY_LAYER;
+        }
     }
 
     /**
-     * Queries the sky brightness at the given coordinate and returns the Bortle class.
+     * Queries the sky brightness at the given coordinate and returns the SQM value
+     * and Bortle class.
      *
      * <p>Returns {@code null} if the API call fails or returns an unexpected response,
      * so the caller can skip the location and try again later.
@@ -56,21 +67,19 @@ public class LightPollutionClient {
      * @param latitude  observer latitude in decimal degrees
      * @param longitude observer longitude in decimal degrees
      * @param apiKey    lightpollutionmap.info API key
-     * @return Bortle class 1–9, or {@code null} on failure
+     * @return sky brightness result with SQM and Bortle class, or {@code null} on failure
      */
-    public Integer queryBortleClass(double latitude, double longitude, String apiKey) {
+    public SkyBrightnessResult querySkyBrightness(double latitude, double longitude, String apiKey) {
         try {
             // Note: API expects longitude,latitude order in the qd parameter
+            URI uri = URI.create(apiUrl
+                    + "?ql=" + queryLayer
+                    + "&qt=point"
+                    + "&qd=" + longitude + "," + latitude
+                    + "&key=" + apiKey);
+
             BrightnessResponse response = restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .scheme("https")
-                            .host("www.lightpollutionmap.info")
-                            .path("/QueryRaster/")
-                            .queryParam("ql", QUERY_LAYER)
-                            .queryParam("qt", "point")
-                            .queryParam("qd", longitude + "," + latitude)
-                            .queryParam("key", apiKey)
-                            .build())
+                    .uri(uri)
                     .retrieve()
                     .body(BrightnessResponse.class);
 
@@ -79,7 +88,9 @@ public class LightPollutionClient {
                 return null;
             }
             double mcd = response.result();
-            return toBortleClass(mcd);
+            double sqm = mcdToSqm(mcd);
+            int bortle = sqmToBortle(sqm);
+            return new SkyBrightnessResult(sqm, bortle);
         } catch (RestClientException e) {
             LOG.warn("Light pollution API call failed for ({}, {}): {}", latitude, longitude,
                     e.getMessage());
@@ -88,21 +99,61 @@ public class LightPollutionClient {
     }
 
     /**
-     * Converts an artificial sky brightness value in mcd/m² to a Bortle class (1–9).
+     * Converts artificial sky brightness in mcd/m² to SQM (magnitudes per square arcsecond).
      *
-     * <p>Uses the World Atlas 2015 lookup table. Values above the Bortle 8 threshold
-     * are classified as Bortle 9 (most light-polluted).
+     * <p>Uses the formula provided by Jurij Stare (lightpollutionmap.info developer):
+     * {@code SQM = log10((brightness + 0.171168465) / 108000000) / -0.4}
+     *
+     * <p>The 0.171168465 offset represents the natural sky background, ensuring that
+     * a location with zero artificial light still yields a valid SQM (~22.0).
      *
      * @param mcdPerM2 artificial sky brightness in millicandela per square metre
-     * @return Bortle class 1 (darkest) through 9 (most light-polluted)
+     * @return SQM value (higher = darker sky)
      */
-    int toBortleClass(double mcdPerM2) {
-        for (int i = 0; i < BORTLE_UPPER_MCD.length; i++) {
-            if (mcdPerM2 < BORTLE_UPPER_MCD[i]) {
-                return i + 1; // Bortle 1–8
-            }
+    double mcdToSqm(double mcdPerM2) {
+        return Math.log10((mcdPerM2 + 0.171168465) / 108000000.0) / -0.4;
+    }
+
+    /**
+     * Converts an SQM value to a Bortle class (1–8) using the Handprint reference table.
+     *
+     * @param sqm sky quality meter value (magnitudes per square arcsecond)
+     * @return Bortle class 1 (darkest) through 8 (city sky, covers Bortle 8–9)
+     * @see <a href="https://www.handprint.com/ASTRO/bortle.html">Handprint Bortle reference</a>
+     */
+    int sqmToBortle(double sqm) {
+        if (sqm >= 21.99) {
+            return 1;
         }
-        return 9; // > 15 mcd/m²
+        if (sqm >= 21.89) {
+            return 2;
+        }
+        if (sqm >= 21.69) {
+            return 3;
+        }
+        if (sqm >= 20.49) {
+            return 4;
+        }
+        if (sqm >= 19.50) {
+            return 5;
+        }
+        if (sqm >= 18.94) {
+            return 6;
+        }
+        if (sqm >= 18.38) {
+            return 7;
+        }
+        return 8; // City sky (Bortle 8-9)
+    }
+
+    /**
+     * Result of a sky brightness query containing both the continuous SQM value
+     * and the discrete Bortle class.
+     *
+     * @param sqm    sky quality meter value (magnitudes per square arcsecond; higher = darker)
+     * @param bortle Bortle dark-sky class (1 = darkest, 8 = city sky)
+     */
+    public record SkyBrightnessResult(double sqm, int bortle) {
     }
 
     /**

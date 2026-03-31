@@ -94,6 +94,11 @@ aurora:
   enabled: true
   poll-interval-minutes: 5
   light-pollution-api-key: ${LIGHT_POLLUTION_API_KEY}  # https://www.lightpollutionmap.info
+  light-pollution:
+    api-url: https://www.lightpollutionmap.info/api/queryraster
+    query-layer: sb_2025          # Sky Brightness 2025 (replaces wa_2015 World Atlas)
+    daily-limit: 1000             # quota resets at GMT+1
+    delay-between-calls-ms: 500
   noaa:
     kp-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json
     kp-forecast-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json
