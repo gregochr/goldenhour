@@ -25,6 +25,7 @@ RUN addgroup -g 1001 appgroup && \
 
 WORKDIR /app
 COPY --from=builder /app/target/*.jar app.jar
+RUN mkdir -p /app/logs && chown appuser:appgroup /app/logs
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
