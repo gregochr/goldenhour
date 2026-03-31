@@ -55,14 +55,15 @@ class ForecastDataAugmentorSurgeTest {
     @BeforeEach
     void setUp() {
         augmentor = new ForecastDataAugmentor(openMeteoService, tideService,
-                weatherAugmentedTideService, surgeCalibrationLogger);
+                new LunarPhaseService(), weatherAugmentedTideService, surgeCalibrationLogger);
     }
 
     private AtmosphericData baseDataWithTide() {
         TideSnapshot tide = new TideSnapshot(
                 TideState.HIGH, HIGH_TIDE_TIME, BigDecimal.valueOf(4.80),
                 LocalDateTime.of(2026, 3, 30, 13, 0), BigDecimal.valueOf(1.20),
-                true, HIGH_TIDE_TIME, LocalDateTime.of(2026, 3, 30, 13, 0));
+                true, HIGH_TIDE_TIME, LocalDateTime.of(2026, 3, 30, 13, 0),
+                null, null, null, null);
         return TestAtmosphericData.builder()
                 .locationName("Craster")
                 .tide(tide)
@@ -233,7 +234,8 @@ class ForecastDataAugmentorSurgeTest {
     void missingHighTideHeightReturnsUnchanged() {
         TideSnapshot tide = new TideSnapshot(
                 TideState.HIGH, HIGH_TIDE_TIME, null,
-                null, null, true, HIGH_TIDE_TIME, null);
+                null, null, true, HIGH_TIDE_TIME, null,
+                null, null, null, null);
         AtmosphericData base = TestAtmosphericData.builder()
                 .locationName("Craster")
                 .tide(tide)

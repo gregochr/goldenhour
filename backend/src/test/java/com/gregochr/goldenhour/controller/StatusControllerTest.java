@@ -171,9 +171,11 @@ class StatusControllerTest {
             when(healthEndpoint.health()).thenReturn(root);
 
             Authentication auth = mockAuth("testuser", "ROLE_ADMIN");
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
 
-            SseEmitter emitter = controller.stream(auth);
+            SseEmitter emitter = controller.stream(auth, request);
 
             assertThat(emitter).isNotNull();
         }
@@ -184,9 +186,11 @@ class StatusControllerTest {
             HealthDescriptor root = compositeOf(Map.of());
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
 
-            SseEmitter emitter = controller.stream(null);
+            SseEmitter emitter = controller.stream(null, request);
 
             assertThat(emitter).isNotNull();
         }
@@ -201,9 +205,11 @@ class StatusControllerTest {
             when(auth.getName()).thenReturn("user");
             org.mockito.Mockito.doReturn(List.of()).when(auth).getAuthorities();
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
 
-            SseEmitter emitter = controller.stream(auth);
+            SseEmitter emitter = controller.stream(auth, request);
 
             assertThat(emitter).isNotNull();
         }
@@ -220,13 +226,15 @@ class StatusControllerTest {
             when(healthEndpoint.health()).thenReturn(root);
 
             Authentication auth = mockAuth("alice", "ROLE_PRO_USER");
-            StatusController controller = new StatusController(healthEndpoint, null);
-            SseEmitter emitter = controller.stream(auth);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            SseEmitter emitter = controller.stream(auth, request);
 
             assertThat(emitter).isNotNull();
             // Verify session extraction indirectly via buildStatus
             StatusResponse response = controller.buildStatus(
-                    new SessionInfo("alice", "PRO_USER"));
+                    new SessionInfo("alice", "PRO_USER", null));
             assertThat(response.session().username()).isEqualTo("alice");
             assertThat(response.session().role()).isEqualTo("PRO_USER");
         }
@@ -242,7 +250,7 @@ class StatusControllerTest {
             HealthDescriptor root = indicated(Status.UP, null);
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.status()).isEqualTo("UP");
@@ -263,7 +271,7 @@ class StatusControllerTest {
             props.setProperty("dirty", "true");
             GitProperties gitProperties = new GitProperties(props);
 
-            StatusController controller = new StatusController(healthEndpoint, gitProperties);
+            StatusController controller = new StatusController(healthEndpoint, gitProperties, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.build().dirty()).isTrue();
@@ -279,7 +287,7 @@ class StatusControllerTest {
                     Map.of("db", dbHealth, "circuitBreakers", cbHealth));
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.services()).isEmpty();
@@ -291,7 +299,7 @@ class StatusControllerTest {
             HealthDescriptor root = compositeOf(Map.of());
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.database().status()).isEqualTo("UNKNOWN");
@@ -304,7 +312,7 @@ class StatusControllerTest {
             HealthDescriptor root = compositeOf(Map.of());
             when(healthEndpoint.health()).thenReturn(root);
 
-            StatusController controller = new StatusController(healthEndpoint, null);
+            StatusController controller = new StatusController(healthEndpoint, null, null);
             StatusResponse response = controller.buildStatus(TEST_SESSION);
 
             assertThat(response.checkedAt()).isNotNull();

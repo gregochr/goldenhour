@@ -144,7 +144,6 @@ class WeatherTriageEvaluatorTest {
                 dc,
                 null,
                 null,
-                null,
                 null
         );
     }

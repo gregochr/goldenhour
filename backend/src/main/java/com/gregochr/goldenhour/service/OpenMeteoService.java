@@ -348,8 +348,7 @@ public class OpenMeteoService {
                 null,  // directionalCloud — populated later for colour locations
                 null,  // tide — populated later for coastal locations
                 null,  // cloudApproach — populated later if directional data available
-                mistTrend,
-                null); // locationOrientation — populated later by ForecastDataAugmentor
+                mistTrend);
     }
 
     /**
