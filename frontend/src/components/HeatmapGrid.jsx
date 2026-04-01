@@ -15,6 +15,9 @@ function formatTime(isoString) {
 
 const AFTERGLOW_MS = 30 * 60 * 1000;
 
+/** Typical cost per call in pence, keyed by model. */
+const COST_PENCE_PER_CALL = { HAIKU: 0.16, SONNET: 0.40, OPUS: 0.63 };
+
 function isEventPast(es) {
   for (const r of es.regions || []) {
     for (const s of r.slots || []) {
@@ -255,7 +258,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
 function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,
-  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation }) {
+  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
   const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
@@ -428,9 +431,16 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                 className="btn-secondary text-xs hover:bg-green-800/60 hover:text-green-200"
                 onClick={() => {
                   const count = goMarginalSlots.length;
+                  const perCallPence = COST_PENCE_PER_CALL[activeModelName] ?? 3;
+                  const totalPence = count * perCallPence;
+                  const modelLabel = activeModelName ? activeModelName.charAt(0) + activeModelName.slice(1).toLowerCase() : 'Claude';
+                  const totalLabel = totalPence >= 10
+                    ? `~£${(totalPence / 100).toFixed(2)}`
+                    : totalPence >= 1 ? `~${Math.round(totalPence)}p` : `~${totalPence.toFixed(1)}p`;
+                  const costStr = `${totalLabel} (${count} × ~${perCallPence.toFixed(2)}p)`;
                   openDialog({
                     title: 'Run Claude Evaluation',
-                    message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with Claude? Estimated cost: ~${count * 3}p (${count} × ~3p).`,
+                    message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with ${modelLabel}? Estimated cost: ${costStr}.`,
                     confirmLabel: 'Run',
                     maxWidth: 'sm',
                     onConfirm: () => {
@@ -711,6 +721,7 @@ export default function HeatmapGrid({
   astroScoresByDate = {},
   auroraTonight = null,
   auroraTomorrow = null,
+  activeModelName = null,
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
@@ -1036,6 +1047,7 @@ export default function HeatmapGrid({
                 onRunEvaluation={onRunEvaluation}
                 onStopEvaluation={onStopEvaluation}
                 canRunEvaluation={canRunEvaluation}
+                activeModelName={activeModelName}
               />
             )}
           </React.Fragment>
@@ -1091,4 +1103,5 @@ HeatmapGrid.propTypes = {
     label: PropTypes.string,
     alertLevel: PropTypes.string,
   }),
+  activeModelName: PropTypes.string,
 };

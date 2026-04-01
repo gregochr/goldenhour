@@ -4,6 +4,7 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { subscribeToBriefingEvaluation } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
+import { getAvailableModels } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import QualitySlider from './QualitySlider.jsx';
@@ -706,6 +707,9 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [evaluationTimestamps, setEvaluationTimestamps] = useState(new Map());
   const evalCleanupRef = useRef(null);
 
+  // Active evaluation model for briefing (SHORT_TERM run type)
+  const [activeModelName, setActiveModelName] = useState(null); // e.g. 'HAIKU'
+
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
   const [astroAvailableDates, setAstroAvailableDates] = useState([]);
@@ -847,6 +851,15 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   useEffect(() => {
     getAstroAvailableDates().then(setAstroAvailableDates).catch(() => {});
   }, []);
+
+  // Fetch active model for cost estimates (briefing uses SHORT_TERM).
+  useEffect(() => {
+    if (canRunEvaluation) {
+      getAvailableModels()
+        .then((data) => setActiveModelName(data.configs?.SHORT_TERM ?? null))
+        .catch(() => {});
+    }
+  }, [canRunEvaluation]);
 
   // Fetch astro conditions for each visible date in the heatmap.
   const astroDayDates = useMemo(() => {
@@ -1055,6 +1068,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
               : briefing.partialFailure
                 ? <span title={`${briefing.failedLocationCount} location(s) failed`}>{formatAge(briefing.generatedAt)}</span>
                 : formatAge(briefing.generatedAt)}
+            {briefing.bestBetModel && <span className="text-plex-text-muted opacity-60">by {briefing.bestBetModel}</span>}
             <Chevron open={isExpanded} className="text-base text-plex-text-muted" />
           </span>
         </button>
@@ -1286,6 +1300,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         astroScoresByDate={astroScoresByDate}
         auroraTonight={briefing.auroraTonight || null}
         auroraTomorrow={briefing.auroraTomorrow || null}
+        activeModelName={activeModelName}
       />
     </div>
   );
