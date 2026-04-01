@@ -46,5 +46,11 @@ public final class RegionGroupingUtils {
      * @param <T>        the item type
      */
     public record GroupResult<T>(Map<String, List<T>> grouped, List<T> unregioned) {
+
+        /** Defensive copy preserving insertion order. */
+        public GroupResult {
+            grouped = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(grouped));
+            unregioned = List.copyOf(unregioned);
+        }
     }
 }

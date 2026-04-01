@@ -131,14 +131,6 @@ public class LocationEntity {
     private String disabledReason;
 
     /**
-     * Estimated drive time in minutes from the last-refreshed source location
-     * (typically the user's current position). Null if not yet computed.
-     * Updated via {@code POST /api/locations/drive-times}.
-     */
-    @Column(name = "drive_duration_minutes")
-    private Integer driveDurationMinutes;
-
-    /**
      * Bortle dark-sky class at this location (1 = darkest, 8 = city sky).
      *
      * <p>Populated by {@code BortleEnrichmentService} via the lightpollutionmap.info API.

@@ -24,6 +24,12 @@ public record StatusResponse(
         SessionInfo session,
         Instant checkedAt) {
 
+    /** Defensive copy. */
+    public StatusResponse {
+        degraded = List.copyOf(degraded);
+        services = Map.copyOf(services);
+    }
+
     /**
      * Health status of a single component.
      *

@@ -3,7 +3,9 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.client.OpenRouteServiceClient;
 import com.gregochr.goldenhour.config.OrsProperties;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.UserDriveTimeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,7 +16,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -38,123 +39,94 @@ class DriveDurationServiceTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private UserDriveTimeRepository userDriveTimeRepository;
+
     private DriveDurationService service;
 
+    private static final Long USER_ID = 42L;
     private static final double SOURCE_LAT = 54.778;
     private static final double SOURCE_LON = -1.600;
 
     @BeforeEach
     void setUp() {
-        service = new DriveDurationService(orsClient, orsProperties, locationRepository);
+        service = new DriveDurationService(orsClient, orsProperties,
+                locationRepository, userDriveTimeRepository);
     }
 
     @Test
-    @DisplayName("returns empty map when ORS is not configured")
-    void refreshDriveTimes_orsNotConfigured_returnsEmptyMap() {
+    @DisplayName("returns 0 when ORS is not configured")
+    void refreshForUser_orsNotConfigured_returnsZero() {
         when(orsProperties.isConfigured()).thenReturn(false);
 
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        assertThat(result).isEmpty();
+        assertThat(result).isZero();
         verify(orsClient, never()).fetchDurations(anyDouble(), anyDouble(), any());
     }
 
     @Test
-    @DisplayName("returns empty map when no locations exist")
-    void refreshDriveTimes_noLocations_returnsEmptyMap() {
+    @DisplayName("returns 0 when no locations exist")
+    void refreshForUser_noLocations_returnsZero() {
         when(orsProperties.isConfigured()).thenReturn(true);
         when(locationRepository.findAll()).thenReturn(List.of());
 
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        assertThat(result).isEmpty();
+        assertThat(result).isZero();
         verify(orsClient, never()).fetchDurations(anyDouble(), anyDouble(), any());
     }
 
     @Test
-    @DisplayName("converts ORS seconds to minutes (rounded) and persists results")
-    void refreshDriveTimes_convertsSecondsToMinutes() {
+    @DisplayName("converts ORS seconds to rounded seconds and persists UserDriveTimeEntity")
+    void refreshForUser_convertsAndPersists() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
         when(locationRepository.findAll()).thenReturn(List.of(durham));
-        // 2700 seconds = 45 minutes exactly
         when(orsClient.fetchDurations(anyDouble(), anyDouble(), any())).thenReturn(List.of(2700.0));
 
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        assertThat(result).containsEntry("Durham UK", 45);
-        assertThat(durham.getDriveDurationMinutes()).isEqualTo(45);
-        verify(locationRepository).saveAll(List.of(durham));
+        assertThat(result).isEqualTo(1);
+        verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(userDriveTimeRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        assertThat(captor.getValue().get(0).getLocationId()).isEqualTo(1L);
+        assertThat(captor.getValue().get(0).getDriveDurationSeconds()).isEqualTo(2700);
     }
 
     @Test
-    @DisplayName("rounds fractional seconds correctly (2729s → 45 min, not 46)")
-    void refreshDriveTimes_roundsMinutes() {
+    @DisplayName("returns 0 when ORS returns empty durations")
+    void refreshForUser_emptyDurations_returnsZero() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
         when(locationRepository.findAll()).thenReturn(List.of(durham));
-        // 2729 seconds = 45.48 minutes → rounds to 45
-        when(orsClient.fetchDurations(anyDouble(), anyDouble(), any())).thenReturn(List.of(2729.0));
+        when(orsClient.fetchDurations(anyDouble(), anyDouble(), any())).thenReturn(List.of());
 
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        assertThat(result).containsEntry("Durham UK", 45);
+        assertThat(result).isZero();
     }
 
     @Test
-    @DisplayName("Home location is excluded from ORS and set to 0 minutes")
-    void refreshDriveTimes_homeLocation_setToZeroNotSentToOrs() {
-        when(orsProperties.isConfigured()).thenReturn(true);
-        LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
-        LocationEntity home = location(2L, "Home", 54.78, -1.60);
-        when(locationRepository.findAll()).thenReturn(List.of(durham, home));
-        when(orsClient.fetchDurations(anyDouble(), anyDouble(), any())).thenReturn(List.of(2700.0));
-
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
-
-        assertThat(result).containsEntry("Home", 0);
-        assertThat(result).containsEntry("Durham UK", 45);
-        assertThat(home.getDriveDurationMinutes()).isEqualTo(0);
-
-        // ORS should only receive Durham, not Home
-        ArgumentCaptor<List<double[]>> coordCaptor = ArgumentCaptor.forClass(List.class);
-        verify(orsClient).fetchDurations(anyDouble(), anyDouble(), coordCaptor.capture());
-        assertThat(coordCaptor.getValue()).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("Home location exclusion is case-insensitive (only Home present → no ORS call, empty result)")
-    void refreshDriveTimes_homeLocationCaseInsensitive() {
-        when(orsProperties.isConfigured()).thenReturn(true);
-        LocationEntity home = location(1L, "HOME", 54.78, -1.60);
-        when(locationRepository.findAll()).thenReturn(List.of(home));
-
-        // Service returns early when only Home exists (no non-Home destinations)
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
-
-        assertThat(result).isEmpty();
-        verify(orsClient, never()).fetchDurations(anyDouble(), anyDouble(), any());
-    }
-
-    @Test
-    @DisplayName("null ORS duration for a destination stores null on entity")
-    void refreshDriveTimes_nullDuration_storesNull() {
+    @DisplayName("null ORS duration is skipped (not persisted)")
+    void refreshForUser_nullDuration_skipped() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
         when(locationRepository.findAll()).thenReturn(List.of(durham));
-        // Arrays.asList allows null elements (List.of does not)
         when(orsClient.fetchDurations(anyDouble(), anyDouble(), any()))
                 .thenReturn(Arrays.asList((Double) null));
 
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        assertThat(result).containsEntry("Durham UK", null);
-        assertThat(durham.getDriveDurationMinutes()).isNull();
+        assertThat(result).isZero();
     }
 
     @Test
     @DisplayName("multiple locations are all persisted")
-    void refreshDriveTimes_multipleLocations_allPersisted() {
+    void refreshForUser_multipleLocations_allPersisted() {
         when(orsProperties.isConfigured()).thenReturn(true);
         LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
         LocationEntity whitley = location(2L, "Whitley Bay", 55.04, -1.44);
@@ -162,12 +134,39 @@ class DriveDurationServiceTest {
         when(orsClient.fetchDurations(anyDouble(), anyDouble(), any()))
                 .thenReturn(List.of(2700.0, 3600.0));
 
-        Map<String, Integer> result = service.refreshDriveTimes(SOURCE_LAT, SOURCE_LON);
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
-        assertThat(result).hasSize(2);
-        assertThat(result).containsEntry("Durham UK", 45);
-        assertThat(result).containsEntry("Whitley Bay", 60);
-        verify(locationRepository).saveAll(List.of(durham, whitley));
+        assertThat(result).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(userDriveTimeRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("deletes existing drive times before saving new ones")
+    void refreshForUser_deletesExistingFirst() {
+        when(orsProperties.isConfigured()).thenReturn(true);
+        LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
+        when(locationRepository.findAll()).thenReturn(List.of(durham));
+        when(orsClient.fetchDurations(anyDouble(), anyDouble(), any())).thenReturn(List.of(2700.0));
+
+        service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
+
+        verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
+    }
+
+    @Test
+    @DisplayName("negative duration is skipped (not persisted)")
+    void refreshForUser_negativeDuration_skipped() {
+        when(orsProperties.isConfigured()).thenReturn(true);
+        LocationEntity durham = location(1L, "Durham UK", 54.78, -1.58);
+        when(locationRepository.findAll()).thenReturn(List.of(durham));
+        when(orsClient.fetchDurations(anyDouble(), anyDouble(), any())).thenReturn(List.of(-1.0));
+
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
+
+        assertThat(result).isZero();
     }
 
     private static LocationEntity location(Long id, String name, double lat, double lon) {

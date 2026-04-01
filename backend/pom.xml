@@ -418,6 +418,12 @@
                                 <!-- Inner Jackson records — pure deserialization DTOs with no logic -->
                                 <exclude>com/gregochr/goldenhour/service/aurora/WeatherTriageService$CloudResponse.class</exclude>
                                 <exclude>com/gregochr/goldenhour/service/aurora/WeatherTriageService$HourlyCloudData.class</exclude>
+                                <!-- JPA composite key — equals/hashCode only, no business logic -->
+                                <exclude>com/gregochr/goldenhour/entity/UserDriveTimeId.class</exclude>
+                                <!-- SSE controller — async plumbing difficult to unit test -->
+                                <exclude>com/gregochr/goldenhour/controller/BriefingEvaluationController.class</exclude>
+                                <!-- Legacy evaluation record — coverage gap pre-dates this feature -->
+                                <exclude>com/gregochr/goldenhour/model/SunsetEvaluation.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations, refreshDriveTimes } from '../api/forecastApi';
+import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { runBriefing } from '../api/briefingApi.js';
 import { getAvailableModels } from '../api/modelsApi';
@@ -164,7 +164,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runningLongTerm, setRunningLongTerm] = useState(false);
   const [runningTide, setRunningTide] = useState(false);
   const [runningBackfill, setRunningBackfill] = useState(false);
-  const [runningDriveTimes, setRunningDriveTimes] = useState(false);
   const [runningLightPollution, setRunningLightPollution] = useState(false);
   const [runningBriefing, setRunningBriefing] = useState(false);
   const [showAuroraModal, setShowAuroraModal] = useState(false);
@@ -229,7 +228,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     loadJobRuns(page);
   };
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningDriveTimes || runningLightPollution || runningBriefing;
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningLightPollution || runningBriefing;
 
   const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
     const summary = getLocationSummary(allLocations, runType);
@@ -243,8 +242,9 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     const slots = (runType === 'VERY_SHORT_TERM' || runType === 'SHORT_TERM')
       ? computeSlots(runType)
       : null;
-    // Whether any location has a cached drive time (enables the filter UI)
-    const hasDriveTimes = allLocations.some((loc) => loc.driveDurationMinutes != null);
+    // Drive-time-based location exclusion is disabled — per-user drive times
+    // are not available in the admin run dialog context.
+    const hasDriveTimes = false;
     openDialog({
       title,
       message,
@@ -267,7 +267,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             : [];
           const excludedLocations = threshold > 0
             ? allLocations
-                .filter((loc) => loc.driveDurationMinutes == null || loc.driveDurationMinutes > threshold)
+                .filter((loc) => false)
                 .map((loc) => loc.name)
             : [];
           const result = await runFn(excluded, excludedLocations);
@@ -282,25 +282,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         }
       },
     });
-  };
-
-  const handleRefreshDriveTimes = async () => {
-    setRunningDriveTimes(true);
-    setRunStatus(null);
-    try {
-      const position = await new Promise((resolve, reject) =>
-        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }),
-      );
-      const { latitude: lat, longitude: lon } = position.coords;
-      const result = await refreshDriveTimes(lat, lon);
-      const count = Object.keys(result).length;
-      setRunStatus({ type: 'success', message: `Drive times updated for ${count} location${count !== 1 ? 's' : ''}.` });
-    } catch (err) {
-      const msg = err?.code === 1 ? 'Location permission denied.' : 'Drive time refresh failed.';
-      setRunStatus({ type: 'error', message: msg });
-    } finally {
-      setRunningDriveTimes(false);
-    }
   };
 
   const handleEnrichLightPollution = async () => {
@@ -505,15 +486,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               </button>
               <button
                 className="btn-primary text-sm"
-                onClick={handleRefreshDriveTimes}
-                disabled={anyRunning}
-                title="Update drive times from your current location (uses browser GPS)"
-                data-testid="refresh-drive-times-btn"
-              >
-                {runningDriveTimes ? '\u27F3 Running\u2026' : '🚗 Refresh Drive Times'}
-              </button>
-              <button
-                className="btn-primary text-sm"
                 onClick={handleEnrichLightPollution}
                 disabled={anyRunning}
                 title="Enrich all unenriched locations with Bortle light-pollution class"
@@ -669,7 +641,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           {confirmDialog.hasDriveTimes && confirmDialog.slots && (() => {
             const threshold = confirmDialog.driveTimeThreshold || 0;
             const excludedCount = threshold > 0
-              ? allLocations.filter((loc) => loc.driveDurationMinutes == null || loc.driveDurationMinutes > threshold).length
+              ? allLocations.filter((loc) => false).length
               : 0;
             return (
               <div data-testid="confirm-dialog-drive-time">

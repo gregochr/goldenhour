@@ -17,6 +17,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -81,6 +82,22 @@ public class AppUserEntity implements UserDetails {
     /** Timestamp of the user's most recent activity (updated at most once per hour). */
     @Column(name = "last_active_at")
     private LocalDateTime lastActiveAt;
+
+    /** UK postcode for the user's home location (e.g. "DH1 3LE"). */
+    @Column(name = "home_postcode", length = 10)
+    private String homePostcode;
+
+    /** Latitude of the user's home location, resolved from postcode. */
+    @Column(name = "home_latitude")
+    private Double homeLatitude;
+
+    /** Longitude of the user's home location, resolved from postcode. */
+    @Column(name = "home_longitude")
+    private Double homeLongitude;
+
+    /** When per-user drive times were last calculated from the home location. */
+    @Column(name = "drive_times_calculated_at")
+    private Instant driveTimesCalculatedAt;
 
     /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.

@@ -31,7 +31,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 
 /**
@@ -184,13 +183,8 @@ public class BriefingService {
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);
 
-        Map<String, Integer> driveMap = colourLocations.stream()
-                .filter(l -> l.getDriveDurationMinutes() != null)
-                .collect(Collectors.toMap(
-                        LocationEntity::getName, LocationEntity::getDriveDurationMinutes));
-
         String headline = headlineGenerator.generateHeadline(days);
-        List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId(), driveMap);
+        List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId(), Map.of());
         AuroraTonightSummary auroraTonight = auroraSummaryBuilder.buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
 

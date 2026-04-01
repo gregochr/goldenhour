@@ -3,8 +3,6 @@ package com.gregochr.goldenhour.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.BriefingModelTestResultEntity;
 import com.gregochr.goldenhour.entity.BriefingModelTestRunEntity;
-import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.BriefingModelTestResultRepository;
 import com.gregochr.goldenhour.repository.BriefingModelTestRunRepository;
@@ -17,7 +15,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Orchestrates briefing model comparison tests — calls all three Claude models
@@ -30,7 +27,6 @@ public class BriefingModelTestService {
     private static final Logger LOG = LoggerFactory.getLogger(BriefingModelTestService.class);
 
     private final BriefingService briefingService;
-    private final LocationService locationService;
     private final BriefingBestBetAdvisor bestBetAdvisor;
     private final BriefingModelTestRunRepository runRepository;
     private final BriefingModelTestResultRepository resultRepository;
@@ -42,7 +38,6 @@ public class BriefingModelTestService {
      * Constructs a {@code BriefingModelTestService}.
      *
      * @param briefingService      provides the cached briefing data
-     * @param locationService      provides enabled locations for drive map rebuild
      * @param bestBetAdvisor       advisor that calls Claude for best-bet picks
      * @param runRepository        repository for test run entities
      * @param resultRepository     repository for test result entities
@@ -51,7 +46,6 @@ public class BriefingModelTestService {
      * @param objectMapper         Jackson mapper for serializing picks to JSON
      */
     public BriefingModelTestService(BriefingService briefingService,
-            LocationService locationService,
             BriefingBestBetAdvisor bestBetAdvisor,
             BriefingModelTestRunRepository runRepository,
             BriefingModelTestResultRepository resultRepository,
@@ -59,7 +53,6 @@ public class BriefingModelTestService {
             ExchangeRateService exchangeRateService,
             ObjectMapper objectMapper) {
         this.briefingService = briefingService;
-        this.locationService = locationService;
         this.bestBetAdvisor = bestBetAdvisor;
         this.runRepository = runRepository;
         this.resultRepository = resultRepository;
@@ -83,11 +76,7 @@ public class BriefingModelTestService {
             throw new IllegalStateException("No cached briefing available — run a briefing refresh first.");
         }
 
-        Map<String, Integer> driveMap = locationService.findAllEnabled().stream()
-                .filter(l -> l.getLocationType().stream().anyMatch(t -> t != LocationType.WILDLIFE))
-                .filter(l -> l.getDriveDurationMinutes() != null)
-                .collect(Collectors.toMap(
-                        LocationEntity::getName, LocationEntity::getDriveDurationMinutes));
+        Map<String, Integer> driveMap = Map.of();
 
         LocalDateTime startedAt = LocalDateTime.now(ZoneOffset.UTC);
 

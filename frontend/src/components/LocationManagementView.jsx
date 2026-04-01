@@ -810,10 +810,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
                         })}
                       </div>
                     </th>
-                    <th className="pb-1 font-medium align-top w-[7%]">
-                      <span className="text-xs text-plex-text-muted whitespace-nowrap">Drive</span>
-                      <div className="mt-1 h-[26px]" />
-                    </th>
                     <th className="pb-1 font-medium align-top w-[6%]">
                       <span className="flex items-center gap-1 text-xs text-plex-text-muted whitespace-nowrap">
                         Bortle
@@ -882,9 +878,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   onChange={(next) => setEditValues((prev) => ({ ...prev, tideTypes: next }))}
                                   disabled={editValues.locationType !== 'SEASCAPE'}
                                 />
-                              </td>
-                              <td className="py-2 text-plex-text-secondary text-xs">
-                                {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs" data-testid={`bortle-edit-${loc.id}`}>
                                 {loc.bortleClass != null ? loc.bortleClass : '—'}
@@ -959,9 +952,6 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   disabled
                                   readOnly
                                 />
-                              </td>
-                              <td className="py-2 text-plex-text-secondary text-xs">
-                                {loc.driveDurationMinutes != null ? `${loc.driveDurationMinutes} min` : '—'}
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs" data-testid={`bortle-${loc.id}`}>
                                 {loc.bortleClass != null ? loc.bortleClass : '—'}

@@ -24,6 +24,11 @@ public record AuroraViewlineResponse(
         ZonedDateTime forecastTime,
         boolean active) {
 
+    /** Defensive copy. */
+    public AuroraViewlineResponse {
+        points = List.copyOf(points);
+    }
+
     /**
      * A single point on the viewline polyline.
      *

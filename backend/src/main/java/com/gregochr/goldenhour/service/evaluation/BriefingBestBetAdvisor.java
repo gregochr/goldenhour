@@ -39,7 +39,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -78,21 +77,15 @@ public class BriefingBestBetAdvisor {
             **How to pick the two recommendations:**
 
             Pick 1 — THE BEST OVERALL. The single best opportunity across all regions and
-            events, regardless of how far away it is. If the best light is 90 minutes away,
-            say so. This is "if you could go anywhere."
+            events. This is "if you could go anywhere."
 
-            Pick 2 — THE BEST WITHIN AN HOUR. The best opportunity where
-            nearestLocationDriveMinutes is 60 or less. This is the pragmatic option —\s
-            "what's good that I can actually get to on a normal evening."
-
-            If Pick 1 is already within an hour (nearestLocationDriveMinutes <= 60), then
-            Pick 2 should be the next best region or event that is different from Pick 1.
-            The user should always get two meaningfully different options.
+            Pick 2 — THE BEST ALTERNATIVE. The next best region or event that is
+            meaningfully different from Pick 1 — a different day, different event type,
+            or different region. The user should always get two distinct options.
 
             **Label them clearly:**
             - Pick 1 headline should reflect it's the best overall
-            - Pick 2 headline should mention proximity when relevant — "close to home",
-              "under an hour", "quick evening dash"
+            - Pick 2 headline should highlight what makes it a distinct alternative
 
             The structured fields (day, event type, time, region, drive distance) are displayed
             separately by the frontend — do not repeat them in the headline or detail.
@@ -100,9 +93,9 @@ public class BriefingBestBetAdvisor {
             features, what makes it stand out. Not "Region X sunrise Saturday" — the frontend
             already shows that.
             Good headline: "Best overall light and tide conditions"
-            Good headline: "Perfect quick evening dash, all locations clear"
+            Good headline: "Rare king tide combo with clear skies"
             Bad headline: "North Yorkshire Coast sunset Wednesday — best overall light and tide"
-            Bad headline: "Tyne and Wear sunset tonight — 7 minutes from home"
+            Bad headline: "Tyne and Wear sunset tonight — moderate aurora alert"
 
             **When evaluating quality, consider:**
             - GO regions with the most clear locations are generally best
@@ -239,14 +232,14 @@ public class BriefingBestBetAdvisor {
      *
      * @param days      the fully assembled briefing days (triage complete)
      * @param jobRunId  the current briefing job run ID for API call logging
-     * @param driveMap  map of location name to drive duration minutes (may be empty)
+     * @param driveMap  unused — retained for API compatibility (pass {@code Map.of()})
      * @return list of best-bet picks (1–2 items normally; empty on failure)
      */
     public List<BestBet> advise(List<BriefingDay> days, Long jobRunId,
             Map<String, Integer> driveMap) {
         try {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            RollupResult rollup = buildRollupJson(days, now, driveMap);
+            RollupResult rollup = buildRollupJson(days, now);
             long startMs = System.currentTimeMillis();
 
             Message response = anthropicApiClient.createMessage(
@@ -275,32 +268,11 @@ public class BriefingBestBetAdvisor {
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            List<BestBet> withDrive = enrichWithDriveTimes(validated, days, driveMap);
-            return enrichWithEventData(withDrive, days);
+            return enrichWithEventData(validated, days);
         } catch (Exception e) {
             LOG.warn("Best-bet advisor failed — returning empty picks (fallback to headline)", e);
             return List.of();
         }
-    }
-
-    /**
-     * Enriches parsed picks with the nearest drive time for each pick's region,
-     * looking up from the days hierarchy and driveMap.
-     */
-    private List<BestBet> enrichWithDriveTimes(List<BestBet> picks,
-            List<BriefingDay> days, Map<String, Integer> driveMap) {
-        if (driveMap.isEmpty()) {
-            return picks;
-        }
-        return picks.stream().map(pick -> {
-            if (pick.region() == null) {
-                return pick;
-            }
-            Integer nearest = nearestDriveForRegion(pick.region(), days, driveMap);
-            return new BestBet(pick.rank(), pick.headline(), pick.detail(),
-                    pick.event(), pick.region(), pick.confidence(), nearest,
-                    pick.dayName(), pick.eventType(), pick.eventTime());
-        }).toList();
     }
 
     /**
@@ -439,23 +411,6 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
-     * Returns the nearest drive time in minutes for any location in the named region,
-     * or null if no drive data is available for that region.
-     */
-    private Integer nearestDriveForRegion(String regionName, List<BriefingDay> days,
-            Map<String, Integer> driveMap) {
-        return days.stream()
-                .flatMap(d -> d.eventSummaries().stream())
-                .flatMap(es -> es.regions().stream())
-                .filter(r -> regionName.equals(r.regionName()))
-                .flatMap(r -> r.slots().stream())
-                .map(s -> driveMap.get(s.locationName()))
-                .filter(Objects::nonNull)
-                .min(Integer::compareTo)
-                .orElse(null);
-    }
-
-    /**
      * Builds the region-level rollup JSON sent to Claude as the user message, plus the
      * validation sets derived from the same data.
      *
@@ -466,12 +421,11 @@ public class BriefingBestBetAdvisor {
      *
      * @param days     the briefing days
      * @param now      current UTC time for past-event filtering
-     * @param driveMap map of location name to drive duration minutes (may be empty)
      * @return rollup result containing the JSON and validation sets
      * @throws JsonProcessingException if Jackson serialization fails
      */
-    RollupResult buildRollupJson(List<BriefingDay> days, LocalDateTime now,
-            Map<String, Integer> driveMap) throws JsonProcessingException {
+    RollupResult buildRollupJson(List<BriefingDay> days, LocalDateTime now)
+            throws JsonProcessingException {
         LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
         Set<String> validEvents = new LinkedHashSet<>();
         Set<String> validRegions = new LinkedHashSet<>();
@@ -508,7 +462,7 @@ public class BriefingBestBetAdvisor {
                 }
                 ArrayNode regionsNode = eventNode.putArray("regions");
                 for (BriefingRegion region : es.regions()) {
-                    appendRegionNode(regionsNode, region, driveMap);
+                    appendRegionNode(regionsNode, region);
                     validRegions.add(region.regionName());
                 }
             }
@@ -544,8 +498,7 @@ public class BriefingBestBetAdvisor {
         return new RollupResult(objectMapper.writeValueAsString(root), validEvents, validRegions, validDayNames);
     }
 
-    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
-            Map<String, Integer> driveMap) {
+    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region) {
         long goCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO).count();
         long marginalCount = region.slots().stream()
@@ -627,17 +580,6 @@ public class BriefingBestBetAdvisor {
 
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
-        List<Integer> driveTimes = region.slots().stream()
-                .map(s -> driveMap.get(s.locationName()))
-                .filter(Objects::nonNull)
-                .toList();
-        if (!driveTimes.isEmpty()) {
-            int avg = (int) Math.round(
-                    driveTimes.stream().mapToInt(Integer::intValue).average().orElse(0));
-            int nearest = driveTimes.stream().mapToInt(Integer::intValue).min().orElse(0);
-            regionNode.put("averageDriveMinutes", avg);
-            regionNode.put("nearestLocationDriveMinutes", nearest);
-        }
     }
 
     private void appendAuroraEvent(ArrayNode eventsNode, String eventId) {
@@ -712,26 +654,26 @@ public class BriefingBestBetAdvisor {
      * so partial success is possible.
      *
      * @param days     the fully assembled briefing days (triage complete)
-     * @param driveMap map of location name to drive duration minutes
+     * @param driveMap unused — retained for API compatibility (pass {@code Map.of()})
      * @return comparison run containing the rollup JSON and all model results
      * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
      */
     public ComparisonRun compareModels(List<BriefingDay> days,
             Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        RollupResult rollup = buildRollupJson(days, now, driveMap);
+        RollupResult rollup = buildRollupJson(days, now);
         List<EvaluationModel> models = List.of(
                 EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
 
         List<ModelComparisonResult> results = new ArrayList<>();
         for (EvaluationModel model : models) {
-            results.add(callModel(model, rollup, days, driveMap));
+            results.add(callModel(model, rollup, days));
         }
         return new ComparisonRun(rollup.json(), results);
     }
 
     private ModelComparisonResult callModel(EvaluationModel model, RollupResult rollup,
-            List<BriefingDay> days, Map<String, Integer> driveMap) {
+            List<BriefingDay> days) {
         try {
             long startMs = System.currentTimeMillis();
             Message response = anthropicApiClient.createMessage(
@@ -760,8 +702,7 @@ public class BriefingBestBetAdvisor {
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
-            List<BestBet> withDrive = enrichWithDriveTimes(validated, days, driveMap);
-            List<BestBet> enriched = enrichWithEventData(withDrive, days);
+            List<BestBet> enriched = enrichWithEventData(validated, days);
 
             LOG.info("Model comparison {} completed ({}ms, {} picks)", model, durationMs, enriched.size());
             return new ModelComparisonResult(model, raw, parsed, enriched, durationMs, tokenUsage);

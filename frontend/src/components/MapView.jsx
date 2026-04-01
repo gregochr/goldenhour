@@ -13,6 +13,7 @@ import ForecastTypeSelector from './ForecastTypeSelector.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
+import { getDriveTimes } from '../api/settingsApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
@@ -266,6 +267,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   });
   const [showUnrated, setShowUnrated] = useState(false);
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
+  const [userDriveTimes, setUserDriveTimes] = useState({});
+  useEffect(() => { getDriveTimes().then(setUserDriveTimes).catch(() => {}); }, []);
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
@@ -463,9 +466,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
 
   const driveFiltered = driveTimeFilter === 0
     ? ratingFiltered
-    : ratingFiltered.filter((loc) =>
-        loc.driveDurationMinutes != null && loc.driveDurationMinutes <= driveTimeFilter,
-      );
+    : ratingFiltered.filter((loc) => {
+        const mins = userDriveTimes[String(loc.id)];
+        return mins != null && mins <= driveTimeFilter;
+      });
 
   const isAuroraMode = eventType === 'AURORA';
   const isAstroMode = eventType === 'ASTRO';

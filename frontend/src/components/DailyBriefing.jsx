@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { subscribeToBriefingEvaluation } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
+import { getDriveTimes } from '../api/settingsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import QualitySlider from './QualitySlider.jsx';
@@ -774,14 +775,23 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
 
-  /** Map from location name → driveDurationMinutes. */
+  /** Per-user drive times: locationId → minutes from the user_drive_time table. */
+  const [userDriveTimes, setUserDriveTimes] = useState({});
+  useEffect(() => {
+    getDriveTimes().then(setUserDriveTimes).catch(() => {});
+  }, []);
+
+  /** Map from location name → drive minutes (per-user). */
   const driveMap = useMemo(() => {
     const m = new Map();
-    (locations || []).forEach((loc) => {
-      if (loc.driveDurationMinutes != null) m.set(loc.name, loc.driveDurationMinutes);
+    const idToName = {};
+    (locations || []).forEach((loc) => { idToName[loc.id] = loc.name; });
+    Object.entries(userDriveTimes).forEach(([locId, mins]) => {
+      const name = idToName[locId];
+      if (name && mins != null) m.set(name, mins);
     });
     return m;
-  }, [locations]);
+  }, [locations, userDriveTimes]);
 
   /** Map from location name → locationType string. */
   const typeMap = useMemo(() => {
@@ -1285,7 +1295,6 @@ DailyBriefing.propTypes = {
   locations: PropTypes.arrayOf(
     PropTypes.shape({
       name: PropTypes.string.isRequired,
-      driveDurationMinutes: PropTypes.number,
       locationType: PropTypes.string,
     }),
   ),

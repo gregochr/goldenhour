@@ -177,6 +177,19 @@
     </Match>
 
     <!--
+        WeatherExtractionResult wraps a mutable OpenMeteoForecastResponse (already excluded
+        above) — defensive copying is not feasible for that class. The record is an internal
+        hand-off between augmentor and surge calculation phases.
+    -->
+    <Match>
+        <Class name="com.gregochr.goldenhour.model.WeatherExtractionResult"/>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
         AuroraStateCache uses volatile fields for thread-safe publication between the
         polling thread (writer) and the REST thread (reader). SpotBugs may flag compound
         read-check-write sequences on volatile fields, but these are intentionally

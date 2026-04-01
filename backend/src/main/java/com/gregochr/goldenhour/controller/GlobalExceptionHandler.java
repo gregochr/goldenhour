@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.NoSuchElementException;
 
@@ -94,6 +95,18 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void handleClientDisconnect(AsyncRequestNotUsableException ex) {
         LOG.debug("Client disconnected during async response: {}", ex.getMessage());
+    }
+
+    /**
+     * Preserves the HTTP status from {@link ResponseStatusException}.
+     *
+     * @param ex the exception
+     * @return a response with the exception's status code and reason
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        return ResponseEntity.status(ex.getStatusCode())
+                .body(new ErrorResponse(ex.getReason()));
     }
 
     @ExceptionHandler(Exception.class)

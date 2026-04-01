@@ -197,7 +197,7 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now);
             String expectedEventId = tomorrow.toString() + "_sunset";
             assertThat(result.json()).contains(expectedEventId);
             assertThat(result.json()).contains("Northumberland");
@@ -219,7 +219,7 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now);
             String skippedId = today.toString() + "_sunrise";
             assertThat(result.json()).doesNotContain(skippedId);
             assertThat(result.validEvents()).doesNotContain(skippedId);
@@ -235,7 +235,7 @@ class BriefingBestBetAdvisorTest {
                     mock(AuroraForecastScore.class)
             ));
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
             String expectedAuroraId = LocalDate.now(ZoneId.of("Europe/London")) + "_aurora";
             assertThat(result.json()).contains(expectedAuroraId);
             assertThat(result.json()).contains("MODERATE");
@@ -248,7 +248,7 @@ class BriefingBestBetAdvisorTest {
         void auroraExcludedWhenInactive() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
             assertThat(result.json()).doesNotContain("_aurora");
             assertThat(result.validEvents().stream().noneMatch(e -> e.endsWith("_aurora"))).isTrue();
         }
@@ -274,7 +274,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
 
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now);
             assertThat(result.json()).contains("hasKingTide");
             assertThat(result.json()).contains("Bamburgh");
             assertThat(result.json()).contains("kingTideLocations");
@@ -303,7 +303,7 @@ class BriefingBestBetAdvisorTest {
             ));
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
-                    List.of(day), now, Map.of());
+                    List.of(day), now);
             assertThat(result.json()).contains("\"lunarKingTideCount\":1");
             assertThat(result.json()).contains("\"lunarSpringTideCount\":0");
             assertThat(result.json()).contains("\"hasSurgeBoost\":true");
@@ -332,7 +332,7 @@ class BriefingBestBetAdvisorTest {
             ));
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
-                    List.of(day), now, Map.of());
+                    List.of(day), now);
             assertThat(result.json()).contains("\"lunarSpringTideCount\":1");
             assertThat(result.json()).contains("\"lunarKingTideCount\":0");
             assertThat(result.json()).contains("\"extraHighCount\":1");
@@ -372,7 +372,7 @@ class BriefingBestBetAdvisorTest {
             ));
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
-                    List.of(day), now, Map.of());
+                    List.of(day), now);
             assertThat(result.json()).contains("\"extraExtraHighCount\":1");
             assertThat(result.json()).contains("\"extraHighCount\":1");
         }
@@ -391,7 +391,7 @@ class BriefingBestBetAdvisorTest {
             ));
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
-                    List.of(day), now, Map.of());
+                    List.of(day), now);
             assertThat(result.json()).contains("\"lunarKingTideCount\":0");
             assertThat(result.json()).contains("\"lunarSpringTideCount\":0");
             assertThat(result.json()).contains("\"extraExtraHighCount\":0");
@@ -414,7 +414,7 @@ class BriefingBestBetAdvisorTest {
                     ), List.of())
             ));
 
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now);
             assertThat(result.json()).doesNotContain("dayOfWeek");
             assertThat(result.json()).doesNotContain("isWeekday");
         }
@@ -434,7 +434,7 @@ class BriefingBestBetAdvisorTest {
                             region("The Lake District", Verdict.MARGINAL, 0, 1, 0)), List.of())));
 
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(
-                    List.of(day1, day2), now, Map.of());
+                    List.of(day1, day2), now);
             assertThat(result.json()).contains("forecastWindow");
             assertThat(result.json()).contains("startDate");
             assertThat(result.json()).contains("availableDates");
@@ -462,7 +462,7 @@ class BriefingBestBetAdvisorTest {
                 )));
             }
 
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now);
             assertThat(result.validEvents()).hasSize(6);
             // Events from day 4 sunset should not be included
             LocalDate day4 = LocalDate.now(ZoneOffset.UTC).plusDays(4);
@@ -494,7 +494,7 @@ class BriefingBestBetAdvisorTest {
                 )));
             }
 
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now, Map.of());
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now);
             // 1 past (skipped) + 1 today + 6 from future = 7, capped at 6
             assertThat(result.validEvents()).hasSize(6);
             // The past sunrise should be excluded
@@ -503,27 +503,6 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.validEvents()).contains(today.toString() + "_sunset");
         }
 
-        @Test
-        @DisplayName("Drive times included when driveMap has entries for region slots")
-        void driveTimesIncluded() throws Exception {
-            when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-
-            BriefingRegion region = new BriefingRegion(
-                    "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(slot("Bamburgh", Verdict.GO, null), slot("Dunstanburgh", Verdict.GO, null)),
-                    7.0, 5.0, 1.5, 1);
-            BriefingDay day = new BriefingDay(tomorrow, List.of(
-                    new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
-            ));
-
-            Map<String, Integer> driveMap = Map.of("Bamburgh", 30, "Dunstanburgh", 50);
-            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(day), now, driveMap);
-            assertThat(result.json()).contains("averageDriveMinutes");
-            assertThat(result.json()).contains("nearestLocationDriveMinutes");
-            assertThat(result.json()).contains("\"nearestLocationDriveMinutes\":30");
-        }
     }
 
     // ── advise (integration path) ──
@@ -594,14 +573,12 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             regionWithTime("Northumberland", Verdict.GO, 3, 0, 0, eventTime)
                     ), List.of())));
-            List<BestBet> picks = advisor.advise(List.of(day), 42L,
-                    Map.of("Loc0", 37));
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
             assertThat(picks).hasSize(1);
             BestBet pick = picks.get(0);
             assertThat(pick.dayName()).isEqualTo("Tomorrow");
             assertThat(pick.eventType()).isEqualTo("sunset");
             assertThat(pick.eventTime()).isNotNull();
-            assertThat(pick.nearestDriveMinutes()).isEqualTo(37);
         }
 
         @Test

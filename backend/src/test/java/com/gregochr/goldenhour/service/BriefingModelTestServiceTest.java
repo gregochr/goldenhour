@@ -36,7 +36,6 @@ import static org.mockito.Mockito.when;
 class BriefingModelTestServiceTest {
 
     @Mock private BriefingService briefingService;
-    @Mock private LocationService locationService;
     @Mock private BriefingBestBetAdvisor bestBetAdvisor;
     @Mock private BriefingModelTestRunRepository runRepository;
     @Mock private BriefingModelTestResultRepository resultRepository;
@@ -48,7 +47,7 @@ class BriefingModelTestServiceTest {
     @BeforeEach
     void setUp() {
         service = new BriefingModelTestService(
-                briefingService, locationService, bestBetAdvisor,
+                briefingService, bestBetAdvisor,
                 runRepository, resultRepository, costCalculator,
                 exchangeRateService, new ObjectMapper().findAndRegisterModules());
     }
@@ -70,7 +69,7 @@ class BriefingModelTestServiceTest {
                 LocalDateTime.now(), "Test headline", List.of(), List.of(),
                 null, null, false, false, 0);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(locationService.findAllEnabled()).thenReturn(List.of());
+
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 
         BestBet pick = new BestBet(1, "Go shoot", "Clear.", "2026-04-01_sunset",
@@ -125,7 +124,7 @@ class BriefingModelTestServiceTest {
                 LocalDateTime.now(), "Test", List.of(), List.of(),
                 null, null, false, false, 0);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(locationService.findAllEnabled()).thenReturn(List.of());
+
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 
         BestBet pick = new BestBet(1, "Go", "Clear.", "2026-04-01_sunset",
@@ -172,7 +171,7 @@ class BriefingModelTestServiceTest {
                 LocalDateTime.now(), "Test", List.of(), List.of(),
                 null, null, false, false, 0);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(locationService.findAllEnabled()).thenReturn(List.of());
+
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 
         BestBet pick1 = new BestBet(1, "Go", "Clear.", "e1", "R1",
@@ -228,7 +227,7 @@ class BriefingModelTestServiceTest {
                 LocalDateTime.now(), "Test", List.of(), List.of(),
                 null, null, false, false, 0);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(locationService.findAllEnabled()).thenReturn(List.of());
+
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 
         String rollupJson = "{\"events\":[],\"validEvents\":[]}";

@@ -31,8 +31,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -106,7 +104,7 @@ class BestBetAuroraPromptRegressionTest {
                 apiClient, objectMapper, mock(JobRunService.class), cache);
 
         BriefingBestBetAdvisor.RollupResult rollup =
-                advisor.buildRollupJson(List.of(day), now, Map.of());
+                advisor.buildRollupJson(List.of(day), now);
 
         String raw = callHaiku(rollup.json());
         List<BestBet> picks = advisor.parseBestBets(raw);
@@ -166,7 +164,7 @@ class BestBetAuroraPromptRegressionTest {
                 apiClient, objectMapper, mock(JobRunService.class), cache);
 
         BriefingBestBetAdvisor.RollupResult rollup =
-                advisor.buildRollupJson(List.of(day), now, Map.of());
+                advisor.buildRollupJson(List.of(day), now);
 
         String raw = callHaiku(rollup.json());
         List<BestBet> picks = advisor.parseBestBets(raw);
@@ -206,7 +204,7 @@ class BestBetAuroraPromptRegressionTest {
                 apiClient, objectMapper, mock(JobRunService.class), cache);
 
         BriefingBestBetAdvisor.RollupResult rollup =
-                advisor.buildRollupJson(List.of(day), now, Map.of());
+                advisor.buildRollupJson(List.of(day), now);
 
         String raw = callHaiku(rollup.json());
         List<BestBet> picks = advisor.parseBestBets(raw);

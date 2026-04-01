@@ -283,11 +283,6 @@ export default function MarkerPopupContent({
           <div style={{ fontWeight: '800', fontSize: '17px', color: darkMode ? '#EBEBEB' : '#0f172a' }}>
             {location.name}
           </div>
-          {formatDriveTime(location.driveDurationMinutes) && (
-            <span style={{ fontSize: '11px', color: '#9ca3af', whiteSpace: 'nowrap' }}>
-              🚗 {formatDriveTime(location.driveDurationMinutes)}
-            </span>
-          )}
         </div>
         {eventTime && (
           <span style={{
@@ -750,7 +745,6 @@ MarkerPopupContent.propTypes = {
     solarEventType: PropTypes.arrayOf(PropTypes.string),
     locationType: PropTypes.arrayOf(PropTypes.string),
     tideType: PropTypes.arrayOf(PropTypes.string),
-    driveDurationMinutes: PropTypes.number,
   }).isRequired,
   forecast: PropTypes.object,
   hourlyData: PropTypes.array.isRequired,
