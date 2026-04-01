@@ -136,6 +136,24 @@ public class PromptBuilder {
             + "- If the tide aligns with the photographer's preference, factor this favourably\n"
             + "- If not aligned, briefly mention the tide limitation but don't heavily penalise"
             + " unless extreme\n\n"
+            + "CLOUD INVERSION GUIDANCE:\n"
+            + "A cloud inversion occurs when warm air sits above cooler air, creating a stable "
+            + "boundary layer. For elevated locations overlooking water (lakes, sea, large "
+            + "reservoirs at 300m+ elevation):\n"
+            + "- Inversion score 7-8: MODERATE potential — visible cloud blanket below viewpoint, "
+            + "typically hugging water surface. Light reflecting off cloud tops at sunrise/sunset "
+            + "is spectacular.\n"
+            + "- Inversion score 9-10: STRONG potential — dramatic inversion almost certain. "
+            + "Clear skies above, well-defined cloud layer below. Classic 'sea of clouds' "
+            + "conditions.\n"
+            + "Key conditions: cool water + overnight surface cooling + light winds + high "
+            + "humidity.\n"
+            + "Timing: inversions peak just before sunrise, break up 1-2 hours after as surface "
+            + "warms.\n"
+            + "Scoring: MODERATE (7-8) → boost rating by 1 if current < 5. STRONG (9-10) → set "
+            + "rating 5, emphasise in summary.\n"
+            + "Non-water or low elevation: inversions have no photographic value; ignore "
+            + "inversion score.\n\n"
             + "Output your evaluation as JSON with these fields: "
             + "rating (1-5), fiery_sky (0-100), golden_hour (0-100), summary (2 sentences).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
@@ -186,6 +204,52 @@ public class PromptBuilder {
 
     /** Surface dust threshold (µg/m³) above which the dust context block is included. */
     private static final double DUST_UGM3_THRESHOLD = 50.0;
+
+    /** Inversion score at or above which the inversion context block is included. */
+    private static final double INVERSION_SCORE_THRESHOLD = 7.0;
+
+    /**
+     * Cloud inversion potential classification derived from the inversion score.
+     */
+    public enum InversionPotential {
+        /** No meaningful inversion potential. */
+        NONE("No inversion potential"),
+        /** Moderate inversion — visible cloud blanket below viewpoint. */
+        MODERATE("Moderate Cloud Inversion Potential"),
+        /** Strong inversion — dramatic sea-of-clouds almost certain. */
+        STRONG("Strong Cloud Inversion Potential");
+
+        private final String label;
+
+        InversionPotential(String label) {
+            this.label = label;
+        }
+
+        /**
+         * Returns the human-readable label for this potential level.
+         *
+         * @return the label string
+         */
+        public String label() {
+            return label;
+        }
+
+        /**
+         * Derives the inversion potential from a 0–10 score.
+         *
+         * @param score the inversion score (0–10)
+         * @return the corresponding potential level
+         */
+        public static InversionPotential fromScore(int score) {
+            if (score >= 9) {
+                return STRONG;
+            }
+            if (score >= 7) {
+                return MODERATE;
+            }
+            return NONE;
+        }
+    }
 
     /**
      * Returns the system prompt for Claude colour evaluations.
@@ -395,6 +459,22 @@ public class PromptBuilder {
                     data.targetType()));
         }
 
+        // Cloud inversion forecast — elevated water-overlooking locations only
+        Double inversionScore = data.inversionScore();
+        if (isInversionLikely(inversionScore)) {
+            InversionPotential potential = InversionPotential.fromScore(inversionScore.intValue());
+            sb.append(String.format(
+                    "%nCLOUD INVERSION FORECAST:%n"
+                    + "Score: %d/10 (%s)%n"
+                    + "Expected: %s%n"
+                    + "Timing: Peak at event time, dissipates 1-2 hours after as surface warms.",
+                    inversionScore.intValue(),
+                    potential.label(),
+                    potential == InversionPotential.STRONG
+                            ? "Dramatic blanket below viewpoint; clear sky above"
+                            : "Visible cloud layer below; light touching cloud tops"));
+        }
+
         // Include tide data if available (coastal location)
         TideSnapshot tide = data.tide();
         if (tide != null && tide.tideState() != null) {
@@ -455,14 +535,16 @@ public class PromptBuilder {
                 .format(JsonOutputFormat.builder()
                         .schema(JsonOutputFormat.Schema.builder()
                                 .putAdditionalProperty("type", JsonValue.from("object"))
-                                .putAdditionalProperty("properties", JsonValue.from(Map.of(
-                                        "rating", Map.of("type", "integer"),
-                                        "fiery_sky", Map.of("type", "integer"),
-                                        "golden_hour", Map.of("type", "integer"),
-                                        "summary", Map.of("type", "string"),
-                                        "basic_fiery_sky", Map.of("type", "integer"),
-                                        "basic_golden_hour", Map.of("type", "integer"),
-                                        "basic_summary", Map.of("type", "string"))))
+                                .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
+                                        Map.entry("rating", Map.of("type", "integer")),
+                                        Map.entry("fiery_sky", Map.of("type", "integer")),
+                                        Map.entry("golden_hour", Map.of("type", "integer")),
+                                        Map.entry("summary", Map.of("type", "string")),
+                                        Map.entry("basic_fiery_sky", Map.of("type", "integer")),
+                                        Map.entry("basic_golden_hour", Map.of("type", "integer")),
+                                        Map.entry("basic_summary", Map.of("type", "string")),
+                                        Map.entry("inversion_score", Map.of("type", "integer")),
+                                        Map.entry("inversion_potential", Map.of("type", "string")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties", JsonValue.from(false))
@@ -494,5 +576,15 @@ public class PromptBuilder {
                         && aerosol.aerosolOpticalDepth().doubleValue() > DUST_AOD_THRESHOLD)
                 || (aerosol.dustUgm3() != null
                         && aerosol.dustUgm3().doubleValue() > DUST_UGM3_THRESHOLD);
+    }
+
+    /**
+     * Returns {@code true} if the inversion score is high enough to include inversion context.
+     *
+     * @param inversionScore the inversion likelihood score (0–10), or null
+     * @return true when score is at or above the threshold (7.0)
+     */
+    static boolean isInversionLikely(Double inversionScore) {
+        return inversionScore != null && inversionScore >= INVERSION_SCORE_THRESHOLD;
     }
 }

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.AuroraStatusResponse;
+import com.gregochr.goldenhour.model.AuroraViewlineResponse;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -111,6 +112,19 @@ public class AuroraController {
                 DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
                 stateCache.isSimulated()));
+    }
+
+    /**
+     * Returns the aurora viewline — the southernmost visible aurora boundary for UK longitudes.
+     *
+     * <p>Derived from NOAA SWPC OVATION nowcast data. Returns {@code active: false} when no
+     * significant aurora probability exists in the UK range.
+     *
+     * @return viewline response
+     */
+    @GetMapping("/viewline")
+    public AuroraViewlineResponse getViewline() {
+        return noaaClient.fetchViewline();
     }
 
     /**

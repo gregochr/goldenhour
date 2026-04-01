@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
  * @param surge               storm surge breakdown, or null for inland/non-coastal locations
  * @param adjustedRangeMetres     tidal range adjusted for surge (upper bound), or null
  * @param astronomicalRangeMetres predicted astronomical tidal range, or null
+ * @param inversionScore          cloud inversion likelihood score (0–10), or null if not applicable
  */
 public record AtmosphericData(
         String locationName,
@@ -41,7 +42,8 @@ public record AtmosphericData(
         String locationOrientation,
         StormSurgeBreakdown surge,
         Double adjustedRangeMetres,
-        Double astronomicalRangeMetres) {
+        Double astronomicalRangeMetres,
+        Double inversionScore) {
 
     /**
      * Backward-compatible constructor for callers that don't supply surge or orientation data.
@@ -64,7 +66,7 @@ public record AtmosphericData(
             DirectionalCloudData directionalCloud, TideSnapshot tide,
             CloudApproachData cloudApproach, MistTrend mistTrend) {
         this(locationName, solarEventTime, targetType, cloud, weather, aerosol, comfort,
-                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null);
+                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null, null);
     }
 
     /**
@@ -76,7 +78,8 @@ public record AtmosphericData(
     public AtmosphericData withDirectionalCloud(DirectionalCloudData dc) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend,
-                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
+                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
+                inversionScore);
     }
 
     /**
@@ -88,7 +91,8 @@ public record AtmosphericData(
     public AtmosphericData withTide(TideSnapshot tideSnapshot) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
-                mistTrend, locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
+                mistTrend, locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
+                inversionScore);
     }
 
     /**
@@ -100,7 +104,8 @@ public record AtmosphericData(
     public AtmosphericData withCloudApproach(CloudApproachData approach) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend,
-                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
+                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
+                inversionScore);
     }
 
     /**
@@ -112,7 +117,8 @@ public record AtmosphericData(
     public AtmosphericData withLocationOrientation(String orientation) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
-                mistTrend, orientation, surge, adjustedRangeMetres, astronomicalRangeMetres);
+                mistTrend, orientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
+                inversionScore);
     }
 
     /**
@@ -127,6 +133,20 @@ public record AtmosphericData(
             Double adjustedRange, Double astronomicalRange) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
-                mistTrend, locationOrientation, surgeBreakdown, adjustedRange, astronomicalRange);
+                mistTrend, locationOrientation, surgeBreakdown, adjustedRange, astronomicalRange,
+                inversionScore);
+    }
+
+    /**
+     * Returns a copy with cloud inversion score set.
+     *
+     * @param score the inversion likelihood score (0–10), or null
+     * @return a new instance with the inversion score populated
+     */
+    public AtmosphericData withInversionScore(Double score) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
+                mistTrend, locationOrientation, surge, adjustedRangeMetres,
+                astronomicalRangeMetres, score);
     }
 }

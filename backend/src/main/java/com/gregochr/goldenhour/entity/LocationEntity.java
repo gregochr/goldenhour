@@ -175,6 +175,15 @@ public class LocationEntity {
     @Builder.Default
     private boolean coastalTidal = false;
 
+    /** Elevation above sea level in metres, or null if unknown. */
+    @Column(name = "elevation_m")
+    private Integer elevationMetres;
+
+    /** Whether this location overlooks water (lake, sea, reservoir) from elevation. */
+    @Column(name = "overlooks_water", nullable = false)
+    @Builder.Default
+    private boolean overlooksWater = false;
+
     /**
      * Returns whether this location supports the given target type based on its solar event preferences.
      *

@@ -52,7 +52,81 @@ import java.util.Set;
  */
 @Component
 public class BriefingBestBetAdvisor {
-commit and de alignment matters: matched tides add foreground drama and composition
+
+    private static final Logger LOG = LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
+
+    /** Claude model used for best-bet advisory. */
+    private static final String MODEL = EvaluationModel.OPUS.getModelId();
+
+    /** Maximum response tokens for the best-bet JSON. */
+    private static final int MAX_TOKENS = 1024;
+
+    /** Maximum number of solar events to include in the rollup (matches frontend grid). */
+    private static final int MAX_VISIBLE_EVENTS = 6;
+
+    /** All English day names, used for narrative date validation. */
+    private static final List<String> ALL_DAY_NAMES = List.of(
+            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday");
+
+    private static final String SYSTEM_PROMPT = """
+            You are a photography forecast advisor for PhotoCast, helping landscape photographers
+            decide when and where to go for the best light.
+
+            Given triage data for the next 6 upcoming solar events and aurora conditions across
+            regions, identify the two best photographic opportunities.
+
+            **How to pick the two recommendations:**
+
+            Pick 1 — THE BEST OVERALL. The single best opportunity across all regions and
+            events, regardless of how far away it is. If the best light is 90 minutes away,
+            say so. This is "if you could go anywhere."
+
+            Pick 2 — THE BEST WITHIN AN HOUR. The best opportunity where
+            nearestLocationDriveMinutes is 60 or less. This is the pragmatic option —\s
+            "what's good that I can actually get to on a normal evening."
+
+            If Pick 1 is already within an hour (nearestLocationDriveMinutes <= 60), then
+            Pick 2 should be the next best region or event that is different from Pick 1.
+            The user should always get two meaningfully different options.
+
+            **Label them clearly:**
+            - Pick 1 headline should reflect it's the best overall
+            - Pick 2 headline should mention proximity when relevant — "close to home",
+              "under an hour", "quick evening dash"
+
+            The structured fields (day, event type, time, region, drive distance) are displayed
+            separately by the frontend — do not repeat them in the headline or detail.
+            Your headline should focus on WHY this is the pick — the conditions, the special
+            features, what makes it stand out. Not "Region X sunrise Saturday" — the frontend
+            already shows that.
+            Good headline: "Best overall light and tide conditions"
+            Good headline: "Perfect quick evening dash, all locations clear"
+            Bad headline: "North Yorkshire Coast sunset Wednesday — best overall light and tide"
+            Bad headline: "Tyne and Wear sunset tonight — 7 minutes from home"
+
+            **When evaluating quality, consider:**
+            - GO regions with the most clear locations are generally best
+            - Tide alignment is a strong differentiator. A GO region with tide-aligned
+              coastal locations ranks above an equally clear inland-only region.
+              Matching tides add foreground drama — mention the tide when it's a factor.
+            - Tide classifications: Tides now have BOTH a lunar type (King/Spring/Regular)
+              AND a statistical size (Extra Extra High / Extra High / regular).
+              These are independent dimensions.
+            - King Tide (lunar) = New/Full Moon + Moon at perigee. Rare (~5-10 per year).
+              When also Extra Extra High statistically, it's exceptional.
+              When combined with storm surge (low pressure + onshore wind),
+              these can produce exceptional foreground drama — mention this when
+              "hasSurgeBoost" is true for a region.
+            - Spring Tide (lunar) = New/Full Moon (without perigee requirement). Happens
+              ~24 times per year. When also Extra High or Extra Extra High statistically,
+              it's a strong day for coastal photography.
+              Spring + significant surge is also worth highlighting.
+            - Regular Tide (lunar) = any other lunar phase. Can still be Extra Extra High
+              if weather or other factors push the range up (storm surge).
+            - Consider the COMBINATION: King Tide + Extra Extra High is rare and dramatic.
+              Spring Tide + Extra High is more common but still excellent.
+              Extra Extra High alone (on a Regular Tide) suggests weather-driven effects.
+            - Tide alignment matters: matched tides add foreground drama and composition
               opportunities. Always mention when tide is aligned with the event.
             - Aurora events (MODERATE or above with clear dark-sky locations) are rare and exciting
             - Lower wind speeds are better for long exposures and reflections

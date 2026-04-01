@@ -50,6 +50,7 @@ public final class TestAtmosphericData {
     private CloudApproachData cloudApproach = null;
     private MistTrend mistTrend = null;
     private String locationOrientation = null;
+    private Double inversionScore = null;
 
     private TestAtmosphericData() {
     }
@@ -207,6 +208,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData inversionScore(Double val) {
+        this.inversionScore = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -221,6 +227,6 @@ public final class TestAtmosphericData {
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,
-                locationOrientation, null, null, null);
+                locationOrientation, null, null, null, inversionScore);
     }
 }

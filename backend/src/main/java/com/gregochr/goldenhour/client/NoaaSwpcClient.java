@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.client;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.model.AuroraViewlineResponse;
+import com.gregochr.goldenhour.model.AuroraViewlineResponse.ViewlinePoint;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
@@ -22,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 
 /**
  * Fetches and caches real-time space weather data from NOAA SWPC public endpoints.
@@ -56,6 +59,18 @@ public class NoaaSwpcClient {
 
     /** NOAA sentinel value meaning "no data" in numeric fields. */
     private static final String NOAA_NULL_SENTINEL = "-9999.9";
+
+    /** Default aurora probability threshold (%) for viewline extraction. */
+    static final int VIEWLINE_THRESHOLD = 5;
+
+    /** Western bound for UK viewline longitude range (°W expressed as negative). */
+    static final double VIEWLINE_LON_WEST = -12.0;
+
+    /** Eastern bound for UK viewline longitude range (°E). */
+    static final double VIEWLINE_LON_EAST = 4.0;
+
+    /** Half-window size for the moving-average smoother on the viewline. */
+    static final int VIEWLINE_SMOOTH_HALF_WINDOW = 2;
 
     private final RestClient restClient;
     private final AuroraProperties properties;
@@ -222,6 +237,30 @@ public class NoaaSwpcClient {
         } catch (Exception e) {
             LOG.warn("NOAA alerts fetch failed (retaining cached): {}", e.getMessage());
             return cache != null ? cache.data() : List.of();
+        }
+    }
+
+    /**
+     * Returns the aurora viewline (southernmost visible aurora boundary) for UK longitudes,
+     * derived from the cached OVATION data.
+     *
+     * <p>Reuses the OVATION cache (5-minute TTL). Returns an inactive response if OVATION data
+     * is unavailable or no aurora probability above threshold exists in the UK longitude range.
+     *
+     * @return viewline response, never {@code null}
+     */
+    public AuroraViewlineResponse fetchViewline() {
+        try {
+            String json = restClient.get()
+                    .uri(properties.getNoaa().getOvationUrl())
+                    .retrieve()
+                    .body(String.class);
+            return parseViewline(json, VIEWLINE_THRESHOLD);
+        } catch (Exception e) {
+            LOG.warn("NOAA viewline fetch failed: {}", e.getMessage());
+            return new AuroraViewlineResponse(
+                    List.of(), "Aurora viewline unavailable", 90.0,
+                    ZonedDateTime.now(ZoneOffset.UTC), false);
         }
     }
 
@@ -446,6 +485,116 @@ public class NoaaSwpcClient {
             result.add(new SpaceWeatherAlert(type, id, issued, message));
         }
         return result;
+    }
+
+    /**
+     * Parses the OVATION JSON and extracts the southernmost aurora viewline for UK longitudes.
+     *
+     * <p>Algorithm:
+     * <ol>
+     *   <li>Filter coordinates to the UK longitude range ({@value VIEWLINE_LON_WEST}°W to
+     *       {@value VIEWLINE_LON_EAST}°E)</li>
+     *   <li>Per longitude: scan south→north and find the southernmost latitude with aurora
+     *       probability ≥ {@code threshold}</li>
+     *   <li>Smooth with a moving average (half-window = {@value VIEWLINE_SMOOTH_HALF_WINDOW})</li>
+     *   <li>Generate a UK-centric summary from the southernmost latitude</li>
+     * </ol>
+     *
+     * @param json      raw OVATION JSON from NOAA
+     * @param threshold minimum aurora probability (0–100) to consider as "visible"
+     * @return viewline response
+     * @throws Exception if JSON parsing fails
+     */
+    AuroraViewlineResponse parseViewline(String json, int threshold) throws Exception {
+        JsonNode root = mapper.readTree(json);
+
+        ZonedDateTime forecastTime = parseUtcDateTime(root.path("Forecast Time").asText(""))
+                .orElseGet(() -> ZonedDateTime.now(ZoneOffset.UTC));
+
+        JsonNode coords = root.path("coordinates");
+        if (coords.isMissingNode() || coords.isEmpty()) {
+            return new AuroraViewlineResponse(
+                    List.of(), "No OVATION data available", 90.0, forecastTime, false);
+        }
+
+        // Collect: for each longitude in the UK range, find the southernmost lat above threshold.
+        // Key = longitude (integer), Value = southernmost latitude with probability >= threshold.
+        TreeMap<Integer, Double> southernmostByLon = new TreeMap<>();
+        for (JsonNode coord : coords) {
+            if (coord.size() < 3) {
+                continue;
+            }
+            double lon = coord.get(0).asDouble();
+            double lat = coord.get(1).asDouble();
+            double prob = coord.get(2).asDouble();
+
+            // Normalise longitude to -180..180 range (OVATION uses 0..360)
+            if (lon > 180) {
+                lon -= 360;
+            }
+
+            if (lon < VIEWLINE_LON_WEST || lon > VIEWLINE_LON_EAST) {
+                continue;
+            }
+
+            int lonKey = (int) Math.round(lon);
+
+            if (prob >= threshold) {
+                southernmostByLon.merge(lonKey, lat, Math::min);
+            }
+        }
+
+        if (southernmostByLon.isEmpty()) {
+            return new AuroraViewlineResponse(
+                    List.of(), "No significant aurora in UK range", 90.0, forecastTime, false);
+        }
+
+        // Convert to list and smooth with moving average
+        List<Map.Entry<Integer, Double>> entries = new ArrayList<>(southernmostByLon.entrySet());
+        List<ViewlinePoint> smoothed = new ArrayList<>();
+
+        for (int i = 0; i < entries.size(); i++) {
+            int fromIdx = Math.max(0, i - VIEWLINE_SMOOTH_HALF_WINDOW);
+            int toIdx = Math.min(entries.size() - 1, i + VIEWLINE_SMOOTH_HALF_WINDOW);
+            double sum = 0;
+            int count = 0;
+            for (int j = fromIdx; j <= toIdx; j++) {
+                sum += entries.get(j).getValue();
+                count++;
+            }
+            smoothed.add(new ViewlinePoint(entries.get(i).getKey(), sum / count));
+        }
+
+        double southernmost = smoothed.stream()
+                .mapToDouble(ViewlinePoint::latitude)
+                .min()
+                .orElse(90.0);
+
+        String summary = viewlineSummary(southernmost);
+
+        return new AuroraViewlineResponse(smoothed, summary, southernmost, forecastTime, true);
+    }
+
+    /**
+     * Generates a UK-centric summary string from the southernmost viewline latitude.
+     *
+     * @param latitude degrees north
+     * @return human-readable summary
+     */
+    String viewlineSummary(double latitude) {
+        if (latitude <= 51) {
+            return "Visible across the whole of the UK";
+        } else if (latitude <= 53) {
+            return "Visible as far south as the Midlands";
+        } else if (latitude <= 55) {
+            return "Visible as far south as northern England";
+        } else if (latitude <= 57) {
+            return "Visible as far south as central Scotland";
+        } else if (latitude <= 59) {
+            return "Visible as far south as northern Scotland";
+        } else {
+            return "Faint aurora possible in far north Scotland";
+        }
     }
 
     // -------------------------------------------------------------------------
