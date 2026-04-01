@@ -57,6 +57,10 @@ public class BriefingBestBetAdvisor {
     /** Claude model used for best-bet advisory. */
     private static final String MODEL = EvaluationModel.OPUS.getModelId();
 
+    /** Human-readable model name for display in the UI (e.g. "Opus"). */
+    public static final String MODEL_DISPLAY_NAME = EvaluationModel.OPUS.name().charAt(0)
+            + EvaluationModel.OPUS.name().substring(1).toLowerCase();
+
     /** Maximum response tokens for the best-bet JSON. */
     private static final int MAX_TOKENS = 1024;
 

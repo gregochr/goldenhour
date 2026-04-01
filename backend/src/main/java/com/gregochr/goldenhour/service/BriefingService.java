@@ -195,7 +195,8 @@ public class BriefingService {
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
-                    auroraTonight, auroraTomorrow, false, partialFailure, failed);
+                    auroraTonight, auroraTomorrow, false, partialFailure, failed,
+                    BriefingBestBetAdvisor.MODEL_DISPLAY_NAME);
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
@@ -208,14 +209,16 @@ public class BriefingService {
             if (lkg != null) {
                 DailyBriefingResponse staleResponse = new DailyBriefingResponse(
                         lkg.generatedAt(), lkg.headline(), lkg.days(), lkg.bestBets(),
-                        auroraTonight, auroraTomorrow, true, true, failed);
+                        auroraTonight, auroraTomorrow, true, true, failed,
+                        lkg.bestBetModel());
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
                         + "serving stale=true (LKG from {})", succeeded, total, failed, lkg.generatedAt());
             } else {
                 DailyBriefingResponse response = new DailyBriefingResponse(
                         LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
-                        auroraTonight, auroraTomorrow, false, partialFailure, failed);
+                        auroraTonight, auroraTomorrow, false, partialFailure, failed,
+                        BriefingBestBetAdvisor.MODEL_DISPLAY_NAME);
                 cache.set(response);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, no LKG; using partial",
                         succeeded, total, failed);

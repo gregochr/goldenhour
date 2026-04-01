@@ -7,6 +7,8 @@ import {
   mpsToMph,
   degreesToCompass,
 } from '../utils/conversions.js';
+import { runForecast } from '../api/forecastApi.js';
+import createEventSource from '../utils/createEventSource.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 
@@ -255,8 +257,49 @@ export default function MarkerPopupContent({
   astroScore = null,
   isAstroMode = false,
   darkMode = false,
+  onForecastRun,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [runningForecast, setRunningForecast] = useState(false);
+  const [runProgress, setRunProgress] = useState('');
+  const [forecastError, setForecastError] = useState(null);
+
+  /** Triggers a single-location, single-date, single-event forecast run and tracks via SSE. */
+  const handleRunForecast = async () => {
+    setRunningForecast(true);
+    setRunProgress('');
+    setForecastError(null);
+    try {
+      const { jobRunId } = await runForecast(date, location.name, eventType);
+      createEventSource(
+        '/api/forecast/run/' + jobRunId + '/progress',
+        {},
+        {
+          'run-summary': (data) => {
+            setRunProgress(`${data.completed}/${data.total}`);
+          },
+          'run-complete': (data) => {
+            setRunningForecast(false);
+            if (data.failed > 0) {
+              setForecastError('Forecast run failed');
+            } else {
+              onForecastRun?.();
+            }
+          },
+        },
+        {
+          closeOn: 'run-complete',
+          onError: () => {
+            setRunningForecast(false);
+            setForecastError('Lost connection to server');
+          },
+        },
+      );
+    } catch (err) {
+      setRunningForecast(false);
+      setForecastError(err.response?.data?.message || err.message || 'Failed to start forecast run');
+    }
+  };
   const onToggleExpanded = () => setIsExpanded((prev) => !prev);
 
   const isSunrise = eventType === 'SUNRISE';
@@ -733,6 +776,34 @@ export default function MarkerPopupContent({
       ) : (
         <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
           No forecast available
+          {role === 'ADMIN' && (
+            <button
+              data-testid="run-forecast-btn"
+              disabled={runningForecast}
+              onClick={handleRunForecast}
+              style={{
+                display: 'block',
+                marginTop: '8px',
+                padding: '4px 12px',
+                fontSize: '11px',
+                fontStyle: 'normal',
+                fontWeight: 500,
+                color: '#fff',
+                backgroundColor: runningForecast ? '#6b7280' : '#3b82f6',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: runningForecast ? 'not-allowed' : 'pointer',
+                opacity: runningForecast ? 0.7 : 1,
+              }}
+            >
+              {runningForecast ? `Running\u2026 ${runProgress}` : 'Run Forecast'}
+            </button>
+          )}
+          {forecastError && (
+            <div style={{ marginTop: '4px', color: '#ef4444', fontSize: '11px', fontStyle: 'normal' }}>
+              {forecastError}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -782,4 +853,5 @@ MarkerPopupContent.propTypes = {
   }),
   isAstroMode: PropTypes.bool,
   darkMode: PropTypes.bool,
+  onForecastRun: PropTypes.func,
 };

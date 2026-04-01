@@ -316,6 +316,7 @@ function AppInner() {
                 autoEventType={autoSelection?.eventType ?? null}
                 handoffEventType={mapHandoff?.eventType ?? null}
                 briefingScores={briefingScores}
+                onForecastRun={refresh}
               />
             )}
 

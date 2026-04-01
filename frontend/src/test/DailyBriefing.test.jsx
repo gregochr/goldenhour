@@ -15,8 +15,13 @@ vi.mock('../api/briefingEvaluationApi.js', () => ({
   getCachedEvaluationScores: vi.fn(() => Promise.resolve({})),
 }));
 
+vi.mock('../api/settingsApi.js', () => ({
+  getDriveTimes: vi.fn(() => Promise.resolve({})),
+}));
+
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { getDriveTimes } from '../api/settingsApi.js';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -823,7 +828,8 @@ describe('DailyBriefing', () => {
   describe('drive time display', () => {
     it('shows formatted drive time when driveDurationMinutes is in the locations prop', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
-      render(<DailyBriefing locations={[{ name: 'Keswick', driveDurationMinutes: 45 }]} />);
+      getDriveTimes.mockResolvedValue({ 1: 45 });
+      render(<DailyBriefing locations={[{ id: 1, name: 'Keswick' }]} />);
       await waitFor(() => screen.getByTestId('briefing-toggle'));
       fireEvent.click(screen.getByTestId('briefing-toggle'));
 
@@ -840,7 +846,8 @@ describe('DailyBriefing', () => {
 
     it('does not show drive time when driveDurationMinutes is absent', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
-      render(<DailyBriefing locations={[{ name: 'Keswick' }]} />);
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing locations={[{ id: 1, name: 'Keswick' }]} />);
       await waitFor(() => screen.getByTestId('briefing-toggle'));
       fireEvent.click(screen.getByTestId('briefing-toggle'));
 
@@ -855,7 +862,8 @@ describe('DailyBriefing', () => {
 
     it('formats durations over 1 hour correctly', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
-      render(<DailyBriefing locations={[{ name: 'Keswick', driveDurationMinutes: 90 }]} />);
+      getDriveTimes.mockResolvedValue({ 1: 90 });
+      render(<DailyBriefing locations={[{ id: 1, name: 'Keswick' }]} />);
       await waitFor(() => screen.getByTestId('briefing-toggle'));
       fireEvent.click(screen.getByTestId('briefing-toggle'));
 
@@ -870,7 +878,8 @@ describe('DailyBriefing', () => {
 
     it('formats exact-hour durations without trailing minutes', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
-      render(<DailyBriefing locations={[{ name: 'Keswick', driveDurationMinutes: 120 }]} />);
+      getDriveTimes.mockResolvedValue({ 1: 120 });
+      render(<DailyBriefing locations={[{ id: 1, name: 'Keswick' }]} />);
       await waitFor(() => screen.getByTestId('briefing-toggle'));
       fireEvent.click(screen.getByTestId('briefing-toggle'));
 

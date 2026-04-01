@@ -251,7 +251,7 @@ function getNextEventType(locations, date) {
   return 'SUNSET';
 }
 
-function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map() }) {
+function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map(), onForecastRun }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -805,6 +805,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                           isAuroraMode={isAuroraMode}
                           astroScore={astroScores[loc.name] ?? null}
                           isAstroMode={isAstroMode}
+                          onForecastRun={onForecastRun}
                         />
                       </div>
                     </Popup>
@@ -865,6 +866,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                 astroScore={astroScores[loc.name] ?? null}
                 isAstroMode={isAstroMode}
                 darkMode
+                onForecastRun={onForecastRun}
               />
             </div>
           </BottomSheet>
@@ -888,6 +890,7 @@ MapView.propTypes = {
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   briefingScores: PropTypes.instanceOf(Map),
+  onForecastRun: PropTypes.func,
 };
 
 export default React.memo(MapView);

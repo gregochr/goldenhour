@@ -15,6 +15,7 @@ import java.util.List;
  * @param stale              true when this is the last-known-good briefing, not freshly generated
  * @param partialFailure     true when some (but not all) location fetches failed this run
  * @param failedLocationCount number of locations that failed to fetch weather data this run
+ * @param bestBetModel       display name of the Claude model used for best-bet picks (e.g. "Opus")
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -25,7 +26,8 @@ public record DailyBriefingResponse(
         AuroraTomorrowSummary auroraTomorrow,
         boolean stale,
         boolean partialFailure,
-        int failedLocationCount) {
+        int failedLocationCount,
+        String bestBetModel) {
 
     /** Null-safe compact constructor — defensive copies for list fields only. */
     public DailyBriefingResponse {

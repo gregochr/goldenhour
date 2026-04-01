@@ -208,11 +208,23 @@ public class ForecastController {
                 ? allLocations.stream().limit(maxLocations).toList()
                 : allLocations;
 
-        LOG.info("POST /api/forecast/run — dates={}, location={}, maxDays={}, maxLocations={}",
+        // Build excluded slots from targetType (only evaluate the requested event type)
+        Set<String> excludedSlots = Set.of();
+        if (request != null && request.targetType() != null) {
+            TargetType opposite = request.targetType() == TargetType.SUNRISE
+                    ? TargetType.SUNSET : TargetType.SUNRISE;
+            excludedSlots = dates.stream()
+                    .map(d -> d + "|" + opposite.name())
+                    .collect(Collectors.toUnmodifiableSet());
+        }
+
+        LOG.info("POST /api/forecast/run — dates={}, location={}, targetType={}, maxDays={}, maxLocations={}",
                 dates.size(), request != null ? request.location() : "all",
+                request != null ? request.targetType() : "all",
                 maxDays, maxLocations);
 
-        ForecastCommand cmd = commandFactory.create(RunType.SHORT_TERM, true, locations, dates);
+        ForecastCommand cmd = commandFactory.create(
+                RunType.SHORT_TERM, true, locations, dates, excludedSlots);
         JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, null, null);
         CompletableFuture.runAsync(() -> commandExecutor.execute(cmd, jobRun), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)

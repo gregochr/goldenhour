@@ -29,7 +29,7 @@ export default function QualitySlider({ value, onChange, showing, total }) {
     <div className="mb-3" data-testid="quality-slider">
       <div className="flex items-center gap-2">
         <span
-          className="shrink-0 font-medium text-red-400/70"
+          className="shrink-0 font-medium text-green-400/70"
           style={{ fontSize: '11px', minWidth: '28px' }}
           aria-hidden="true"
         >
@@ -49,7 +49,7 @@ export default function QualitySlider({ value, onChange, showing, total }) {
         />
 
         <span
-          className="shrink-0 font-medium text-green-400"
+          className="shrink-0 font-medium text-red-400"
           style={{ fontSize: '11px', minWidth: '28px', textAlign: 'right' }}
           aria-hidden="true"
         >

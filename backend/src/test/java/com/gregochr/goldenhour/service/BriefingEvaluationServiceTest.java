@@ -495,7 +495,7 @@ class BriefingEvaluationServiceTest {
         BriefingDay day = new BriefingDay(date, List.of(es));
         DailyBriefingResponse resp = new DailyBriefingResponse(
                 LocalDateTime.now(), "Headline", List.of(day), List.of(),
-                null, null, false, false, 0);
+                null, null, false, false, 0, "Opus");
         org.mockito.Mockito.lenient().when(briefingService.getCachedBriefing()).thenReturn(resp);
     }
 

@@ -67,7 +67,7 @@ class BriefingModelTestServiceTest {
     void successCase() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test headline", List.of(), List.of(),
-                null, null, false, false, 0);
+                null, null, false, false, 0, "Opus");
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -122,7 +122,7 @@ class BriefingModelTestServiceTest {
     void oneModelFailure() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0);
+                null, null, false, false, 0, "Opus");
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -169,7 +169,7 @@ class BriefingModelTestServiceTest {
     void validationStatsPersisted() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0);
+                null, null, false, false, 0, "Opus");
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -225,7 +225,7 @@ class BriefingModelTestServiceTest {
     void rollupJsonPersisted() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0);
+                null, null, false, false, 0, "Opus");
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);

@@ -372,7 +372,7 @@ class BriefingServiceTest {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         DailyBriefingResponse persisted = new DailyBriefingResponse(
                 LocalDateTime.now(ZoneOffset.UTC), "Test headline", List.of(), List.of(),
-                null, null, false, false, 0);
+                null, null, false, false, 0, "Opus");
         DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
         entity.setId(1);
         entity.setGeneratedAt(persisted.generatedAt());

@@ -211,6 +211,6 @@ class BriefingControllerTest {
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 14, 0),
                 "Today sunset looks promising in Lake District",
-                List.of(day), List.of(), null, null, false, false, 0);
+                List.of(day), List.of(), null, null, false, false, 0, "Opus");
     }
 }
