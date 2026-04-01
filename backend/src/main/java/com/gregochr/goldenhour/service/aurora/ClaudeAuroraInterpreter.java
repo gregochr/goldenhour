@@ -277,7 +277,9 @@ public class ClaudeAuroraInterpreter {
     /**
      * Parses Claude's JSON array response into {@link AuroraForecastScore} objects.
      *
-     * <p>Falls back to 1★ for any location whose entry cannot be parsed.
+     * <p>Matches response entries to locations by the {@code "name"} field first; falls back
+     * to array index order when names don't match (e.g. Claude rephrased the name). Any
+     * location not matched gets a 1★ fallback score.
      */
     List<AuroraForecastScore> parseResponse(String raw, AlertLevel level,
             List<LocationEntity> locations,
@@ -290,16 +292,34 @@ public class ClaudeAuroraInterpreter {
         List<AuroraForecastScore> results = new ArrayList<>();
         try {
             JsonNode root = objectMapper.readTree(cleaned);
+
+            // Build a name→node lookup from the response for name-based matching
+            Map<String, JsonNode> byName = new java.util.LinkedHashMap<>();
+            for (JsonNode node : root) {
+                String name = node.path("name").asText("");
+                if (!name.isBlank()) {
+                    byName.put(name.toLowerCase(), node);
+                }
+            }
+
             for (int i = 0; i < locations.size(); i++) {
                 LocationEntity loc = locations.get(i);
                 int cloud = cloudByLocation.getOrDefault(loc, 50);
-                if (i < root.size()) {
-                    JsonNode node = root.get(i);
+
+                // Try name-based match first, then fall back to index
+                JsonNode node = byName.get(loc.getName().toLowerCase());
+                if (node == null && i < root.size()) {
+                    node = root.get(i);
+                }
+
+                if (node != null) {
                     int stars = clamp(node.path("stars").asInt(1), 1, 5);
                     String summary = node.path("summary").asText("Aurora conditions assessed");
                     String detail = node.path("detail").asText("");
                     results.add(new AuroraForecastScore(loc, stars, level, cloud, summary, detail));
                 } else {
+                    LOG.warn("Aurora response missing entry for location '{}' (index {})",
+                            loc.getName(), i);
                     results.add(fallbackScore(loc, level, cloud));
                 }
             }

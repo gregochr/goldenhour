@@ -379,6 +379,106 @@ class ClaudeAuroraInterpreterTest {
     }
 
     // -------------------------------------------------------------------------
+    // parseResponse — name-based matching
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("parseResponse matches entries by name when Claude returns them out of order")
+    void parseResponse_outOfOrder_matchesByName() {
+        LocationEntity locA = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        LocationEntity locB = buildLocation(2L, "Kielder", 55.2, -2.6, 2);
+        // Claude returned B before A (reversed order)
+        String json = """
+                [
+                  {"name":"Kielder","stars":3,"summary":"Kielder summary","detail":"–"},
+                  {"name":"Galloway","stars":5,"summary":"Galloway summary","detail":"–"}
+                ]
+                """;
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(json, AlertLevel.MODERATE,
+                List.of(locA, locB), Map.of(locA, 20, locB, 40));
+
+        assertThat(scores).hasSize(2);
+        assertThat(scores.get(0).location().getName()).isEqualTo("Galloway");
+        assertThat(scores.get(0).stars()).isEqualTo(5);
+        assertThat(scores.get(1).location().getName()).isEqualTo("Kielder");
+        assertThat(scores.get(1).stars()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("parseResponse matches names case-insensitively")
+    void parseResponse_caseInsensitiveNameMatch() {
+        LocationEntity loc = buildLocation(1L, "Lindisfarne Priory", 55.7, -1.8, 3);
+        String json = """
+                [{"name":"lindisfarne priory","stars":4,"summary":"Good conditions","detail":"–"}]
+                """;
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(json, AlertLevel.MODERATE,
+                List.of(loc), Map.of(loc, 30));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(4);
+        assertThat(scores.get(0).summary()).isEqualTo("Good conditions");
+    }
+
+    @Test
+    @DisplayName("parseResponse falls back to index when Claude omits name field")
+    void parseResponse_noNameField_fallsBackToIndex() {
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        String json = "[{\"stars\":3,\"summary\":\"Moderate\",\"detail\":\"–\"}]";
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(json, AlertLevel.MODERATE,
+                List.of(loc), Map.of(loc, 30));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("parseResponse gives fallback only for the missing location, not all")
+    void parseResponse_oneLocationMissing_onlyThatGetsFallback() {
+        LocationEntity locA = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        LocationEntity locB = buildLocation(2L, "Kielder", 55.2, -2.6, 2);
+        LocationEntity locC = buildLocation(3L, "Lindisfarne Priory", 55.7, -1.8, 3);
+        // Claude returned 2 of 3 locations — Lindisfarne is missing
+        String json = """
+                [
+                  {"name":"Galloway","stars":4,"summary":"Great","detail":"–"},
+                  {"name":"Kielder","stars":3,"summary":"OK","detail":"–"}
+                ]
+                """;
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(json, AlertLevel.MODERATE,
+                List.of(locA, locB, locC), Map.of(locA, 20, locB, 30, locC, 50));
+
+        assertThat(scores).hasSize(3);
+        assertThat(scores.get(0).stars()).isEqualTo(4);
+        assertThat(scores.get(0).location().getName()).isEqualTo("Galloway");
+        assertThat(scores.get(1).stars()).isEqualTo(3);
+        assertThat(scores.get(1).location().getName()).isEqualTo("Kielder");
+        assertThat(scores.get(2).stars()).isEqualTo(1); // fallback
+        assertThat(scores.get(2).summary()).contains("could not be assessed");
+    }
+
+    @Test
+    @DisplayName("parseResponse with Claude returning extra entries ignores surplus")
+    void parseResponse_extraEntries_ignoresSurplus() {
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        String json = """
+                [
+                  {"name":"Galloway","stars":5,"summary":"Excellent","detail":"–"},
+                  {"name":"Unknown","stars":3,"summary":"Extra","detail":"–"}
+                ]
+                """;
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(json, AlertLevel.MODERATE,
+                List.of(loc), Map.of(loc, 10));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(5);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
