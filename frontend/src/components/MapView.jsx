@@ -640,7 +640,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
               >
                 🔭 Dark sky
               </button>
-              <InfoTip text={`Shows locations with low light pollution (Bortle class ${darkSkyThreshold} or darker). Suitable for aurora, astrophotography, and stargazing.\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+              <InfoTip text={`Shows locations with low light pollution (Bortle class ${darkSkyThreshold} or darker). Suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.' : ''}`} />
             </>
           )}
           {(activeTypeFilters.size > 0 || minStars !== null || showUnrated

@@ -87,7 +87,7 @@ vi.mock('../components/ForecastTypeSelector.jsx', () => ({
   ),
 }));
 vi.mock('../components/InfoTip.jsx', () => ({
-  default: () => null,
+  default: ({ text }) => <span data-testid="infotip-text">{text}</span>,
 }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({
   default: () => null,
@@ -175,6 +175,33 @@ describe('MapView dark sky chip', () => {
       fireEvent.click(screen.getByTestId('type-aurora'));
     });
     expect(screen.queryByTestId('dark-sky-filter-toggle')).not.toBeInTheDocument();
+  });
+
+  it('dark sky tooltip shows admin instruction for ADMIN', () => {
+    mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    renderMap();
+    const tips = screen.getAllByTestId('infotip-text');
+    const darkSkyTip = tips.find(t => t.textContent.includes('Bortle'));
+    expect(darkSkyTip).toBeDefined();
+    expect(darkSkyTip.textContent).toContain('Refresh Light Pollution');
+  });
+
+  it('dark sky tooltip hides admin instruction for PRO_USER', () => {
+    mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
+    renderMap();
+    const tips = screen.getAllByTestId('infotip-text');
+    const darkSkyTip = tips.find(t => t.textContent.includes('Bortle'));
+    expect(darkSkyTip).toBeDefined();
+    expect(darkSkyTip.textContent).not.toContain('Refresh Light Pollution');
+  });
+
+  it('dark sky tooltip hides admin instruction for LITE_USER', () => {
+    mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
+    renderMap();
+    const tips = screen.getAllByTestId('infotip-text');
+    const darkSkyTip = tips.find(t => t.textContent.includes('Bortle'));
+    expect(darkSkyTip).toBeDefined();
+    expect(darkSkyTip.textContent).not.toContain('Refresh Light Pollution');
   });
 });
 
