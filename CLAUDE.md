@@ -4,8 +4,8 @@
 
 A full-stack app that evaluates sunrise/sunset colour potential at configured locations.
 
-- **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, H2 persistence, scheduled runs, notifications (email/Pushover/macOS toast).
-- **Frontend**: React 19 + Vite + Tailwind — map view (Leaflet), forecast timeline, outcome recording, JWT-authenticated.
+- **Backend**: Spring Boot 4 REST API — Open-Meteo weather + air quality, WorldTides tide data, Claude (Anthropic SDK) evaluation, H2/PostgreSQL persistence, scheduled runs, notifications (email/Pushover/macOS toast).
+- **Frontend**: React 19 + Vite + Tailwind — map view (Leaflet), plan heatmap, forecast timeline, outcome recording, JWT-authenticated.
 
 ---
 
@@ -13,13 +13,13 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Core pipeline**: Open-Meteo → Claude → H2 | Scheduled evaluations (06:00 + 18:00 UTC, T through T+7) | Notifications (email, Pushover, macOS toast)
 
-**Scoring**: Two scores (Fiery Sky 0–100, Golden Hour 0–100) + 1–5 star rating | Dual-tier: enhanced (directional cloud) for PRO/ADMIN, basic (observer-point) for LITE | 3-point cone cloud sampling at 113 km offset (azimuth ±15°) via `GeoUtils` + `DirectionalCloudData` | Far-field sample at 226 km for horizon strip vs blanket detection | Cloud approach risk detection (`CloudApproachData`, `SolarCloudTrend`, `UpwindCloudSample`) | Solar-aware slot selection (`findBestIndex()`) | Sahara Dust badge (AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35) | Rising tide warning badge (high tide within ±90 min of solar event)
+**Scoring**: Two scores (Fiery Sky 0–100, Golden Hour 0–100) + 1–5 star rating | Dual-tier: enhanced (directional cloud) for PRO/ADMIN, basic (observer-point) for LITE | 3-point cone cloud sampling at 113 km offset (azimuth ±15°) via `GeoUtils` + `DirectionalCloudData` | Far-field sample at 226 km for horizon strip vs blanket detection | Cloud approach risk detection (`CloudApproachData`, `SolarCloudTrend`, `UpwindCloudSample`) | Cloud inversion scoring (`InversionScoreCalculator`, 0–10 from temp-dew gap/wind/humidity/low cloud) | Solar-aware slot selection (`findBestIndex()`) | Sahara Dust badge (AOD > 0.3 or dust > 50 µg/m³ with PM2.5 < 35) | Rising tide warning badge (high tide within ±90 min of solar event)
 
 **Evaluation**: Single `ClaudeEvaluationStrategy` parameterised by `EvaluationModel` | `PromptBuilder` + `MetricsLoggingDecorator` (GoF Decorator) | `NoOpEvaluationStrategy` for wildlife | `AnthropicApiClient` with `@Retryable` | Composable `AtmosphericData` (5 sub-records + `DirectionalCloudData` + `CloudApproachData`)
 
-**Aurora photography**: NOAA SWPC polling (`AuroraPollingJob`, 5 min, night-only) via `NoaaSwpcClient` (Kp, forecast, OVATION, solar wind Bz, G-scale alerts; per-endpoint caching) | `AuroraStateCache` FSM (IDLE → MONITORING → MODERATE/STRONG) | `WeatherTriageService` (3-point northward transect triage, any-clear-hour pass at < 75% overcast) | `ClaudeAuroraInterpreter` (single `claude-haiku-4-5` call for all viable locations; returns 1–5★ + summary + detail) | `AuroraOrchestrator` (orchestrates full pipeline; dual-signal `deriveAlertLevel()` using Kp + OVATION) | `MetOfficeSpaceWeatherScraper` (Jsoup scraper, 60 min refresh) | Bortle enrichment via lightpollutionmap.info (`LightPollutionClient`, `BortleEnrichmentService`) | Map filter + popup aurora section | `AuroraBanner` React component (shows Kp reading) | Alert levels: QUIET/MINOR/MODERATE/STRONG
+**Aurora photography**: NOAA SWPC polling (`AuroraPollingJob`, 5 min, night-only) via `NoaaSwpcClient` (Kp, forecast, OVATION, solar wind Bz, G-scale alerts; per-endpoint caching) | `AuroraStateCache` FSM (IDLE → MONITORING → MODERATE/STRONG) | `WeatherTriageService` (3-point northward transect triage, any-clear-hour pass at < 75% overcast) | `ClaudeAuroraInterpreter` (single `claude-haiku-4-5` call for all viable locations; returns 1–5★ + summary + detail) | `AuroraOrchestrator` (orchestrates full pipeline; dual-signal `deriveAlertLevel()` using Kp + OVATION) | `MetOfficeSpaceWeatherScraper` (Jsoup scraper, 60 min refresh) | Bortle enrichment via lightpollutionmap.info (`LightPollutionClient`, `BortleEnrichmentService`, sb_2025 dataset with SQM conversion) | Map filter + popup aurora section | `AuroraBanner` React component (shows Kp reading) | Aurora viewline endpoint (OVATION nowcast southernmost visibility boundary, `AuroraViewlineOverlay` with colour-coded zones) | Alert levels: QUIET/MINOR/MODERATE/STRONG
 
-**Daily Briefing**: Zero-Claude-cost "go or movie night?" pre-flight check | `BriefingService` scheduled every 2 hours via `@Scheduled` | Open-Meteo weather + DB tide lookup for all enabled colour locations | Per-slot verdict (GO/MARGINAL/STANDDOWN) based on low cloud, precipitation, visibility, humidity thresholds aligned with `WeatherTriageEvaluator` | Region rollup via majority vote | Tide classification (king/spring) from `TideService.getTideStats()` | `AtomicReference` in-memory cache | `DailyBriefing.jsx` collapsible card above map | Admin metrics: BRIEFING runs hidden by default | Briefing model comparison test: `BriefingModelTestService` calls Haiku/Sonnet/Opus with same rollup, persists to `briefing_model_test_run/result` tables, `BriefingModelTestView` with agreement highlighting
+**Daily Briefing / PhotoCast Planner**: "Go or movie night?" pre-flight check | `BriefingService` scheduled at 04:00/14:00/22:00 via `@Scheduled` | Open-Meteo weather + DB tide lookup for all enabled colour locations | Per-slot verdict (GO/MARGINAL/STANDDOWN) based on low/mid cloud, precipitation, visibility, humidity thresholds + building trend checks | Region rollup via majority vote | Lunar-driven tide classification (spring/king via `TideClassificationService`) | `AtomicReference` in-memory cache + `daily_briefing_cache` DB persistence | Split into Plan and Map tabs: Plan tab shows heatmap grid with event-based columns (next 6 solar events), quality slider, sunrise/sunset sub-columns, aurora grid integration | Claude best-bet recommendation with drive times, day-of-week, weather codes | Briefing evaluation via SSE (`BriefingEvaluationService` + `BriefingEvaluationController`) with drill-down scoring per region | Briefing model comparison test: `BriefingModelTestService` calls Haiku/Sonnet/Opus with same rollup, persists to `briefing_model_test_run/result` tables, `BriefingModelTestView` with agreement highlighting
 
 **Command pattern**: `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor` | `RunType` enum (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM, WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING) | Per-run-type model config (Haiku/Sonnet/Opus via Admin UI)
 
@@ -29,11 +29,11 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Job metrics**: `job_run` + `api_call_log` tables | Admin dashboard (7-day stats, per-service breakdown) | Per-location failure tracking, auto-disable after 3 failures
 
-**Resilience**: `@Retryable` on `AnthropicApiClient` (529/content filter) and `OpenMeteoClient` (5xx/429) | `@ConcurrencyLimit(8)` | Dead-letter mechanism | `RequestLoggingInterceptor`
+**Resilience**: Resilience4j (`@Retryable` on `AnthropicApiClient` (529/content filter) and `OpenMeteoClient` (5xx/429) | `@ConcurrencyLimit(8)`) | Dead-letter mechanism | `RequestLoggingInterceptor` | SSE auto-reconnect after backend restart
 
 **Locations**: Multi-location with map view (Leaflet/OSM) | Metadata: `SolarEventType`, `TideType` (H/M/L multi-select), `LocationType` (LANDSCAPE/WILDLIFE/SEASCAPE/WATERFALL) | Regions (geographic grouping) | Sunrise/sunset azimuth lines | Marker clustering (`react-leaflet-cluster`) | Star rating + location type filters | Emoji chip UI for metadata | Editable lat/lon
 
-**Tide data**: WorldTides API, weekly refresh, `tide_extreme` table | `TideService` derives state/next tides from DB at evaluation time | Tide history preservation (windowed merge, not delete-all) | 12-month backfill capability | Tide stats endpoint (avg/max high, avg/min low) | SEASCAPE-filtered refresh
+**Tide data**: WorldTides API, weekly refresh, `tide_extreme` table | `TideService` derives state/next tides from DB at evaluation time | Tide history preservation (windowed merge, not delete-all) | 12-month backfill capability | Tide stats endpoint (avg/max high, avg/min low) | SEASCAPE-filtered refresh | Lunar-driven spring/king tide classification (`TideClassificationService`) integrated into PromptBuilder and BriefingBestBetAdvisor
 
 **Wildlife UI**: Hourly comfort rows (temp/wind/rain) between sunrise–sunset | Green 🐾 marker | No Claude call
 
@@ -41,7 +41,15 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Auth**: JWT (HMAC-SHA256, 24h access, 30-day refresh) | ADMIN / PRO_USER / LITE_USER roles | Self-registration with email verification + Turnstile CAPTCHA | First-login password change gate | Session expiry warnings | Marketing email opt-in
 
-**Admin features**: User management | Backend health indicator (green/red dot) | Model comparison test harness (A/B/C across regions) | Prompt test harness (async, replay, comparison) | URL hash navigation | Client-side pagination
+**Storm surge**: Weather-driven storm surge calculation for coastal tidal locations | `StormSurgeService` (inverse barometer effect + wind setup) | Coastal parameters on locations (V60) | Surge forecast columns on forecast_evaluation (V61) | Integrated into forecast pipeline and prompt
+
+**Cloud inversion**: `InversionScoreCalculator` — likelihood scoring (0–10) from temperature-dew gap, wind, humidity, low cloud | Location elevation + overlooks_water metadata (V65) | `inversion_score` + `inversion_potential` columns on forecast_evaluation (V66) | Integrated into PromptBuilder for valley/lake locations
+
+**Astro conditions**: `AstroConditionsService` — nightly observing quality scores for dark-sky locations | Template-scored (cloud cover, visibility, moonlight modifiers) | `AstroConditionsController` with `/api/astro/conditions` and `/api/astro/conditions/available-dates` endpoints | `astro_conditions` table (V64)
+
+**User settings**: `UserSettingsService` + `UserSettingsController` — home location (postcode via `PostcodesIoClient` geocoding, lat/lon) and per-user drive times | `DriveTimeResolver` abstraction (replaces per-location `drive_duration_minutes`) | `user_drive_time` table (V67)
+
+**Admin features**: User management | Expandable health status widget with live SSE service probes (mail, Claude API, Open-Meteo, tides) | Model comparison test harness (A/B/C across regions) | Prompt test harness (async, replay, comparison) | URL hash navigation | Client-side pagination | Confirmation dialog before Claude evaluation with cost estimate
 
 **Deployment**: Docker (alpine, health checks, non-root) | Cloudflare Tunnel (`photocast.online`) | H2 volume-mounted to Mac filesystem | Daily backups (keep last 7)
 
@@ -118,7 +126,7 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 - **Aerosol proxy** — AOD + PM2.5: high AOD + low PM2.5 = dust (warm tones ✓); high AOD + high PM2.5 = smoke (haze ✗). No competitor does this.
 - **Virtual threads** — `spring.threads.virtual.enabled: true`; `forecastExecutor` uses `newVirtualThreadPerTaskExecutor()`.
 - **RestClient** — synchronous `RestClient` everywhere (no WebFlux). Open-Meteo via `@HttpExchange` + `HttpServiceProxyFactory`.
-- **Declarative resilience** — `@EnableResilientMethods`; `@Retryable` with `MethodRetryPredicate` implementations; `@ConcurrencyLimit(8)`.
+- **Declarative resilience** — Resilience4j; `@Retryable` with `MethodRetryPredicate` implementations; `@ConcurrencyLimit(8)`.
 - **Location metadata** — production locations DB-managed via Admin UI (no YAML seeding). `application-local.yml` has locations for local dev.
 - **JWT** — stateless HMAC-SHA256; refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **Freemium UI** — breadcrumbs not paywalls. See `docs/product/freemium_ui_strategy.md`.
@@ -133,7 +141,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V63)
+## Database Migrations (V1–V67)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -163,6 +171,10 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V61 | storm surge forecast columns on forecast_evaluation |
 | V62 | sky_brightness_sqm column on locations |
 | V63 | briefing_model_test_run + briefing_model_test_result tables |
+| V64 | `astro_conditions` table (cloud/visibility/moon modifiers + explanations) |
+| V65 | `elevation_m` and `overlooks_water` columns on locations (inversion detection) |
+| V66 | `inversion_score` and `inversion_potential` columns on forecast_evaluation |
+| V67 | User home location (postcode, lat/lon) + `user_drive_time` table |
 
 ---
 
@@ -203,10 +215,16 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 `GET /api/metrics/job-runs|api-calls` | `GET|PUT /api/models` | `PUT /api/models/active|optimisation` | `POST /api/model-test/run|run-location|rerun` | `GET /api/model-test/runs|results` | `POST /api/prompt-test/run|replay` | `GET /api/prompt-test/runs|runs/{id}|results|git-info`
 
 ### Aurora (Bearer / ADMIN for writes)
-`GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN)
+`GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `GET /api/aurora/viewline` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN)
 
 ### Briefing (Bearer / ADMIN for writes)
-`GET /api/briefing` | `POST /api/briefing/run` (ADMIN) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
+`GET /api/briefing` | `POST /api/briefing/run` (ADMIN) | `GET /api/briefing/evaluate` (Bearer, SSE) | `GET /api/briefing/evaluate/cache` (Bearer) | `GET /api/briefing/evaluate/cache/timestamp` (Bearer) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
+
+### Astro Conditions (Bearer)
+`GET /api/astro/conditions` | `GET /api/astro/conditions/available-dates`
+
+### User Settings (Bearer)
+`GET|PUT /api/user-settings`
 
 ### Tides (ADMIN)
 `GET /api/tides` | `GET /api/tides/stats`
@@ -231,7 +249,6 @@ See `docs/product/` for detailed reference documents.
 - **Prediction accuracy feedback** — structured post-event feedback per user per evaluation (ACCURATE/SLIGHTLY_OFF/VERY_INACCURATE), admin breakdown by model and days_ahead
 - **Web Push notifications** — replace Pushover with W3C Push API + VAPID (`webpush-java`), service worker, iOS Home Screen caveat
 - **macOS menu bar widget** — Tauri app reusing React components, menu bar icon with best rating
-- **Tide strength indicator** — flag "very high" tides on the map popup using two signals: (1) lunar phase (spring tides near new/full moon, ~1-2 day lag) and (2) historical percentile from accumulated `tide_extreme` data (top ~20% of a location's highs). Lunar calculation may belong in `solar-utils`. Consider "King tide" label for equinoctial springs. (Partially built: rising tide badge, tide stats endpoint, and history accumulation are done; percentile and lunar signals remain.)
 
 ---
 

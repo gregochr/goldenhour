@@ -15,25 +15,29 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Two scores per event: **Fiery Sky Potential** (dramatic colour) and **Golden Hour Potential** (overall light quality), plus a 1-5 star rating
 - Claude generates a plain-English explanation of the key factors driving the score
 - Aerosol optical depth + PM2.5 proxy distinguishes warm dust from grey smoke — a competitive differentiator
-- Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment)
+- Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment), **Waterfall** (colour + comfort)
+- **PhotoCast Planner** — Plan tab with heatmap grid showing next 6 solar events, quality slider, sunrise/sunset sub-columns, aurora grid integration, and Claude-powered briefing evaluation via SSE
+- **Aurora photography** — NOAA SWPC polling (Kp, OVATION, solar wind Bz), daytime forecast lookahead, aurora viewline overlay (OVATION nowcast), Bortle enrichment, weather triage, Claude interpretation
+- **Cloud inversion scoring** — 0–10 likelihood from atmospheric data for valley/lake locations
+- **Astro conditions** — nightly observing quality scores for dark-sky locations (cloud, visibility, moon)
+- **Storm surge** — weather-driven surge calculation for coastal locations (inverse barometer + wind setup)
+- **Lunar tide classification** — spring/king tides from lunar cycle, integrated into prompt and briefing
+- Directional cloud sampling (3-point cone at 113 km + far-field at 226 km) with cloud approach risk detection
 - Sunrise/sunset azimuth line on map — only the line for the selected event type is shown, reducing visual clutter
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
-- Opus optimisation gate — very-short-term runs skip slots with prior rating < 3 stars, avoiding wasted spend
-- Model comparison test harness — A/B/C runs Haiku, Sonnet, and Opus against identical data for side-by-side evaluation; single-location test and re-run support for variance testing
-- Prompt test harness — async end-to-end evaluation of all colour locations with a chosen model; live progress polling, run comparison with score deltas, replay for A/B prompt version testing
+- Model comparison + prompt test harnesses for A/B evaluation
 - Stores every evaluation so you can track how the forecast converges as the date approaches
 - Outcome recording — log whether you went out and your actual rating; builds an accuracy feedback loop
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA
-- Marketing email opt-in preference (UK soft opt-in compliant)
 - JWT-authenticated with ADMIN / PRO_USER / LITE_USER roles
 - Notifications via email (Thymeleaf HTML templates) and Web Push (VAPID)
 - Job run metrics with cost tracking and per-location failure detection
-- Resilient API calls with exponential backoff retry and dead-letter mechanism for persistent failures
+- Resilient API calls (Resilience4j) with exponential backoff retry and dead-letter mechanism
 - Geographic regions for location grouping
-- Mobile bottom sheet — on small viewports, tapping a marker opens a slide-up bottom sheet instead of a cramped Leaflet popup; desktop keeps the existing popup
+- User home location with per-user drive times
+- Mobile bottom sheet — on small viewports, tapping a marker opens a slide-up bottom sheet instead of a cramped Leaflet popup
 - Star rating filter chips on map — toggle any permutation of 1-5 stars to show only matching locations
-- Last-active tracking — updated on every authenticated request (throttled to once per hour)
-- Backend health indicator in header (ADMIN), session expiry warnings
+- Expandable health status widget with live SSE service probes (ADMIN), session expiry warnings
 
 ---
 
@@ -46,7 +50,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 | Solar times | [solar-utils](https://github.com/gregochr/solar-utils) v1.2.0 (GitHub Packages) |
 | Weather data | Open-Meteo Forecast + Air Quality / CAMS APIs (free, no key) |
 | Tide data | WorldTides API v3 (coastal locations, weekly refresh) |
-| Database | H2 file database + Flyway migrations (V1-V47) |
+| Database | H2 file database + Flyway migrations (V1-V67) |
 | Security | Spring Security 7, stateless JWT (JJWT 0.12.6), Cloudflare Turnstile |
 | Frontend | React 19, Vite, Tailwind CSS v4, Leaflet |
 | Deployment | Docker + Cloudflare Tunnel (no open router ports) |
@@ -225,15 +229,45 @@ Users can self-register at the login page — email verification is required, an
 | `GET` | `/api/prompt-test/results` | ADMIN | Results for a prompt test run |
 | `GET` | `/api/prompt-test/git-info` | ADMIN | Current git commit info |
 
+### Aurora
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/aurora/status` | Bearer | Current aurora alert level, Kp, OVATION data |
+| `GET` | `/api/aurora/locations` | Bearer | Scored aurora locations with Bortle/cloud/moon |
+| `GET` | `/api/aurora/viewline` | Bearer | OVATION nowcast southernmost visibility boundary |
+| `POST` | `/api/aurora/admin/enrich-bortle` | ADMIN | Trigger Bortle light pollution enrichment |
+| `POST` | `/api/aurora/admin/run` | ADMIN | Trigger immediate NOAA cycle |
+| `POST` | `/api/aurora/admin/reset` | ADMIN | Reset aurora state machine to IDLE |
+
+### Briefing & Plan
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/briefing` | Bearer | Current briefing (heatmap data) |
+| `POST` | `/api/briefing/run` | ADMIN | Force briefing refresh |
+| `GET` | `/api/briefing/evaluate` | Bearer (SSE) | Stream Claude evaluation scores per region |
+| `GET` | `/api/briefing/evaluate/cache` | Bearer | Cached briefing evaluation scores |
+| `POST` | `/api/briefing/compare-models` | ADMIN | Trigger model comparison test |
+
+### Astro conditions & user settings
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/astro/conditions` | Bearer | Nightly observing quality for dark-sky locations |
+| `GET` | `/api/astro/conditions/available-dates` | Bearer | Available astro condition dates |
+| `GET` | `/api/user-settings` | Bearer | Get user home location and drive times |
+| `PUT` | `/api/user-settings` | Bearer | Update user home location and drive times |
+
 ---
 
 ## Running tests
 
 ```bash
-# Backend (JUnit 5, 646 tests, >=80% coverage enforced by JaCoCo)
+# Backend (JUnit 5, >=80% coverage enforced by JaCoCo)
 cd backend && ./mvnw clean verify
 
-# Frontend component tests (Vitest, 321 tests)
+# Frontend component tests (Vitest)
 cd frontend && npm test
 
 # Frontend end-to-end (Playwright — requires app running)

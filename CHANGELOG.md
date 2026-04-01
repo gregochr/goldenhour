@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Aurora heatmap grid integration + cloud inversion scoring
+- **Aurora grid columns** — aurora promoted from separate banner row to grid columns in Plan tab heatmap with proper day-spanning; aurora data renders alongside sunrise/sunset in the same visual grid
+- **Cloud inversion scoring** — `InversionScoreCalculator` produces 0–10 likelihood score from temperature-dew gap, wind speed, humidity, and low cloud; location `elevation_m` and `overlooks_water` metadata (V65); `inversion_score` + `inversion_potential` columns on forecast_evaluation (V66); integrated into PromptBuilder for valley/lake locations
+- **Astro conditions API** — `AstroConditionsService` template-scores nightly observing quality for dark-sky locations (cloud cover, visibility, moonlight modifiers); `AstroConditionsController` with `GET /api/astro/conditions` and `GET /api/astro/conditions/available-dates`; `astro_conditions` table (V64)
+- **Aurora viewline endpoint** — `GET /api/aurora/viewline` returns OVATION nowcast southernmost visibility boundary; `AuroraViewlineOverlay` with colour-coded zones (green ≤55°N, amber 55–58°N, grey >58°N)
+- **Storm surge calculation** — `StormSurgeService` (inverse barometer effect + wind setup) for coastal tidal locations; coastal parameters on locations (V60); surge forecast columns on forecast_evaluation (V61); integrated into forecast pipeline and prompt
+- **Lunar tide classification** — spring/king tides derived from lunar cycle (`TideClassificationService`) integrated into PromptBuilder and BriefingBestBetAdvisor; replaces statistical-only thresholds
+- **User settings** — `UserSettingsService` + `UserSettingsController` for home location (postcode via `PostcodesIoClient` geocoding, lat/lon) and per-user drive times; `user_drive_time` table (V67); `UserSettingsModal` frontend component; `DriveTimeResolver` abstraction replaces per-location `drive_duration_minutes`
+- **Briefing model comparison** — `BriefingModelTestService` calls Haiku/Sonnet/Opus with same rollup; `briefing_model_test_run` + `briefing_model_test_result` tables (V63); `BriefingModelTestView` with agreement highlighting
+- **Light pollution API update** — sb_2025 dataset with SQM conversion; `sky_brightness_sqm` column (V62)
+- **Quality slider** — heatmap cell visibility tier filtering in Plan tab (`QualitySlider` component)
+
+### Changed
+- Drive times moved from per-location (`drive_duration_minutes` on `LocationEntity`) to per-user (`user_drive_time` table); `DriveDurationService` refactored to use `DriveTimeResolver`; `BriefingBestBetAdvisor` simplified to use per-user drive times
+- Briefing schedule changed from every 2 hours to 04:00/14:00/22:00; model switched to Opus
+- Briefing triage tightened with mid-cloud blanket and building trend checks
+- Aurora viewline threshold raised to 10%
+- Aurora response matching switched from array index to location name
+- Quality slider direction reversed (left=worst, right=best)
+- Dark sky chip admin tooltip gated to ADMIN role only
+- Night qualifier required when best bet mentions aurora
+
+### Fixed
+- NOAA SWPC Kp endpoint format change (array-of-arrays to object)
+- Light pollution API content type handling (text/plain, bare number responses)
+- PostgreSQL-compatible syntax in V62–V63 migrations
+- SSE `IllegalStateException` in `sendSafe` during briefing evaluation
+- Health indicator shows red DOWN when backend is unreachable
+- Auto-reconnect SSE stream after backend restart
+- Docker logs directory created for surge calibration appender
+
+### Database
+- V59: `daily_briefing_cache` table
+- V60: Storm surge coastal parameters on locations
+- V61: Storm surge forecast columns on forecast_evaluation
+- V62: `sky_brightness_sqm` column on locations
+- V63: `briefing_model_test_run` + `briefing_model_test_result` tables
+- V64: `astro_conditions` table
+- V65: `elevation_m` and `overlooks_water` columns on locations
+- V66: `inversion_score` and `inversion_potential` columns on forecast_evaluation
+- V67: User home location + `user_drive_time` table
+
+---
+
 ### Added — Briefing evaluation via SSE (Claude scoring from Plan tab)
 
 Wire the "Run full forecast" button in the Plan tab's heatmap drill-down to trigger Claude evaluations for GO/MARGINAL locations, streaming results back via SSE, and propagating scores to the grid cells and map pins.
