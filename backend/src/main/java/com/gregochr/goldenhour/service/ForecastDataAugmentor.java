@@ -282,6 +282,32 @@ public class ForecastDataAugmentor {
     }
 
     /**
+     * Returns a copy of {@code base} with a cloud inversion score for elevated water-overlook
+     * locations. The score is computed from temperature-dew point gap, wind speed, humidity,
+     * and low cloud cover. Returns the original data unchanged if the location does not meet
+     * the elevation/water criteria.
+     *
+     * @param base             atmospheric data to augment
+     * @param elevationMetres  location elevation in metres, or null
+     * @param overlooksWater   whether the location overlooks water
+     * @return a new {@link AtmosphericData} with inversion score populated where applicable
+     */
+    public AtmosphericData augmentWithInversionScore(AtmosphericData base,
+            Integer elevationMetres, boolean overlooksWater) {
+        if (elevationMetres == null
+                || elevationMetres < InversionScoreCalculator.MIN_ELEVATION_METRES
+                || !overlooksWater) {
+            return base;
+        }
+        Double score = InversionScoreCalculator.calculate(base);
+        if (score == null) {
+            return base;
+        }
+        LOG.debug("Inversion score for {}: {}/10", base.locationName(), score);
+        return base.withInversionScore(score);
+    }
+
+    /**
      * Derives a lunar tide type string from tide stats and the predicted high tide height.
      *
      * @param locationId   the location database ID

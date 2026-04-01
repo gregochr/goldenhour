@@ -40,6 +40,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -101,6 +102,8 @@ class ForecastServiceTest {
         lenient().when(augmentor.augmentWithLocationOrientation(any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithStormSurge(any(), any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
         // Tide alignment passes by default (non-SEASCAPE locations in most tests)
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))

@@ -76,6 +76,8 @@ import java.time.LocalDateTime;
  * @param surgeRiskLevel                 surge risk classification string (nullable)
  * @param surgeAdjustedRangeMetres       tidal range adjusted for surge (nullable)
  * @param surgeAstronomicalRangeMetres   predicted astronomical tidal range (nullable)
+ * @param inversionScore                 cloud inversion score 0–10 (nullable)
+ * @param inversionPotential             inversion classification NONE/MODERATE/STRONG (nullable)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -136,5 +138,7 @@ public record ForecastEvaluationDto(
         Double surgeWindMetres,
         String surgeRiskLevel,
         Double surgeAdjustedRangeMetres,
-        Double surgeAstronomicalRangeMetres) {
+        Double surgeAstronomicalRangeMetres,
+        Integer inversionScore,
+        String inversionPotential) {
 }

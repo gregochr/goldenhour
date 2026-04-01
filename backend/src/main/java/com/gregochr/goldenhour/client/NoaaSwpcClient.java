@@ -60,8 +60,20 @@ public class NoaaSwpcClient {
     /** NOAA sentinel value meaning "no data" in numeric fields. */
     private static final String NOAA_NULL_SENTINEL = "-9999.9";
 
-    /** Default aurora probability threshold (%) for viewline extraction. */
-    static final int VIEWLINE_THRESHOLD = 5;
+    /**
+     * Aurora probability threshold (%) for viewline extraction.
+     *
+     * <p>The viewline marks the southernmost latitude where aurora probability
+     * meets this threshold. Set to 10% to represent realistic naked-eye
+     * detection from a dark sky site. The previous 5% value produced viewlines
+     * that extended unrealistically far south, creating contradictions between
+     * the banner headline (e.g. "aurora possible from northern England") and
+     * the viewline summary (e.g. "Visible across the whole of the UK").
+     *
+     * <p>If the viewline still appears too optimistic or conservative in
+     * practice, this is the single value to adjust.
+     */
+    static final int VIEWLINE_THRESHOLD = 10;
 
     /** Western bound for UK viewline longitude range (°W expressed as negative). */
     static final double VIEWLINE_LON_WEST = -12.0;

@@ -135,6 +135,8 @@ public class ForecastDtoMapper {
                 entity.getSurgeWindMetres(),
                 entity.getSurgeRiskLevel(),
                 entity.getSurgeAdjustedRangeMetres(),
-                entity.getSurgeAstronomicalRangeMetres());
+                entity.getSurgeAstronomicalRangeMetres(),
+                entity.getInversionScore(),
+                entity.getInversionPotential());
     }
 }

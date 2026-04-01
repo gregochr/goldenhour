@@ -236,6 +236,61 @@ class ClaudeEvaluationStrategyTest {
         assertThat(detail.promptSent()).doesNotContain("STORM SURGE");
     }
 
+    @Test
+    @DisplayName("parseEvaluation() extracts inversion fields from JSON response")
+    void parseEvaluation_withInversionFields_extractsInversion() {
+        String json = "{\"rating\":5,\"fiery_sky\":85,\"golden_hour\":90,"
+                + "\"summary\":\"Dramatic inversion.\","
+                + "\"inversion_score\":9,\"inversion_potential\":\"STRONG\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.inversionScore()).isEqualTo(9);
+        assertThat(result.inversionPotential()).isEqualTo("STRONG");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() returns null inversion fields when not present")
+    void parseEvaluation_noInversionFields_returnsNullInversion() {
+        String json = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":60,"
+                + "\"summary\":\"Normal conditions.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.inversionScore()).isNull();
+        assertThat(result.inversionPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("evaluate() parses inversion fields from full Claude response")
+    void evaluate_withInversionResponse_parsesInversionFields() {
+        AtmosphericData data = buildAtmosphericData();
+        String json = "{\"rating\":5,\"fiery_sky\":88,\"golden_hour\":90,"
+                + "\"summary\":\"Spectacular sea of clouds.\","
+                + "\"inversion_score\":10,\"inversion_potential\":\"STRONG\"}";
+        Message response = buildMessage(json);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        SunsetEvaluation result = strategy.evaluate(data);
+
+        assertThat(result.inversionScore()).isEqualTo(10);
+        assertThat(result.inversionPotential()).isEqualTo("STRONG");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() extracts moderate inversion fields")
+    void parseEvaluation_moderateInversion_extractsCorrectly() {
+        String json = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":75,"
+                + "\"summary\":\"Cloud blanket visible.\","
+                + "\"inversion_score\":7,\"inversion_potential\":\"MODERATE\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.inversionScore()).isEqualTo(7);
+        assertThat(result.inversionPotential()).isEqualTo("MODERATE");
+    }
+
     // --- Helper methods ---
 
     private Message buildMessage(String text) {

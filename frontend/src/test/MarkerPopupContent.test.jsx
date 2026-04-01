@@ -289,6 +289,35 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('inversion badge', () => {
+    it('shows strong inversion badge when inversionPotential is STRONG', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, inversionPotential: 'STRONG', inversionScore: 9 } });
+      expect(screen.getByTestId('inversion-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Strong cloud inversion/)).toBeInTheDocument();
+    });
+
+    it('shows moderate inversion badge when inversionPotential is MODERATE', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, inversionPotential: 'MODERATE', inversionScore: 7 } });
+      expect(screen.getByTestId('inversion-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Moderate cloud inversion/)).toBeInTheDocument();
+    });
+
+    it('hides inversion badge when inversionPotential is NONE', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, inversionPotential: 'NONE', inversionScore: 3 } });
+      expect(screen.queryByTestId('inversion-badge')).not.toBeInTheDocument();
+    });
+
+    it('hides inversion badge when inversionPotential is absent', () => {
+      renderPopup({ role: 'PRO_USER' });
+      expect(screen.queryByTestId('inversion-badge')).not.toBeInTheDocument();
+    });
+
+    it('shows inversion badge for LITE_USER', () => {
+      renderPopup({ role: 'LITE_USER', forecast: { ...BASE_FORECAST, inversionPotential: 'STRONG', inversionScore: 9 } });
+      expect(screen.getByTestId('inversion-badge')).toBeInTheDocument();
+    });
+  });
+
   describe('rising tide badge', () => {
     it('shows badge when high tide is 33 min after sunrise', () => {
       renderPopup({

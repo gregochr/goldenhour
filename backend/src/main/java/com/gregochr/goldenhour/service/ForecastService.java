@@ -184,9 +184,11 @@ public class ForecastService {
                     withApproach, locationId, eventTime, tideTypes);
             AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                     withTide, location.getSolarEventType());
-            AtmosphericData forecastData = augmentor.augmentWithStormSurge(
+            AtmosphericData withSurge = augmentor.augmentWithStormSurge(
                     withOrientation, location.toCoastalParameters(), locationId, locationName,
                     forecastResponse);
+            AtmosphericData forecastData = augmentor.augmentWithInversionScore(
+                    withSurge, location.getElevationMetres(), location.isOverlooksWater());
 
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.EVALUATING);
@@ -303,9 +305,11 @@ public class ForecastService {
                 withApproach, locationId, eventTime, tideTypes);
         AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                 withTide, location.getSolarEventType());
-        AtmosphericData forecastData = augmentor.augmentWithStormSurge(
+        AtmosphericData withSurge = augmentor.augmentWithStormSurge(
                 withOrientation, location.toCoastalParameters(), locationId, locationName,
                 forecastResponse);
+        AtmosphericData forecastData = augmentor.augmentWithInversionScore(
+                withSurge, location.getElevationMetres(), location.isOverlooksWater());
 
         // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
@@ -592,6 +596,8 @@ public class ForecastService {
                         ? data.surge().riskLevel().name() : null)
                 .surgeAdjustedRangeMetres(data.adjustedRangeMetres())
                 .surgeAstronomicalRangeMetres(data.astronomicalRangeMetres())
+                .inversionScore(evaluation.inversionScore())
+                .inversionPotential(evaluation.inversionPotential())
                 .build();
     }
 }

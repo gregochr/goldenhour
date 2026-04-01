@@ -63,6 +63,14 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     static final Pattern BASIC_SUMMARY_PATTERN =
             Pattern.compile("(?s)\"basic_summary\"\\s*:\\s*\"(.*)\"\\s*[,}]");
 
+    /** Extracts the cloud inversion score (0-10) from Claude's response. */
+    static final Pattern INVERSION_SCORE_PATTERN =
+            Pattern.compile("\"inversion_score\"\\s*:\\s*(\\d{1,2})");
+
+    /** Extracts the cloud inversion potential classification from Claude's response. */
+    static final Pattern INVERSION_POTENTIAL_PATTERN =
+            Pattern.compile("\"inversion_potential\"\\s*:\\s*\"(\\w+)\"");
+
     private final AnthropicApiClient anthropicApiClient;
     private final PromptBuilder promptBuilder;
     private final ObjectMapper objectMapper;
@@ -162,8 +170,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                     ? node.get("basic_golden_hour").asInt() : null;
             String basicSummary = node.has("basic_summary")
                     ? node.get("basic_summary").stringValue() : null;
+            Integer inversionScore = node.has("inversion_score")
+                    ? node.get("inversion_score").asInt() : null;
+            String inversionPotential = node.has("inversion_potential")
+                    ? node.get("inversion_potential").stringValue() : null;
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
-                    basicFierySky, basicGoldenHour, basicSummary);
+                    basicFierySky, basicGoldenHour, basicSummary,
+                    inversionScore, inversionPotential);
         } catch (Exception jsonException) {
             return parseWithRegexFallback(text, jsonException);
         }
@@ -239,8 +252,16 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String basicSummary = basicSummaryMatcher.find()
                     ? basicSummaryMatcher.group(1) : null;
 
+            Matcher inversionScoreMatcher = INVERSION_SCORE_PATTERN.matcher(text);
+            Matcher inversionPotentialMatcher = INVERSION_POTENTIAL_PATTERN.matcher(text);
+            Integer inversionScore = inversionScoreMatcher.find()
+                    ? Integer.parseInt(inversionScoreMatcher.group(1)) : null;
+            String inversionPotential = inversionPotentialMatcher.find()
+                    ? inversionPotentialMatcher.group(1) : null;
+
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
-                    basicFierySky, basicGoldenHour, basicSummary);
+                    basicFierySky, basicGoldenHour, basicSummary,
+                    inversionScore, inversionPotential);
         }
 
         throw new IllegalArgumentException(

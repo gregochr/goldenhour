@@ -389,4 +389,84 @@ class ForecastDataAugmentorTest {
 
         assertThat(result).isSameAs(base);
     }
+
+    // ── Cloud Inversion Tests ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("augmentWithInversionScore() adds score for elevated water-overlook location")
+    void augmentWithInversionScore_eligibleLocation_addsScore() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .humidity(95)
+                .lowCloud(30)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 450, true);
+
+        assertThat(result.inversionScore()).isNotNull();
+        assertThat(result.inversionScore()).isGreaterThanOrEqualTo(7.0);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() returns original for low elevation")
+    void augmentWithInversionScore_lowElevation_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 200, true);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() returns original when not overlooking water")
+    void augmentWithInversionScore_noWater_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 500, false);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() returns original for null elevation")
+    void augmentWithInversionScore_nullElevation_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, null, true);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() returns original when calculator returns null")
+    void augmentWithInversionScore_calculatorReturnsNull_returnsOriginal() {
+        // No temperature/dew point → calculator returns null
+        AtmosphericData base = TestAtmosphericData.defaults();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 400, true);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() works at exact minimum elevation threshold")
+    void augmentWithInversionScore_exactMinElevation_addsScore() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .humidity(90)
+                .lowCloud(25)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 300, true);
+
+        assertThat(result.inversionScore()).isNotNull();
+    }
 }

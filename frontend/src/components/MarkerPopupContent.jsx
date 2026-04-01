@@ -356,6 +356,24 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
+          {forecast.inversionPotential && forecast.inversionPotential !== 'NONE' && (
+            <div style={{ marginBottom: '6px' }} data-testid="inversion-badge">
+              <span style={{
+                ...POPUP_PILL,
+                background: forecast.inversionPotential === 'STRONG'
+                  ? 'rgba(123, 31, 162, 0.2)' : 'rgba(25, 118, 210, 0.2)',
+                color: forecast.inversionPotential === 'STRONG'
+                  ? '#ce93d8' : '#90caf9',
+                border: `1px solid ${forecast.inversionPotential === 'STRONG'
+                  ? 'rgba(123, 31, 162, 0.4)' : 'rgba(25, 118, 210, 0.4)'}`,
+              }}>
+                <span style={{ display: 'inline-block', transform: 'scaleY(-1)' }}>☁️</span>
+                {' '}{forecast.inversionPotential === 'STRONG'
+                  ? 'Strong cloud inversion — dramatic sea of clouds likely'
+                  : 'Moderate cloud inversion — cloud blanket below viewpoint possible'}
+              </span>
+            </div>
+          )}
           {risingTide && (
             <div style={{ marginBottom: '6px' }} data-testid="rising-tide-badge">
               <span style={{

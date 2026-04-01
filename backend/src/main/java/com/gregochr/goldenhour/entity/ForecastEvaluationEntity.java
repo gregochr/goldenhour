@@ -288,6 +288,14 @@ public class ForecastEvaluationEntity {
     @Column(name = "surge_astronomical_range_metres")
     private Double surgeAstronomicalRangeMetres;
 
+    /** Cloud inversion score returned by Claude (0–10), or null if not applicable. */
+    @Column(name = "inversion_score")
+    private Integer inversionScore;
+
+    /** Cloud inversion potential classification (NONE, MODERATE, STRONG), or null. */
+    @Column(name = "inversion_potential", length = 10)
+    private String inversionPotential;
+
     /**
      * Returns the location name for JSON serialisation, preserving the API contract.
      *
