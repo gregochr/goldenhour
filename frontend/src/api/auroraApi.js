@@ -148,3 +148,21 @@ export async function getAuroraForecastAvailableDates() {
     throw err;
   }
 }
+
+/**
+ * Fetches the aurora viewline — the southernmost visible aurora boundary for UK longitudes.
+ * Returns null for free-tier users (403).
+ *
+ * @returns {Promise<object|null>} viewline response or null
+ */
+export async function getAuroraViewline() {
+  try {
+    const response = await axios.get(`${BASE_URL}/viewline`);
+    return response.data;
+  } catch (err) {
+    if (err.response?.status === 403 || err.response?.status === 401) {
+      return null;
+    }
+    throw err;
+  }
+}

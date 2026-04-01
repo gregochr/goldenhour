@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.model.AuroraViewlineResponse;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
@@ -442,6 +443,154 @@ class NoaaSwpcClientTest {
         assertThat(data.ovation()).isNotNull();
         assertThat(data.recentSolarWind()).hasSize(1);
         assertThat(data.activeAlerts()).isEmpty();
+    }
+
+    // -------------------------------------------------------------------------
+    // Viewline parsing
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("parseViewline extracts southernmost latitude from UK longitude range")
+    void parseViewline_extractsSouthernmostLatitude() throws Exception {
+        // Coordinates at UK longitudes: lon=-5 has aurora at lat 54, lon=0 has aurora at lat 56
+        // OVATION uses 0-360 longitude, so -5° = 355°
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [355, 54, 10],
+                    [355, 55, 15],
+                    [355, 60, 30],
+                    [0, 56, 8],
+                    [0, 57, 12],
+                    [0, 60, 25]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, 5);
+
+        assertThat(result.active()).isTrue();
+        assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(55.0);
+        assertThat(result.points()).isNotEmpty();
+        assertThat(result.forecastTime().getYear()).isEqualTo(2026);
+    }
+
+    @Test
+    @DisplayName("parseViewline returns inactive when no aurora in UK range")
+    void parseViewline_returnsInactive_whenNoAuroraInUkRange() throws Exception {
+        // Only coordinates at longitudes outside the UK range
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [100, 55, 20],
+                    [101, 56, 15],
+                    [200, 60, 40]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, 5);
+
+        assertThat(result.active()).isFalse();
+        assertThat(result.points()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("parseViewline filters to UK longitude range only")
+    void parseViewline_filtersToUkLongitudeRange() throws Exception {
+        // lon=355 (-5°) is in UK range; lon=100 (100°E) is not
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [355, 54, 10],
+                    [100, 40, 80]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, 5);
+
+        assertThat(result.active()).isTrue();
+        // The point at lon 100 (40°N, high probability) should be excluded
+        assertThat(result.southernmostLatitude()).isGreaterThanOrEqualTo(54.0);
+    }
+
+    @Test
+    @DisplayName("parseViewline smooths noisy data with moving average")
+    void parseViewline_smoothsNoisyData() throws Exception {
+        // Five adjacent longitudes with an outlier spike at lon=358 (-2°)
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [356, 56, 10],
+                    [357, 56, 10],
+                    [358, 50, 10],
+                    [359, 56, 10],
+                    [0, 56, 10]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, 5);
+
+        assertThat(result.active()).isTrue();
+        // The outlier at 50° should be smoothed — the point at lon -2 should be > 50
+        var lonMinus2 = result.points().stream()
+                .filter(p -> p.longitude() == -2)
+                .findFirst();
+        assertThat(lonMinus2).isPresent();
+        assertThat(lonMinus2.get().latitude()).isGreaterThan(50.0);
+    }
+
+    @Test
+    @DisplayName("parseViewline summary text matches latitude bands")
+    void parseViewline_summaryMatchesLatitudeBands() throws Exception {
+        assertThat(client.viewlineSummary(50.0)).contains("whole of the UK");
+        assertThat(client.viewlineSummary(52.0)).contains("Midlands");
+        assertThat(client.viewlineSummary(54.0)).contains("northern England");
+        assertThat(client.viewlineSummary(56.0)).contains("central Scotland");
+        assertThat(client.viewlineSummary(58.0)).contains("northern Scotland");
+        assertThat(client.viewlineSummary(62.0)).contains("far north Scotland");
+    }
+
+    @Test
+    @DisplayName("parseViewline handles empty coordinates gracefully")
+    void parseViewline_handlesEmptyCoordinates() throws Exception {
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": []
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, 5);
+
+        assertThat(result.active()).isFalse();
+        assertThat(result.points()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("parseViewline returns inactive when all probabilities below threshold")
+    void parseViewline_belowThreshold_returnsInactive() throws Exception {
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [355, 55, 2],
+                    [356, 56, 3],
+                    [0, 57, 4]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, 5);
+
+        assertThat(result.active()).isFalse();
+        assertThat(result.points()).isEmpty();
     }
 
     // -------------------------------------------------------------------------

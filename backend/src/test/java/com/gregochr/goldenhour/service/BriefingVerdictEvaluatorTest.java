@@ -90,6 +90,167 @@ class BriefingVerdictEvaluatorTest {
         }
     }
 
+    // ── Mid-cloud demotion ──
+
+    @Nested
+    @DisplayName("Mid-cloud blanket demotion")
+    class MidCloudTests {
+
+        @Test
+        @DisplayName("Mid-cloud >= 80% demotes GO to STANDDOWN")
+        void midCloud80_goToStanddown() {
+            assertThat(evaluator.applyMidCloudDemotion(Verdict.GO, 80))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("Mid-cloud >= 80% demotes MARGINAL to STANDDOWN")
+        void midCloud80_marginalToStanddown() {
+            assertThat(evaluator.applyMidCloudDemotion(Verdict.MARGINAL, 86))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("Mid-cloud 65% demotes GO to MARGINAL")
+        void midCloud65_goToMarginal() {
+            assertThat(evaluator.applyMidCloudDemotion(Verdict.GO, 65))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Mid-cloud 65% leaves MARGINAL unchanged")
+        void midCloud65_marginalUnchanged() {
+            assertThat(evaluator.applyMidCloudDemotion(Verdict.MARGINAL, 65))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Mid-cloud 40% leaves GO unchanged")
+        void midCloud40_goUnchanged() {
+            assertThat(evaluator.applyMidCloudDemotion(Verdict.GO, 40))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Already STANDDOWN remains STANDDOWN regardless of mid-cloud")
+        void alreadyStanddown() {
+            assertThat(evaluator.applyMidCloudDemotion(Verdict.STANDDOWN, 50))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+    }
+
+    // ── Cloud trend demotion ──
+
+    @Nested
+    @DisplayName("Cloud trend (BUILDING) demotion")
+    class CloudTrendTests {
+
+        @Test
+        @DisplayName("BUILDING trend (20->35->45) demotes GO to MARGINAL")
+        void building_goToMarginal() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, List.of(20, 35, 45)))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("CLEARING trend (50->30->15) does not demote GO")
+        void clearing_goUnchanged() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, List.of(50, 30, 15)))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Stable low trend (15->18->12) does not demote — max below 40%")
+        void stableLow_noChange() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, List.of(15, 18, 12)))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Building but max < 40% (10->20->30) does not demote")
+        void buildingLowMax_noChange() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, List.of(10, 20, 30)))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Already MARGINAL not demoted further by building trend")
+        void marginal_noChange() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.MARGINAL, List.of(20, 35, 45)))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Already STANDDOWN not affected by building trend")
+        void standdown_noChange() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.STANDDOWN, List.of(20, 35, 45)))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("Null trend data does not demote")
+        void nullTrend_noChange() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, null))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Single-hour data does not demote (need at least 2 hours)")
+        void singleHour_noChange() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, List.of(60)))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Two-hour window works when event hour near start of forecast")
+        void twoHour_building() {
+            assertThat(evaluator.applyCloudTrendDemotion(Verdict.GO, List.of(20, 50)))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+    }
+
+    // ── Flag generation for new checks ──
+
+    @Nested
+    @DisplayName("Mid-cloud and trend flags")
+    class NewFlagTests {
+
+        private static final BriefingVerdictEvaluator.TideContext NO_TIDE =
+                new BriefingVerdictEvaluator.TideContext(null, false, false, false, null, false);
+
+        @Test
+        @DisplayName("Grey ceiling flag for mid-cloud >= 80%")
+        void greyCeilingFlag() {
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, 85, false),
+                    NO_TIDE)).contains("Grey ceiling");
+        }
+
+        @Test
+        @DisplayName("Heavy mid-cloud flag for mid-cloud 60-79%")
+        void heavyMidCloudFlag() {
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, 65, false),
+                    NO_TIDE)).contains("Heavy mid-cloud");
+        }
+
+        @Test
+        @DisplayName("Cloud building flag when trend detected")
+        void cloudBuildingFlag() {
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, null, true),
+                    NO_TIDE)).contains("Cloud building");
+        }
+
+        @Test
+        @DisplayName("No mid-cloud flag when null")
+        void noFlagWhenMidCloudNull() {
+            assertThat(evaluator.buildFlags(
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, null, false),
+                    NO_TIDE)).isEmpty();
+        }
+    }
+
     // ── Region rollup ──
 
     @Nested

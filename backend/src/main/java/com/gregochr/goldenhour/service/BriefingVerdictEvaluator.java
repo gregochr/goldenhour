@@ -39,15 +39,39 @@ public class BriefingVerdictEvaluator {
     /** Humidity percentage above which conditions are MARGINAL (mist risk). */
     static final int HUMIDITY_MARGINAL = 90;
 
+    /** Mid-level cloud above which conditions are STANDDOWN (grey ceiling, no canvas). */
+    static final int MID_CLOUD_STANDDOWN = 80;
+
+    /** Mid-level cloud above which conditions are MARGINAL at most. */
+    static final int MID_CLOUD_MARGINAL = 60;
+
+    /** Minimum peak low cloud in the 3-hour window to trigger a BUILDING demotion. */
+    static final int BUILDING_TREND_MIN_PEAK = 40;
+
     /**
      * Core weather metrics used for verdict determination and flag generation.
      *
-     * @param lowCloud   low cloud cover percentage
-     * @param precip     precipitation in mm
-     * @param visibility visibility in metres
-     * @param humidity   relative humidity percentage
+     * @param lowCloud      low cloud cover percentage
+     * @param precip        precipitation in mm
+     * @param visibility    visibility in metres
+     * @param humidity      relative humidity percentage
+     * @param midCloud      mid-level cloud cover percentage (nullable if unavailable)
+     * @param buildingTrend true if a BUILDING cloud trend was detected
      */
-    public record WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity) {
+    public record WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity,
+            Integer midCloud, boolean buildingTrend) {
+
+        /**
+         * Convenience constructor without mid-cloud or trend data.
+         *
+         * @param lowCloud   low cloud cover percentage
+         * @param precip     precipitation in mm
+         * @param visibility visibility in metres
+         * @param humidity   relative humidity percentage
+         */
+        public WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity) {
+            this(lowCloud, precip, visibility, humidity, null, false);
+        }
     }
 
     /**
@@ -87,6 +111,59 @@ public class BriefingVerdictEvaluator {
     }
 
     /**
+     * Demotes the verdict based on mid-level cloud cover at the event hour.
+     *
+     * <p>Mid-cloud sits at 2,000-6,000m. When thick, it blocks the sky canvas that
+     * fiery colours paint on, even if the solar horizon has gaps in the low cloud.
+     * This check can only demote, never promote.
+     *
+     * @param verdict  the current verdict from weather checks
+     * @param midCloud mid-level cloud cover percentage at the event hour
+     * @return the (possibly demoted) verdict
+     */
+    public Verdict applyMidCloudDemotion(Verdict verdict, int midCloud) {
+        if (midCloud >= MID_CLOUD_STANDDOWN) {
+            return Verdict.STANDDOWN;
+        }
+        if (midCloud >= MID_CLOUD_MARGINAL && verdict == Verdict.GO) {
+            return Verdict.MARGINAL;
+        }
+        return verdict;
+    }
+
+    /**
+     * Demotes a GO verdict to MARGINAL when low cloud is building into the event.
+     *
+     * <p>Looks at low cloud across a 3-hour window leading into the solar event.
+     * A BUILDING trend is detected when both conditions are true:
+     * <ul>
+     *   <li>The maximum low cloud in the window is &ge; 40%</li>
+     *   <li>The event-hour value is higher than the earliest hour (cloud increasing)</li>
+     * </ul>
+     *
+     * <p>This check only demotes GO to MARGINAL; it does not affect MARGINAL or STANDDOWN.
+     * A clearing trend (cloud decreasing into the event) is never penalised.
+     *
+     * @param verdict       the current verdict
+     * @param lowCloudHours low cloud values for up to 3 hours leading into the event
+     *                      (earliest first, last element is the event hour)
+     * @return the (possibly demoted) verdict
+     */
+    public Verdict applyCloudTrendDemotion(Verdict verdict, List<Integer> lowCloudHours) {
+        if (verdict != Verdict.GO || lowCloudHours == null || lowCloudHours.size() < 2) {
+            return verdict;
+        }
+        int earliest = lowCloudHours.get(0);
+        int eventHour = lowCloudHours.get(lowCloudHours.size() - 1);
+        int max = lowCloudHours.stream().mapToInt(Integer::intValue).max().orElse(0);
+
+        if (max >= BUILDING_TREND_MIN_PEAK && eventHour > earliest) {
+            return Verdict.MARGINAL;
+        }
+        return verdict;
+    }
+
+    /**
      * Builds human-readable flag strings for a slot.
      *
      * @param weather the core weather metrics
@@ -112,6 +189,14 @@ public class BriefingVerdictEvaluator {
         }
         if (weather.humidity() > HUMIDITY_MARGINAL) {
             flags.add("Mist risk");
+        }
+        if (weather.midCloud() != null && weather.midCloud() >= MID_CLOUD_STANDDOWN) {
+            flags.add("Grey ceiling");
+        } else if (weather.midCloud() != null && weather.midCloud() >= MID_CLOUD_MARGINAL) {
+            flags.add("Heavy mid-cloud");
+        }
+        if (weather.buildingTrend()) {
+            flags.add("Cloud building");
         }
         String combinedLabel = combinedTideLabel(tide);
         if (combinedLabel != null) {

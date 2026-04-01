@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static com.gregochr.goldenhour.service.evaluation.PromptBuilder.InversionPotential;
 
 /**
  * Unit tests for {@link PromptBuilder}.
@@ -743,5 +744,168 @@ public class PromptBuilderTest {
                 .contains("Tide: Regular Tide (range:")
                 .doesNotContain("moon:")
                 .doesNotContain("perigee:");
+    }
+
+    // ── Cloud Inversion Tests ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("getSystemPrompt contains cloud inversion guidance")
+    void getSystemPrompt_containsInversionGuidance() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("CLOUD INVERSION GUIDANCE:")
+                .contains("Inversion score 7-8")
+                .contains("Inversion score 9-10")
+                .contains("sea of clouds");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with moderate inversion score includes inversion block")
+    void buildUserMessage_moderateInversion_includesInversionBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(8.0)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD INVERSION FORECAST:")
+                .contains("Score: 8/10")
+                .contains("Moderate Cloud Inversion Potential")
+                .contains("Visible cloud layer below; light touching cloud tops")
+                .contains("Peak at event time");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with strong inversion score includes strong block")
+    void buildUserMessage_strongInversion_includesStrongBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(9.0)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD INVERSION FORECAST:")
+                .contains("Score: 9/10")
+                .contains("Strong Cloud Inversion Potential")
+                .contains("Dramatic blanket below viewpoint; clear sky above");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with score 10 uses strong potential")
+    void buildUserMessage_score10_usesStrongPotential() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(10.0)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Score: 10/10")
+                .contains("Strong Cloud Inversion Potential");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with inversion score below threshold omits inversion block")
+    void buildUserMessage_lowInversion_omitsBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(5.0)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("CLOUD INVERSION FORECAST:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with null inversion score omits inversion block")
+    void buildUserMessage_nullInversion_omitsBlock() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("CLOUD INVERSION FORECAST:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with inversion score exactly at threshold includes block")
+    void buildUserMessage_inversionAtThreshold_includesBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(7.0)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD INVERSION FORECAST:")
+                .contains("Score: 7/10")
+                .contains("Moderate Cloud Inversion Potential");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with inversion score just below threshold omits block")
+    void buildUserMessage_inversionJustBelowThreshold_omitsBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .inversionScore(6.9)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("CLOUD INVERSION FORECAST:");
+    }
+
+    @Test
+    @DisplayName("isInversionLikely returns true for score at threshold")
+    void isInversionLikely_atThreshold_returnsTrue() {
+        assertThat(PromptBuilder.isInversionLikely(7.0)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isInversionLikely returns true for score above threshold")
+    void isInversionLikely_aboveThreshold_returnsTrue() {
+        assertThat(PromptBuilder.isInversionLikely(9.5)).isTrue();
+    }
+
+    @Test
+    @DisplayName("isInversionLikely returns false for score below threshold")
+    void isInversionLikely_belowThreshold_returnsFalse() {
+        assertThat(PromptBuilder.isInversionLikely(6.0)).isFalse();
+    }
+
+    @Test
+    @DisplayName("isInversionLikely returns false for null")
+    void isInversionLikely_null_returnsFalse() {
+        assertThat(PromptBuilder.isInversionLikely(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("InversionPotential.fromScore returns STRONG for 9+")
+    void inversionPotential_fromScore_strong() {
+        assertThat(InversionPotential.fromScore(9)).isEqualTo(InversionPotential.STRONG);
+        assertThat(InversionPotential.fromScore(10)).isEqualTo(InversionPotential.STRONG);
+    }
+
+    @Test
+    @DisplayName("InversionPotential.fromScore returns MODERATE for 7-8")
+    void inversionPotential_fromScore_moderate() {
+        assertThat(InversionPotential.fromScore(7)).isEqualTo(InversionPotential.MODERATE);
+        assertThat(InversionPotential.fromScore(8)).isEqualTo(InversionPotential.MODERATE);
+    }
+
+    @Test
+    @DisplayName("InversionPotential.fromScore returns NONE for below 7")
+    void inversionPotential_fromScore_none() {
+        assertThat(InversionPotential.fromScore(6)).isEqualTo(InversionPotential.NONE);
+        assertThat(InversionPotential.fromScore(0)).isEqualTo(InversionPotential.NONE);
+    }
+
+    @Test
+    @DisplayName("InversionPotential labels are human-readable")
+    void inversionPotential_labels_readable() {
+        assertThat(InversionPotential.MODERATE.label()).isEqualTo("Moderate Cloud Inversion Potential");
+        assertThat(InversionPotential.STRONG.label()).isEqualTo("Strong Cloud Inversion Potential");
+        assertThat(InversionPotential.NONE.label()).isEqualTo("No inversion potential");
     }
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
+import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 
 // Alert levels that should show the banner (MODERATE or STRONG)
 const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
@@ -79,6 +80,8 @@ const SIM_BORDER_STYLE = `
  */
 export default function AuroraBanner() {
   const { status } = useAuroraStatus();
+  const viewlineEnabled = status != null && ALERT_WORTHY.has(status.level);
+  const { viewline } = useAuroraViewline(viewlineEnabled);
   const [dismissedLevel, setDismissedLevel] = useState(null);
 
   // Not eligible (free-tier, 403) or not yet loaded
@@ -116,6 +119,7 @@ export default function AuroraBanner() {
       ? `${locationText} · Tap to view on map`
       : null;
 
+  const viewlineSummary = !isSimulated && viewline?.active ? viewline.summary : null;
   const subtitleParts = [kpText, actionHint].filter(Boolean);
 
   const isFavourable = !isSimulated && bz != null && bz < -1;
@@ -153,6 +157,11 @@ export default function AuroraBanner() {
               )}
               {!isSimulated && bzText && (
                 <p data-testid="aurora-banner-bz" className="text-xs opacity-90 mt-0.5">{bzText}</p>
+              )}
+              {viewlineSummary && (
+                <p data-testid="aurora-banner-viewline" className="text-xs opacity-90 mt-0.5">
+                  🌌 {viewlineSummary}
+                </p>
               )}
             </div>
           </div>

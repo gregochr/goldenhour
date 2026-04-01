@@ -91,6 +91,8 @@ public class BriefingSlotBuilder {
         OpenMeteoForecastResponse.Hourly h = forecast.getHourly();
 
         int lowCloud = h.getCloudCoverLow().get(idx);
+        int midCloud = (h.getCloudCoverMid() != null && idx < h.getCloudCoverMid().size())
+                ? h.getCloudCoverMid().get(idx) : 0;
         BigDecimal precip = BigDecimal.valueOf(h.getPrecipitation().get(idx))
                 .setScale(DECIMAL_SCALE, RoundingMode.HALF_UP);
         int visibility = h.getVisibility().get(idx).intValue();
@@ -105,11 +107,22 @@ public class BriefingSlotBuilder {
         BigDecimal windSpeed = BigDecimal.valueOf(h.getWindSpeed10m().get(idx))
                 .setScale(DECIMAL_SCALE, RoundingMode.HALF_UP);
 
+        // Extract low cloud for 3 hours leading into the event (earliest first)
+        List<Integer> lowCloudTrend = extractLowCloudTrend(h, idx);
+
         // Tide data from DB
         TideResult tideResult = calculateTideData(loc, solarTime);
 
-        // Determine weather verdict
+        // Determine weather verdict (base check)
         Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
+
+        // Demote for mid-cloud blanket (can only make verdict worse)
+        verdict = verdictEvaluator.applyMidCloudDemotion(verdict, midCloud);
+
+        // Demote for building cloud trend (GO → MARGINAL only)
+        boolean buildingDetected = verdict == Verdict.GO;
+        verdict = verdictEvaluator.applyCloudTrendDemotion(verdict, lowCloudTrend);
+        buildingDetected = buildingDetected && verdict == Verdict.MARGINAL;
 
         // Coastal tide demotion: if coastal, tide data is present, but tide is not aligned
         // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
@@ -123,7 +136,8 @@ public class BriefingSlotBuilder {
 
         // Build flags
         BriefingVerdictEvaluator.WeatherMetrics weatherMetrics =
-                new BriefingVerdictEvaluator.WeatherMetrics(lowCloud, precip, visibility, humidity);
+                new BriefingVerdictEvaluator.WeatherMetrics(
+                        lowCloud, precip, visibility, humidity, midCloud, buildingDetected);
         BriefingVerdictEvaluator.TideContext tideContext = new BriefingVerdictEvaluator.TideContext(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.isKingTide(), tideResult.isSpringTide(),
@@ -206,6 +220,25 @@ public class BriefingSlotBuilder {
         return new TideResult(tideState, tideAligned, nearestHighTime,
                 nearestHighHeight, isKingTide, isSpringTide,
                 lunarTideType, lunarPhase, moonAtPerigee);
+    }
+
+    /**
+     * Extracts low cloud values for up to 3 hours leading into the event hour.
+     *
+     * <p>Returns [hour-2, hour-1, eventHour] where available. If the event hour index
+     * is near the start of the forecast array, returns fewer hours.
+     *
+     * @param h   the hourly forecast data
+     * @param idx the event hour index
+     * @return low cloud values (earliest first, last element is event hour)
+     */
+    static List<Integer> extractLowCloudTrend(OpenMeteoForecastResponse.Hourly h, int idx) {
+        List<Integer> cloudLow = h.getCloudCoverLow();
+        if (cloudLow == null || cloudLow.isEmpty()) {
+            return List.of();
+        }
+        int start = Math.max(0, idx - 2);
+        return cloudLow.subList(start, idx + 1);
     }
 
     /**

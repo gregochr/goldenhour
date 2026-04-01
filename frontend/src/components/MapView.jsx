@@ -11,8 +11,10 @@ import BottomSheet from './BottomSheet.jsx';
 import MarkerPopupContent from './MarkerPopupContent.jsx';
 import ForecastTypeSelector from './ForecastTypeSelector.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
+import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
+import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
@@ -267,6 +269,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
+  const ALERT_WORTHY_LEVELS = useMemo(() => new Set(['MODERATE', 'STRONG']), []);
+  const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
+    && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  const { viewline } = useAuroraViewline(viewlineEnabled);
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
@@ -326,8 +332,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
   useEffect(() => {
-    const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
-    if (!auroraStatus || !ALERT_WORTHY.has(auroraStatus.level)) {
+    if (!auroraStatus || !ALERT_WORTHY_LEVELS.has(auroraStatus.level)) {
       setAuroraScores({});
       return;
     }
@@ -702,6 +707,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           />
           <ZoomTracker onZoom={setZoom} />
           <FlyToController target={flyTarget} />
+          {viewlineEnabled && <AuroraViewlineOverlay viewline={viewline} />}
 
           {/* Azimuth lines for the selected location */}
           {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
