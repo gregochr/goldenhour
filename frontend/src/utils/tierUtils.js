@@ -12,7 +12,7 @@
 export const TIER_KEYS = ['go-king', 'go-tide', 'go-plain', 'ma-tide', 'ma-plain', 'standdown'];
 
 export const TIER_LABELS = [
-  'GO + king tide only',
+  'GO + king tide or aurora',
   'GO + any tide alignment',
   'All GO conditions',
   'Marginal + tide aligned',
@@ -52,6 +52,20 @@ export function computeCellTier(region) {
 
   // Unknown verdict — treat as standdown
   return 5;
+}
+
+/**
+ * Returns the quality tier for an aurora grid cell.
+ *
+ * @param {{ verdict?: string }} auroraRegion  aurora region summary (from briefing)
+ * @param {boolean}              isTomorrow    true for informational tomorrow cells
+ * @returns {number} 0–6 (6 = disabled / no dark-sky locations)
+ */
+export function computeAuroraCellTier(auroraRegion, isTomorrow) {
+  if (!auroraRegion || !auroraRegion.verdict) return 6; // disabled (no dark sky)
+  if (isTomorrow) return 2; // informational — visible at "All GO conditions"
+  if (auroraRegion.verdict === 'GO') return 0; // top tier alongside king tide
+  return 5; // STANDDOWN
 }
 
 /**

@@ -1155,105 +1155,72 @@ describe('DailyBriefing', () => {
     });
   });
 
-  // ────── Aurora tonight panel ──────
+  // ────── Aurora grid columns ──────
 
-  describe('Aurora tonight panel', () => {
-    function buildBriefingWithAuroraTonight(aurora) {
-      return { ...buildBriefing(), auroraTonight: aurora };
+  describe('Aurora grid columns', () => {
+    function buildBriefingWithAurora(tonight, tomorrow) {
+      return { ...buildBriefing(), auroraTonight: tonight || null, auroraTomorrow: tomorrow || null };
     }
 
-    it('does not render aurora panel when auroraTonight is absent', async () => {
+    it('does not render aurora cells when auroraTonight is absent', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
-      expect(screen.queryByTestId('aurora-tonight-row')).toBeNull();
+      expect(screen.queryByTestId('aurora-heatmap-cell')).toBeNull();
     });
 
-    it('renders aurora panel with alert level and Kp when auroraTonight is present', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAuroraTonight({
+    it('renders aurora cells in the grid when auroraTonight is present', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora({
         alertLevel: 'MODERATE',
         kp: 5.3,
         clearLocationCount: 2,
-        regions: [],
-      }));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('aurora-tonight-row'));
-      expect(screen.getByText(/Moderate/)).toBeInTheDocument();
-      expect(screen.getByText(/Kp 5.3/)).toBeInTheDocument();
-      expect(screen.getByText(/2 locations clear/)).toBeInTheDocument();
-    });
-
-    it('uses singular "location" when clearLocationCount is 1', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAuroraTonight({
-        alertLevel: 'MINOR',
-        kp: 3.0,
-        clearLocationCount: 1,
-        regions: [],
-      }));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('aurora-tonight-row'));
-      expect(screen.getByText(/1 location clear/)).toBeInTheDocument();
-      expect(screen.queryByText(/1 locations clear/)).toBeNull();
-    });
-
-    it('shows region name in tonight row when regions are present', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAuroraTonight({
-        alertLevel: 'MODERATE',
-        kp: 5.0,
-        clearLocationCount: 1,
         regions: [{
           regionName: 'Northumberland',
+          verdict: 'GO',
+          clearLocationCount: 1,
+          totalDarkSkyLocations: 2,
+          bestBortleClass: 2,
           locations: [
             { locationName: 'Kielder', bortleClass: 2, clear: true, cloudPercent: 30 },
-            { locationName: 'Bamburgh', bortleClass: 4, clear: false, cloudPercent: 80 },
           ],
         }],
       }));
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('aurora-tonight-row'));
-      expect(screen.getAllByText('Northumberland').length).toBeGreaterThanOrEqual(1);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      const auroraCells = screen.getAllByTestId('aurora-heatmap-cell');
+      expect(auroraCells.length).toBeGreaterThanOrEqual(1);
     });
-  });
 
-  // ────── Aurora tomorrow note ──────
-
-  describe('Aurora tomorrow note', () => {
-    it('does not render tomorrow note when auroraTomorrow is absent', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefing());
+    it('does not render aurora column when auroraTomorrow label is Quiet', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora(
+        null,
+        { peakKp: 1.5, label: 'Quiet', alertLevel: 'QUIET' },
+      ));
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
-      expect(screen.queryByTestId('aurora-tomorrow-row')).toBeNull();
+      expect(screen.queryByTestId('aurora-heatmap-cell')).toBeNull();
     });
 
-    it('does not render tomorrow note when label is Quiet', async () => {
-      getDailyBriefing.mockResolvedValue({
-        ...buildBriefing(),
-        auroraTomorrow: { peakKp: 1.5, label: 'Quiet' },
-      });
+    it('renders aurora tomorrow column when label is Worth watching', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora(
+        null,
+        { peakKp: 4.33, label: 'Worth watching', alertLevel: 'MINOR' },
+      ));
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('daily-briefing'));
-      expect(screen.queryByTestId('aurora-tomorrow-row')).toBeNull();
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      const auroraCells = screen.getAllByTestId('aurora-heatmap-cell');
+      expect(auroraCells.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('renders tomorrow note when label is Worth watching', async () => {
-      getDailyBriefing.mockResolvedValue({
-        ...buildBriefing(),
-        auroraTomorrow: { peakKp: 4.33, label: 'Worth watching' },
-      });
+    it('renders aurora tomorrow column when label is Potentially strong', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora(
+        null,
+        { peakKp: 6.67, label: 'Potentially strong', alertLevel: 'STRONG' },
+      ));
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('aurora-tomorrow-row'));
-      expect(screen.getByText(/Worth watching/)).toBeInTheDocument();
-      expect(screen.getByText(/Kp 4.3/)).toBeInTheDocument();
-    });
-
-    it('renders tomorrow note when label is Potentially strong', async () => {
-      getDailyBriefing.mockResolvedValue({
-        ...buildBriefing(),
-        auroraTomorrow: { peakKp: 6.67, label: 'Potentially strong' },
-      });
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('aurora-tomorrow-row'));
-      expect(screen.getByText(/Potentially strong/)).toBeInTheDocument();
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      const auroraCells = screen.getAllByTestId('aurora-heatmap-cell');
+      expect(auroraCells.length).toBeGreaterThanOrEqual(1);
     });
   });
 

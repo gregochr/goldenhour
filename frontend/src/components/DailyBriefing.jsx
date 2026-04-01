@@ -6,9 +6,8 @@ import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import QualitySlider from './QualitySlider.jsx';
-import AuroraGridRow from './AuroraGridRow.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
-import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
+import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import { formatEventTimeUk } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -120,6 +119,11 @@ function msToMph(ms) {
 
 function resolveEventKey(event, todayStr, tomorrowStr) {
   if (!event) return null;
+  // Date-based aurora events: "2026-04-01_aurora" → "2026-04-01-AURORA"
+  if (event.endsWith('_aurora')) {
+    const dateStr = event.slice(0, -7); // strip "_aurora"
+    return `${dateStr}-AURORA`;
+  }
   const underscore = event.indexOf('_');
   if (underscore === -1) return null;
   const dayPart = event.substring(0, underscore);
@@ -666,7 +670,7 @@ BestBetBanner.propTypes = {
   onPickClick: PropTypes.func.isRequired,
 };
 
-// AuroraTonightPanel and AuroraTomorrowNote are replaced by AuroraGridRow (imported).
+// Aurora is now rendered as 🌌 grid columns inside HeatmapGrid (not a separate row).
 
 // ── DISMISSED_AT_KEY ──────────────────────────────────────────────────────────
 const DISMISSED_AT_KEY = 'briefing-dismissed-at';
@@ -873,29 +877,65 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
   const dayDates = useMemo(() => [...new Set(upcomingEvents.map((e) => e.date))], [upcomingEvents]);
 
-  // Augment events with ASTRO sub-columns for dates that have astro data.
-  const heatmapEvents = useMemo(() => {
-    const hasAstro = Object.keys(astroScoresByDate).length > 0;
-    if (!hasAstro) return upcomingEvents;
-    const result = [];
-    let lastDate = null;
-    for (const ev of upcomingEvents) {
-      result.push(ev);
-      // Add ASTRO column after the last event of each date
-      if (ev.date !== lastDate) lastDate = ev.date;
-      const nextIdx = upcomingEvents.indexOf(ev) + 1;
-      const nextDate = nextIdx < upcomingEvents.length ? upcomingEvents[nextIdx].date : null;
-      if (nextDate !== ev.date && astroScoresByDate[ev.date]) {
-        result.push({ date: ev.date, targetType: 'ASTRO' });
-      }
-    }
-    return result;
-  }, [upcomingEvents, astroScoresByDate]);
 
   const sortedRegions = useMemo(() => {
     if (!briefing) return [];
     return getSortedRegions(upcomingEvents, briefing.days);
   }, [briefing, upcomingEvents]);
+
+  // todayStr / tomorrowStr needed by auroraDates and sliderCounts memos.
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+  const tomorrowStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
+  })();
+
+  // Determine which dates qualify for an aurora column (PRO/ADMIN only).
+  const auroraDates = useMemo(() => {
+    if (!canSeeBestBets) return new Set();
+    const dates = new Set();
+    if (briefing?.auroraTonight) dates.add(todayStr);
+    if (briefing?.auroraTomorrow && briefing.auroraTomorrow.label !== 'Quiet') dates.add(tomorrowStr);
+    return dates;
+  }, [canSeeBestBets, briefing, todayStr, tomorrowStr]);
+
+  // Augment events with ASTRO and AURORA sub-columns.
+  const heatmapEvents = useMemo(() => {
+    const hasAstro = Object.keys(astroScoresByDate).length > 0;
+    const hasAurora = auroraDates.size > 0;
+    if (!hasAstro && !hasAurora) return upcomingEvents;
+    const result = [];
+    const coveredDates = new Set();
+    for (let i = 0; i < upcomingEvents.length; i++) {
+      const ev = upcomingEvents[i];
+      result.push(ev);
+      const nextDate = i + 1 < upcomingEvents.length ? upcomingEvents[i + 1].date : null;
+      if (nextDate !== ev.date) {
+        coveredDates.add(ev.date);
+        if (hasAstro && astroScoresByDate[ev.date]) {
+          result.push({ date: ev.date, targetType: 'ASTRO' });
+        }
+        if (hasAurora && auroraDates.has(ev.date)) {
+          result.push({ date: ev.date, targetType: 'AURORA' });
+        }
+      }
+    }
+    // Inject standalone aurora columns for dates with no solar events (e.g. today's aurora
+    // when all today's solar events have already passed and been filtered out).
+    if (hasAurora) {
+      for (const aDate of auroraDates) {
+        if (!coveredDates.has(aDate)) {
+          // Insert before events of later dates, or at end
+          const insertIdx = result.findIndex((e) => e.date > aDate);
+          const entry = { date: aDate, targetType: 'AURORA' };
+          if (insertIdx >= 0) result.splice(insertIdx, 0, entry);
+          else result.push(entry);
+        }
+      }
+    }
+    return result;
+  }, [upcomingEvents, astroScoresByDate, auroraDates]);
 
   /** Slider cell counts: total cells and visible cells at current qualityTier. */
   const sliderCounts = useMemo(() => {
@@ -903,7 +943,22 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     let total = 0;
     let showing = 0;
     for (const regionName of sortedRegions) {
-      for (const { date, targetType } of upcomingEvents) {
+      for (const { date, targetType } of heatmapEvents) {
+        if (targetType === 'AURORA') {
+          const isTonight = date === todayStr && briefing.auroraTonight;
+          const isTmrw = date === tomorrowStr && briefing.auroraTomorrow;
+          if (!isTonight && !isTmrw) continue;
+          const auroraRegion = isTonight
+            ? (briefing.auroraTonight.regions || []).find((r) => r.regionName === regionName) : null;
+          const tier = isTonight
+            ? computeAuroraCellTier(auroraRegion, false)
+            : computeAuroraCellTier({ verdict: 'GO' }, true);
+          if (tier > 5) continue; // disabled — don't count
+          total += 1;
+          if (isCellVisible(tier, qualityTier)) showing += 1;
+          continue;
+        }
+        if (targetType === 'ASTRO') continue; // astro cells don't participate in slider counts
         const day = briefing.days.find((d) => d.date === date);
         if (!day) continue;
         const es = (day.eventSummaries || []).find((e) => e.targetType === targetType);
@@ -916,7 +971,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       }
     }
     return { showing, total };
-  }, [briefing, sortedRegions, upcomingEvents, qualityTier]);
+  }, [briefing, sortedRegions, heatmapEvents, qualityTier, todayStr, tomorrowStr]);
 
   if (loading) {
     return (
@@ -952,13 +1007,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       </button>
     );
   }
-
-  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
-  const tomorrowStr = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
-  })();
 
   // Mobile compact summary rows — enriched with dayLabel for display.
   const mobileEvents = upcomingEvents.map(({ date, targetType }) => {
@@ -1107,10 +1155,61 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
                     );
                   };
 
+                  // Aurora mobile section — tonight only, PRO/ADMIN
+                  const auroraSection = (() => {
+                    if (!canSeeBestBets || selectedDate !== todayStr || !briefing.auroraTonight) return null;
+                    const at = briefing.auroraTonight;
+                    const visibleRegions = sortedRegions.filter((regionName) => {
+                      const ar = (at.regions || []).find((r) => r.regionName === regionName);
+                      const tier = computeAuroraCellTier(ar, false);
+                      return isCellVisible(tier, qualityTier);
+                    });
+                    if (visibleRegions.length === 0) return null;
+                    const levelLabel = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
+                    return (
+                      <div className="mb-2">
+                        <div className="text-plex-text-secondary mb-1 px-1 flex items-center gap-1"
+                          style={{ fontSize: '12px' }}>
+                          <span>🌌</span>
+                          <span className="font-medium">Aurora tonight</span>
+                          <span className="text-indigo-400 font-medium" style={{ fontSize: '11px' }}>
+                            {levelLabel[at.alertLevel] || at.alertLevel}
+                            {at.kp != null && ` Kp ${at.kp.toFixed(1)}`}
+                          </span>
+                        </div>
+                        {visibleRegions.map((regionName) => {
+                          const ar = (at.regions || []).find((r) => r.regionName === regionName);
+                          if (!ar) return null;
+                          const isGo = ar.verdict === 'GO';
+                          return (
+                            <div key={`${selectedDate}-${regionName}-aurora`}
+                              className={`rounded border px-2 py-1.5 mb-1 ${isGo
+                                ? 'border-indigo-500/30 bg-indigo-500/10'
+                                : 'border-plex-border/30 bg-plex-surface/20 opacity-40'}`}>
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
+                                  {regionName}
+                                </span>
+                                <VerdictPill verdict={ar.verdict} />
+                              </div>
+                              {isGo && (
+                                <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '11px' }}>
+                                  Clear {ar.clearLocationCount}/{ar.totalDarkSkyLocations}
+                                  {ar.bestBortleClass != null && ` · Bortle ${ar.bestBortleClass}`}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })();
+
                   return (
                     <>
                       {renderSection(sunriseEs, 'Sunrise', '🌅')}
                       {renderSection(sunsetEs, 'Sunset', '🌇')}
+                      {auroraSection}
                     </>
                   );
                 })()}
@@ -1175,10 +1274,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         onStopEvaluation={handleStopEvaluation}
         canRunEvaluation={canRunEvaluation}
         astroScoresByDate={astroScoresByDate}
-      />
-
-      {/* ── Aurora row — below grid, not affected by quality slider ── */}
-      <AuroraGridRow
         auroraTonight={briefing.auroraTonight || null}
         auroraTomorrow={briefing.auroraTomorrow || null}
       />

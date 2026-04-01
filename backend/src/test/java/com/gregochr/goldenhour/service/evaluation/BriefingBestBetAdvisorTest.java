@@ -166,7 +166,7 @@ class BriefingBestBetAdvisorTest {
                           "rank": 1,
                           "headline": "Aurora alert over Northumberland tonight",
                           "detail": "Kp 5.2 and 3 clear locations.",
-                          "event": "aurora_tonight",
+                          "event": "2026-04-01_aurora",
                           "region": "Northumberland",
                           "confidence": "high"
                         }
@@ -175,7 +175,7 @@ class BriefingBestBetAdvisorTest {
                     """;
             List<BestBet> picks = advisor.parseBestBets(raw);
             assertThat(picks).hasSize(1);
-            assertThat(picks.get(0).event()).isEqualTo("aurora_tonight");
+            assertThat(picks.get(0).event()).isEqualTo("2026-04-01_aurora");
         }
     }
 
@@ -236,10 +236,11 @@ class BriefingBestBetAdvisorTest {
             ));
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now, Map.of());
-            assertThat(result.json()).contains("aurora_tonight");
+            String expectedAuroraId = LocalDate.now(ZoneId.of("Europe/London")) + "_aurora";
+            assertThat(result.json()).contains(expectedAuroraId);
             assertThat(result.json()).contains("MODERATE");
             assertThat(result.json()).contains("5.2");
-            assertThat(result.validEvents()).contains("aurora_tonight");
+            assertThat(result.validEvents()).contains(expectedAuroraId);
         }
 
         @Test
@@ -248,8 +249,8 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now, Map.of());
-            assertThat(result.json()).doesNotContain("aurora_tonight");
-            assertThat(result.validEvents()).doesNotContain("aurora_tonight");
+            assertThat(result.json()).doesNotContain("_aurora");
+            assertThat(result.validEvents().stream().noneMatch(e -> e.endsWith("_aurora"))).isTrue();
         }
 
         @Test

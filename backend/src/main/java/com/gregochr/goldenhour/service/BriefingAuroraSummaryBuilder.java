@@ -70,13 +70,25 @@ public class BriefingAuroraSummaryBuilder {
                                 : score.location().getName());
 
         List<AuroraRegionSummary> regions = grouped.grouped().entrySet().stream()
-                .map(e -> new AuroraRegionSummary(e.getKey(), e.getValue().stream()
-                        .map(s -> new AuroraLocationSlot(
-                                s.location().getName(),
-                                s.location().getBortleClass(),
-                                s.cloudPercent() < CLEAR_SKY_THRESHOLD,
-                                s.cloudPercent()))
-                        .toList()))
+                .map(e -> {
+                    List<AuroraLocationSlot> slots = e.getValue().stream()
+                            .map(s -> new AuroraLocationSlot(
+                                    s.location().getName(),
+                                    s.location().getBortleClass(),
+                                    s.cloudPercent() < CLEAR_SKY_THRESHOLD,
+                                    s.cloudPercent()))
+                            .toList();
+                    List<AuroraLocationSlot> darkSky = slots.stream()
+                            .filter(s -> s.bortleClass() != null).toList();
+                    int clearCount = (int) darkSky.stream().filter(AuroraLocationSlot::clear).count();
+                    Integer bestBortle = darkSky.stream()
+                            .map(AuroraLocationSlot::bortleClass)
+                            .min(Integer::compareTo).orElse(null);
+                    String verdict = darkSky.isEmpty() ? null
+                            : clearCount > 0 ? "GO" : "STANDDOWN";
+                    return new AuroraRegionSummary(
+                            e.getKey(), verdict, clearCount, darkSky.size(), bestBortle, slots);
+                })
                 .collect(Collectors.toList());
 
         int clearCount = (int) scores.stream()
@@ -115,7 +127,8 @@ public class BriefingAuroraSummaryBuilder {
                 label = "Quiet";
             }
 
-            return new AuroraTomorrowSummary(peakKp, label);
+            return new AuroraTomorrowSummary(peakKp, label,
+                    AlertLevel.fromKp(peakKp).name());
         } catch (Exception e) {
             LOG.debug("Could not fetch tomorrow Kp forecast for briefing: {}", e.getMessage());
             return null;

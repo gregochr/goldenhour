@@ -128,7 +128,10 @@ public class BriefingBestBetAdvisor {
               Extra Extra High alone (on a Regular Tide) suggests weather-driven effects.
             - Tide alignment matters: matched tides add foreground drama and composition
               opportunities. Always mention when tide is aligned with the event.
-            - Aurora events (MODERATE or above with clear dark-sky locations) are rare and exciting
+            - Aurora events appear as columns in the grid alongside sunrise and sunset, using
+              date-based event IDs like "2026-04-01_aurora". When aurora is active with clear
+              dark-sky locations, this is a top-tier opportunity — rank alongside king tides.
+              An aurora pick should reference the specific night and alert level.
             - When mentioning aurora in a pick for a different event, always state the night
               explicitly — write "tonight's aurora" or "aurora forecast for tomorrow night",
               never just "aurora alert" or "moderate aurora chance". The reader sees each pick
@@ -307,7 +310,7 @@ public class BriefingBestBetAdvisor {
     private List<BestBet> enrichWithEventData(List<BestBet> picks, List<BriefingDay> days) {
         LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
         return picks.stream().map(pick -> {
-            if (pick.event() == null || "aurora_tonight".equals(pick.event())) {
+            if (pick.event() == null || pick.event().endsWith("_aurora")) {
                 return pick;
             }
             String[] parts = pick.event().split("_", 2);
@@ -409,7 +412,7 @@ public class BriefingBestBetAdvisor {
             return false;
         }
         // Aurora events may reference any region — skip region validation
-        boolean isAurora = "aurora_tonight".equals(pick.event());
+        boolean isAurora = pick.event() != null && pick.event().endsWith("_aurora");
         if (!isAurora && pick.region() != null && !validRegions.contains(pick.region())) {
             LOG.warn("Best bet pick rejected: region '{}' not in validRegions", pick.region());
             return false;
@@ -517,8 +520,9 @@ public class BriefingBestBetAdvisor {
         if (auroraStateCache.isActive()
                 && auroraStateCache.getCurrentLevel() != null
                 && auroraStateCache.getCurrentLevel().isAlertWorthy()) {
-            appendAuroraEvent(eventsNode);
-            validEvents.add("aurora_tonight");
+            String auroraEventId = today + "_aurora";
+            appendAuroraEvent(eventsNode, auroraEventId);
+            validEvents.add(auroraEventId);
         }
 
         if (!includedDates.isEmpty()) {
@@ -636,9 +640,9 @@ public class BriefingBestBetAdvisor {
         }
     }
 
-    private void appendAuroraEvent(ArrayNode eventsNode) {
+    private void appendAuroraEvent(ArrayNode eventsNode, String eventId) {
         ObjectNode auroraNode = eventsNode.addObject();
-        auroraNode.put("event", "aurora_tonight");
+        auroraNode.put("event", eventId);
         auroraNode.put("alertLevel", auroraStateCache.getCurrentLevel().name());
         Double kp = auroraStateCache.getLastTriggerKp();
         if (kp != null) {

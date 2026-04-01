@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
+import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import { formatEventTimeUk } from '../utils/conversions.js';
 
@@ -610,20 +610,87 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   );
 }
 
+// ── Aurora alert level styling ────────────────────────────────────────────────
+
+const AURORA_LEVEL_COLOUR = {
+  STRONG: 'text-red-400',
+  MODERATE: 'text-amber-400',
+  MINOR: 'text-green-400',
+};
+
+const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
+
+// ── AuroraDrillDown ──────────────────────────────────────────────────────────
+
+function AuroraDrillDown({ regionName, auroraTonight, onClose, onShowOnMap, date }) {
+  const auroraRegion = (auroraTonight?.regions || []).find((r) => r.regionName === regionName);
+  const locations = (auroraRegion?.locations || [])
+    .filter((l) => l.bortleClass != null)
+    .sort((a, b) => (a.bortleClass ?? 99) - (b.bortleClass ?? 99));
+
+  return (
+    <div
+      data-testid="aurora-drill-down"
+      style={{ gridColumn: '1 / -1' }}
+      className="px-3 py-2.5 rounded bg-plex-bg/50 border border-indigo-500/20 mt-0.5"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
+          🌌 {regionName} — Aurora tonight
+          <span className={`ml-1.5 font-bold ${AURORA_LEVEL_COLOUR[auroraTonight?.alertLevel] || ''}`}
+            style={{ fontSize: '12px' }}>
+            {AURORA_LEVEL_LABEL[auroraTonight?.alertLevel] || auroraTonight?.alertLevel}
+            {auroraTonight?.kp != null && ` (Kp ${auroraTonight.kp.toFixed(1)})`}
+          </span>
+        </span>
+        <button onClick={onClose} className="text-plex-text-muted hover:text-plex-text px-1 text-sm"
+          aria-label="Close drill-down">✕</button>
+      </div>
+
+      {locations.length === 0 ? (
+        <p className="text-plex-text-muted italic" style={{ fontSize: '12px' }}>No dark-sky locations in this region</p>
+      ) : (
+        <div className="space-y-0.5">
+          {locations.map((loc) => (
+            <div key={loc.locationName}
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 mt-1"
+              data-testid="aurora-drill-location">
+              <span className={`inline-block w-2 h-2 rounded-full ${loc.clear ? 'bg-green-400' : 'bg-red-400/60'}`}
+                title={loc.clear ? 'Clear skies' : 'Cloudy'} />
+              <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>{loc.locationName}</span>
+              {loc.bortleClass != null && (
+                <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium" style={{ fontSize: '10px' }}>
+                  Bortle {loc.bortleClass}
+                </span>
+              )}
+              <span className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
+                {loc.cloudPercent}% cloud
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {onShowOnMap && date && (
+        <div className="mt-2 pt-1.5 border-t border-plex-border/20">
+          <button
+            data-testid="aurora-show-on-map"
+            className="btn-secondary text-xs hover:bg-indigo-800/60 hover:text-indigo-200"
+            onClick={() => onShowOnMap(date, 'AURORA')}
+          >
+            Show on map
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── HeatmapGrid (main export) ─────────────────────────────────────────────────
 
 /**
- * Desktop heatmap grid — up to 6 event columns with dynamic day-header spanning.
- *
- * @param {object[]}  events         Up to 6 upcoming event objects [{date, targetType}]
- * @param {string[]}  sortedRegions  Region names ordered by quality (re-sorted internally by visible tier)
- * @param {object[]}  briefingDays   Raw briefing days array
- * @param {number}    qualityTier    Current slider position (0–5)
- * @param {Map}       driveMap       locationName → driveDurationMinutes
- * @param {Map}       typeMap        locationName → locationType string
- * @param {string}    todayStr       YYYY-MM-DD for today
- * @param {string}    tomorrowStr    YYYY-MM-DD for tomorrow
- * @param {function}  onShowOnMap    (date, targetType) callback
+ * Desktop heatmap grid — event columns with dynamic day-header spanning.
+ * Solar events (SUNRISE/SUNSET), astro (🌙), and aurora (🌌) columns.
  */
 export default function HeatmapGrid({
   events,
@@ -642,6 +709,8 @@ export default function HeatmapGrid({
   onStopEvaluation,
   canRunEvaluation = false,
   astroScoresByDate = {},
+  auroraTonight = null,
+  auroraTomorrow = null,
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
@@ -678,6 +747,22 @@ export default function HeatmapGrid({
     let bestA = 6;
     let bestB = 6;
     for (const { date, targetType } of events) {
+      if (targetType === 'AURORA') {
+        const isTonight = date === todayStr && auroraTonight;
+        const isTmrw = date === tomorrowStr && auroraTomorrow;
+        for (const rn of [a, b]) {
+          const auroraRegion = isTonight
+            ? (auroraTonight?.regions || []).find((r) => r.regionName === rn) : null;
+          const t = isTonight
+            ? computeAuroraCellTier(auroraRegion, false)
+            : isTmrw ? computeAuroraCellTier({ verdict: 'GO' }, true) : 6;
+          if (isCellVisible(t, qualityTier)) {
+            if (rn === a && t < bestA) bestA = t;
+            if (rn === b && t < bestB) bestB = t;
+          }
+        }
+        continue;
+      }
       const cdA = getSubCellData(date, a, targetType, briefingDays);
       const cdB = getSubCellData(date, b, targetType, briefingDays);
       if (cdA && !cdA.past) {
@@ -695,6 +780,17 @@ export default function HeatmapGrid({
   // Check whether all cells in a region row are hidden (for label fading)
   function isRegionFullyHidden(regionName) {
     for (const { date, targetType } of events) {
+      if (targetType === 'AURORA') {
+        const isTonight = date === todayStr && auroraTonight;
+        const isTmrw = date === tomorrowStr && auroraTomorrow;
+        const auroraRegion = isTonight
+          ? (auroraTonight?.regions || []).find((r) => r.regionName === regionName) : null;
+        const t = isTonight
+          ? computeAuroraCellTier(auroraRegion, false)
+          : isTmrw ? computeAuroraCellTier({ verdict: 'GO' }, true) : 6;
+        if (isCellVisible(t, qualityTier)) return false;
+        continue;
+      }
       const cd = getSubCellData(date, regionName, targetType, briefingDays);
       if (!cd || cd.past) continue;
       const t = computeCellTier(cd.region);
@@ -736,9 +832,11 @@ export default function HeatmapGrid({
           key={`${date}-${targetType}`}
           className="text-center text-plex-text-muted pb-0.5"
           style={{ fontSize: '13px' }}
-          title={targetType === 'SUNRISE' ? 'Sunrise' : targetType === 'ASTRO' ? 'Astro conditions' : 'Sunset'}
+          title={targetType === 'SUNRISE' ? 'Sunrise' : targetType === 'ASTRO' ? 'Astro conditions'
+            : targetType === 'AURORA' ? 'Aurora' : 'Sunset'}
         >
-          {targetType === 'SUNRISE' ? '🌅' : targetType === 'ASTRO' ? '🌙' : '🌇'}
+          {targetType === 'SUNRISE' ? '🌅' : targetType === 'ASTRO' ? '🌙'
+            : targetType === 'AURORA' ? '🌌' : '🌇'}
         </div>
       ))}
 
@@ -770,7 +868,6 @@ export default function HeatmapGrid({
               // Astro cells use a different rendering path
               if (targetType === 'ASTRO') {
                 const dateScores = astroScoresByDate[date] || {};
-                // Find locations in this region from briefing data
                 const regionLocNames = getRegionLocationNames(date, regionName, briefingDays);
                 const astroStars = regionLocNames
                   .map((n) => dateScores[n]?.stars)
@@ -798,6 +895,99 @@ export default function HeatmapGrid({
                 );
               }
 
+              // Aurora cells — tonight (interactive) or tomorrow (informational)
+              if (targetType === 'AURORA') {
+                const isTonight = date === todayStr && auroraTonight;
+                const isTomorrow = date === tomorrowStr && auroraTomorrow;
+                const auroraRegion = isTonight
+                  ? (auroraTonight.regions || []).find((r) => r.regionName === regionName)
+                  : null;
+                const cellTier = isTonight
+                  ? computeAuroraCellTier(auroraRegion, false)
+                  : isTomorrow ? computeAuroraCellTier({ verdict: 'GO' }, true) : 6;
+                const visible = isCellVisible(cellTier, qualityTier);
+                const disabled = isTonight && (!auroraRegion || auroraRegion.totalDarkSkyLocations === 0);
+                const isGo = auroraRegion?.verdict === 'GO';
+                const isActive = drillDown?.date === date && drillDown?.regionName === regionName
+                  && drillDown?.targetType === 'AURORA';
+
+                // Disabled cell — no dark sky locations
+                if (disabled) {
+                  return (
+                    <div key={drillKey} className="text-center py-2 text-plex-text-muted opacity-30"
+                      style={{ fontSize: '12px' }} data-testid="aurora-heatmap-cell">—</div>
+                  );
+                }
+
+                // Tomorrow informational cell
+                if (isTomorrow && !isTonight) {
+                  const levelColour = AURORA_LEVEL_COLOUR[auroraTomorrow.alertLevel] || 'text-indigo-300';
+                  return (
+                    <div key={drillKey} data-testid="aurora-heatmap-cell"
+                      className={`rounded border border-indigo-500/15 bg-indigo-500/8 text-left p-1.5 transition-all
+                        ${visible ? 'heatmap-cell-visible' : 'heatmap-cell-hidden'}`}
+                      style={{ opacity: visible ? 1 : undefined }}
+                      aria-hidden={!visible}>
+                      <div className={`font-medium ${levelColour}`} style={{ fontSize: '11px' }}>
+                        {AURORA_LEVEL_LABEL[auroraTomorrow.alertLevel] || auroraTomorrow.alertLevel}
+                      </div>
+                      <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
+                        Kp {auroraTomorrow.peakKp.toFixed(1)} forecast
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Tonight cell — GO or STANDDOWN
+                if (isTonight) {
+                  const isStanddown = auroraRegion?.verdict === 'STANDDOWN';
+                  const cellBg = isGo
+                    ? `bg-indigo-500/20 border-indigo-500/30 ${visible ? 'hover:bg-indigo-500/35' : ''}`
+                    : 'border-red-500/8';
+                  const visibilityClass = visible ? 'heatmap-cell-visible' : 'heatmap-cell-hidden';
+                  return (
+                    <button key={drillKey} data-testid="aurora-heatmap-cell"
+                      disabled={isStanddown || !visible}
+                      aria-hidden={!visible}
+                      className={`relative rounded border text-left p-1.5 transition-all ${visibilityClass} ${cellBg}
+                        ${isStanddown ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
+                        ${isActive ? 'ring-1 ring-white/25' : ''}`}
+                      style={{
+                        pointerEvents: (!visible || isStanddown) ? 'none' : undefined,
+                        opacity: isStanddown ? (visible ? 0.3 : 0.04) : undefined,
+                      }}
+                      onClick={(!visible || isStanddown) ? undefined
+                        : () => toggleDrillDown(date, regionName, 'AURORA')}>
+                      <div className={`font-medium ${isGo ? 'text-indigo-300' : 'text-plex-text-muted'}`}
+                        style={{ fontSize: '11px' }}>
+                        {isGo ? 'GO aurora' : 'Cloudy'}
+                      </div>
+                      {isGo && auroraRegion && (
+                        <>
+                          <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
+                            Clear {auroraRegion.clearLocationCount}/{auroraRegion.totalDarkSkyLocations}
+                          </div>
+                          {auroraRegion.bestBortleClass != null && (
+                            <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
+                              style={{ fontSize: '9px' }}>
+                              Bortle {auroraRegion.bestBortleClass}
+                            </span>
+                          )}
+                          <div className={`font-medium mt-0.5 ${AURORA_LEVEL_COLOUR[auroraTonight.alertLevel] || ''}`}
+                            style={{ fontSize: '9px' }}>
+                            {AURORA_LEVEL_LABEL[auroraTonight.alertLevel] || auroraTonight.alertLevel}
+                          </div>
+                        </>
+                      )}
+                    </button>
+                  );
+                }
+
+                // Fallback — should not happen
+                return <div key={drillKey} className="text-center py-2 text-plex-text-muted opacity-30"
+                  style={{ fontSize: '12px' }}>—</div>;
+              }
+
               const isActive =
                 drillDown?.date === date &&
                 drillDown?.regionName === regionName &&
@@ -818,8 +1008,19 @@ export default function HeatmapGrid({
               );
             })}
 
+            {/* Aurora drill-down panel */}
+            {drillDown?.regionName === regionName && drillDown?.targetType === 'AURORA' && (
+              <AuroraDrillDown
+                regionName={regionName}
+                auroraTonight={auroraTonight}
+                date={drillDown.date}
+                onClose={() => setDrillDown(null)}
+                onShowOnMap={onShowOnMap}
+              />
+            )}
+
             {/* Drill-down panel — spans full grid width */}
-            {drillDown?.regionName === regionName && drillDown?.date && (
+            {drillDown?.regionName === regionName && drillDown?.date && drillDown?.targetType !== 'AURORA' && (
               <HeatmapDrillDown
                 date={drillDown.date}
                 regionName={regionName}
@@ -872,4 +1073,22 @@ HeatmapGrid.propTypes = {
   onRunEvaluation: PropTypes.func,
   onStopEvaluation: PropTypes.func,
   canRunEvaluation: PropTypes.bool,
+  astroScoresByDate: PropTypes.object,
+  auroraTonight: PropTypes.shape({
+    alertLevel: PropTypes.string,
+    kp: PropTypes.number,
+    regions: PropTypes.arrayOf(PropTypes.shape({
+      regionName: PropTypes.string,
+      verdict: PropTypes.string,
+      clearLocationCount: PropTypes.number,
+      totalDarkSkyLocations: PropTypes.number,
+      bestBortleClass: PropTypes.number,
+      locations: PropTypes.array,
+    })),
+  }),
+  auroraTomorrow: PropTypes.shape({
+    peakKp: PropTypes.number,
+    label: PropTypes.string,
+    alertLevel: PropTypes.string,
+  }),
 };
