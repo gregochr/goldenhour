@@ -11,38 +11,31 @@ const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
  * @returns {{ emoji: string, label: string, explanation: string }}
  */
 export function bzStatus(bz) {
-  if (bz < -5) {
-    return {
-      emoji: '✅',
-      label: `Bz south (${bz.toFixed(1)} nT)`,
-      explanation: 'solar wind energy coupling with Earth, aurora should be visible',
-    };
-  }
   if (bz < -1) {
     return {
       emoji: '✅',
       label: `Bz south (${bz.toFixed(1)} nT)`,
-      explanation: 'solar wind coupling, faint aurora possible',
+      explanation: 'solar wind coupling active',
     };
   }
   if (bz < 0) {
     return {
       emoji: '➖',
-      label: `Bz neutral (${bz.toFixed(1)} nT)`,
-      explanation: 'weak coupling, borderline conditions',
+      label: `Bz near zero (${bz.toFixed(1)} nT)`,
+      explanation: 'neutral',
     };
   }
   if (bz <= 5) {
     return {
       emoji: '⚠️',
       label: `Bz north (+${bz.toFixed(1)} nT)`,
-      explanation: 'solar wind not coupling with Earth, aurora unlikely even with elevated Kp',
+      explanation: 'solar wind not coupling',
     };
   }
   return {
     emoji: '⚠️',
-    label: `Bz firmly north (+${bz.toFixed(1)} nT)`,
-    explanation: 'solar wind blocked from coupling with Earth, no aurora expected until Bz swings south',
+    label: `Bz north (+${bz.toFixed(1)} nT)`,
+    explanation: 'solar wind not coupling',
   };
 }
 

@@ -297,39 +297,47 @@ describe('AuroraBanner', () => {
   // ---------------------------------------------------------------------------
 
   describe('bzStatus()', () => {
-    it('returns ✅ and "should be visible" for Bz < −5', () => {
+    it('returns ✅ and "coupling active" for Bz < −1', () => {
       const result = bzStatus(-9.2);
       expect(result.emoji).toBe('✅');
       expect(result.label).toBe('Bz south (-9.2 nT)');
-      expect(result.explanation).toMatch(/should be visible/);
+      expect(result.explanation).toBe('solar wind coupling active');
     });
 
-    it('returns ✅ and "faint aurora possible" for Bz between −5 and −1', () => {
+    it('returns ✅ for moderate negative Bz (−3.1)', () => {
       const result = bzStatus(-3.1);
       expect(result.emoji).toBe('✅');
       expect(result.label).toBe('Bz south (-3.1 nT)');
-      expect(result.explanation).toMatch(/faint aurora possible/);
+      expect(result.explanation).toBe('solar wind coupling active');
     });
 
-    it('returns ➖ and "borderline" for Bz between −1 and 0', () => {
+    it('returns ➖ and "neutral" for Bz near zero (−0.5)', () => {
       const result = bzStatus(-0.5);
       expect(result.emoji).toBe('➖');
-      expect(result.label).toBe('Bz neutral (-0.5 nT)');
-      expect(result.explanation).toMatch(/borderline/);
+      expect(result.label).toBe('Bz near zero (-0.5 nT)');
+      expect(result.explanation).toBe('neutral');
     });
 
-    it('returns ⚠️ and "not coupling" for Bz between 0 and +5', () => {
+    it('returns ⚠️ and "not coupling" for Bz north (+3.2)', () => {
       const result = bzStatus(3.2);
       expect(result.emoji).toBe('⚠️');
       expect(result.label).toBe('Bz north (+3.2 nT)');
-      expect(result.explanation).toMatch(/not coupling/);
+      expect(result.explanation).toBe('solar wind not coupling');
     });
 
-    it('returns ⚠️ and "firmly north" for Bz > +5', () => {
+    it('returns ⚠️ and "not coupling" for Bz firmly north (+7.8)', () => {
       const result = bzStatus(7.8);
       expect(result.emoji).toBe('⚠️');
-      expect(result.label).toBe('Bz firmly north (+7.8 nT)');
-      expect(result.explanation).toMatch(/blocked/);
+      expect(result.label).toBe('Bz north (+7.8 nT)');
+      expect(result.explanation).toBe('solar wind not coupling');
+    });
+
+    it('contains no interpretive severity language', () => {
+      // Bz text should be factual only — severity comes from the Kp headline
+      for (const bz of [-9.2, -3.1, -0.5, 3.2, 7.8]) {
+        const result = bzStatus(bz);
+        expect(result.explanation).not.toMatch(/faint|strong|should be visible|aurora possible|aurora unlikely|aurora expected|blocked|borderline/i);
+      }
     });
   });
 

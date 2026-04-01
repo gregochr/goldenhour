@@ -594,6 +594,109 @@ class NoaaSwpcClientTest {
     }
 
     // -------------------------------------------------------------------------
+    // Viewline threshold tests (using VIEWLINE_THRESHOLD = 10)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Kp 6 profile: viewline stops at ~55°N, not whole UK")
+    void parseViewline_moderateStorm_viewlineStopsAtNorthernEngland() throws Exception {
+        // Probabilities taper realistically for a Kp 6 event
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [355, 60, 30],
+                    [355, 56, 15],
+                    [355, 54, 8],
+                    [355, 50, 3],
+                    [0, 60, 30],
+                    [0, 56, 15],
+                    [0, 54, 8],
+                    [0, 50, 3]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
+
+        assertThat(result.active()).isTrue();
+        // 54°N has 8% (below 10%), so viewline should stop at 56°N
+        assertThat(result.southernmostLatitude()).isGreaterThanOrEqualTo(55.0);
+        assertThat(result.summary()).doesNotContain("whole of the UK");
+    }
+
+    @Test
+    @DisplayName("Kp 8+ profile: viewline reaches ~52°N (Midlands)")
+    void parseViewline_strongStorm_viewlineReachesMidlands() throws Exception {
+        // Higher probabilities reach further south
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [355, 60, 60],
+                    [355, 56, 40],
+                    [355, 52, 15],
+                    [355, 50, 8],
+                    [0, 60, 60],
+                    [0, 56, 40],
+                    [0, 52, 15],
+                    [0, 50, 8]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
+
+        assertThat(result.active()).isTrue();
+        // 52°N has 15% (above 10%), 50°N has 8% (below)
+        assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(53.0);
+        assertThat(result.summary()).containsAnyOf("Midlands", "whole of the UK");
+    }
+
+    @Test
+    @DisplayName("All probabilities below 10% threshold → inactive")
+    void parseViewline_allBelowThreshold_inactive() throws Exception {
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [355, 60, 8],
+                    [355, 56, 5],
+                    [0, 60, 9],
+                    [0, 56, 3]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
+
+        assertThat(result.active()).isFalse();
+        assertThat(result.points()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Exactly 10% probability is included; 9% is excluded")
+    void parseViewline_exactBoundary_10pctIncluded_9pctExcluded() throws Exception {
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [0, 56, 10],
+                    [0, 54, 9],
+                    [0, 60, 30]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
+
+        assertThat(result.active()).isTrue();
+        // 56°N at exactly 10% should be included; 54°N at 9% should not
+        assertThat(result.southernmostLatitude()).isGreaterThanOrEqualTo(56.0);
+        assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(56.5);
+    }
+
+    // -------------------------------------------------------------------------
     // Helper
     // -------------------------------------------------------------------------
 
