@@ -321,7 +321,7 @@ class BriefingVerdictEvaluatorTest {
                             true, false, null, null, null),
                     List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
-                    .containsExactly("Extra Extra High at Bamburgh");
+                    .containsExactly("Extra Extra High at 1 coastal spot");
         }
 
         @Test
@@ -335,7 +335,7 @@ class BriefingVerdictEvaluatorTest {
                             null, null, null),
                     List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
-                    .containsExactly("Extra High at Seahouses");
+                    .containsExactly("Extra High at 1 coastal spot");
         }
 
         @Test
@@ -349,7 +349,7 @@ class BriefingVerdictEvaluatorTest {
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
                     List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
-                    .containsExactly("Spring Tide at Bamburgh");
+                    .containsExactly("Spring Tide at 1 coastal spot");
         }
 
         @Test
@@ -363,7 +363,7 @@ class BriefingVerdictEvaluatorTest {
                             LunarTideType.KING_TIDE, "New Moon", true),
                     List.of());
             assertThat(evaluator.buildTideHighlights(List.of(s)))
-                    .containsExactly("King Tide, Extra Extra High at Bamburgh");
+                    .containsExactly("King Tide, Extra Extra High at 1 coastal spot");
         }
 
         @Test
@@ -536,8 +536,8 @@ class BriefingVerdictEvaluatorTest {
         void tideInSummary() {
             List<BriefingSlot> slots = List.of(slot("Bamburgh", Verdict.GO));
             assertThat(evaluator.buildRegionSummary(Verdict.GO, slots,
-                    List.of("King Tide, Extra Extra High at Bamburgh")))
-                    .contains("king tide, extra extra high at bamburgh");
+                    List.of("King Tide, Extra Extra High at 3 coastal spots")))
+                    .contains("king tide, extra extra high at 3 coastal spots");
         }
     }
 

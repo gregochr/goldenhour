@@ -476,7 +476,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   const isStanddown = region.verdict === 'STANDDOWN';
 
-  // Extract the best tide label from tideHighlights (e.g. "King Tide, Extra Extra High at Bamburgh" → "King Tide, Extra Extra High")
+  // Extract the best tide label from tideHighlights (e.g. "King Tide at 3 coastal spots" → "King Tide")
   const tideHighlight = (region.tideHighlights || []).find((h) =>
     h.toLowerCase().includes('king') || h.toLowerCase().includes('spring') || h.toLowerCase().includes('extra'));
   const tideLabel = tideHighlight ? tideHighlight.replace(/ at .+$/, '') : null;

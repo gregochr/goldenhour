@@ -8,7 +8,7 @@ import java.util.List;
  * @param regionName                   display name of the geographic region
  * @param verdict                      rolled-up verdict across all slots in this region
  * @param summary                      one-line human-readable summary of conditions
- * @param tideHighlights               notable tide events (e.g. "King tide at Bamburgh")
+ * @param tideHighlights               count-based tide summaries (e.g. "Spring Tide at 3 coastal spots")
  * @param slots                        individual location assessments within this region
  * @param regionTemperatureCelsius     representative temperature for the region in °C (nullable)
  * @param regionApparentTemperatureCelsius feels-like temperature for the region in °C (nullable)

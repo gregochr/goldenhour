@@ -7,7 +7,9 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Stateless evaluator for briefing slot verdicts, region rollups, and flag generation.
@@ -234,13 +236,16 @@ public class BriefingVerdictEvaluator {
     }
 
     /**
-     * Extracts tide highlights from slots using combined lunar + statistical labels.
+     * Extracts tide highlights from slots, grouped by classification with counts.
+     *
+     * <p>Returns summary strings like "king tide at 3 coastal spots" or
+     * "spring tide at 1 coastal spot" instead of listing individual location names.
      *
      * @param slots the location slots
-     * @return list of notable tide events (e.g. "King Tide, Extra Extra High at Bamburgh")
+     * @return list of count-based tide summaries (e.g. "king tide at 3, spring tide at 13 coastal spots")
      */
     public List<String> buildTideHighlights(List<BriefingSlot> slots) {
-        List<String> highlights = new ArrayList<>();
+        Map<String, Integer> countsByLabel = new LinkedHashMap<>();
         for (BriefingSlot slot : slots) {
             TideContext ctx = new TideContext(
                     slot.tide().tideState(), slot.tide().tideAligned(),
@@ -248,8 +253,17 @@ public class BriefingVerdictEvaluator {
                     slot.tide().lunarTideType(), false);
             String label = combinedTideLabel(ctx);
             if (label != null) {
-                highlights.add(label + " at " + slot.locationName());
+                countsByLabel.merge(label, 1, Integer::sum);
             }
+        }
+        if (countsByLabel.isEmpty()) {
+            return List.of();
+        }
+        List<String> highlights = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : countsByLabel.entrySet()) {
+            int count = entry.getValue();
+            highlights.add(entry.getKey() + " at " + count + " coastal spot"
+                    + (count != 1 ? "s" : ""));
         }
         return highlights;
     }
