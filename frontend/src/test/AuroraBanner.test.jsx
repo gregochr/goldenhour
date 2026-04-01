@@ -7,10 +7,16 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({
   useAuroraStatus: vi.fn(),
 }));
 
+vi.mock('../hooks/useAuroraViewline.js', () => ({
+  useAuroraViewline: vi.fn(),
+}));
+
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
+import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 
 function renderBanner(status) {
   useAuroraStatus.mockReturnValue({ status, loading: false });
+  useAuroraViewline.mockReturnValue({ viewline: null });
   return render(<AuroraBanner />);
 }
 
@@ -410,5 +416,47 @@ describe('AuroraBanner', () => {
     });
     const banner = screen.getByTestId('aurora-banner');
     expect(banner.style.animation).toBeFalsy();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Viewline summary
+  // ---------------------------------------------------------------------------
+
+  it('shows viewline summary when available', () => {
+    useAuroraViewline.mockReturnValue({
+      viewline: { active: true, summary: 'Visible as far south as northern England' },
+    });
+    useAuroraStatus.mockReturnValue({
+      status: {
+        level: 'MODERATE',
+        hexColour: '#ff9900',
+        description: 'Amber alert',
+        active: true,
+        eligibleLocations: 3,
+      },
+      loading: false,
+    });
+    render(<AuroraBanner />);
+    const el = screen.getByTestId('aurora-banner-viewline');
+    expect(el).toBeInTheDocument();
+    expect(el.textContent).toContain('Visible as far south as northern England');
+  });
+
+  it('hides viewline when not active', () => {
+    useAuroraViewline.mockReturnValue({
+      viewline: { active: false, summary: 'No aurora' },
+    });
+    useAuroraStatus.mockReturnValue({
+      status: {
+        level: 'MODERATE',
+        hexColour: '#ff9900',
+        description: 'Amber alert',
+        active: true,
+        eligibleLocations: 3,
+      },
+      loading: false,
+    });
+    render(<AuroraBanner />);
+    expect(screen.queryByTestId('aurora-banner-viewline')).not.toBeInTheDocument();
   });
 });
