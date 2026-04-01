@@ -129,6 +129,11 @@ public class BriefingBestBetAdvisor {
             - Tide alignment matters: matched tides add foreground drama and composition
               opportunities. Always mention when tide is aligned with the event.
             - Aurora events (MODERATE or above with clear dark-sky locations) are rare and exciting
+            - When mentioning aurora in a pick for a different event, always state the night
+              explicitly — write "tonight's aurora" or "aurora forecast for tomorrow night",
+              never just "aurora alert" or "moderate aurora chance". The reader sees each pick
+              as a self-contained card and needs to know whether the aurora coincides with the
+              recommended outing or is a separate opportunity on a different night.
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the appeal
             - If multiple events are close in quality, prefer the sooner one
