@@ -114,4 +114,41 @@ public class SolarService {
     public long dayLengthMinutes(double lat, double lon, LocalDate date) {
         return calculator.dayLengthMinutes(lat, lon, date);
     }
+
+    /**
+     * Approximate UTC nautical dusk — when the sun reaches −12° after sunset.
+     *
+     * <p>Solar-utils does not provide nautical twilight directly, so this
+     * approximates it as civil dusk + 35 minutes. The same approach is used
+     * by {@code AuroraForecastRunService} for computing dark windows.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate nautical dusk for
+     * @return approximate UTC time of nautical dusk
+     */
+    public LocalDateTime nauticalDuskUtc(double lat, double lon, LocalDate date) {
+        return civilDuskUtc(lat, lon, date).plusMinutes(NAUTICAL_OFFSET_MINUTES);
+    }
+
+    /**
+     * Approximate UTC nautical dawn — when the sun reaches −12° before sunrise.
+     *
+     * <p>Approximated as civil dawn − 35 minutes, consistent with the approach
+     * used by {@code AuroraForecastRunService}.
+     *
+     * @param lat  latitude in decimal degrees
+     * @param lon  longitude in decimal degrees
+     * @param date the date to calculate nautical dawn for
+     * @return approximate UTC time of nautical dawn
+     */
+    public LocalDateTime nauticalDawnUtc(double lat, double lon, LocalDate date) {
+        return civilDawnUtc(lat, lon, date).minusMinutes(NAUTICAL_OFFSET_MINUTES);
+    }
+
+    /**
+     * Offset in minutes between civil twilight (−6°) and nautical twilight (−12°).
+     * Empirically ~30–40 minutes at UK latitudes; 35 is a reasonable middle value.
+     */
+    private static final long NAUTICAL_OFFSET_MINUTES = 35;
 }

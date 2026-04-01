@@ -60,4 +60,14 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * @return enabled locations with {@code bortle_class <= maxBortleClass}
      */
     List<LocationEntity> findByBortleClassLessThanEqualAndEnabledTrue(int maxBortleClass);
+
+    /**
+     * Returns all enabled locations that have been enriched with a Bortle class.
+     *
+     * <p>Used by the astro conditions scorer to find all dark-sky-eligible locations
+     * regardless of Bortle threshold.
+     *
+     * @return enabled locations with a non-null {@code bortle_class}
+     */
+    List<LocationEntity> findByBortleClassIsNotNullAndEnabledTrue();
 }

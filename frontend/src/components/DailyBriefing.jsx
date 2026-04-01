@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { subscribeToBriefingEvaluation } from '../api/briefingEvaluationApi.js';
+import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import QualitySlider from './QualitySlider.jsx';
@@ -694,9 +695,15 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
   // Evaluation state: keyed by "regionName|date|targetType|locationName"
   const [evaluationScores, setEvaluationScores] = useState(new Map());
-  // { regionName, date, targetType, completed, total, failed, status: 'running'|'complete'|'error' }
+  // { regionName, date, targetType, completed, total, failed, status: 'running'|'complete'|'error', evaluatedAt }
   const [evaluationProgress, setEvaluationProgress] = useState(null);
+  // Stores evaluatedAt timestamps keyed by "regionName|date|targetType"
+  const [evaluationTimestamps, setEvaluationTimestamps] = useState(new Map());
   const evalCleanupRef = useRef(null);
+
+  // Astro conditions: per-date scores keyed by locationName
+  const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
+  const [astroAvailableDates, setAstroAvailableDates] = useState([]);
 
   /** Starts a Claude evaluation for the given drill-down cell. */
   const handleRunEvaluation = useCallback((regionName, date, targetType) => {
@@ -724,8 +731,16 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       // onComplete
       (data) => {
         setEvaluationProgress((prev) => prev ? {
-          ...prev, completed: data.completed, total: data.total, failed: data.failed, status: 'complete',
+          ...prev, completed: data.completed, total: data.total, failed: data.failed,
+          status: 'complete', evaluatedAt: data.evaluatedAt,
         } : prev);
+        if (data.evaluatedAt) {
+          setEvaluationTimestamps((prev) => {
+            const next = new Map(prev);
+            next.set(`${regionName}|${date}|${targetType}`, data.evaluatedAt);
+            return next;
+          });
+        }
       },
       // onLocationError
       () => {},
@@ -735,6 +750,14 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       },
     );
     evalCleanupRef.current = cleanup;
+  }, []);
+
+  /** Stops any running SSE evaluation (called when drill-down closes or tab switches). */
+  const handleStopEvaluation = useCallback(() => {
+    if (evalCleanupRef.current) {
+      evalCleanupRef.current();
+      evalCleanupRef.current = null;
+    }
   }, []);
 
   // Clean up SSE on unmount
@@ -806,6 +829,38 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     };
   }, [fetchBriefing]);
 
+  // Fetch astro available dates once on mount.
+  useEffect(() => {
+    getAstroAvailableDates().then(setAstroAvailableDates).catch(() => {});
+  }, []);
+
+  // Fetch astro conditions for each visible date in the heatmap.
+  const astroDayDates = useMemo(() => {
+    if (!briefing) return [];
+    const events = selectUpcomingEvents(briefing.days);
+    return [...new Set(events.map((e) => e.date))];
+  }, [briefing]);
+
+  useEffect(() => {
+    if (astroDayDates.length === 0) return;
+    const astroDates = astroDayDates.filter((d) => astroAvailableDates.includes(d));
+    if (astroDates.length === 0) {
+      setAstroScoresByDate({});
+      return;
+    }
+    Promise.all(astroDates.map((d) =>
+      getAstroConditions(d).then((scores) => ({ date: d, scores })).catch(() => ({ date: d, scores: [] })),
+    )).then((results) => {
+      const byDate = {};
+      for (const { date, scores } of results) {
+        const byName = {};
+        scores.forEach((s) => { byName[s.locationName] = s; });
+        byDate[date] = byName;
+      }
+      setAstroScoresByDate(byDate);
+    });
+  }, [astroDayDates, astroAvailableDates]);
+
   const handlePickClick = useCallback(() => {
     setIsExpanded(true);
   }, []);
@@ -817,6 +872,25 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   }, [briefing]);
 
   const dayDates = useMemo(() => [...new Set(upcomingEvents.map((e) => e.date))], [upcomingEvents]);
+
+  // Augment events with ASTRO sub-columns for dates that have astro data.
+  const heatmapEvents = useMemo(() => {
+    const hasAstro = Object.keys(astroScoresByDate).length > 0;
+    if (!hasAstro) return upcomingEvents;
+    const result = [];
+    let lastDate = null;
+    for (const ev of upcomingEvents) {
+      result.push(ev);
+      // Add ASTRO column after the last event of each date
+      if (ev.date !== lastDate) lastDate = ev.date;
+      const nextIdx = upcomingEvents.indexOf(ev) + 1;
+      const nextDate = nextIdx < upcomingEvents.length ? upcomingEvents[nextIdx].date : null;
+      if (nextDate !== ev.date && astroScoresByDate[ev.date]) {
+        result.push({ date: ev.date, targetType: 'ASTRO' });
+      }
+    }
+    return result;
+  }, [upcomingEvents, astroScoresByDate]);
 
   const sortedRegions = useMemo(() => {
     if (!briefing) return [];
@@ -1085,7 +1159,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
       {/* ── Desktop heatmap grid — always visible on sm+ ── */}
       <HeatmapGrid
-        events={upcomingEvents}
+        events={heatmapEvents}
         sortedRegions={sortedRegions}
         briefingDays={briefing.days}
         qualityTier={qualityTier}
@@ -1096,8 +1170,11 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         onShowOnMap={onShowOnMap}
         evaluationScores={evaluationScores}
         evaluationProgress={evaluationProgress}
+        evaluationTimestamps={evaluationTimestamps}
         onRunEvaluation={handleRunEvaluation}
+        onStopEvaluation={handleStopEvaluation}
         canRunEvaluation={canRunEvaluation}
+        astroScoresByDate={astroScoresByDate}
       />
 
       {/* ── Aurora row — below grid, not affected by quality slider ── */}

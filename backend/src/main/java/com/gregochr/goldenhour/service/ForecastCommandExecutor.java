@@ -65,6 +65,7 @@ public class ForecastCommandExecutor {
     private final RunProgressTracker progressTracker;
     private final ApplicationEventPublisher eventPublisher;
     private final SentinelSelector sentinelSelector;
+    private final AstroConditionsService astroConditionsService;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -80,6 +81,7 @@ public class ForecastCommandExecutor {
      * @param progressTracker             tracks live run progress for SSE broadcasting
      * @param eventPublisher              publishes location task state transition events
      * @param sentinelSelector            selects geographic sentinel locations per region
+     * @param astroConditionsService      template scorer for nightly astro observing conditions
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
@@ -87,7 +89,8 @@ public class ForecastCommandExecutor {
             Executor forecastExecutor, OptimisationSkipEvaluator optimisationSkipEvaluator,
             OptimisationStrategyService optimisationStrategyService,
             RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher,
-            SentinelSelector sentinelSelector) {
+            SentinelSelector sentinelSelector,
+            AstroConditionsService astroConditionsService) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -99,6 +102,7 @@ public class ForecastCommandExecutor {
         this.progressTracker = progressTracker;
         this.eventPublisher = eventPublisher;
         this.sentinelSelector = sentinelSelector;
+        this.astroConditionsService = astroConditionsService;
     }
 
     /**
@@ -164,13 +168,27 @@ public class ForecastCommandExecutor {
                 strategiesAudit != null ? strategiesAudit : "none");
 
         // Wildlife runs bypass the three-phase pipeline
+        List<ForecastEvaluationEntity> results;
         if (isWildlife) {
-            return executeWildlife(locations, dates, jobRun);
+            results = executeWildlife(locations, dates, jobRun);
+        } else {
+            Set<String> excludedSlots = command.excludedSlots() != null
+                    ? command.excludedSlots() : Set.of();
+            results = executeThreePhasePipeline(locations, dates, enabledStrategies,
+                    evaluationModel, runType, jobRun, excludedSlots);
         }
 
-        Set<String> excludedSlots = command.excludedSlots() != null ? command.excludedSlots() : Set.of();
-        return executeThreePhasePipeline(locations, dates, enabledStrategies,
-                evaluationModel, runType, jobRun, excludedSlots);
+        // Astro conditions scoring (piggyback — template, no Claude)
+        if (isColourRunType(runType)) {
+            try {
+                int astroCount = astroConditionsService.evaluateAndPersist(dates);
+                LOG.info("Astro conditions: {} location-dates scored", astroCount);
+            } catch (Exception e) {
+                LOG.warn("Astro conditions scoring failed: {}", e.getMessage(), e);
+            }
+        }
+
+        return results;
     }
 
     // -------------------------------------------------------------------------
@@ -482,6 +500,16 @@ public class ForecastCommandExecutor {
     // -------------------------------------------------------------------------
     // Utility methods
     // -------------------------------------------------------------------------
+
+    /**
+     * Returns {@code true} if the run type is a colour photography run
+     * (sunrise/sunset evaluation) that should also trigger astro conditions scoring.
+     */
+    private static boolean isColourRunType(RunType runType) {
+        return runType == RunType.VERY_SHORT_TERM
+                || runType == RunType.SHORT_TERM
+                || runType == RunType.LONG_TERM;
+    }
 
     /**
      * Returns {@code true} if the location has at least one colour photography type

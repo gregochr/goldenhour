@@ -18,12 +18,16 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -44,9 +48,20 @@ public class BriefingEvaluationService {
     private final ModelSelectionService modelSelectionService;
     private final JobRunService jobRunService;
 
-    /** Outer key: "regionName|date|targetType", inner key: locationName. */
-    private final ConcurrentHashMap<String, ConcurrentHashMap<String, BriefingEvaluationResult>> cache =
-            new ConcurrentHashMap<>();
+    /** Outer key: "regionName|date|targetType", value: cached entry with results + timestamp. */
+    private final ConcurrentHashMap<String, CachedEvaluation> cache = new ConcurrentHashMap<>();
+
+    private static final DateTimeFormatter UK_TIME = DateTimeFormatter.ofPattern("HH:mm")
+            .withZone(ZoneId.of("Europe/London"));
+
+    /**
+     * Cached evaluation results for a region/date/targetType.
+     */
+    record CachedEvaluation(
+            ConcurrentHashMap<String, BriefingEvaluationResult> results,
+            Instant evaluatedAt
+    ) {
+    }
 
     /**
      * Constructs a {@code BriefingEvaluationService}.
@@ -84,9 +99,15 @@ public class BriefingEvaluationService {
             SseEmitter emitter) {
         String cacheKey = regionName + "|" + date + "|" + targetType;
 
+        // Track client disconnect so we stop submitting Claude calls
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        emitter.onCompletion(() -> cancelled.set(true));
+        emitter.onTimeout(() -> cancelled.set(true));
+        emitter.onError(e -> cancelled.set(true));
+
         // Cache hit — emit stored results rapidly
-        ConcurrentHashMap<String, BriefingEvaluationResult> cached = cache.get(cacheKey);
-        if (cached != null && !cached.isEmpty()) {
+        CachedEvaluation cached = cache.get(cacheKey);
+        if (cached != null && !cached.results().isEmpty()) {
             LOG.info("Briefing evaluation cache hit for {}", cacheKey);
             emitCachedResults(cached, emitter, regionName, date, targetType);
             return;
@@ -110,7 +131,7 @@ public class BriefingEvaluationService {
                     Map.of("completed", 0, "total", 0, "failed", 0,
                             "regionName", regionName, "date", date.toString(),
                             "targetType", targetType.name()));
-            emitter.complete();
+            completeEmitter(emitter);
             return;
         }
 
@@ -119,13 +140,18 @@ public class BriefingEvaluationService {
         JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, model);
 
         ConcurrentHashMap<String, BriefingEvaluationResult> results = new ConcurrentHashMap<>();
-        cache.put(cacheKey, results);
 
         int total = toEvaluate.size();
         int completed = 0;
         int failed = 0;
 
         for (LocationEntity location : toEvaluate) {
+            if (cancelled.get()) {
+                LOG.info("Client disconnected — stopping evaluation for {} ({}/{} done)",
+                        cacheKey, completed + failed, total);
+                break;
+            }
+
             try {
                 BriefingEvaluationResult result = evaluateSingleLocation(
                         location, date, targetType, model, jobRun);
@@ -144,11 +170,19 @@ public class BriefingEvaluationService {
         }
 
         jobRunService.completeRun(jobRun, completed, failed, List.of(date));
+
+        // Only cache if we completed all locations (not cancelled mid-stream)
+        Instant evaluatedAt = Instant.now();
+        if (!cancelled.get()) {
+            cache.put(cacheKey, new CachedEvaluation(results, evaluatedAt));
+        }
+
         sendSafe(emitter, "evaluation-complete",
                 Map.of("completed", completed, "total", total, "failed", failed,
                         "regionName", regionName, "date", date.toString(),
-                        "targetType", targetType.name()));
-        emitter.complete();
+                        "targetType", targetType.name(),
+                        "evaluatedAt", UK_TIME.format(evaluatedAt)));
+        completeEmitter(emitter);
 
         LOG.info("Briefing evaluation complete for {}: {}/{} succeeded, {} failed",
                 cacheKey, completed, total, failed);
@@ -165,8 +199,22 @@ public class BriefingEvaluationService {
     public Map<String, BriefingEvaluationResult> getCachedScores(String regionName,
             LocalDate date, TargetType targetType) {
         String cacheKey = regionName + "|" + date + "|" + targetType;
-        ConcurrentHashMap<String, BriefingEvaluationResult> cached = cache.get(cacheKey);
-        return cached != null ? Collections.unmodifiableMap(cached) : Map.of();
+        CachedEvaluation cached = cache.get(cacheKey);
+        return cached != null ? Collections.unmodifiableMap(cached.results()) : Map.of();
+    }
+
+    /**
+     * Returns the UK-formatted evaluation time for cached results, or null if not cached.
+     *
+     * @param regionName the region name
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @return formatted time string (e.g. "14:32") or null
+     */
+    public String getCachedEvaluatedAt(String regionName, LocalDate date, TargetType targetType) {
+        String cacheKey = regionName + "|" + date + "|" + targetType;
+        CachedEvaluation cached = cache.get(cacheKey);
+        return cached != null ? UK_TIME.format(cached.evaluatedAt()) : null;
     }
 
     /**
@@ -232,11 +280,11 @@ public class BriefingEvaluationService {
                 .collect(Collectors.toSet());
     }
 
-    private void emitCachedResults(ConcurrentHashMap<String, BriefingEvaluationResult> cached,
+    private void emitCachedResults(CachedEvaluation cached,
             SseEmitter emitter, String regionName, LocalDate date, TargetType targetType) {
-        int total = cached.size();
+        int total = cached.results().size();
         int i = 0;
-        for (BriefingEvaluationResult result : cached.values()) {
+        for (BriefingEvaluationResult result : cached.results().values()) {
             sendSafe(emitter, "location-scored", result);
             i++;
             sendSafe(emitter, "progress", Map.of("completed", i, "total", total, "failed", 0));
@@ -244,8 +292,17 @@ public class BriefingEvaluationService {
         sendSafe(emitter, "evaluation-complete",
                 Map.of("completed", total, "total", total, "failed", 0,
                         "regionName", regionName, "date", date.toString(),
-                        "targetType", targetType.name()));
-        emitter.complete();
+                        "targetType", targetType.name(),
+                        "evaluatedAt", UK_TIME.format(cached.evaluatedAt())));
+        completeEmitter(emitter);
+    }
+
+    private void completeEmitter(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (Exception e) {
+            LOG.debug("Emitter already completed: {}", e.getMessage());
+        }
     }
 
     private void sendSafe(SseEmitter emitter, String eventName, Object data) {

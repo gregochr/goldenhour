@@ -76,6 +76,25 @@ function getSubCellData(date, regionName, targetType, briefingDays) {
   return null;
 }
 
+/**
+ * Returns the set of location names belonging to a region on a given date.
+ * Extracted from briefing event summaries (any target type).
+ */
+function getRegionLocationNames(date, regionName, briefingDays) {
+  const day = briefingDays.find((d) => d.date === date);
+  if (!day) return [];
+  const names = new Set();
+  for (const es of day.eventSummaries || []) {
+    const region = (es.regions || []).find((r) => r.regionName === regionName);
+    if (region) {
+      for (const slot of region.slots || []) {
+        names.add(slot.locationName);
+      }
+    }
+  }
+  return [...names];
+}
+
 /** Small shared components (local copies for the extracted file) */
 
 function VerdictPill({ verdict }) {
@@ -159,19 +178,22 @@ const LOCATION_TYPE_ICONS = {
 
 // ── LocationSlotList ──────────────────────────────────────────────────────────
 
-/** Star rating badge colour: green 4-5, amber 3, red 1-2. */
+/** Star rating badge colour: 5-tier from bright green to red. */
 function ratingColour(rating) {
-  if (rating >= 4) return 'bg-green-600/80 text-white';
-  if (rating === 3) return 'bg-amber-600/80 text-white';
+  if (rating >= 5) return 'bg-green-500/90 text-white';
+  if (rating === 4) return 'bg-green-600/80 text-white';
+  if (rating === 3) return 'bg-amber-500/80 text-white';
+  if (rating === 2) return 'bg-orange-600/80 text-white';
   return 'bg-red-700/70 text-red-100';
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map() }) {
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false }) {
   const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   if (visible.length === 0) return null;
 
-  // Re-sort by Claude score when scores are available
-  const sorted = scores.size > 0
+  // Re-sort by Claude score only after evaluation completes (the "reveal" moment).
+  // During streaming, keep triage order so rows don't jump around.
+  const sorted = (evaluationComplete && scores.size > 0)
     ? [...visible].sort((a, b) => {
       const sa = scores.get(a.locationName);
       const sb = scores.get(b.locationName);
@@ -184,7 +206,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map() }) {
     : visible;
 
   return (
-    <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
+    <div className="ml-4 mt-0.5 mb-1" data-testid="region-slots">
       {sorted.map((slot) => {
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
         const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
@@ -192,13 +214,13 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map() }) {
         return (
           <div
             key={slot.locationName}
-            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 transition-all duration-500"
+            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 transition-all duration-500 mt-1"
             data-testid="briefing-slot"
           >
             {score?.rating != null ? (
               <span
                 data-testid="score-badge"
-                className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold transition-opacity duration-300 ${ratingColour(score.rating)}`}
+                className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold animate-fade-in ${ratingColour(score.rating)}`}
               >
                 {score.rating}★
               </span>
@@ -219,7 +241,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map() }) {
             )}
             {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
             {score?.summary && (
-              <span className="w-full text-plex-text-secondary truncate" style={{ fontSize: '11px' }}>
+              <span className="w-full text-plex-text-secondary truncate animate-fade-in" style={{ fontSize: '11px' }}>
                 {score.summary}
               </span>
             )}
@@ -233,7 +255,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map() }) {
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
 function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,
-  evaluationScores = new Map(), evaluationProgress, onRunEvaluation, canRunEvaluation }) {
+  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
   const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
@@ -340,6 +362,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                     title="Show on map"
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (onStopEvaluation) onStopEvaluation();
                       onShowOnMap(date, es.targetType);
                     }}
                   >
@@ -352,7 +375,13 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
               </div>
 
               {isExpanded && (
-                <LocationSlotList slots={region.slots} driveMap={driveMap} typeMap={typeMap} scores={slotScores} />
+                <LocationSlotList
+                  slots={region.slots}
+                  driveMap={driveMap}
+                  typeMap={typeMap}
+                  scores={slotScores}
+                  evaluationComplete={progressMatch?.status === 'complete' || (!progressMatch && slotScores.size > 0)}
+                />
               )}
             </div>
           );
@@ -360,57 +389,63 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       </div>
 
       {/* "Run full forecast" button */}
-      {canRunEvaluation && (
-        <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2 items-center">
-          {progressMatch?.status === 'complete' ? (
-            <span data-testid="run-forecast-btn" className="text-green-400 text-xs font-medium">
-              Evaluation complete — {progressMatch.completed} scored
-            </span>
-          ) : progressMatch?.status === 'running' ? (
-            <>
-              <button data-testid="run-forecast-btn" disabled className="btn-secondary text-xs opacity-60">
-                Evaluating… {progressMatch.completed}/{progressMatch.total}
+      {canRunEvaluation && (() => {
+        const cachedTimestamp = evaluationTimestamps.get(`${regionName}|${date}|${targetType}`);
+        const hasCachedScores = !progressMatch && slotScores.size > 0 && cachedTimestamp;
+
+        return (
+          <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2 items-center">
+            {(progressMatch?.status === 'complete' || hasCachedScores) ? (
+              <span data-testid="run-forecast-btn" className="text-green-400 text-xs font-medium">
+                Scored {progressMatch?.completed ?? slotScores.size} of {progressMatch?.total ?? slotScores.size}
+                {' · '}{progressMatch?.evaluatedAt ?? cachedTimestamp}
+              </span>
+            ) : progressMatch?.status === 'running' ? (
+              <>
+                <button data-testid="run-forecast-btn" disabled className="btn-secondary text-xs opacity-60">
+                  Evaluating… {progressMatch.completed}/{progressMatch.total}
+                </button>
+                {progressMatch.total > 0 && (
+                  <div className="flex-1 h-1 bg-plex-border/30 rounded overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 transition-all duration-300"
+                      style={{ width: `${Math.round(((progressMatch.completed) / progressMatch.total) * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </>
+            ) : progressMatch?.status === 'error' ? (
+              <button
+                data-testid="run-forecast-btn"
+                className="btn-secondary text-xs text-red-400 border-red-700 hover:bg-red-900/40"
+                onClick={() => onRunEvaluation?.(regionName, date, targetType)}
+              >
+                Forecast failed — retry?
               </button>
-              {progressMatch.total > 0 && (
-                <div className="flex-1 h-1 bg-plex-border/30 rounded overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 transition-all duration-300"
-                    style={{ width: `${Math.round(((progressMatch.completed) / progressMatch.total) * 100)}%` }}
-                  />
-                </div>
-              )}
-            </>
-          ) : progressMatch?.status === 'error' ? (
-            <button
-              data-testid="run-forecast-btn"
-              className="btn-secondary text-xs text-red-400 border-red-700 hover:bg-red-900/40"
-              onClick={() => onRunEvaluation?.(regionName, date, targetType)}
-            >
-              Forecast failed — retry?
-            </button>
-          ) : (
-            <button
-              data-testid="run-forecast-btn"
-              className="btn-secondary text-xs hover:bg-green-800/60 hover:text-green-200"
-              onClick={() => {
-                const count = goMarginalSlots.length;
-                openDialog({
-                  title: 'Run Claude Evaluation',
-                  message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with Claude? Estimated cost: ~${count * 3}p (${count} × ~3p).`,
-                  confirmLabel: 'Run',
-                  maxWidth: 'sm',
-                  onConfirm: () => {
-                    closeDialog();
-                    onRunEvaluation?.(regionName, date, targetType);
-                  },
-                });
-              }}
-            >
-              Run full forecast
-            </button>
-          )}
-        </div>
-      )}
+            ) : (
+              <button
+                data-testid="run-forecast-btn"
+                className="btn-secondary text-xs hover:bg-green-800/60 hover:text-green-200"
+                onClick={() => {
+                  const count = goMarginalSlots.length;
+                  openDialog({
+                    title: 'Run Claude Evaluation',
+                    message: `Evaluate ${count} location${count !== 1 ? 's' : ''} with Claude? Estimated cost: ~${count * 3}p (${count} × ~3p).`,
+                    confirmLabel: 'Run',
+                    maxWidth: 'sm',
+                    onConfirm: () => {
+                      closeDialog();
+                      onRunEvaluation?.(regionName, date, targetType);
+                    },
+                  });
+                }}
+              >
+                Run full forecast
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {dialogElement}
     </div>
@@ -419,7 +454,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map() }) {
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), evaluationTimestamps = new Map() }) {
   const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Empty cell — region doesn't appear in this event type
@@ -551,11 +586,17 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         const pillColour = meanNum >= 4 ? 'bg-green-600/60 text-green-200'
           : meanNum >= 3 ? 'bg-amber-600/60 text-amber-200'
             : 'bg-red-700/50 text-red-200';
+        const timestamp = evaluationTimestamps.get(`${regionName}|${date}|${targetType}`);
         return (
           <div className="mt-0.5" data-testid="mean-score-badge">
             <span className={`rounded px-1 font-medium ${pillColour}`} style={{ fontSize: '10px' }}>
               {mean}★
             </span>
+            {timestamp && (
+              <span className="ml-0.5 text-plex-text-muted" style={{ fontSize: '9px' }}>
+                {timestamp}
+              </span>
+            )}
           </div>
         );
       })()}
@@ -596,8 +637,11 @@ export default function HeatmapGrid({
   onShowOnMap,
   evaluationScores = new Map(),
   evaluationProgress,
+  evaluationTimestamps = new Map(),
   onRunEvaluation,
+  onStopEvaluation,
   canRunEvaluation = false,
+  astroScoresByDate = {},
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
@@ -622,11 +666,11 @@ export default function HeatmapGrid({
   const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(0, 1fr))`;
 
   const toggleDrillDown = (date, regionName, targetType) => {
-    setDrillDown((prev) =>
-      prev?.date === date && prev?.regionName === regionName && prev?.targetType === targetType
-        ? null
-        : { date, regionName, targetType },
-    );
+    setDrillDown((prev) => {
+      const isClosing = prev?.date === date && prev?.regionName === regionName && prev?.targetType === targetType;
+      if (isClosing && onStopEvaluation) onStopEvaluation();
+      return isClosing ? null : { date, regionName, targetType };
+    });
   };
 
   // Sort region rows by best visible tier at the current slider position.
@@ -692,9 +736,9 @@ export default function HeatmapGrid({
           key={`${date}-${targetType}`}
           className="text-center text-plex-text-muted pb-0.5"
           style={{ fontSize: '13px' }}
-          title={targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
+          title={targetType === 'SUNRISE' ? 'Sunrise' : targetType === 'ASTRO' ? 'Astro conditions' : 'Sunset'}
         >
-          {targetType === 'SUNRISE' ? '🌅' : '🌇'}
+          {targetType === 'SUNRISE' ? '🌅' : targetType === 'ASTRO' ? '🌙' : '🌇'}
         </div>
       ))}
 
@@ -722,6 +766,38 @@ export default function HeatmapGrid({
             {/* Event cells */}
             {events.map(({ date, targetType }) => {
               const drillKey = `${date}-${regionName}-${targetType}`;
+
+              // Astro cells use a different rendering path
+              if (targetType === 'ASTRO') {
+                const dateScores = astroScoresByDate[date] || {};
+                // Find locations in this region from briefing data
+                const regionLocNames = getRegionLocationNames(date, regionName, briefingDays);
+                const astroStars = regionLocNames
+                  .map((n) => dateScores[n]?.stars)
+                  .filter((s) => s != null);
+                const bestStars = astroStars.length > 0 ? Math.max(...astroStars) : null;
+                return (
+                  <button
+                    key={drillKey}
+                    data-testid="astro-heatmap-cell"
+                    className={`rounded border text-center p-1.5 transition-all ${
+                      bestStars != null
+                        ? `${ratingColour(bestStars)} cursor-pointer hover:scale-[1.01]`
+                        : 'bg-plex-surface/30 border-plex-border/20 text-plex-text-muted cursor-default'
+                    }`}
+                    disabled={bestStars == null}
+                    onClick={bestStars != null ? () => onShowOnMap?.(date, 'ASTRO') : undefined}
+                    title={bestStars != null ? `Best astro: ${bestStars}★ — tap to view on map` : 'No dark-sky locations in this region'}
+                  >
+                    {bestStars != null ? (
+                      <div className="font-bold" style={{ fontSize: '12px' }}>{bestStars}★</div>
+                    ) : (
+                      <div style={{ fontSize: '12px' }}>—</div>
+                    )}
+                  </button>
+                );
+              }
+
               const isActive =
                 drillDown?.date === date &&
                 drillDown?.regionName === regionName &&
@@ -737,6 +813,7 @@ export default function HeatmapGrid({
                   isActive={isActive}
                   onToggle={toggleDrillDown}
                   evaluationScores={evaluationScores}
+                  evaluationTimestamps={evaluationTimestamps}
                 />
               );
             })}
@@ -750,11 +827,13 @@ export default function HeatmapGrid({
                 briefingDays={briefingDays}
                 driveMap={driveMap}
                 typeMap={typeMap}
-                onClose={() => setDrillDown(null)}
+                onClose={() => { if (onStopEvaluation) onStopEvaluation(); setDrillDown(null); }}
                 onShowOnMap={onShowOnMap}
                 evaluationScores={evaluationScores}
                 evaluationProgress={evaluationProgress}
+                evaluationTimestamps={evaluationTimestamps}
                 onRunEvaluation={onRunEvaluation}
+                onStopEvaluation={onStopEvaluation}
                 canRunEvaluation={canRunEvaluation}
               />
             )}
@@ -787,7 +866,10 @@ HeatmapGrid.propTypes = {
     total: PropTypes.number,
     failed: PropTypes.number,
     status: PropTypes.string,
+    evaluatedAt: PropTypes.string,
   }),
+  evaluationTimestamps: PropTypes.instanceOf(Map),
   onRunEvaluation: PropTypes.func,
+  onStopEvaluation: PropTypes.func,
   canRunEvaluation: PropTypes.bool,
 };

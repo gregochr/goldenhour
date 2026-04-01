@@ -12,6 +12,7 @@ import MarkerPopupContent from './MarkerPopupContent.jsx';
 import ForecastTypeSelector from './ForecastTypeSelector.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
+import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
@@ -263,12 +264,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   });
   const [showUnrated, setShowUnrated] = useState(false);
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
-  const [auroraFriendlyFilter, setAuroraFriendlyFilter] = useState(false);
+  const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
+  const [astroScores, setAstroScores] = useState({}); // locationName → { stars, summary, ... }
+  const [astroAvailableDates, setAstroAvailableDates] = useState([]); // ISO date strings
   const [flyTarget, setFlyTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
 
@@ -277,6 +280,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   const hasStoredAuroraResults = auroraAvailableDates.length > 0;
   const auroraAvailable = role !== 'LITE_USER'
     && (auroraStatus?.active === true || hasStoredAuroraResults);
+  const astroAvailable = astroAvailableDates.length > 0;
 
   // Auto-reset to SUNSET when aurora mode becomes unavailable.
   useEffect(() => {
@@ -364,6 +368,30 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
       });
   }, [eventType, date]);
 
+  // Fetch available dates for astro conditions (available to everyone).
+  useEffect(() => {
+    getAstroAvailableDates()
+      .then(setAstroAvailableDates)
+      .catch(() => {});
+  }, []);
+
+  // Fetch astro condition scores when in Astro mode and the selected date changes.
+  useEffect(() => {
+    if (eventType !== 'ASTRO' || !date) {
+      setAstroScores({});
+      return;
+    }
+    getAstroConditions(date)
+      .then((results) => {
+        const byName = {};
+        results.forEach((r) => { byName[r.locationName] = r; });
+        setAstroScores(byName);
+      })
+      .catch(() => {
+        setAstroScores({});
+      });
+  }, [eventType, date]);
+
   const lineKm = lineKmForZoom(zoom);
 
   function toggleTypeFilter(type) {
@@ -400,6 +428,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
         ?? auroraScores[loc.name]?.stars
         ?? null;
     }
+    if (eventType === 'ASTRO') {
+      return astroScores[loc.name]?.stars ?? null;
+    }
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     return forecast?.rating ?? null;
@@ -431,16 +462,21 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
         loc.driveDurationMinutes != null && loc.driveDurationMinutes <= driveTimeFilter,
       );
 
-  // Aurora-friendly filter: show only locations with a Bortle class at or below threshold.
-  // Threshold is 5 (strong alert) or 4 (moderate / unknown level).
-  const auroraThreshold = auroraStatus?.level === 'STRONG' ? 5 : 4;
-  const visibleLocations = auroraFriendlyFilter
+  const isAuroraMode = eventType === 'AURORA';
+  const isAstroMode = eventType === 'ASTRO';
+
+  // Dark sky filter: show only locations with Bortle class 4 or darker.
+  const darkSkyThreshold = 4;
+  const darkSkyFiltered = darkSkyFilter
     ? driveFiltered.filter((loc) =>
-        loc.bortleClass != null && loc.bortleClass <= auroraThreshold,
+        loc.bortleClass != null && loc.bortleClass <= darkSkyThreshold,
       )
     : driveFiltered;
 
-  const isAuroraMode = eventType === 'AURORA';
+  // Astro mode: only show dark-sky locations (Bortle is not null).
+  const visibleLocations = isAstroMode
+    ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
+    : darkSkyFiltered;
 
   // Best aurora location — highest-starred entry from current aurora scores.
   const bestAuroraLocation = useMemo(() => {
@@ -468,7 +504,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   /** Derive popup content props for a location. */
   function getContentProps(loc) {
     const dayData = loc.forecastsByDate.get(date);
-    // Aurora mode: use sunset as background weather context (aurora is an evening/night event)
+    // Aurora/Astro mode: use sunset as background weather context (night event)
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
     const hourlyData = dayData?.hourly ?? [];
@@ -483,7 +519,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
     + (minStars !== null ? 1 : 0)
     + (showUnrated ? 1 : 0)
     + (driveTimeFilter > 0 ? 1 : 0)
-    + (auroraFriendlyFilter ? 1 : 0);
+    + (darkSkyFilter ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -500,6 +536,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           }}
           showAurora={role !== 'LITE_USER'}
           auroraAvailable={auroraAvailable}
+          astroAvailable={astroAvailable}
         />
         <button
           data-testid="advanced-filters-toggle"
@@ -523,8 +560,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
         <div className="flex items-center gap-2 flex-wrap pb-1">
           <span className="text-xs text-plex-text-muted mr-1">Filter:</span>
           <InfoTip text="Type and star filters combine: locations must match both. Within each group, any selection passes." />
-          {/* Location type chips — hidden in Aurora mode (aurora doesn't care about location type) */}
-          {!isAuroraMode && Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
+          {/* Location type chips — hidden in Aurora and Astro modes */}
+          {!isAuroraMode && !isAstroMode && Object.entries(LOCATION_TYPE_LABELS).map(([type, { label, emoji }]) => (
             <button
               key={type}
               onClick={() => toggleTypeFilter(type)}
@@ -537,7 +574,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
               <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
             </button>
           ))}
-          {!isAuroraMode && <span className="text-plex-border mx-1">|</span>}
+          {!isAuroraMode && !isAstroMode && <span className="text-plex-border mx-1">|</span>}
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={`star-${star}`}
@@ -582,34 +619,34 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
             <option value={90}>🚗 ≤90 min</option>
             <option value={120}>🚗 ≤2 hrs</option>
           </select>
-          {/* Aurora-friendly chip — hidden in Aurora mode (Bortle filtering already implicit in stored results) */}
-          {!isAuroraMode && (
+          {/* Dark sky chip — hidden in Astro and Aurora modes (Bortle filtering already implicit) */}
+          {!isAuroraMode && !isAstroMode && (
             <>
               <span className="text-plex-border mx-1">|</span>
               <button
-                onClick={() => setAuroraFriendlyFilter((v) => !v)}
-                data-testid="aurora-filter-toggle"
-                title={`Show only dark-sky locations suitable for aurora photography (Bortle ≤ ${auroraThreshold})`}
+                onClick={() => setDarkSkyFilter((v) => !v)}
+                data-testid="dark-sky-filter-toggle"
+                title={`Show only locations with low light pollution (Bortle class ${darkSkyThreshold} or darker). Suitable for aurora, astrophotography, and stargazing.`}
                 className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                  auroraFriendlyFilter
+                  darkSkyFilter
                     ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
                     : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
                 }`}
               >
-                🌌 Aurora friendly
+                🔭 Dark sky
               </button>
-              <InfoTip text={`Filters to dark-sky locations suitable for aurora photography.\n\nActive when NOAA SWPC reports MODERATE or STRONG. Locations with Bortle ≤ 4 (MODERATE) or ≤ 5 (STRONG) qualify.\n\nStar rating (1–5) from four factors:\n• Alert level — MODERATE = 3★ base, STRONG = 4★ base\n• Cloud cover — clear skies +1, overcast −1.5\n• Moonlight — below horizon +0.5, severe −1\n• Dark skies — Bortle 1–2 = +0.5, 3–4 = 0, 5+ = −0.5\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
+              <InfoTip text={`Shows locations with low light pollution (Bortle class ${darkSkyThreshold} or darker). Suitable for aurora, astrophotography, and stargazing.\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.`} />
             </>
           )}
           {(activeTypeFilters.size > 0 || minStars !== null || showUnrated
-              || driveTimeFilter > 0 || auroraFriendlyFilter) && (
+              || driveTimeFilter > 0 || darkSkyFilter) && (
             <button
               onClick={() => {
                 setActiveTypeFilters(new Set());
                 setMinStars(null);
                 setShowUnrated(false);
                 setDriveTimeFilter(0);
-                setAuroraFriendlyFilter(false);
+                setDarkSkyFilter(false);
                 localStorage.removeItem('mapFilterMinStars');
               }}
               className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
@@ -745,7 +782,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                           location={loc}
                           forecast={forecast}
                           hourlyData={hourlyData}
-                          eventType={isAuroraMode ? 'SUNSET' : eventType}
+                          eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                           isPureWildlife={isPureWildlife}
                           showComfortRows={isWaterfall}
                           role={role}
@@ -756,6 +793,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                           tideClassification={tideClassifications[loc.name] ?? null}
                           auroraScore={auroraScores[loc.name] ?? null}
                           isAuroraMode={isAuroraMode}
+                          astroScore={astroScores[loc.name] ?? null}
+                          isAstroMode={isAstroMode}
                         />
                       </div>
                     </Popup>
@@ -765,6 +804,26 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
             })}
           </MarkerClusterGroup>
         </MapContainer>
+
+        {/* Legend: show when Claude-scored pins are visible */}
+        {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {
+          const suffix = `|${date}|${eventType}|`;
+          for (const key of briefingScores.keys()) {
+            if (key.includes(suffix)) {
+              return (
+                <div
+                  data-testid="claude-scored-legend"
+                  className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
+                    text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30"
+                  style={{ fontSize: '11px' }}
+                >
+                  ★ Claude-scored locations shown
+                </div>
+              );
+            }
+          }
+          return null;
+        })()}
       </div>
 
       {/* Mobile bottom sheet */}
@@ -782,7 +841,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                 location={loc}
                 forecast={forecast}
                 hourlyData={hourlyData}
-                eventType={isAuroraMode ? 'SUNSET' : eventType}
+                eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                 isPureWildlife={isPureWildlife}
                 showComfortRows={isWaterfall}
                 role={role}
@@ -793,6 +852,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                 tideClassification={tideClassifications[loc.name] ?? null}
                 auroraScore={auroraScores[loc.name] ?? null}
                 isAuroraMode={isAuroraMode}
+                astroScore={astroScores[loc.name] ?? null}
+                isAstroMode={isAstroMode}
                 darkMode
               />
             </div>

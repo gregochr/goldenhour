@@ -252,6 +252,8 @@ export default function MarkerPopupContent({
   tideClassification,
   auroraScore = null,
   isAuroraMode = false,
+  astroScore = null,
+  isAstroMode = false,
   darkMode = false,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -424,6 +426,68 @@ export default function MarkerPopupContent({
                     {auroraScore.detail}
                   </div>
                 )}
+              </span>
+            </div>
+          )}
+
+          {/* Astro conditions section — shown in Astro mode when a score is available */}
+          {isAstroMode && astroScore && (
+            <div
+              style={{ marginBottom: '6px' }}
+              data-testid="astro-score-section"
+            >
+              <span style={{
+                ...POPUP_PILL,
+                display: 'inline-flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: '4px',
+                padding: '6px 10px',
+                background: 'rgba(59, 130, 246, 0.12)',
+                color: '#93c5fd',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                borderRadius: '8px',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', fontSize: '12px' }}>
+                  <span>🌙</span>
+                  <span>Astro</span>
+                  <span data-testid="astro-score-stars" style={{ color: '#93c5fd', letterSpacing: '1px' }}>
+                    {'★'.repeat(astroScore.stars)}{'☆'.repeat(5 - astroScore.stars)}
+                  </span>
+                  <span style={{ fontSize: '10px', fontWeight: '400', opacity: 0.8 }}>({astroScore.stars}/5)</span>
+                </div>
+                {astroScore.summary && (
+                  <div data-testid="astro-score-summary" style={{ fontSize: '11px', fontWeight: '400', opacity: 0.9, lineHeight: '1.4' }}>
+                    {astroScore.summary}
+                  </div>
+                )}
+                <div style={{ fontSize: '10px', fontWeight: '400', opacity: 0.7, lineHeight: '1.5' }}>
+                  {astroScore.cloudExplanation && <div>☁️ {astroScore.cloudExplanation}</div>}
+                  {astroScore.visibilityExplanation && <div>👁️ {astroScore.visibilityExplanation}</div>}
+                  {astroScore.moonExplanation && <div>🌑 {astroScore.moonExplanation}</div>}
+                </div>
+                {astroScore.moonPhase && (
+                  <div style={{ fontSize: '10px', fontWeight: '400', opacity: 0.6 }}>
+                    Moon: {astroScore.moonPhase.replace(/_/g, ' ').toLowerCase()} ({Math.round(astroScore.moonIlluminationPct)}% illuminated)
+                  </div>
+                )}
+              </span>
+            </div>
+          )}
+          {isAstroMode && !astroScore && (
+            <div style={{ marginBottom: '6px' }} data-testid="astro-no-data">
+              <span style={{
+                ...POPUP_PILL,
+                display: 'block',
+                background: 'rgba(30,30,50,0.5)',
+                color: '#6b7280',
+                border: '1px solid rgba(107,114,128,0.3)',
+                fontSize: '11px',
+                padding: '6px 10px',
+              }}>
+                🌙 No astro conditions data for this date
               </span>
             </div>
           )}
@@ -695,5 +759,15 @@ MarkerPopupContent.propTypes = {
     detail: PropTypes.string,
   }),
   isAuroraMode: PropTypes.bool,
+  astroScore: PropTypes.shape({
+    stars: PropTypes.number.isRequired,
+    summary: PropTypes.string,
+    cloudExplanation: PropTypes.string,
+    visibilityExplanation: PropTypes.string,
+    moonExplanation: PropTypes.string,
+    moonPhase: PropTypes.string,
+    moonIlluminationPct: PropTypes.number,
+  }),
+  isAstroMode: PropTypes.bool,
   darkMode: PropTypes.bool,
 };

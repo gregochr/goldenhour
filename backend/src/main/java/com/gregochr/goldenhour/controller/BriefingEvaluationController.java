@@ -87,4 +87,25 @@ public class BriefingEvaluationController {
             @RequestParam TargetType targetType) {
         return ResponseEntity.ok(evaluationService.getCachedScores(regionName, date, targetType));
     }
+
+    /**
+     * Returns the UK-formatted evaluation timestamp for cached results.
+     *
+     * @param regionName the region name
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @return the formatted time (e.g. "14:32") or 204 No Content
+     */
+    @GetMapping("/cache/timestamp")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('PRO_USER')")
+    public ResponseEntity<Map<String, String>> getCachedTimestamp(
+            @RequestParam String regionName,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam TargetType targetType) {
+        String evaluatedAt = evaluationService.getCachedEvaluatedAt(regionName, date, targetType);
+        if (evaluatedAt == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(Map.of("evaluatedAt", evaluatedAt));
+    }
 }

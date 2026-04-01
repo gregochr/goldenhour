@@ -142,4 +142,38 @@ class SolarServiceTest {
 
         assertThat(actualMinutes).isCloseTo(expectedMinutes, org.assertj.core.data.Offset.offset(2L));
     }
+
+    // -------------------------------------------------------------------------
+    // Nautical twilight (approximate: civil ± 35 min)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("nauticalDuskUtc is 35 minutes after civilDuskUtc")
+    void nauticalDuskUtc_isCivilDuskPlus35Minutes() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime civilDusk = solarService.civilDuskUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime nauticalDusk = solarService.nauticalDuskUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(nauticalDusk).isEqualTo(civilDusk.plusMinutes(35));
+    }
+
+    @Test
+    @DisplayName("nauticalDawnUtc is 35 minutes before civilDawnUtc")
+    void nauticalDawnUtc_isCivilDawnMinus35Minutes() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime civilDawn = solarService.civilDawnUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime nauticalDawn = solarService.nauticalDawnUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(nauticalDawn).isEqualTo(civilDawn.minusMinutes(35));
+    }
+
+    @Test
+    @DisplayName("nauticalDuskUtc on date D is before nauticalDawnUtc on date D+1")
+    void nauticalDusk_isBeforeDawn_nextDay() {
+        LocalDate date = LocalDate.of(2026, 3, 20);
+        LocalDateTime dusk = solarService.nauticalDuskUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime dawn = solarService.nauticalDawnUtc(DURHAM_LAT, DURHAM_LON, date.plusDays(1));
+
+        assertThat(dusk).isBefore(dawn);
+    }
 }

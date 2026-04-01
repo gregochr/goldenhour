@@ -76,6 +76,9 @@ class ForecastCommandExecutorTest {
     private SentinelSelector sentinelSelector;
 
     @Mock
+    private AstroConditionsService astroConditionsService;
+
+    @Mock
     private EvaluationStrategy haikuStrategy;
 
     private NoOpEvaluationStrategy noOpStrategy;
@@ -155,7 +158,7 @@ class ForecastCommandExecutorTest {
                 forecastService, locationService, jobRunService, solarService,
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
                 optimisationStrategyService, progressTracker, eventPublisher,
-                sentinelSelector);
+                sentinelSelector, astroConditionsService);
     }
 
     @Test
