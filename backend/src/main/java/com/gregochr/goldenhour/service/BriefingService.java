@@ -30,6 +30,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -119,12 +120,29 @@ public class BriefingService {
     }
 
     /**
-     * Returns the cached daily briefing, or {@code null} if no briefing has been generated yet.
+     * Returns the cached daily briefing with live aurora state overlaid.
      *
-     * @return the most recent briefing response, or null
+     * <p>When the aurora FSM is idle, {@code buildAuroraTonight()} returns null instantly
+     * with zero overhead. When active, the 5-minute cache in the builder keeps API calls
+     * minimal.
+     *
+     * @return the most recent briefing response with live aurora, or null
      */
     public DailyBriefingResponse getCachedBriefing() {
-        return cache.get();
+        DailyBriefingResponse cached = cache.get();
+        if (cached == null) {
+            return null;
+        }
+        AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonight();
+        AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
+        if (Objects.equals(cached.auroraTonight(), liveTonight)
+                && Objects.equals(cached.auroraTomorrow(), liveTomorrow)) {
+            return cached;
+        }
+        return new DailyBriefingResponse(
+                cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
+                liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
+                cached.failedLocationCount(), cached.bestBetModel());
     }
 
     /**

@@ -15,6 +15,7 @@ import org.springframework.web.client.RestClientResponseException;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -44,7 +45,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("RestClientResponseException is mapped to 502 Bad Gateway")
     void handleUpstreamError_returns502() throws Exception {
-        when(commandFactory.create(any(), any(boolean.class), any(), any()))
+        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
                 .thenThrow(new RestClientResponseException(
                         "Service Unavailable", 503, "Service Unavailable",
                         null, null, null));
@@ -58,7 +59,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("NoSuchElementException is mapped to 404 Not Found")
     void handleNotFound_returns404() throws Exception {
-        when(commandFactory.create(any(), any(boolean.class), any(), any()))
+        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
                 .thenThrow(new NoSuchElementException("Location not found"));
 
         mockMvc.perform(post("/api/forecast/run"))
@@ -70,7 +71,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("IllegalArgumentException is mapped to 400 Bad Request")
     void handleBadRequest_returns400() throws Exception {
-        when(commandFactory.create(any(), any(boolean.class), any(), any()))
+        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
                 .thenThrow(new IllegalArgumentException("Invalid location coordinates"));
 
         mockMvc.perform(post("/api/forecast/run"))
@@ -92,7 +93,7 @@ class GlobalExceptionHandlerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Unexpected RuntimeException is mapped to 500 Internal Server Error")
     void handleUnexpected_returns500() throws Exception {
-        when(commandFactory.create(any(), any(boolean.class), any(), any()))
+        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
                 .thenThrow(new RuntimeException("Unexpected failure"));
 
         mockMvc.perform(post("/api/forecast/run"))

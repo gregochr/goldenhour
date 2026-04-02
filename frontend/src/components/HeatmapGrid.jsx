@@ -675,6 +675,8 @@ function AuroraDrillDown({ regionName, auroraTonight, onClose, onShowOnMap, date
               )}
               <span className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
                 {loc.cloudPercent}% cloud
+                {loc.temperatureCelsius != null && ` · ${Math.round(loc.temperatureCelsius)}°C`}
+                {loc.windSpeedMs != null && ` · ${msToMph(loc.windSpeedMs)}mph`}
               </span>
             </div>
           ))}
@@ -762,11 +764,13 @@ export default function HeatmapGrid({
         const isTonight = date === todayStr && auroraTonight;
         const isTmrw = date === tomorrowStr && auroraTomorrow;
         for (const rn of [a, b]) {
-          const auroraRegion = isTonight
-            ? (auroraTonight?.regions || []).find((r) => r.regionName === rn) : null;
-          const t = isTonight
-            ? computeAuroraCellTier(auroraRegion, false)
-            : isTmrw ? computeAuroraCellTier({ verdict: 'GO' }, true) : 6;
+          let auroraRegion;
+          if (isTonight) {
+            auroraRegion = (auroraTonight?.regions || []).find((r) => r.regionName === rn);
+          } else if (isTmrw) {
+            auroraRegion = (auroraTomorrow?.regions || []).find((r) => r.regionName === rn);
+          }
+          const t = computeAuroraCellTier(auroraRegion, isTmrw && !isTonight);
           if (isCellVisible(t, qualityTier)) {
             if (rn === a && t < bestA) bestA = t;
             if (rn === b && t < bestB) bestB = t;
@@ -794,11 +798,13 @@ export default function HeatmapGrid({
       if (targetType === 'AURORA') {
         const isTonight = date === todayStr && auroraTonight;
         const isTmrw = date === tomorrowStr && auroraTomorrow;
-        const auroraRegion = isTonight
-          ? (auroraTonight?.regions || []).find((r) => r.regionName === regionName) : null;
-        const t = isTonight
-          ? computeAuroraCellTier(auroraRegion, false)
-          : isTmrw ? computeAuroraCellTier({ verdict: 'GO' }, true) : 6;
+        let auroraRegion;
+        if (isTonight) {
+          auroraRegion = (auroraTonight?.regions || []).find((r) => r.regionName === regionName);
+        } else if (isTmrw) {
+          auroraRegion = (auroraTomorrow?.regions || []).find((r) => r.regionName === regionName);
+        }
+        const t = computeAuroraCellTier(auroraRegion, isTmrw && !isTonight);
         if (isCellVisible(t, qualityTier)) return false;
         continue;
       }
@@ -913,9 +919,12 @@ export default function HeatmapGrid({
                 const auroraRegion = isTonight
                   ? (auroraTonight.regions || []).find((r) => r.regionName === regionName)
                   : null;
+                const tomorrowRegion = isTomorrow
+                  ? (auroraTomorrow?.regions || []).find((r) => r.regionName === regionName)
+                  : null;
                 const cellTier = isTonight
                   ? computeAuroraCellTier(auroraRegion, false)
-                  : isTomorrow ? computeAuroraCellTier({ verdict: 'GO' }, true) : 6;
+                  : isTomorrow ? computeAuroraCellTier(tomorrowRegion, true) : 6;
                 const visible = isCellVisible(cellTier, qualityTier);
                 const disabled = isTonight && (!auroraRegion || auroraRegion.totalDarkSkyLocations === 0);
                 const isGo = auroraRegion?.verdict === 'GO';
@@ -945,6 +954,20 @@ export default function HeatmapGrid({
                       <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
                         Kp {auroraTomorrow.peakKp.toFixed(1)} forecast
                       </div>
+                      {tomorrowRegion?.bestBortleClass != null && (
+                        <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
+                          style={{ fontSize: '9px' }}>
+                          Bortle {tomorrowRegion.bestBortleClass}
+                        </span>
+                      )}
+                      {tomorrowRegion?.regionTemperatureCelsius != null && (
+                        <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
+                          {weatherCodeToIcon(tomorrowRegion.regionWeatherCode)}
+                          {' '}{Math.round(tomorrowRegion.regionTemperatureCelsius)}°C
+                          {tomorrowRegion.regionWindSpeedMs != null
+                            && ` · ${msToMph(tomorrowRegion.regionWindSpeedMs)}mph`}
+                        </div>
+                      )}
                     </div>
                   );
                 }
@@ -988,6 +1011,14 @@ export default function HeatmapGrid({
                             style={{ fontSize: '9px' }}>
                             {AURORA_LEVEL_LABEL[auroraTonight.alertLevel] || auroraTonight.alertLevel}
                           </div>
+                          {auroraRegion.regionTemperatureCelsius != null && (
+                            <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
+                              {weatherCodeToIcon(auroraRegion.regionWeatherCode)}
+                              {' '}{Math.round(auroraRegion.regionTemperatureCelsius)}°C
+                              {auroraRegion.regionWindSpeedMs != null
+                                && ` · ${msToMph(auroraRegion.regionWindSpeedMs)}mph`}
+                            </div>
+                          )}
                         </>
                       )}
                     </button>
@@ -1096,12 +1127,23 @@ HeatmapGrid.propTypes = {
       totalDarkSkyLocations: PropTypes.number,
       bestBortleClass: PropTypes.number,
       locations: PropTypes.array,
+      regionTemperatureCelsius: PropTypes.number,
+      regionWindSpeedMs: PropTypes.number,
+      regionWeatherCode: PropTypes.number,
     })),
   }),
   auroraTomorrow: PropTypes.shape({
     peakKp: PropTypes.number,
     label: PropTypes.string,
     alertLevel: PropTypes.string,
+    regions: PropTypes.arrayOf(PropTypes.shape({
+      regionName: PropTypes.string,
+      verdict: PropTypes.string,
+      bestBortleClass: PropTypes.number,
+      regionTemperatureCelsius: PropTypes.number,
+      regionWindSpeedMs: PropTypes.number,
+      regionWeatherCode: PropTypes.number,
+    })),
   }),
   activeModelName: PropTypes.string,
 };

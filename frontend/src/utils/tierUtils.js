@@ -62,10 +62,16 @@ export function computeCellTier(region) {
  * @returns {number} 0–6 (6 = disabled / no dark-sky locations)
  */
 export function computeAuroraCellTier(auroraRegion, isTomorrow) {
-  if (!auroraRegion || !auroraRegion.verdict) return 6; // disabled (no dark sky)
-  if (isTomorrow) return 2; // informational — visible at "All GO conditions"
-  if (auroraRegion.verdict === 'GO') return 0; // top tier alongside king tide
-  return 5; // STANDDOWN
+  if (!auroraRegion || !auroraRegion.verdict) {
+    // Tomorrow without per-region data — show at "All GO conditions" tier
+    if (isTomorrow) return 2;
+    return 6; // disabled (no dark sky)
+  }
+  if (auroraRegion.verdict === 'GO') return isTomorrow ? 2 : 0;
+  if (auroraRegion.verdict === 'STANDDOWN') return 5;
+  // Tomorrow informational fallback
+  if (isTomorrow) return 2;
+  return 5;
 }
 
 /**

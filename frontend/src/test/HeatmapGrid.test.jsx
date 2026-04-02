@@ -50,7 +50,7 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays } = {}) {
+function renderGrid({ events, briefingDays, auroraTonight, auroraTomorrow } = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
@@ -72,11 +72,105 @@ function renderGrid({ events, briefingDays } = {}) {
       tomorrowStr={DATE_1}
       onShowOnMap={vi.fn()}
       astroScoresByDate={{}}
+      auroraTonight={auroraTonight || null}
+      auroraTomorrow={auroraTomorrow || null}
     />,
   );
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
+
+const TODAY_STR = futureDateStr(0);
+
+describe('HeatmapGrid — aurora cells with weather', () => {
+  it('renders weather in tonight aurora cell when region data has weather', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      clearLocationCount: 1,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [{
+          locationName: 'Bamburgh',
+          bortleClass: 3,
+          clear: true,
+          cloudPercent: 30,
+          temperatureCelsius: 4.5,
+          windSpeedMs: 3.1,
+          weatherCode: 2,
+        }],
+        regionTemperatureCelsius: 4.5,
+        regionWindSpeedMs: 3.1,
+        regionWeatherCode: 2,
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    // Check weather text appears in the cell
+    expect(cells[0].textContent).toContain('5°C');
+    expect(cells[0].textContent).toContain('mph');
+  });
+
+  it('renders tomorrow aurora cell with Bortle and weather when region provided', () => {
+    const auroraTomorrow = {
+      peakKp: 4.5,
+      label: 'Worth watching',
+      alertLevel: 'MINOR',
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 4,
+        locations: [],
+        regionTemperatureCelsius: 2.0,
+        regionWindSpeedMs: 5.0,
+        regionWeatherCode: 0,
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([DATE_1], 'North East', ['Bamburgh']),
+      auroraTomorrow,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('Bortle 4');
+    expect(cells[0].textContent).toContain('2°C');
+  });
+
+  it('renders tomorrow aurora cell without weather when no regions', () => {
+    const auroraTomorrow = {
+      peakKp: 3.0,
+      label: 'Quiet',
+      alertLevel: 'QUIET',
+    };
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([DATE_1], 'North East', ['Bamburgh']),
+      auroraTomorrow,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('Kp 3.0');
+    expect(cells[0].textContent).not.toContain('°C');
+  });
+});
 
 describe('HeatmapGrid — no astro column in heatmap', () => {
   it('does not render astro moon sub-columns', () => {
