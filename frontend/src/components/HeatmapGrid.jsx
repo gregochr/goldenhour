@@ -632,11 +632,16 @@ const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Stro
 
 // ── AuroraDrillDown ──────────────────────────────────────────────────────────
 
-function AuroraDrillDown({ regionName, auroraTonight, onClose, onShowOnMap, date }) {
-  const auroraRegion = (auroraTonight?.regions || []).find((r) => r.regionName === regionName);
+function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, onClose, onShowOnMap, date }) {
+  const isTonight = date === todayStr;
+  const sourceData = isTonight ? auroraTonight : auroraTomorrow;
+  const auroraRegion = (sourceData?.regions || []).find((r) => r.regionName === regionName);
   const locations = (auroraRegion?.locations || [])
     .filter((l) => l.bortleClass != null)
     .sort((a, b) => (a.bortleClass ?? 99) - (b.bortleClass ?? 99));
+
+  const alertLevel = isTonight ? auroraTonight?.alertLevel : auroraTomorrow?.alertLevel;
+  const kpValue = isTonight ? auroraTonight?.kp : auroraTomorrow?.peakKp;
 
   return (
     <div
@@ -646,11 +651,11 @@ function AuroraDrillDown({ regionName, auroraTonight, onClose, onShowOnMap, date
     >
       <div className="flex items-center justify-between mb-2">
         <span className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
-          🌌 {regionName} — Aurora tonight
-          <span className={`ml-1.5 font-bold ${AURORA_LEVEL_COLOUR[auroraTonight?.alertLevel] || ''}`}
+          🌌 {regionName} — Aurora {isTonight ? 'tonight' : 'tomorrow'}
+          <span className={`ml-1.5 font-bold ${AURORA_LEVEL_COLOUR[alertLevel] || ''}`}
             style={{ fontSize: '12px' }}>
-            {AURORA_LEVEL_LABEL[auroraTonight?.alertLevel] || auroraTonight?.alertLevel}
-            {auroraTonight?.kp != null && ` (Kp ${auroraTonight.kp.toFixed(1)})`}
+            {AURORA_LEVEL_LABEL[alertLevel] || alertLevel}
+            {kpValue != null && ` (Kp ${kpValue.toFixed(1)})`}
           </span>
         </span>
         <button onClick={onClose} className="text-plex-text-muted hover:text-plex-text px-1 text-sm"
@@ -942,18 +947,36 @@ export default function HeatmapGrid({
                 // Tomorrow informational cell
                 if (isTomorrow && !isTonight) {
                   const levelColour = AURORA_LEVEL_COLOUR[auroraTomorrow.alertLevel] || 'text-indigo-300';
+                  const isTmrwStanddown = tomorrowRegion?.verdict === 'STANDDOWN';
+                  const isTmrwGo = tomorrowRegion?.verdict === 'GO';
+                  const tmrwCellBg = isTmrwGo
+                    ? `bg-indigo-500/20 border-indigo-500/30 ${visible ? 'hover:bg-indigo-500/35' : ''}`
+                    : isTmrwStanddown ? 'border-red-500/8' : 'border-indigo-500/15 bg-indigo-500/8';
                   return (
-                    <div key={drillKey} data-testid="aurora-heatmap-cell"
-                      className={`rounded border border-indigo-500/15 bg-indigo-500/8 text-left p-1.5 transition-all
-                        ${visible ? 'heatmap-cell-visible' : 'heatmap-cell-hidden'}`}
-                      style={{ opacity: visible ? 1 : undefined }}
-                      aria-hidden={!visible}>
+                    <button key={drillKey} data-testid="aurora-heatmap-cell"
+                      disabled={isTmrwStanddown || !visible}
+                      aria-hidden={!visible}
+                      className={`rounded border text-left p-1.5 transition-all ${tmrwCellBg}
+                        ${visible ? 'heatmap-cell-visible' : 'heatmap-cell-hidden'}
+                        ${isTmrwStanddown ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
+                        ${isActive ? 'ring-1 ring-white/25' : ''}`}
+                      style={{
+                        pointerEvents: (!visible || isTmrwStanddown) ? 'none' : undefined,
+                        opacity: isTmrwStanddown ? (visible ? 0.3 : 0.04) : (visible ? 1 : undefined),
+                      }}
+                      onClick={(!visible || isTmrwStanddown) ? undefined
+                        : () => toggleDrillDown(date, regionName, 'AURORA')}>
                       <div className={`font-medium ${levelColour}`} style={{ fontSize: '11px' }}>
                         {AURORA_LEVEL_LABEL[auroraTomorrow.alertLevel] || auroraTomorrow.alertLevel}
                       </div>
                       <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
                         Kp {auroraTomorrow.peakKp.toFixed(1)} forecast
                       </div>
+                      {tomorrowRegion?.totalDarkSkyLocations > 0 && (
+                        <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
+                          {Math.round(tomorrowRegion.clearLocationCount / tomorrowRegion.totalDarkSkyLocations * 100)}% clear
+                        </div>
+                      )}
                       {tomorrowRegion?.bestBortleClass != null && (
                         <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
                           style={{ fontSize: '9px' }}>
@@ -968,7 +991,7 @@ export default function HeatmapGrid({
                             && ` · ${msToMph(tomorrowRegion.regionWindSpeedMs)}mph`}
                         </div>
                       )}
-                    </div>
+                    </button>
                   );
                 }
 
@@ -998,9 +1021,11 @@ export default function HeatmapGrid({
                       </div>
                       {isGo && auroraRegion && (
                         <>
-                          <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
-                            Clear {auroraRegion.clearLocationCount}/{auroraRegion.totalDarkSkyLocations}
-                          </div>
+                          {auroraRegion.totalDarkSkyLocations > 0 && (
+                            <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
+                              {Math.round(auroraRegion.clearLocationCount / auroraRegion.totalDarkSkyLocations * 100)}% clear
+                            </div>
+                          )}
                           {auroraRegion.bestBortleClass != null && (
                             <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
                               style={{ fontSize: '9px' }}>
@@ -1055,6 +1080,8 @@ export default function HeatmapGrid({
               <AuroraDrillDown
                 regionName={regionName}
                 auroraTonight={auroraTonight}
+                auroraTomorrow={auroraTomorrow}
+                todayStr={todayStr}
                 date={drillDown.date}
                 onClose={() => setDrillDown(null)}
                 onShowOnMap={onShowOnMap}
@@ -1139,7 +1166,10 @@ HeatmapGrid.propTypes = {
     regions: PropTypes.arrayOf(PropTypes.shape({
       regionName: PropTypes.string,
       verdict: PropTypes.string,
+      clearLocationCount: PropTypes.number,
+      totalDarkSkyLocations: PropTypes.number,
       bestBortleClass: PropTypes.number,
+      locations: PropTypes.array,
       regionTemperatureCelsius: PropTypes.number,
       regionWindSpeedMs: PropTypes.number,
       regionWeatherCode: PropTypes.number,

@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.lang.reflect.Constructor;
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -181,6 +182,59 @@ class AuroraWeatherEnricherTest {
 
         assertThat(result).containsKey(1L);
         assertThat(result.get(1L).cloudPercent()).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("Open-Meteo request includes wind_speed_units=ms parameter")
+    @SuppressWarnings("unchecked")
+    void requestIncludesWindSpeedUnitsMs() throws Exception {
+        ZonedDateTime target = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
+        Object response = buildWeatherResponse(target, 40, 3.5, 4.2, 2);
+
+        // Capture the URI built by the lambda
+        List<URI> capturedUris = new ArrayList<>();
+        when(restClient.get()).thenReturn(uriSpec);
+        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
+            Function<org.springframework.web.util.UriBuilder, URI> fn = invocation.getArgument(0);
+            URI uri = fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
+            capturedUris.add(uri);
+            return headersSpec;
+        });
+        when(headersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(any(Class.class))).thenReturn(response);
+
+        LocationEntity loc = location(1L, "Kielder", 55.2, -2.6);
+        enricher.fetchWeather(List.of(loc), target);
+
+        assertThat(capturedUris).isNotEmpty();
+        String query = capturedUris.get(0).getQuery();
+        assertThat(query).contains("wind_speed_units=ms");
+    }
+
+    @Test
+    @DisplayName("Open-Meteo request uses forecast_days=3 for tomorrow midnight coverage")
+    @SuppressWarnings("unchecked")
+    void requestUsesForecastDays3() throws Exception {
+        ZonedDateTime target = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
+        Object response = buildWeatherResponse(target, 40, 3.5, 4.2, 2);
+
+        List<URI> capturedUris = new ArrayList<>();
+        when(restClient.get()).thenReturn(uriSpec);
+        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
+            Function<org.springframework.web.util.UriBuilder, URI> fn = invocation.getArgument(0);
+            URI uri = fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
+            capturedUris.add(uri);
+            return headersSpec;
+        });
+        when(headersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.body(any(Class.class))).thenReturn(response);
+
+        LocationEntity loc = location(1L, "Kielder", 55.2, -2.6);
+        enricher.fetchWeather(List.of(loc), target);
+
+        assertThat(capturedUris).isNotEmpty();
+        String query = capturedUris.get(0).getQuery();
+        assertThat(query).contains("forecast_days=3");
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────

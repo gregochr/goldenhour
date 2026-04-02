@@ -164,7 +164,11 @@ public class BriefingAuroraSummaryBuilder {
             List<LocationEntity> locations = scores.stream()
                     .map(AuroraForecastScore::location)
                     .toList();
-            ZonedDateTime targetHour = ZonedDateTime.now(ZoneOffset.UTC);
+            // Use midnight UTC tonight — the middle of the aurora viewing window
+            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
+            ZonedDateTime targetHour = utcNow.getHour() >= 6
+                    ? utcNow.toLocalDate().plusDays(1).atStartOfDay(ZoneOffset.UTC)
+                    : utcNow.toLocalDate().atStartOfDay(ZoneOffset.UTC);
             cached = weatherEnricher.fetchWeather(locations, targetHour);
             tonightWeatherCache = cached;
             tonightWeatherCacheTimestamp = now;
@@ -215,7 +219,10 @@ public class BriefingAuroraSummaryBuilder {
         if (cached != null && (currentMs - tomorrowWeatherCacheTimestamp) < TOMORROW_CACHE_TTL_MS) {
             return cached;
         }
-        ZonedDateTime targetHour = now.plusHours(28);
+        // Use midnight UTC of tomorrow night (2 nights ahead if afternoon, 1 if early morning)
+        ZonedDateTime targetHour = now.getHour() >= 6
+                ? now.toLocalDate().plusDays(2).atStartOfDay(ZoneOffset.UTC)
+                : now.toLocalDate().plusDays(1).atStartOfDay(ZoneOffset.UTC);
         cached = weatherEnricher.fetchWeather(locations, targetHour);
         tomorrowWeatherCache = cached;
         tomorrowWeatherCacheTimestamp = currentMs;

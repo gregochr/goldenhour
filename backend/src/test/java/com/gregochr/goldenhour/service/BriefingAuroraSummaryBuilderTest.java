@@ -26,9 +26,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.mockito.ArgumentCaptor;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -207,6 +210,54 @@ class BriefingAuroraSummaryBuilderTest {
 
         assertThat(summary).isNotNull();
         assertThat(summary.regions()).isNull();
+    }
+
+    @Test
+    @DisplayName("buildAuroraTonight uses midnight UTC as weather target hour")
+    void tonightWeatherUseMidnightTarget() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of());
+
+        builder.buildAuroraTonight();
+
+        ArgumentCaptor<ZonedDateTime> captor = ArgumentCaptor.forClass(ZonedDateTime.class);
+        verify(weatherEnricher).fetchWeather(anyList(), captor.capture());
+        ZonedDateTime targetHour = captor.getValue();
+        // Target should be midnight UTC (hour == 0, minute == 0)
+        assertThat(targetHour.getHour()).isZero();
+        assertThat(targetHour.getMinute()).isZero();
+    }
+
+    @Test
+    @DisplayName("buildAuroraTomorrow uses midnight UTC as weather target hour")
+    void tomorrowWeatherUsesMidnightTarget() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        LocationEntity loc = location(2L, "Kielder", "Northumberland");
+        loc.setBortleClass(3);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of(loc));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of());
+
+        builder.buildAuroraTomorrow();
+
+        ArgumentCaptor<ZonedDateTime> captor = ArgumentCaptor.forClass(ZonedDateTime.class);
+        verify(weatherEnricher).fetchWeather(anyList(), captor.capture());
+        ZonedDateTime targetHour = captor.getValue();
+        // Target should be midnight UTC (hour == 0, minute == 0)
+        assertThat(targetHour.getHour()).isZero();
+        assertThat(targetHour.getMinute()).isZero();
+        // Tomorrow midnight should be at least 1 day in the future
+        assertThat(targetHour).isAfter(now);
     }
 
     private static LocationEntity location(Long id, String name, String regionName) {

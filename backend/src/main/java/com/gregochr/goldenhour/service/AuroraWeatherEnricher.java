@@ -62,8 +62,9 @@ public class AuroraWeatherEnricher {
                                 .queryParam("longitude", loc.getLon())
                                 .queryParam("hourly",
                                         "cloud_cover,temperature_2m,wind_speed_10m,weather_code")
+                                .queryParam("wind_speed_units", "ms")
                                 .queryParam("timezone", "UTC")
-                                .queryParam("forecast_days", "2")
+                                .queryParam("forecast_days", "3")
                                 .build())
                         .retrieve()
                         .body(WeatherResponse.class);

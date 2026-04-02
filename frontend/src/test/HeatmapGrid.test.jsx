@@ -117,12 +117,40 @@ describe('HeatmapGrid — aurora cells with weather', () => {
 
     const cells = screen.queryAllByTestId('aurora-heatmap-cell');
     expect(cells.length).toBeGreaterThan(0);
-    // Check weather text appears in the cell
+    // Check % clear, weather text appears in the cell
+    expect(cells[0].textContent).toContain('100% clear');
     expect(cells[0].textContent).toContain('5°C');
     expect(cells[0].textContent).toContain('mph');
   });
 
-  it('renders tomorrow aurora cell with Bortle and weather when region provided', () => {
+  it('renders tonight aurora cell with partial clear percentage', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 3,
+        totalDarkSkyLocations: 4,
+        bestBortleClass: 3,
+        locations: [],
+        regionTemperatureCelsius: 4.5,
+        regionWindSpeedMs: 3.1,
+        regionWeatherCode: 2,
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells[0].textContent).toContain('75% clear');
+  });
+
+  it('renders tomorrow aurora cell with Bortle, weather, and % clear when region provided', () => {
     const auroraTomorrow = {
       peakKp: 4.5,
       label: 'Worth watching',
@@ -130,8 +158,8 @@ describe('HeatmapGrid — aurora cells with weather', () => {
       regions: [{
         regionName: 'North East',
         verdict: 'GO',
-        clearLocationCount: 1,
-        totalDarkSkyLocations: 1,
+        clearLocationCount: 2,
+        totalDarkSkyLocations: 3,
         bestBortleClass: 4,
         locations: [],
         regionTemperatureCelsius: 2.0,
@@ -148,6 +176,7 @@ describe('HeatmapGrid — aurora cells with weather', () => {
 
     const cells = screen.queryAllByTestId('aurora-heatmap-cell');
     expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('67% clear');
     expect(cells[0].textContent).toContain('Bortle 4');
     expect(cells[0].textContent).toContain('2°C');
   });
@@ -169,6 +198,60 @@ describe('HeatmapGrid — aurora cells with weather', () => {
     expect(cells.length).toBeGreaterThan(0);
     expect(cells[0].textContent).toContain('Kp 3.0');
     expect(cells[0].textContent).not.toContain('°C');
+  });
+
+  it('tomorrow aurora cell is a clickable button when GO', () => {
+    const auroraTomorrow = {
+      peakKp: 4.5,
+      label: 'Worth watching',
+      alertLevel: 'MINOR',
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 4,
+        locations: [],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([DATE_1], 'North East', ['Bamburgh']),
+      auroraTomorrow,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].tagName).toBe('BUTTON');
+    expect(cells[0].disabled).toBe(false);
+  });
+
+  it('tomorrow aurora STANDDOWN cell is disabled', () => {
+    const auroraTomorrow = {
+      peakKp: 4.5,
+      label: 'Worth watching',
+      alertLevel: 'MINOR',
+      regions: [{
+        regionName: 'North East',
+        verdict: 'STANDDOWN',
+        clearLocationCount: 0,
+        totalDarkSkyLocations: 3,
+        bestBortleClass: 4,
+        locations: [],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([DATE_1], 'North East', ['Bamburgh']),
+      auroraTomorrow,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].tagName).toBe('BUTTON');
+    expect(cells[0].disabled).toBe(true);
   });
 });
 
