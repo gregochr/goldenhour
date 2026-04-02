@@ -267,8 +267,8 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             : [];
           const excludedLocations = threshold > 0
             ? allLocations
-                .filter((loc) => false)
-                .map((loc) => loc.name)
+                .filter(() => false)
+                .map((l) => l.name)
             : [];
           const result = await runFn(excluded, excludedLocations);
           setRunStatus({ type: 'success', message: result.status || 'Run started.' });
@@ -641,7 +641,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           {confirmDialog.hasDriveTimes && confirmDialog.slots && (() => {
             const threshold = confirmDialog.driveTimeThreshold || 0;
             const excludedCount = threshold > 0
-              ? allLocations.filter((loc) => false).length
+              ? allLocations.filter(() => false).length
               : 0;
             return (
               <div data-testid="confirm-dialog-drive-time">

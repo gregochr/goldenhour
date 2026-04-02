@@ -15,6 +15,7 @@ import { formatEventTimeUk } from '../utils/conversions.js';
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 // ── Small shared components ─────────────────────────────────────────────────
+/* eslint-disable react/prop-types */
 
 /** Colour pill for a verdict (GO / MARGINAL / STANDDOWN). */
 function VerdictPill({ verdict }) {
@@ -35,8 +36,7 @@ function VerdictPill({ verdict }) {
 }
 
 /** Inline chip for a flag string. */
-function FlagChip({ label }) {
-  return (
+function FlagChip({ label }) {  return (
     <span className="inline-block px-1.5 py-0.5 rounded bg-plex-surface border border-plex-border text-[11px] text-plex-text-secondary font-medium">
       {label}
     </span>
@@ -44,8 +44,7 @@ function FlagChip({ label }) {
 }
 
 /** Rotating chevron icon — right at rest, down when open. */
-function Chevron({ open, className = '' }) {
-  return (
+function Chevron({ open, className = '' }) {  return (
     <span
       aria-hidden="true"
       className={`inline-block transition-transform duration-200 leading-none select-none ${open ? 'rotate-90' : 'rotate-0'} ${className}`}
@@ -265,6 +264,7 @@ function getSortedRegions(upcomingEvents, briefingDays) {
 
 // ── EventSummaryRow (mobile collapsed: compact per-event row) ──────────────
 
+/* eslint-disable react/prop-types */
 function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
   const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
   const eventLabel = es.targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset';
@@ -317,7 +317,7 @@ function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
 
 // ── Event pips (tiny coloured labels inside a day cell) ───────────────────
 
-function EventPips({ allEvents, auroraActive }) {
+function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unused-vars
   const upcoming = allEvents.filter((e) => !e.past && e.region.verdict !== 'STANDDOWN');
   if (upcoming.length === 0 && !auroraActive) return null;
   return (
@@ -349,8 +349,7 @@ function EventPips({ allEvents, auroraActive }) {
 
 // ── LocationSlotList (shared between mobile drill-down and heatmap drill-down) ──
 
-function LocationSlotList({ slots, driveMap, typeMap }) {
-  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
+function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   if (visible.length === 0) return null;
   return (
     <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
@@ -386,8 +385,7 @@ function LocationSlotList({ slots, driveMap, typeMap }) {
 
 // ── EventDrillList (shared: event-row list with expandable location slots) ─
 
-function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {
-  const [expandedType, setExpandedType] = useState(null);
+function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  const [expandedType, setExpandedType] = useState(null);
 
   return (
     <div className="space-y-0.5">
@@ -410,6 +408,7 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {
                 ${isExpanded ? 'bg-plex-bg/20' : ''}`}
               style={{ fontSize: '12px' }}
               onClick={tappable ? () => setExpandedType(isExpanded ? null : eventKey) : undefined}
+              onKeyDown={tappable ? (e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedType(isExpanded ? null : eventKey); } : undefined}
             >
               <span className="text-sm">{emoji}</span>
               <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
@@ -457,7 +456,7 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {
 
 // ── HeatmapDrillDown (spans full grid, shows all events for a day × region) ─
 
-function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, onClose, onShowOnMap }) {
+function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, onClose, onShowOnMap }) { // eslint-disable-line no-unused-vars
   const day = briefingDays.find((d) => d.date === date);
   const events = [];
   if (day) {
@@ -495,8 +494,7 @@ function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, o
 
 // ── MobileRegionCard (one region × selected day) ─────────────────────────────
 
-function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, isOpen, onToggle, onShowOnMap }) {
-  const cellData = getDayCellData(date, regionName, briefingDays);
+function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, isOpen, onToggle, onShowOnMap }) {  const cellData = getDayCellData(date, regionName, briefingDays);
   if (!cellData) return null;
 
   const { bestVerdict, bestRegion, bestEs, allEvents } = cellData;
@@ -587,7 +585,6 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
         {picks.map((pick) => {
           const eventKey = resolveEventKey(pick.event, todayStr, tomorrowStr);
           const navigable = pick.event != null && eventKey != null;
-          const secondary = pick.rank !== 1;
           const lowConf = pick.confidence === 'low';
 
           const borderClass = lowConf ? 'border-plex-border' : 'border-amber-500/50';
@@ -686,6 +683,8 @@ const DISMISSED_AT_KEY = 'briefing-dismissed-at';
  * Desktop (sm+): heatmap grid (3 day-columns × regions) always visible.
  * Aurora tonight section displayed when the aurora state machine is active.
  */
+/* eslint-enable react/prop-types */
+
 export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange }) {
   const { role } = useAuth();
   const canSeeBestBets = role === 'ADMIN' || role === 'PRO_USER';
@@ -954,7 +953,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       }
     }
     return result;
-  }, [upcomingEvents, astroScoresByDate, auroraDates]);
+  }, [upcomingEvents, auroraDates]);
 
   /** Slider cell counts: total cells and visible cells at current qualityTier. */
   const sliderCounts = useMemo(() => {

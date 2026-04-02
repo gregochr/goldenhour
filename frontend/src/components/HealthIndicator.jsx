@@ -33,27 +33,10 @@ export default function HealthIndicator({
   status, degraded, checkedAt, build, services,
   database, session,
 }) {
-  if (!status) return null;
-
   const [open, setOpen] = useState(false);
   const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
   const pillRef = useRef(null);
   const panelRef = useRef(null);
-
-  let label, dotClass, bgClass;
-  if (status === 'UP') {
-    label = 'UP';
-    dotClass = 'bg-green-400';
-    bgClass = 'bg-green-900/30 border-green-700 text-green-400';
-  } else if (status === 'DEGRADED') {
-    label = 'DEGRADED';
-    dotClass = 'bg-amber-400';
-    bgClass = 'bg-amber-900/30 border-amber-700 text-amber-400';
-  } else {
-    label = 'DOWN';
-    dotClass = 'bg-red-400';
-    bgClass = 'bg-red-900/30 border-red-700 text-red-400';
-  }
 
   const computePosition = useCallback(() => {
     if (!pillRef.current) return;
@@ -89,6 +72,23 @@ export default function HealthIndicator({
       window.removeEventListener('resize', computePosition);
     };
   }, [open, computePosition]);
+
+  if (!status) return null;
+
+  let label, dotClass, bgClass;
+  if (status === 'UP') {
+    label = 'UP';
+    dotClass = 'bg-green-400';
+    bgClass = 'bg-green-900/30 border-green-700 text-green-400';
+  } else if (status === 'DEGRADED') {
+    label = 'DEGRADED';
+    dotClass = 'bg-amber-400';
+    bgClass = 'bg-amber-900/30 border-amber-700 text-amber-400';
+  } else {
+    label = 'DOWN';
+    dotClass = 'bg-red-400';
+    bgClass = 'bg-red-900/30 border-red-700 text-red-400';
+  }
 
   const timeStr = checkedAt
     ? checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })

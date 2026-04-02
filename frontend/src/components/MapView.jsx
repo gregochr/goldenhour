@@ -251,6 +251,8 @@ function getNextEventType(locations, date) {
   return 'SUNSET';
 }
 
+const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
+
 function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map(), onForecastRun }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
@@ -272,7 +274,6 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
-  const ALERT_WORTHY_LEVELS = useMemo(() => new Set(['MODERATE', 'STRONG']), []);
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
   const { viewline } = useAuroraViewline(viewlineEnabled);

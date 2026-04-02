@@ -9,7 +9,6 @@ vi.mock('../api/briefingModelTestApi', () => ({
 }));
 
 import {
-  runBriefingModelTest,
   getBriefingModelTestRuns,
   getBriefingModelTestResults,
 } from '../api/briefingModelTestApi';

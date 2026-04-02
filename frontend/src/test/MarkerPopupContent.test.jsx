@@ -663,7 +663,7 @@ describe('MarkerPopupContent', () => {
           {...DEFAULT_PROPS}
           location={EMPTY_LOCATION}
           forecast={null}
-          role="PRO_USER"
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
           {...overrides}
         />,
       );
@@ -776,7 +776,7 @@ describe('MarkerPopupContent', () => {
       render(
         <MarkerPopupContent
           {...DEFAULT_PROPS}
-          role="PRO_USER"
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
         />,
       );
       expect(screen.getByText('4/5')).toBeInTheDocument();

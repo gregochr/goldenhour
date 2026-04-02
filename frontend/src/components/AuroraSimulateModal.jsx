@@ -101,54 +101,62 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
           {/* Form fields */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-plex-text-muted mb-1">Kp index</label>
-              <input
-                type="number"
-                min="0"
-                max="9"
-                step="0.5"
-                value={form.kp}
-                onChange={(e) => handleChange('kp', e.target.value)}
-                className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
-                data-testid="simulate-kp"
-              />
+              <label className="block text-xs text-plex-text-muted mb-1">
+                Kp index
+                <input
+                  type="number"
+                  min="0"
+                  max="9"
+                  step="0.5"
+                  value={form.kp}
+                  onChange={(e) => handleChange('kp', e.target.value)}
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  data-testid="simulate-kp"
+                />
+              </label>
             </div>
             <div>
-              <label className="block text-xs text-plex-text-muted mb-1">OVATION 55°N (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                value={form.ovationProbability}
-                onChange={(e) => handleChange('ovationProbability', e.target.value)}
-                className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
-                data-testid="simulate-ovation"
-              />
+              <label className="block text-xs text-plex-text-muted mb-1">
+                OVATION 55°N (%)
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={form.ovationProbability}
+                  onChange={(e) => handleChange('ovationProbability', e.target.value)}
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  data-testid="simulate-ovation"
+                />
+              </label>
             </div>
             <div>
-              <label className="block text-xs text-plex-text-muted mb-1">Solar wind Bz (nT)</label>
-              <input
-                type="number"
-                step="0.5"
-                value={form.bzNanoTesla}
-                onChange={(e) => handleChange('bzNanoTesla', e.target.value)}
-                className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
-                data-testid="simulate-bz"
-              />
+              <label className="block text-xs text-plex-text-muted mb-1">
+                Solar wind Bz (nT)
+                <input
+                  type="number"
+                  step="0.5"
+                  value={form.bzNanoTesla}
+                  onChange={(e) => handleChange('bzNanoTesla', e.target.value)}
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  data-testid="simulate-bz"
+                />
+              </label>
             </div>
             <div>
-              <label className="block text-xs text-plex-text-muted mb-1">G-Scale</label>
-              <select
-                value={form.gScale}
-                onChange={(e) => handleChange('gScale', e.target.value)}
-                className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
-                data-testid="simulate-gscale"
-              >
-                {G_SCALE_OPTIONS.map((g) => (
-                  <option key={g} value={g}>{g || '—'}</option>
-                ))}
-              </select>
+              <label className="block text-xs text-plex-text-muted mb-1">
+                G-Scale
+                <select
+                  value={form.gScale}
+                  onChange={(e) => handleChange('gScale', e.target.value)}
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  data-testid="simulate-gscale"
+                >
+                  {G_SCALE_OPTIONS.map((g) => (
+                    <option key={g} value={g}>{g || '—'}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
 

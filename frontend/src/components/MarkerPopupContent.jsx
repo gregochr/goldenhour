@@ -782,12 +782,8 @@ export default function MarkerPopupContent({
         const emptySunriseTime = formatEventTimeUk(emptySunriseRaw);
         const emptySunsetTime = formatEventTimeUk(emptySunsetRaw);
         const emptyEventTime = isSunrise ? emptySunriseTime : emptySunsetTime;
-        const emptyEventRaw = isSunrise ? emptySunriseRaw : emptySunsetRaw;
 
         // Short day name from the solar event time (e.g. "Thu")
-        const dayLabel = emptyEventRaw
-          ? new Date(emptyEventRaw + 'Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
-          : null;
         const sunriseDayLabel = emptySunriseRaw
           ? new Date(emptySunriseRaw + 'Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
           : null;

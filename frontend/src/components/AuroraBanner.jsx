@@ -126,6 +126,7 @@ export default function AuroraBanner() {
     <>
       {isFavourable && <style>{PULSE_STYLE}</style>}
       {isSimulated && <style>{SIM_BORDER_STYLE}</style>}
+      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
       <div
         role="alert"
         data-testid="aurora-banner"
@@ -137,7 +138,12 @@ export default function AuroraBanner() {
         onClick={() => {
           window.location.hash = isSimulated ? 'manage' : 'map';
         }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') window.location.hash = isSimulated ? 'manage' : 'map';
+        }}
+        tabIndex={0}
       >
+      {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-lg shrink-0" aria-hidden="true">{isSimulated ? '🧪' : '🌌'}</span>

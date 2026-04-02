@@ -3,8 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import QualitySlider from '../components/QualitySlider.jsx';
 import { TIER_LABELS } from '../utils/tierUtils.js';
 
-const MAX_TIER = 5;
-
 describe('QualitySlider', () => {
   it('shows Worst label on the left', () => {
     render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);

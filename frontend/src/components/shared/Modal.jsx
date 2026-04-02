@@ -28,7 +28,9 @@ export default function Modal({
     >
       <div
         className="absolute inset-0 bg-black/60"
+        role="presentation"
         onClick={onClose}
+        onKeyDown={(e) => { if (e.key === 'Escape') onClose?.(); }}
         data-testid={testId ? `${testId}-backdrop` : undefined}
       />
       {bare ? (

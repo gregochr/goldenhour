@@ -4,10 +4,10 @@ import { render, screen } from '@testing-library/react';
 import AuroraViewlineOverlay from '../components/AuroraViewlineOverlay';
 
 vi.mock('react-leaflet', () => ({
-  Polygon: ({ pathOptions, ...props }) => (
+  Polygon: ({ pathOptions }) => (
     <div data-testid="viewline-polygon" data-fill-color={pathOptions?.fillColor} data-fill-opacity={pathOptions?.fillOpacity} data-interactive={String(pathOptions?.interactive)} />
   ),
-  Polyline: ({ pathOptions, children, ...props }) => (
+  Polyline: ({ pathOptions, children }) => (
     <div data-testid="viewline-polyline" data-color={pathOptions?.color} data-dash-array={pathOptions?.dashArray} data-interactive={String(pathOptions?.interactive)}>
       {children}
     </div>

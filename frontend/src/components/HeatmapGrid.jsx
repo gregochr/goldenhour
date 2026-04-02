@@ -99,6 +99,7 @@ function getRegionLocationNames(date, regionName, briefingDays) {
 }
 
 /** Small shared components (local copies for the extracted file) */
+/* eslint-disable react/prop-types */
 
 function VerdictPill({ verdict }) {
   const colours = {
@@ -117,16 +118,14 @@ function VerdictPill({ verdict }) {
   );
 }
 
-function FlagChip({ label }) {
-  return (
+function FlagChip({ label }) {  return (
     <span className="inline-block px-1.5 py-0.5 rounded bg-plex-surface border border-plex-border text-[11px] text-plex-text-secondary font-medium">
       {label}
     </span>
   );
 }
 
-function Chevron({ open, className = '' }) {
-  return (
+function Chevron({ open, className = '' }) {  return (
     <span
       aria-hidden="true"
       className={`inline-block transition-transform duration-200 leading-none select-none ${open ? 'rotate-90' : 'rotate-0'} ${className}`}
@@ -190,8 +189,7 @@ function ratingColour(rating) {
   return 'bg-red-700/70 text-red-100';
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false }) {
-  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   if (visible.length === 0) return null;
 
   // Re-sort by Claude score only after evaluation completes (the "reveal" moment).
@@ -257,8 +255,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,
-  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
   const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
@@ -341,6 +338,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   ${isExpanded ? 'bg-plex-bg/20' : ''}`}
                 style={{ fontSize: '12px' }}
                 onClick={tappable ? () => setExpandedType(isExpanded ? null : eventKey) : undefined}
+                onKeyDown={tappable ? (e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedType(isExpanded ? null : eventKey); } : undefined}
               >
                 <span className="text-sm">{emoji}</span>
                 <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
@@ -464,8 +462,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), evaluationTimestamps = new Map() }) {
-  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), evaluationTimestamps = new Map() }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Empty cell — region doesn't appear in this event type
   if (!cellData) {
@@ -632,8 +629,7 @@ const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Stro
 
 // ── AuroraDrillDown ──────────────────────────────────────────────────────────
 
-function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, onClose, onShowOnMap, date }) {
-  const isTonight = date === todayStr;
+function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, onClose, onShowOnMap, date }) {  const isTonight = date === todayStr;
   const sourceData = isTonight ? auroraTonight : auroraTomorrow;
   const auroraRegion = (sourceData?.regions || []).find((r) => r.regionName === regionName);
   const locations = (auroraRegion?.locations || [])
@@ -709,6 +705,8 @@ function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, 
  * Desktop heatmap grid — event columns with dynamic day-header spanning.
  * Solar events (SUNRISE/SUNSET), astro (🌙), and aurora (🌌) columns.
  */
+/* eslint-enable react/prop-types */
+
 export default function HeatmapGrid({
   events,
   sortedRegions,

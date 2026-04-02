@@ -46,10 +46,6 @@ export default function AuroraViewlineOverlay({ viewline }) {
     ...viewlineLatLngs.slice().reverse(),
   ];
 
-  // Midpoint of the viewline for the tooltip
-  const midIdx = Math.floor(viewlineLatLngs.length / 2);
-  const midpoint = viewlineLatLngs[midIdx] || viewlineLatLngs[0];
-
   return (
     <>
       <Polygon
