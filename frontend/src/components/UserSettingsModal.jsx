@@ -96,6 +96,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
 
   const roleBadge = settings?.role ? ROLE_LABELS[settings.role] : null;
   const hasHome = settings?.homePostcode != null;
+  const isPro = settings?.role === 'ADMIN' || settings?.role === 'PRO_USER';
 
   const formatCalcTime = (iso) => {
     if (!iso) return null;
@@ -169,80 +170,90 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
           {/* Home Location */}
           <section>
             <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Home Location</h3>
-            {hasHome && !lookupResult && (
-              <p className="text-sm text-plex-text mb-2" data-testid="settings-home-current">
-                <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
-                {settings.homePlaceName || settings.homePostcode}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={postcode}
-                onChange={(e) => setPostcode(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Enter UK postcode"
-                className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-                data-testid="settings-postcode-input"
-              />
-              <button
-                className="btn-primary text-sm"
-                onClick={handleLookup}
-                disabled={lookingUp || !postcode.trim()}
-                data-testid="settings-lookup-btn"
-              >
-                {lookingUp ? 'Looking up...' : 'Look up'}
-              </button>
-            </div>
-            {lookupError && (
-              <p className="text-sm text-red-400 mt-1" data-testid="settings-lookup-error">{lookupError}</p>
-            )}
-            {lookupResult && (
-              <div className="mt-2 flex items-center gap-3" data-testid="settings-lookup-result">
-                <div>
-                  <p className="text-sm text-plex-text">
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
-                    {lookupResult.placeName}
-                  </p>
-                  <p className="text-xs text-plex-text-muted">
-                    {lookupResult.latitude.toFixed(4)}, {lookupResult.longitude.toFixed(4)}
-                  </p>
-                </div>
+            <div className={!isPro ? 'opacity-45 pointer-events-none' : undefined}>
+              {hasHome && !lookupResult && (
+                <p className="text-sm text-plex-text mb-2" data-testid="settings-home-current">
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
+                  {settings.homePlaceName || settings.homePostcode}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={postcode}
+                  onChange={(e) => setPostcode(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Enter UK postcode"
+                  className="flex-1 px-3 py-1.5 text-sm bg-plex-bg border border-plex-border rounded-lg text-plex-text placeholder:text-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  data-testid="settings-postcode-input"
+                  disabled={!isPro}
+                />
                 <button
-                  className="btn-primary text-sm ml-auto"
-                  onClick={handleSave}
-                  disabled={saving}
-                  data-testid="settings-save-home-btn"
+                  className="btn-primary text-sm"
+                  onClick={handleLookup}
+                  disabled={!isPro || lookingUp || !postcode.trim()}
+                  data-testid="settings-lookup-btn"
                 >
-                  {saving ? 'Saving...' : 'Save'}
+                  {lookingUp ? 'Looking up...' : 'Look up'}
                 </button>
               </div>
-            )}
+              {lookupError && (
+                <p className="text-sm text-red-400 mt-1" data-testid="settings-lookup-error">{lookupError}</p>
+              )}
+              {lookupResult && (
+                <div className="mt-2 flex items-center gap-3" data-testid="settings-lookup-result">
+                  <div>
+                    <p className="text-sm text-plex-text">
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
+                      {lookupResult.placeName}
+                    </p>
+                    <p className="text-xs text-plex-text-muted">
+                      {lookupResult.latitude.toFixed(4)}, {lookupResult.longitude.toFixed(4)}
+                    </p>
+                  </div>
+                  <button
+                    className="btn-primary text-sm ml-auto"
+                    onClick={handleSave}
+                    disabled={!isPro || saving}
+                    data-testid="settings-save-home-btn"
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </div>
           </section>
 
           {/* Drive Times */}
           <section>
             <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Drive Times</h3>
-            <button
-              className="btn-primary text-sm w-full"
-              onClick={handleRefresh}
-              disabled={!hasHome}
-              data-testid="settings-refresh-drive-btn"
-            >
-              Refresh drive times
-            </button>
-            {!hasHome && (
-              <p className="text-xs text-plex-text-muted mt-1">Set a home location first</p>
-            )}
-            {settings.driveTimesCalculatedAt && (
-              <p className="text-xs text-plex-text-muted mt-1" data-testid="settings-drive-calc-time">
-                Last calculated: {formatCalcTime(settings.driveTimesCalculatedAt)}
-              </p>
-            )}
-            {refreshError && (
-              <p className="text-sm text-red-400 mt-1" data-testid="settings-refresh-error">{refreshError}</p>
-            )}
+            <div className={!isPro ? 'opacity-45 pointer-events-none' : undefined}>
+              <button
+                className="btn-primary text-sm w-full"
+                onClick={handleRefresh}
+                disabled={!isPro || !hasHome}
+                data-testid="settings-refresh-drive-btn"
+              >
+                Refresh drive times
+              </button>
+              {!hasHome && (
+                <p className="text-xs text-plex-text-muted mt-1">Set a home location first</p>
+              )}
+              {settings.driveTimesCalculatedAt && (
+                <p className="text-xs text-plex-text-muted mt-1" data-testid="settings-drive-calc-time">
+                  Last calculated: {formatCalcTime(settings.driveTimesCalculatedAt)}
+                </p>
+              )}
+              {refreshError && (
+                <p className="text-sm text-red-400 mt-1" data-testid="settings-refresh-error">{refreshError}</p>
+              )}
+            </div>
           </section>
+          {!isPro && (
+            <p className="text-center text-plex-text-secondary" style={{ fontSize: '13px' }}>
+              Upgrade to Pro for personalised drive times
+            </p>
+          )}
         </div>
       ) : (
         <p className="text-sm text-red-400 py-4">Failed to load settings.</p>
