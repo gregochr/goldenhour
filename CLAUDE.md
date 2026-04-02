@@ -240,7 +240,7 @@ See `docs/product/` for detailed reference documents.
 
 **Differentiators**: Claude-generated "why" explanation | AOD+PM2.5 aerosol proxy | Cloud approach risk detection (temporal trend + upwind sampling) | Location type-specific UI | Outcome recording feedback loop
 
-**Freemium split**: LITE gets basic scores, 3-day horizon, 1 location, blurred metrics. PRO gets enhanced directional scores, 7-day horizon, unlimited locations, full metrics.
+**Freemium split**: LITE gets basic scores, 3-day horizon, blurred metrics. PRO gets enhanced directional scores, 3-day horizon, full metrics.
 
 ### Role gating — UI pattern
 

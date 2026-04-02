@@ -153,8 +153,8 @@ Users can self-register at the login page — email verification is required, an
 | Role | Access |
 |---|---|
 | `ADMIN` | All endpoints + Manage tab (users, regions, job metrics, model selection, model test) |
-| `PRO_USER` | 7-day forecast, all scores, unlimited locations, outcome recording |
-| `LITE_USER` | 3-day forecast, star rating only, 1 location |
+| `PRO_USER` | 3-day forecast, all scores, outcome recording |
+| `LITE_USER` | 3-day forecast, star rating only |
 
 ---
 
