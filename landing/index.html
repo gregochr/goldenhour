@@ -40,12 +40,14 @@
 
     /* Nav */
     .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
-    .nav-logo {
+    .nav-brand { display: flex; flex-direction: column; }
+    .nav-title {
       font-size: 36px; font-weight: 800; letter-spacing: -0.5px;
       color: var(--text); display: flex; align-items: center; gap: 10px;
     }
-    .nav-logo img { height: 40px; width: 40px; object-fit: contain; }
-    .nav-logo span { color: var(--gold); }
+    .nav-title img { height: 40px; width: 40px; object-fit: contain; }
+    .nav-title span { color: var(--gold); }
+    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 2px; }
     .nav-links { display: flex; gap: 1.5rem; align-items: center; }
     .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
     .nav-links a:hover { color: var(--text); }
@@ -167,7 +169,10 @@
   <div class="page">
 
     <nav class="nav">
-      <div class="nav-logo"><img src="logo.png" alt="">Photo<span>Cast</span></div>
+      <div class="nav-brand">
+        <div class="nav-title"><img src="logo.png" alt="">Photo<span>Cast</span></div>
+        <p class="nav-subtitle">AI sunrise, sunset, and aurora forecasting</p>
+      </div>
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
@@ -259,7 +264,7 @@
         <a href="#">Terms</a>
         <a href="#">Acknowledgements</a>
       </div>
-      <p class="footer-copy">PhotoCast — made with coffee by Chris</p>
+      <p class="footer-copy">&copy; 2026 PhotoCast</p>
     </div>
 
   </div>
