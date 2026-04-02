@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -42,12 +42,11 @@
     .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
     .nav-brand { display: flex; flex-direction: column; }
     .nav-title {
-      font-size: 36px; font-weight: 800; letter-spacing: -0.5px;
-      color: var(--text); display: flex; align-items: center; gap: 10px;
+      font-size: 36px; font-weight: 800; letter-spacing: -0.025em;
+      color: var(--text); display: flex; align-items: center; gap: 12px;
     }
     .nav-title img { height: 40px; width: 40px; object-fit: contain; }
-    .nav-title span { color: var(--gold); }
-    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 2px; }
+    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 4px; }
     .nav-links { display: flex; gap: 1.5rem; align-items: center; }
     .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
     .nav-links a:hover { color: var(--text); }
@@ -65,7 +64,7 @@
     .hero h1 {
       font-size: clamp(32px, 6vw, 44px);
       font-weight: 600; letter-spacing: -1.5px;
-      line-height: 1.12; margin-bottom: 1rem; color: #fff;
+      line-height: 1.12; margin-bottom: 1rem; color: var(--text);
     }
     .hero h1 em { font-style: normal; color: var(--gold); }
     .hero-sub {
@@ -104,7 +103,7 @@
     .feature:last-child { border-bottom: none; }
     .feature h2 {
       font-size: 18px; font-weight: 600;
-      letter-spacing: -0.2px; margin-bottom: 6px; color: #fff;
+      letter-spacing: -0.2px; margin-bottom: 6px; color: var(--text);
     }
     .feature p { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
 
@@ -112,7 +111,7 @@
     .pricing { padding: 1.5rem 0 2.5rem; text-align: center; }
     .pricing h2 {
       font-size: 26px; font-weight: 600;
-      letter-spacing: -0.5px; margin-bottom: 1.5rem; color: #fff;
+      letter-spacing: -0.5px; margin-bottom: 1.5rem; color: var(--text);
     }
     .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; text-align: left; }
     .pricing-card {
@@ -125,8 +124,8 @@
       border-color: var(--gold-border);
       background: linear-gradient(to bottom, rgba(229,160,13,0.04), var(--bg-card));
     }
-    .pricing-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #fff; }
-    .pricing-price { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: #fff; }
+    .pricing-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
+    .pricing-price { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: var(--text); }
     .pricing-price span { font-size: 14px; font-weight: 400; color: var(--text-dim); }
     .pricing-list { list-style: none; padding: 0; margin-top: 16px; }
     .pricing-list li {
@@ -170,7 +169,7 @@
 
     <nav class="nav">
       <div class="nav-brand">
-        <div class="nav-title"><img src="logo.png" alt="">Photo<span>Cast</span></div>
+        <div class="nav-title"><img src="logo.png" alt="">PhotoCast</div>
         <p class="nav-subtitle">AI sunrise, sunset, and aurora forecasting</p>
       </div>
       <div class="nav-links">
