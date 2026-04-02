@@ -236,6 +236,7 @@ public class AuroraOrchestrator {
                 level, candidates.size(), threshold);
 
         WeatherTriageService.TriageResult triage = weatherTriage.triage(candidates);
+        stateCache.updateLocationCounts(candidates.size(), triage.viable().size());
 
         // Auto-assign 1★ to overcast-rejected locations
         List<AuroraForecastScore> allScores = new ArrayList<>();

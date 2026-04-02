@@ -105,6 +105,8 @@ public class AuroraController {
                 level.description(),
                 stateCache.isActive(),
                 stateCache.getCachedScores().size(),
+                stateCache.getDarkSkyLocationCount(),
+                stateCache.getClearLocationCount(),
                 kp,
                 stateCache.getLastTriggerKp(),
                 triggerTypeStr,

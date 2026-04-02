@@ -17,6 +17,10 @@ import java.time.ZonedDateTime;
  * @param active             {@code true} when the state machine is in the ACTIVE state
  *                           (aurora event in progress)
  * @param eligibleLocations  number of locations with aurora scores from the last NOTIFY
+ * @param darkSkyLocationCount number of Bortle-eligible dark sky locations, or 0 if scoring
+ *                             has not run; the frontend omits the count when this is 0
+ * @param clearLocationCount   number of dark sky locations that passed cloud triage (clear skies),
+ *                             or {@code null} if the triage has not yet run
  * @param kp                 most recent real-time Kp index value, or {@code null} if unavailable
  * @param forecastKp         the Kp value that triggered the current alert (forecast max Kp
  *                           for lookahead alerts, latest Kp for real-time alerts), or
@@ -39,6 +43,8 @@ public record AuroraStatusResponse(
         String description,
         boolean active,
         int eligibleLocations,
+        int darkSkyLocationCount,
+        Integer clearLocationCount,
         Double kp,
         Double forecastKp,
         String triggerType,

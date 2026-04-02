@@ -83,37 +83,71 @@ describe('AuroraBanner', () => {
     expect(screen.getByText(/Amber alert: possible aurora/i)).toBeInTheDocument();
   });
 
-  it('shows location count when eligible locations > 0', () => {
+  it('shows "N dark sky locations clear" when triage has run', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
-      eligibleLocations: 7,
+      eligibleLocations: 45,
+      darkSkyLocationCount: 45,
+      clearLocationCount: 12,
     });
-    expect(screen.getByText(/7 locations available/i)).toBeInTheDocument();
+    expect(screen.getByText(/12 dark sky locations clear/i)).toBeInTheDocument();
   });
 
-  it('shows singular "location" when eligibleLocations is 1', () => {
+  it('shows singular "location" when clearLocationCount is 1', () => {
     renderBanner({
       level: 'STRONG',
       hexColour: '#ff0000',
       description: 'Red alert: aurora likely',
       active: true,
-      eligibleLocations: 1,
+      eligibleLocations: 10,
+      darkSkyLocationCount: 10,
+      clearLocationCount: 1,
     });
-    expect(screen.getByText(/1 location available/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 dark sky location clear/i)).toBeInTheDocument();
   });
 
-  it('does not show location count when eligibleLocations is 0', () => {
+  it('shows "0 dark sky locations clear" when all locations are cloudy', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert: possible aurora',
+      active: true,
+      eligibleLocations: 20,
+      darkSkyLocationCount: 20,
+      clearLocationCount: 0,
+    });
+    expect(screen.getByText(/0 dark sky locations clear/i)).toBeInTheDocument();
+  });
+
+  it('shows total dark sky count when triage has not run yet', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
       description: 'Amber alert: possible aurora',
       active: true,
       eligibleLocations: 0,
+      darkSkyLocationCount: 45,
+      clearLocationCount: null,
     });
-    expect(screen.queryByText(/available/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/45 dark sky locations/i)).toBeInTheDocument();
+    expect(screen.queryByText(/clear/i)).not.toBeInTheDocument();
+  });
+
+  it('omits location count when no Bortle-enriched locations exist', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert: possible aurora',
+      active: true,
+      eligibleLocations: 0,
+      darkSkyLocationCount: 0,
+      clearLocationCount: null,
+    });
+    expect(screen.queryByText(/dark sky/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/location/i)).not.toBeInTheDocument();
   });
 
   it('uses hexColour from API as background style', () => {

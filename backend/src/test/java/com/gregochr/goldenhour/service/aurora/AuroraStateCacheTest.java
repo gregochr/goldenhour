@@ -287,6 +287,48 @@ class AuroraStateCacheTest {
     }
 
     // -------------------------------------------------------------------------
+    // Location counts
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("updateLocationCounts stores dark sky and clear counts")
+    void updateLocationCounts_storesCounts() {
+        cache.updateLocationCounts(45, 12);
+
+        assertThat(cache.getDarkSkyLocationCount()).isEqualTo(45);
+        assertThat(cache.getClearLocationCount()).isEqualTo(12);
+    }
+
+    @Test
+    @DisplayName("CLEAR resets location counts")
+    void clear_resetsLocationCounts() {
+        cache.evaluate(AlertLevel.MODERATE);
+        cache.updateLocationCounts(45, 12);
+
+        cache.evaluate(AlertLevel.QUIET);
+
+        assertThat(cache.getDarkSkyLocationCount()).isZero();
+        assertThat(cache.getClearLocationCount()).isNull();
+    }
+
+    @Test
+    @DisplayName("reset() clears location counts")
+    void reset_clearsLocationCounts() {
+        cache.updateLocationCounts(30, 8);
+        cache.reset();
+
+        assertThat(cache.getDarkSkyLocationCount()).isZero();
+        assertThat(cache.getClearLocationCount()).isNull();
+    }
+
+    @Test
+    @DisplayName("Initial location counts are 0 and null")
+    void initialLocationCounts() {
+        assertThat(cache.getDarkSkyLocationCount()).isZero();
+        assertThat(cache.getClearLocationCount()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

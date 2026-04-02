@@ -79,6 +79,8 @@ public class AuroraStateCache {
     private volatile List<AuroraForecastScore> cachedScores = List.of();
     private volatile TriggerType lastTriggerType = null;
     private volatile Double lastTriggerKp = null;
+    private volatile int darkSkyLocationCount = 0;
+    private volatile Integer clearLocationCount = null;
     private volatile boolean simulated = false;
     private volatile SimulatedNoaaData simulatedData = null;
 
@@ -97,6 +99,8 @@ public class AuroraStateCache {
                 state = State.IDLE;
                 currentLevel = null;
                 cachedScores = List.of();
+                darkSkyLocationCount = 0;
+                clearLocationCount = null;
                 return new Evaluation(Action.CLEAR, null, prev);
             }
             return new Evaluation(Action.NONE, null, null);
@@ -159,6 +163,37 @@ public class AuroraStateCache {
      */
     public Double getLastTriggerKp() {
         return lastTriggerKp;
+    }
+
+    /**
+     * Updates the aurora-relevant location counts after Bortle filtering and cloud triage.
+     *
+     * @param darkSkyCount number of Bortle-eligible (dark sky) locations
+     * @param clearCount   number of locations that passed cloud triage (clear skies)
+     */
+    public void updateLocationCounts(int darkSkyCount, int clearCount) {
+        this.darkSkyLocationCount = darkSkyCount;
+        this.clearLocationCount = clearCount;
+    }
+
+    /**
+     * Returns the number of dark sky locations meeting the Bortle threshold, or 0 if scoring
+     * has not run.
+     *
+     * @return dark sky location count
+     */
+    public int getDarkSkyLocationCount() {
+        return darkSkyLocationCount;
+    }
+
+    /**
+     * Returns the number of locations that passed cloud triage (clear skies), or {@code null}
+     * if the triage has not yet run (e.g. during simulation or before the scoring pipeline).
+     *
+     * @return clear location count, or {@code null}
+     */
+    public Integer getClearLocationCount() {
+        return clearLocationCount;
     }
 
     /**
@@ -244,6 +279,8 @@ public class AuroraStateCache {
         cachedScores = List.of();
         lastTriggerType = null;
         lastTriggerKp = null;
+        darkSkyLocationCount = 0;
+        clearLocationCount = null;
         simulated = false;
         simulatedData = null;
     }

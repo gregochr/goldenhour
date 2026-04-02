@@ -88,10 +88,16 @@ export default function AuroraBanner() {
 
   const isSimulated = status.simulated === true;
 
-  const count = status.eligibleLocations;
-  const locationText = count > 0
-    ? `${count} location${count !== 1 ? 's' : ''} available`
-    : null;
+  let locationText = null;
+  if (status.darkSkyLocationCount > 0) {
+    if (status.clearLocationCount != null) {
+      const c = status.clearLocationCount;
+      locationText = `${c} dark sky location${c !== 1 ? 's' : ''} clear`;
+    } else {
+      const c = status.darkSkyLocationCount;
+      locationText = `${c} dark sky location${c !== 1 ? 's' : ''}`;
+    }
+  }
 
   const displayKp = status.forecastKp ?? status.kp;
   const kpText = displayKp != null
