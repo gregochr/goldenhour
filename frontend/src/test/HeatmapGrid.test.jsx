@@ -50,16 +50,14 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays, astroScoresByDate = {} } = {}) {
+function renderGrid({ events, briefingDays } = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
 
   const defaultEvents = events || [
     { date: DATE_1, targetType: 'SUNSET' },
-    { date: DATE_1, targetType: 'ASTRO' },
     { date: DATE_2, targetType: 'SUNSET' },
-    { date: DATE_2, targetType: 'ASTRO' },
   ];
 
   return render(
@@ -73,50 +71,30 @@ function renderGrid({ events, briefingDays, astroScoresByDate = {} } = {}) {
       todayStr={futureDateStr(0)}
       tomorrowStr={DATE_1}
       onShowOnMap={vi.fn()}
-      astroScoresByDate={astroScoresByDate}
+      astroScoresByDate={{}}
     />,
   );
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('HeatmapGrid — astro moon sub-column', () => {
-  it('renders moon sub-column per day when events include ASTRO entries', () => {
+describe('HeatmapGrid — no astro column in heatmap', () => {
+  it('does not render astro moon sub-columns', () => {
     renderGrid();
 
-    // The sub-column header row should contain moon emoji headers for each ASTRO event
-    const allHeaders = screen.getByTestId('briefing-heatmap').querySelectorAll('[title="Astro conditions"]');
-    expect(allHeaders).toHaveLength(2); // one per day
+    const grid = screen.getByTestId('briefing-heatmap');
+    const astroHeaders = grid.querySelectorAll('[title="Astro conditions"]');
+    expect(astroHeaders).toHaveLength(0);
 
-    // Each should display the moon emoji
-    for (const header of allHeaders) {
-      expect(header.textContent).toBe('🌙');
-    }
+    const astroCells = screen.queryAllByTestId('astro-heatmap-cell');
+    expect(astroCells).toHaveLength(0);
   });
 
-  it('moon cell shows star rating when astro data exists for a region', () => {
-    const astroScoresByDate = {
-      [DATE_1]: {
-        Bamburgh: { stars: 4 },
-        Kielder: { stars: 3 },
-      },
-    };
+  it('renders sunset sub-columns for each day', () => {
+    renderGrid();
 
-    renderGrid({ astroScoresByDate });
-
-    const astroCells = screen.getAllByTestId('astro-heatmap-cell');
-    // DATE_1 has data — should show the best rating (4 stars)
-    expect(astroCells[0].textContent).toContain('4★');
-  });
-
-  it('moon cell shows dash when no astro data exists', () => {
-    // No astro scores at all
-    renderGrid({ astroScoresByDate: {} });
-
-    const astroCells = screen.getAllByTestId('astro-heatmap-cell');
-    // All cells should show the em-dash placeholder
-    for (const cell of astroCells) {
-      expect(cell.textContent).toBe('—');
-    }
+    const grid = screen.getByTestId('briefing-heatmap');
+    const sunsetHeaders = grid.querySelectorAll('[title="Sunset"]');
+    expect(sunsetHeaders).toHaveLength(2);
   });
 });

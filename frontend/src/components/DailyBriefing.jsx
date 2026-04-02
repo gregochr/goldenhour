@@ -923,11 +923,10 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     return dates;
   }, [canSeeBestBets, briefing, todayStr, tomorrowStr]);
 
-  // Augment events with ASTRO and AURORA sub-columns.
+  // Augment events with AURORA sub-columns.
   const heatmapEvents = useMemo(() => {
-    const hasAstro = Object.keys(astroScoresByDate).length > 0;
     const hasAurora = auroraDates.size > 0;
-    if (!hasAstro && !hasAurora) return upcomingEvents;
+    if (!hasAurora) return upcomingEvents;
     const result = [];
     const coveredDates = new Set();
     for (let i = 0; i < upcomingEvents.length; i++) {
@@ -936,9 +935,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       const nextDate = i + 1 < upcomingEvents.length ? upcomingEvents[i + 1].date : null;
       if (nextDate !== ev.date) {
         coveredDates.add(ev.date);
-        if (hasAstro && astroScoresByDate[ev.date]) {
-          result.push({ date: ev.date, targetType: 'ASTRO' });
-        }
         if (hasAurora && auroraDates.has(ev.date)) {
           result.push({ date: ev.date, targetType: 'AURORA' });
         }
@@ -981,7 +977,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
           if (isCellVisible(tier, qualityTier)) showing += 1;
           continue;
         }
-        if (targetType === 'ASTRO') continue; // astro cells don't participate in slider counts
         const day = briefing.days.find((d) => d.date === date);
         if (!day) continue;
         const es = (day.eventSummaries || []).find((e) => e.targetType === targetType);
