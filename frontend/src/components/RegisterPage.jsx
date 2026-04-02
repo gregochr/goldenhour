@@ -222,7 +222,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
             <img src="/logo.png" alt="" className="h-10 w-10" />
             PhotoCast
           </h1>
-          <p className="text-base text-plex-text-secondary mt-2">AI Forecasts for Fiery Skies & Golden Light</p>
+          <p className="text-base text-plex-text-secondary mt-2">AI sunrise, sunset, and aurora forecasting</p>
         </div>
 
         {/* REGISTER step */}

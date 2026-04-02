@@ -174,7 +174,7 @@ function AppInner() {
               PhotoCast
             </h1>
             <p className="text-base text-plex-text-secondary mt-1">
-              AI Forecasts for Fiery Skies & Golden Light
+              AI sunrise, sunset, and aurora forecasting
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
