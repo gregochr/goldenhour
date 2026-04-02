@@ -112,7 +112,7 @@ export async function runVeryShortTermForecast(excludedSlots = [], excludedLocat
   const hasLocations = excludedLocations.length > 0;
   const body = hasSlots || hasLocations
     ? { ...(hasSlots && { excludedSlots }), ...(hasLocations && { excludedLocations }) }
-    : null;
+    : undefined;
   const response = await axios.post(`${BASE_URL}/forecast/run/very-short-term`, body);
   return response.data;
 }
@@ -130,7 +130,7 @@ export async function runShortTermForecast(excludedSlots = [], excludedLocations
   const hasLocations = excludedLocations.length > 0;
   const body = hasSlots || hasLocations
     ? { ...(hasSlots && { excludedSlots }), ...(hasLocations && { excludedLocations }) }
-    : null;
+    : undefined;
   const response = await axios.post(`${BASE_URL}/forecast/run/short-term`, body);
   return response.data;
 }
