@@ -27,9 +27,12 @@ describe('ForecastTypeSelector', () => {
       expect(screen.getByTestId('forecast-type-aurora')).toBeInTheDocument();
     });
 
-    it('hides Aurora button for LITE_USER (showAurora=false)', () => {
+    it('shows Aurora button for LITE_USER but disabled with Pro pill', () => {
       renderSelector({ showAurora: false });
-      expect(screen.queryByTestId('forecast-type-aurora')).not.toBeInTheDocument();
+      const aurora = screen.getByTestId('forecast-type-aurora');
+      expect(aurora).toBeInTheDocument();
+      expect(aurora).toBeDisabled();
+      expect(screen.getByTestId('pro-pill')).toBeInTheDocument();
     });
   });
 
@@ -52,6 +55,14 @@ describe('ForecastTypeSelector', () => {
       );
     });
 
+    it('locked Aurora button shows Pro upgrade tooltip', () => {
+      renderSelector({ showAurora: false, auroraAvailable: false });
+      expect(screen.getByTestId('forecast-type-aurora')).toHaveAttribute(
+        'title',
+        'Upgrade to Pro for aurora forecasts',
+      );
+    });
+
     it('enabled Aurora button has no title', () => {
       renderSelector({ showAurora: true, auroraAvailable: true });
       expect(screen.getByTestId('forecast-type-aurora')).not.toHaveAttribute('title');
@@ -61,6 +72,11 @@ describe('ForecastTypeSelector', () => {
       renderSelector({ showAurora: true, auroraAvailable: false });
       expect(screen.getByTestId('forecast-type-sunrise')).not.toBeDisabled();
       expect(screen.getByTestId('forecast-type-sunset')).not.toBeDisabled();
+    });
+
+    it('does not show Pro pill when showAurora=true', () => {
+      renderSelector({ showAurora: true, auroraAvailable: true });
+      expect(screen.queryByTestId('pro-pill')).not.toBeInTheDocument();
     });
   });
 
@@ -87,6 +103,12 @@ describe('ForecastTypeSelector', () => {
 
     it('does not call onChange when disabled Aurora button is clicked', () => {
       const { onChange } = renderSelector({ showAurora: true, auroraAvailable: false });
+      fireEvent.click(screen.getByTestId('forecast-type-aurora'));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('does not call onChange when locked Aurora button is clicked', () => {
+      const { onChange } = renderSelector({ showAurora: false, auroraAvailable: false });
       fireEvent.click(screen.getByTestId('forecast-type-aurora'));
       expect(onChange).not.toHaveBeenCalled();
     });

@@ -1024,7 +1024,23 @@ describe('DailyBriefing', () => {
       expect(screen.queryByTestId('best-bet-banner')).toBeNull();
     });
 
-    it('renders no banner for LITE_USER even when picks exist', async () => {
+    it('renders no placeholder for LITE_USER when bestBets is absent', async () => {
+      useAuth.mockReturnValue({ role: 'LITE_USER' });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-placeholder')).toBeNull();
+    });
+
+    it('renders no placeholder for LITE_USER when bestBets is empty', async () => {
+      useAuth.mockReturnValue({ role: 'LITE_USER' });
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-placeholder')).toBeNull();
+    });
+
+    it('renders placeholder (not real banner) for LITE_USER when picks exist', async () => {
       useAuth.mockReturnValue({ role: 'LITE_USER' });
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
         { rank: 1, headline: 'Go shoot', detail: 'Clear.', event: 'tomorrow_sunset',
@@ -1033,6 +1049,8 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
       expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+      expect(screen.getByTestId('best-bet-placeholder')).toBeInTheDocument();
+      expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
     });
 
     it('renders banner for PRO_USER', async () => {
@@ -1459,7 +1477,7 @@ describe('DailyBriefing', () => {
       expect(screen.getByTestId('run-forecast-btn').textContent).toContain('Run full forecast');
     });
 
-    it('does not show "Run full forecast" button for LITE_USER', async () => {
+    it('shows disabled "Run full forecast" button with Pro pill for LITE_USER', async () => {
       const dateStr = futureDateStr();
       getDailyBriefing.mockResolvedValue({
         generatedAt: new Date().toISOString().slice(0, 19),
@@ -1488,7 +1506,10 @@ describe('DailyBriefing', () => {
       fireEvent.click(enabledCell);
       await waitFor(() => screen.getByTestId('drill-down-panel'));
 
-      expect(screen.queryByTestId('run-forecast-btn')).toBeNull();
+      const btn = screen.getByTestId('run-forecast-btn');
+      expect(btn).toBeInTheDocument();
+      expect(btn).toBeDisabled();
+      expect(screen.getByTestId('pro-pill')).toBeInTheDocument();
     });
 
     it('clicking "Run full forecast" opens confirmation dialog', async () => {

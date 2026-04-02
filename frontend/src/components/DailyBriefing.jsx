@@ -669,6 +669,33 @@ BestBetBanner.propTypes = {
   onPickClick: PropTypes.func.isRequired,
 };
 
+/**
+ * Redacted placeholder shown to LITE users in place of the real best-bet banner.
+ * Uses opacity + pointer-events to grey out a dummy card.
+ */
+function BestBetPlaceholder() {
+  return (
+    <div className="mb-3" data-testid="best-bet-placeholder">
+      <div className="opacity-45 pointer-events-none">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          <div className="flex-1 text-left rounded px-3 py-2.5 border border-plex-border bg-plex-surface/30">
+            <p className="font-bold text-plex-gold/60" style={{ fontSize: '11px' }}>
+              ① BEST BET
+            </p>
+            <p className="mt-1">
+              <span className="text-transparent bg-plex-text-muted/20 rounded select-none">Best bet recommendation</span>
+            </p>
+            <p className="mt-0.5">
+              <span className="text-transparent bg-plex-text-muted/20 rounded select-none" style={{ fontSize: '12px' }}>Detailed analysis and driving directions</span>
+            </p>
+          </div>
+        </div>
+      </div>
+      <p className="text-plex-text-secondary mt-1" style={{ fontSize: '12px' }}>Upgrade to Pro</p>
+    </div>
+  );
+}
+
 // Aurora is now rendered as 🌌 grid columns inside HeatmapGrid (not a separate row).
 
 // ── DISMISSED_AT_KEY ──────────────────────────────────────────────────────────
@@ -1078,15 +1105,17 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         </button>
       </div>
 
-      {/* ── Best bet banner — ADMIN and PRO only ── */}
-      {canSeeBestBets && briefing.bestBets && briefing.bestBets.length > 0 && (
+      {/* ── Best bet banner — ADMIN and PRO only; placeholder for LITE ── */}
+      {canSeeBestBets && briefing.bestBets && briefing.bestBets.length > 0 ? (
         <BestBetBanner
           picks={briefing.bestBets}
           todayStr={todayStr}
           tomorrowStr={tomorrowStr}
           onPickClick={handlePickClick}
         />
-      )}
+      ) : !canSeeBestBets && briefing.bestBets?.length > 0 ? (
+        <BestBetPlaceholder />
+      ) : null}
 
       {/* ── Quality threshold slider (desktop + mobile) ── */}
       {dayDates.length > 0 && (

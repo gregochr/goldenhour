@@ -276,6 +276,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
   const { status: auroraStatus } = useAuroraStatus();
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
+  const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
+    && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
   const { viewline } = useAuroraViewline(viewlineEnabled);
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
@@ -817,6 +820,26 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
             })}
           </MarkerClusterGroup>
         </MapContainer>
+
+        {/* Aurora viewline upsell chip for LITE users */}
+        {showViewlineUpsell && (
+          <div
+            data-testid="viewline-upsell-chip"
+            className="absolute bottom-2 left-2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
+              text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+            style={{ fontSize: '11px' }}
+          >
+            Aurora viewline available — upgrade to Pro
+            <button
+              data-testid="viewline-upsell-dismiss"
+              onClick={() => setViewlineUpsellDismissed(true)}
+              className="text-plex-text-muted hover:text-plex-text transition-colors"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Legend: show when Claude-scored pins are visible */}
         {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {

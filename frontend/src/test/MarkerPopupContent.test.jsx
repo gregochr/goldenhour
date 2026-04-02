@@ -75,11 +75,26 @@ describe('MarkerPopupContent', () => {
   });
 
   describe('LITE vs PRO/ADMIN score bar visibility', () => {
-    it('hides score bars for LITE_USER', () => {
-      renderPopup({ role: 'LITE_USER' });
-      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
-      expect(screen.queryByText('Golden Hour')).not.toBeInTheDocument();
-      expect(screen.queryByText('Scores')).not.toBeInTheDocument();
+    it('shows greyed score bars with Pro pill for LITE_USER when expanded', () => {
+      renderPopup({
+        role: 'LITE_USER',
+        forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: null },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.getByText('Scores')).toBeInTheDocument();
+      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
+      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
+      expect(screen.getByTestId('pro-pill')).toBeInTheDocument();
+    });
+
+    it('LITE score bars wrapper has opacity-45', () => {
+      renderPopup({
+        role: 'LITE_USER',
+        forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: null },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      const scoresWrapper = screen.getByText('Scores').closest('div[class]');
+      expect(scoresWrapper.className).toContain('opacity-45');
     });
 
     it('shows score bars for PRO_USER when expanded', () => {
@@ -91,11 +106,23 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText('62')).toBeInTheDocument();
     });
 
+    it('does not show pro-pill for PRO_USER', () => {
+      renderPopup({ role: 'PRO_USER' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.queryByTestId('pro-pill')).not.toBeInTheDocument();
+    });
+
     it('shows score bars for ADMIN when expanded', () => {
       renderPopup({ role: 'ADMIN' });
       fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
       expect(screen.getByText('Golden Hour')).toBeInTheDocument();
+    });
+
+    it('does not show pro-pill for ADMIN', () => {
+      renderPopup({ role: 'ADMIN' });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.queryByTestId('pro-pill')).not.toBeInTheDocument();
     });
 
     it('hides score bars when collapsed even for PRO_USER', () => {

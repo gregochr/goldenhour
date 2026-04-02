@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import ProPill from './shared/ProPill.jsx';
 
 const TYPES = [
   { value: 'SUNRISE', label: '☀️ Sunrise' },
@@ -12,9 +13,9 @@ const TYPES = [
  * Sunrise / Sunset / Astro / Aurora toggle bar shown above the map.
  *
  * Astro is shown to everyone; disabled when no available dates.
- * Aurora is always rendered for ADMIN/PRO users but is disabled (greyed out)
- * when there are no stored forecast results and no live alert is active.
- * LITE_USER never sees the Aurora button.
+ * Aurora is always rendered — disabled (greyed out) when there are no stored
+ * forecast results and no live alert is active. For LITE users the button is
+ * locked with a Pro pill badge.
  *
  * @param {object}   props
  * @param {string}   props.eventType        - Currently selected type.
@@ -23,14 +24,14 @@ const TYPES = [
  * @param {boolean}  props.auroraAvailable  - True when stored results exist or live alert is active.
  * @param {boolean}  props.astroAvailable   - True when astro condition dates exist.
  */
-export default function ForecastTypeSelector({ eventType, onChange, showAurora, auroraAvailable, astroAvailable }) {
+export default function ForecastTypeSelector({ eventType, onChange, showAurora, auroraAvailable, astroAvailable = false }) {
   return (
     <div className="flex items-center gap-1" data-testid="forecast-type-selector">
       {TYPES.map(({ value, label }) => {
-        if (value === 'AURORA' && !showAurora) return null;
         const isAurora = value === 'AURORA';
         const isAstro = value === 'ASTRO';
-        const disabled = (isAurora && !auroraAvailable) || (isAstro && !astroAvailable);
+        const isLocked = isAurora && !showAurora;
+        const disabled = isLocked || (isAurora && !auroraAvailable) || (isAstro && !astroAvailable);
         const active = eventType === value;
         return (
           <button
@@ -39,7 +40,9 @@ export default function ForecastTypeSelector({ eventType, onChange, showAurora, 
             onClick={() => !disabled && onChange(value)}
             disabled={disabled}
             title={disabled
-              ? isAstro ? 'No astro condition results available' : 'No aurora forecast results available'
+              ? isLocked
+                ? 'Upgrade to Pro for aurora forecasts'
+                : isAstro ? 'No astro condition results available' : 'No aurora forecast results available'
               : undefined}
             className={`px-4 py-1.5 text-sm font-medium rounded-full border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               active
@@ -52,6 +55,7 @@ export default function ForecastTypeSelector({ eventType, onChange, showAurora, 
             }`}
           >
             {label}
+            {isLocked && <ProPill className="ml-1.5" />}
           </button>
         );
       })}
@@ -65,8 +69,4 @@ ForecastTypeSelector.propTypes = {
   showAurora: PropTypes.bool.isRequired,
   auroraAvailable: PropTypes.bool.isRequired,
   astroAvailable: PropTypes.bool,
-};
-
-ForecastTypeSelector.defaultProps = {
-  astroAvailable: false,
 };

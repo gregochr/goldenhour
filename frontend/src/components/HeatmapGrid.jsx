@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import { formatEventTimeUk } from '../utils/conversions.js';
+import ProPill from './shared/ProPill.jsx';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
 
@@ -390,7 +391,14 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       </div>
 
       {/* "Run full forecast" button */}
-      {canRunEvaluation && (() => {
+      {!canRunEvaluation ? (
+        <div className="mt-2 pt-1.5 border-t border-plex-border/20 flex gap-2 items-center opacity-45 pointer-events-none">
+          <button data-testid="run-forecast-btn" disabled className="btn-secondary text-xs">
+            Run full forecast
+          </button>
+          <ProPill />
+        </div>
+      ) : (() => {
         const cachedTimestamp = evaluationTimestamps.get(`${regionName}|${date}|${targetType}`);
         const hasCachedScores = !progressMatch && slotScores.size > 0 && cachedTimestamp;
 
