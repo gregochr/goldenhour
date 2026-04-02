@@ -380,6 +380,40 @@ describe('UserSettingsModal', () => {
     await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
   });
 
+  it('refresh button enables after first-time postcode save', async () => {
+    // First-time user: no home, no drive times calculated
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: null, driveTimesCalculatedAt: null });
+    lookupPostcode.mockResolvedValue({ postcode: 'EH1 1BB', placeName: 'Edinburgh', latitude: 55.95, longitude: -3.19 });
+    saveHome.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: 'EH1 1BB', homePlaceName: 'Edinburgh' });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
+    // Look up and save a postcode
+    fireEvent.change(screen.getByTestId('settings-postcode-input'), { target: { value: 'EH1 1BB' } });
+    fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+    await waitFor(() => expect(screen.getByTestId('settings-save-home-btn')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('settings-save-home-btn'));
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled());
+  });
+
+  it('refresh button stays disabled for LITE user even if postcode would differ', async () => {
+    // LITE user with home but no prior calculation — postcodeChanged would be true for PRO
+    getSettings.mockResolvedValue(LITE_WITH_HOME);
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
+  });
+
+  it('refresh button stays enabled after failed refresh (postcode still differs)', async () => {
+    // No prior calculation — button starts enabled
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    refreshDriveTimes.mockRejectedValue({ response: { status: 429, data: { message: 'Rate limited' } } });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('settings-refresh-drive-btn'));
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-error')).toBeInTheDocument());
+    // Button should still be enabled — drive times were not actually updated
+    expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled();
+  });
+
   it('shows "Set a home location first" when no home set', async () => {
     getSettings.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: null });
     renderModal();
