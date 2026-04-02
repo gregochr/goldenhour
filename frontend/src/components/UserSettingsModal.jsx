@@ -99,7 +99,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
 
   const formatCalcTime = (iso) => {
     if (!iso) return null;
-    const d = new Date(iso);
+    const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
     const mins = Math.round((Date.now() - d.getTime()) / 60000);
     if (mins < 1) return 'Just now';
     if (mins < 60) return `${mins} min ago`;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import { formatDuration } from '../utils/conversions';
+import { formatDuration, formatTimestampUk } from '../utils/conversions';
 import { formatCostGbp, formatCostUsd } from '../utils/formatCost';
 import JobRunDetail from './JobRunDetail';
 import InfoTip from './InfoTip.jsx';
@@ -97,7 +97,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                         {getStatusBadge(run)}
                       </div>
                       <div className="text-xs text-plex-text-muted mt-1">
-                        {new Date(run.startedAt).toLocaleString()} · {formatDuration(run.durationMs)}
+                        {formatTimestampUk(run.startedAt)} · {formatDuration(run.durationMs)}
                       </div>
                       {run.activeStrategies && (
                         <div className="flex flex-wrap gap-1 mt-1" data-testid={`strategies-${run.id}`}>

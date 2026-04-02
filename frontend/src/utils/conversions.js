@@ -252,6 +252,50 @@ export function groupForecastsByDate(forecasts) {
   return map;
 }
 
+/**
+ * Formats a UTC timestamp as a full UK local date+time string.
+ *
+ * Returns a string like "2 Apr 2026, 14:31:12" for display in admin grids and alerts.
+ * Handles both bare ISO strings (no suffix) and those with a trailing 'Z'.
+ *
+ * @param {string|null} utcDateTimeStr - ISO-like datetime string.
+ * @returns {string|null} Formatted string, or null for falsy/invalid input.
+ */
+export function formatTimestampUk(utcDateTimeStr) {
+  if (!utcDateTimeStr) return null;
+  const d = new Date(utcDateTimeStr.endsWith('Z') ? utcDateTimeStr : utcDateTimeStr + 'Z');
+  if (isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Europe/London',
+  });
+}
+
+/**
+ * Formats a UTC timestamp as a relative time string ("Xm ago", "Xh ago", etc.).
+ *
+ * Handles both bare ISO strings (no suffix) and those with a trailing 'Z'.
+ *
+ * @param {string|null} utcDateTimeStr - ISO-like datetime string.
+ * @returns {string} Relative time string, or empty string for falsy/invalid input.
+ */
+export function formatRelativeTimeUk(utcDateTimeStr) {
+  if (!utcDateTimeStr) return '';
+  const d = new Date(utcDateTimeStr.endsWith('Z') ? utcDateTimeStr : utcDateTimeStr + 'Z');
+  if (isNaN(d.getTime())) return '';
+  const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHrs = Math.round(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  return `${Math.floor(diffHrs / 24)}d ago`;
+}
+
 const AUTO_SELECTION_BUFFER_MS = 30 * 60 * 1000; // 30-minute afterglow buffer
 
 /**

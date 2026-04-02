@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import axios from 'axios';
+import { formatTimestampUk } from '../utils/conversions';
 
 /**
  * Displays alerts for locations with consecutive failures or that have been auto-disabled.
@@ -47,7 +48,7 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
                     <div>{loc.disabledReason}</div>
                     {loc.lastFailureAt && (
                       <div className="mt-1">
-                        Last failure: {new Date(loc.lastFailureAt).toLocaleString()}
+                        Last failure: {formatTimestampUk(loc.lastFailureAt)}
                       </div>
                     )}
                   </>
@@ -58,7 +59,7 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
                     {loc.lastFailureAt && (
                       <>
                         {' '}
-                        ({new Date(loc.lastFailureAt).toLocaleString()})
+                        ({formatTimestampUk(loc.lastFailureAt)})
                       </>
                     )}
                   </div>

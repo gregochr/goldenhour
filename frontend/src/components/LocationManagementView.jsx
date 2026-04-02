@@ -5,6 +5,7 @@ import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
+import { formatTimestampUk } from '../utils/conversions';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
 import Modal from './shared/Modal.jsx';
@@ -925,7 +926,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                     <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">
                                       {loc.consecutiveFailures}
                                     </span>
-                                    <InfoTip text={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' \u2014 last: ' + new Date(loc.lastFailureAt).toLocaleString() : ''}`} className="text-amber-400" />
+                                    <InfoTip text={`${loc.consecutiveFailures} consecutive failure(s)${loc.lastFailureAt ? ' \u2014 last: ' + formatTimestampUk(loc.lastFailureAt) : ''}`} className="text-amber-400" />
                                   </span>
                                 )}
                               </td>

@@ -3,8 +3,13 @@ import {
   mpsToMph,
   metresToKm,
   degreesToCompass,
+  formatDuration,
   formatDateLabel,
   formatEventTimeUk,
+  formatShiftedEventTimeUk,
+  formatGeneratedAtFull,
+  formatTimestampUk,
+  formatRelativeTimeUk,
   groupForecastsByDate,
 } from '../utils/conversions.js';
 
@@ -19,6 +24,36 @@ describe('mpsToMph', () => {
 
   it('handles string input', () => {
     expect(mpsToMph('5')).toBe(11.2);
+  });
+});
+
+describe('formatDuration', () => {
+  it('returns "0s" for null input', () => {
+    expect(formatDuration(null)).toBe('0s');
+  });
+
+  it('returns "0s" for zero', () => {
+    expect(formatDuration(0)).toBe('0s');
+  });
+
+  it('returns "0s" for negative input', () => {
+    expect(formatDuration(-500)).toBe('0s');
+  });
+
+  it('formats seconds only', () => {
+    expect(formatDuration(45000)).toBe('45s');
+  });
+
+  it('formats minutes and seconds', () => {
+    expect(formatDuration(125000)).toBe('2m 5s');
+  });
+
+  it('formats hours, minutes, and seconds', () => {
+    expect(formatDuration(4990000)).toBe('1h 23m 10s');
+  });
+
+  it('rounds milliseconds to nearest second', () => {
+    expect(formatDuration(1500)).toBe('2s');
   });
 });
 
@@ -107,6 +142,177 @@ describe('formatEventTimeUk', () => {
     // 21 Jun is BST (UTC+1), so 03:30 UTC = 04:30 UK
     const result = formatEventTimeUk('2026-06-21T03:30:00');
     expect(result).toBe('04:30');
+  });
+});
+
+describe('formatShiftedEventTimeUk', () => {
+  it('returns null for null input', () => {
+    expect(formatShiftedEventTimeUk(null, 30)).toBeNull();
+  });
+
+  it('returns null for invalid date string', () => {
+    expect(formatShiftedEventTimeUk('not-a-date', 30)).toBeNull();
+  });
+
+  it('shifts forward by positive offset', () => {
+    // 07:00 UTC + 30 min = 07:30 UK (winter)
+    const result = formatShiftedEventTimeUk('2026-02-20T07:00:00', 30);
+    expect(result).toBe('07:30');
+  });
+
+  it('shifts backward by negative offset', () => {
+    // 07:30 UTC - 30 min = 07:00 UK (winter)
+    const result = formatShiftedEventTimeUk('2026-02-20T07:30:00', -30);
+    expect(result).toBe('07:00');
+  });
+
+  it('applies BST during summer', () => {
+    // 03:30 UTC + 30 min = 04:00 UTC = 05:00 BST
+    const result = formatShiftedEventTimeUk('2026-06-21T03:30:00', 30);
+    expect(result).toBe('05:00');
+  });
+});
+
+describe('formatGeneratedAtFull', () => {
+  it('returns null for null input', () => {
+    expect(formatGeneratedAtFull(null)).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(formatGeneratedAtFull('')).toBeNull();
+  });
+
+  it('returns null for invalid date string', () => {
+    expect(formatGeneratedAtFull('not-a-date')).toBeNull();
+  });
+
+  it('formats a winter UTC timestamp as full UK date+time', () => {
+    const result = formatGeneratedAtFull('2026-02-23T13:25:00');
+    expect(result).toContain('23');
+    expect(result).toContain('Feb');
+    expect(result).toContain('2026');
+    expect(result).toContain('13:25');
+  });
+
+  it('applies BST offset during summer', () => {
+    // 13:00 UTC = 14:00 BST
+    const result = formatGeneratedAtFull('2026-06-21T13:00:00');
+    expect(result).toContain('14:00');
+  });
+});
+
+describe('formatTimestampUk', () => {
+  it('returns null for null input', () => {
+    expect(formatTimestampUk(null)).toBeNull();
+  });
+
+  it('returns null for empty string', () => {
+    expect(formatTimestampUk('')).toBeNull();
+  });
+
+  it('returns null for invalid date string', () => {
+    expect(formatTimestampUk('not-a-date')).toBeNull();
+  });
+
+  it('formats a UTC timestamp without Z suffix as UK time', () => {
+    // Winter (GMT): 13:31:12 UTC = 13:31:12 UK
+    const result = formatTimestampUk('2026-02-20T13:31:12');
+    expect(result).toContain('20');
+    expect(result).toContain('Feb');
+    expect(result).toContain('2026');
+    expect(result).toContain('13:31:12');
+  });
+
+  it('formats a UTC timestamp with Z suffix as UK time', () => {
+    const result = formatTimestampUk('2026-02-20T13:31:12Z');
+    expect(result).toContain('13:31:12');
+  });
+
+  it('applies BST offset during summer', () => {
+    // Summer (BST): 13:00:00 UTC = 14:00:00 UK
+    const result = formatTimestampUk('2026-06-21T13:00:00');
+    expect(result).toContain('14:00:00');
+  });
+
+  it('returns null for undefined input', () => {
+    expect(formatTimestampUk(undefined)).toBeNull();
+  });
+
+  it('handles DST transition day — clocks spring forward', () => {
+    // 2026-03-29 01:00 UTC = 02:00 BST (clocks go forward at 01:00 UTC)
+    const result = formatTimestampUk('2026-03-29T01:00:00');
+    expect(result).toContain('02:00:00');
+    expect(result).toContain('29');
+    expect(result).toContain('Mar');
+  });
+
+  it('handles late-night UTC that rolls into next day in BST', () => {
+    // 2026-07-15 23:30:00 UTC = 2026-07-16 00:30:00 BST
+    const result = formatTimestampUk('2026-07-15T23:30:00');
+    expect(result).toContain('16');
+    expect(result).toContain('Jul');
+    expect(result).toContain('00:30:00');
+  });
+
+  it('produces consistent result regardless of Z suffix', () => {
+    const withZ = formatTimestampUk('2026-04-02T10:00:00Z');
+    const withoutZ = formatTimestampUk('2026-04-02T10:00:00');
+    expect(withZ).toBe(withoutZ);
+  });
+});
+
+describe('formatRelativeTimeUk', () => {
+  it('returns empty string for null input', () => {
+    expect(formatRelativeTimeUk(null)).toBe('');
+  });
+
+  it('returns empty string for empty string input', () => {
+    expect(formatRelativeTimeUk('')).toBe('');
+  });
+
+  it('returns empty string for invalid date', () => {
+    expect(formatRelativeTimeUk('not-a-date')).toBe('');
+  });
+
+  it('returns "just now" for a timestamp less than 1 minute ago', () => {
+    const now = new Date();
+    const result = formatRelativeTimeUk(now.toISOString());
+    expect(result).toBe('just now');
+  });
+
+  it('returns "Xm ago" for recent timestamps', () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const result = formatRelativeTimeUk(fiveMinAgo);
+    expect(result).toMatch(/^\d+m ago$/);
+  });
+
+  it('returns "Xh ago" for timestamps a few hours old', () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const result = formatRelativeTimeUk(threeHoursAgo);
+    expect(result).toMatch(/^\d+h ago$/);
+  });
+
+  it('returns "Xd ago" for timestamps over 24 hours old', () => {
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const result = formatRelativeTimeUk(twoDaysAgo);
+    expect(result).toMatch(/^\d+d ago$/);
+  });
+
+  it('handles input without Z suffix', () => {
+    const now = new Date();
+    const bare = now.toISOString().replace('Z', '');
+    const result = formatRelativeTimeUk(bare);
+    expect(result).toBe('just now');
+  });
+
+  it('returns empty string for undefined input', () => {
+    expect(formatRelativeTimeUk(undefined)).toBe('');
+  });
+
+  it('produces same result regardless of Z suffix for same instant', () => {
+    const iso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const bare = iso.replace('Z', '');
+    expect(formatRelativeTimeUk(iso)).toBe(formatRelativeTimeUk(bare));
   });
 });
 
