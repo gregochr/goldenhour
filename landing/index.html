@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhotoCast — AI sunrise and sunset forecasting</title>
+  <meta name="description" content="AI scores every sunrise and sunset across northern England — so you never waste a drive on grey skies.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #181818;
+      --bg-surface: #242424;
+      --bg-card: #1e1e1e;
+      --text: #e5e5e5;
+      --text-muted: #999;
+      --text-dim: #666;
+      --gold: #e5a00d;
+      --gold-muted: #b8860b;
+      --gold-bg: rgba(229, 160, 13, 0.08);
+      --gold-border: rgba(229, 160, 13, 0.2);
+      --border: rgba(255,255,255,0.06);
+      --border-light: rgba(255,255,255,0.1);
+      --radius: 10px;
+      --radius-lg: 14px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* Nav */
+    .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
+    .nav-logo { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); }
+    .nav-logo span { color: var(--gold); }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      font-size: 13px; font-weight: 500;
+      background: var(--gold); color: #000;
+      padding: 7px 18px; border-radius: 20px;
+      text-decoration: none; display: inline-block;
+      transition: opacity 0.15s;
+    }
+    .nav-cta:hover { opacity: 0.85; }
+
+    /* Hero */
+    .hero { text-align: center; padding: 0.5rem 0 2.5rem; }
+    .hero h1 {
+      font-size: clamp(32px, 6vw, 44px);
+      font-weight: 600; letter-spacing: -1.5px;
+      line-height: 1.12; margin-bottom: 1rem; color: #fff;
+    }
+    .hero h1 em { font-style: normal; color: var(--gold); }
+    .hero-sub {
+      font-size: 16px; color: var(--text-muted);
+      line-height: 1.6; max-width: 480px;
+      margin: 0 auto 1.75rem;
+    }
+    .btn-gold {
+      font-size: 14px; font-weight: 600;
+      background: var(--gold); color: #000;
+      padding: 12px 32px; border-radius: 24px;
+      text-decoration: none; display: inline-block;
+      transition: opacity 0.15s;
+    }
+    .btn-gold:hover { opacity: 0.85; }
+
+    /* Screenshot */
+    .screenshot {
+      margin: 0.5rem 0 3.5rem;
+      background: var(--bg-surface);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+    }
+    .screenshot-inner {
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .screenshot-inner img {
+      width: 100%; display: block;
+    }
+
+    /* Features */
+    .features { padding: 1rem 0 2.5rem; }
+    .feature { padding: 1.5rem 0; border-bottom: 1px solid var(--border); }
+    .feature:last-child { border-bottom: none; }
+    .feature h2 {
+      font-size: 18px; font-weight: 600;
+      letter-spacing: -0.2px; margin-bottom: 6px; color: #fff;
+    }
+    .feature p { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
+
+    /* Pricing */
+    .pricing { padding: 1.5rem 0 2.5rem; text-align: center; }
+    .pricing h2 {
+      font-size: 26px; font-weight: 600;
+      letter-spacing: -0.5px; margin-bottom: 1.5rem; color: #fff;
+    }
+    .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; text-align: left; }
+    .pricing-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+    }
+    .pricing-card.featured {
+      border-color: var(--gold-border);
+      background: linear-gradient(to bottom, rgba(229,160,13,0.04), var(--bg-card));
+    }
+    .pricing-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+    .pricing-price { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: #fff; }
+    .pricing-price span { font-size: 14px; font-weight: 400; color: var(--text-dim); }
+    .pricing-list { list-style: none; padding: 0; margin-top: 16px; }
+    .pricing-list li {
+      font-size: 13px; color: var(--text-muted);
+      padding: 4px 0; line-height: 1.5;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--text-dim); flex-shrink: 0;
+    }
+    .featured .dot { background: var(--gold-muted); }
+    .pro-badge {
+      display: inline-block; font-size: 9px; font-weight: 600;
+      padding: 2px 8px; border-radius: 10px;
+      background: var(--gold-bg); color: var(--gold);
+      letter-spacing: 0.3px; text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    /* Bottom CTA */
+    .bottom-cta { text-align: center; padding: 2.5rem 0; }
+    .bottom-cta p { font-size: 15px; color: var(--text-muted); margin-bottom: 1.25rem; }
+
+    /* Footer */
+    .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
+    .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
+    .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
+    .footer-links a:hover { color: var(--text-muted); }
+    .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+
+    /* Responsive */
+    @media (max-width: 500px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+      .nav-links a:not(.nav-cta) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <nav class="nav">
+      <div class="nav-logo">Photo<span>Cast</span></div>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a class="nav-cta" href="https://app.photocast.online/register">Try free</a>
+      </div>
+    </nav>
+
+    <div class="hero">
+      <h1>Know before you <em>go</em></h1>
+      <p class="hero-sub">AI scores every sunrise and sunset across northern England — so you never waste a drive on grey skies.</p>
+      <a class="btn-gold" href="https://app.photocast.online/register">Get started free</a>
+    </div>
+
+    <div class="screenshot">
+      <div class="screenshot-inner">
+        <img src="screenshot.png" alt="PhotoCast Planner showing best bet recommendations, quality slider, and heatmap grid with GO, Marginal, and Standdown verdicts across northern England regions">
+      </div>
+    </div>
+
+    <div class="features" id="features">
+      <div class="feature">
+        <h2>Every sunrise scored before you wake up</h2>
+        <p>AI evaluates cloud cover, humidity, light direction, and even Saharan dust to score every sunrise and sunset 1–5 stars — with a plain-English explanation of why.</p>
+      </div>
+      <div class="feature">
+        <h2>Plan your next three days in one glance</h2>
+        <p>Heatmap grid shows all your regions at a glance. See which slots are worth protecting in your calendar — and which are a write-off.</p>
+      </div>
+      <div class="feature">
+        <h2>Catch the dramatic tides at the best light</h2>
+        <p>Spring tides, king tides, and storm surge — flagged and aligned with sunrise and sunset so you're there when the water levels tell a story.</p>
+      </div>
+      <div class="feature">
+        <h2>Know about aurora before dark, not after</h2>
+        <p>NOAA space weather monitoring with daytime lookahead. When conditions line up for northern lights, you'll have time to plan your evening.</p>
+      </div>
+      <div class="feature">
+        <h2>Find the fog before it lifts</h2>
+        <p>Atmospheric conditions scored for valley and lakeside locations where morning fog and cloud inversions create other-worldly scenes.</p>
+      </div>
+      <div class="feature">
+        <h2>Built for the North</h2>
+        <p>Not a global weather app pretending to know your coast. 200+ handpicked locations across Northumberland, the Lakes, and North Yorkshire.</p>
+      </div>
+    </div>
+
+    <div class="screenshot">
+      <div class="screenshot-inner">
+        <img src="screenshot-map.png" alt="PhotoCast map view showing scored location pins across northern England with star ratings, aurora viewline, and filter controls">
+      </div>
+    </div>
+
+    <div class="pricing" id="pricing">
+      <h2>Simple pricing</h2>
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <div class="pricing-name">Lite</div>
+          <div class="pricing-price">Free</div>
+          <ul class="pricing-list">
+            <li><span class="dot"></span>3-day forecast horizon</li>
+            <li><span class="dot"></span>Star ratings</li>
+            <li><span class="dot"></span>Weather triage verdicts</li>
+            <li><span class="dot"></span>Planner heatmap grid</li>
+          </ul>
+        </div>
+        <div class="pricing-card featured">
+          <span class="pro-badge">Recommended</span>
+          <div class="pricing-name">Pro</div>
+          <div class="pricing-price">£4.99 <span>/month</span></div>
+          <ul class="pricing-list">
+            <li><span class="dot"></span>AI-powered best-bet picks</li>
+            <li><span class="dot"></span>Per-location AI scoring</li>
+            <li><span class="dot"></span>Aurora forecasting and viewline</li>
+            <li><span class="dot"></span>Full score breakdowns</li>
+            <li><span class="dot"></span>Personalised drive times</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-cta">
+      <p>See for yourself — the free tier is fully functional.</p>
+      <a class="btn-gold" href="https://app.photocast.online/register">Create an account</a>
+    </div>
+
+    <div class="footer">
+      <div class="footer-links">
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+        <a href="#">Acknowledgements</a>
+      </div>
+      <p class="footer-copy">PhotoCast — made with coffee by Chris</p>
+    </div>
+
+  </div>
+</body>
+</html>
