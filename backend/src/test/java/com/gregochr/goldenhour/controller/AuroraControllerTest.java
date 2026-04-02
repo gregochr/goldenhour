@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.AuroraViewlineResponse;
+import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -18,6 +20,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 
@@ -57,6 +60,7 @@ class AuroraControllerTest {
         when(stateCache.getCachedScores()).thenReturn(List.of());
         // Avoid HTTP calls in tests
         when(noaaClient.fetchKp()).thenReturn(List.of());
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of());
         when(noaaClient.fetchOvation()).thenReturn(null);
         when(noaaClient.fetchSolarWind()).thenReturn(List.of());
     }
@@ -214,6 +218,54 @@ class AuroraControllerTest {
         mockMvc.perform(get("/api/aurora/locations").param("maxBortle", "2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    // -------------------------------------------------------------------------
+    // Viewline endpoint
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline resolves Kp from latest reading and returns capped viewline")
+    @WithMockUser(roles = {"ADMIN"})
+    void getViewline_usesLatestKpReading() throws Exception {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaClient.fetchKp()).thenReturn(List.of(new KpReading(now, 6.0)));
+        AuroraViewlineResponse viewline = new AuroraViewlineResponse(
+                List.of(), "Visible as far south as northern England",
+                54.0, now, true);
+        when(noaaClient.fetchViewline(6.0)).thenReturn(viewline);
+
+        mockMvc.perform(get("/api/aurora/viewline"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.southernmostLatitude").value(54.0))
+                .andExpect(jsonPath("$.summary").value("Visible as far south as northern England"));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline falls back to default Kp 4.0 when no data available")
+    @WithMockUser(roles = {"ADMIN"})
+    void getViewline_noKpData_usesDefault() throws Exception {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaClient.fetchKp()).thenReturn(List.of());
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of());
+        AuroraViewlineResponse viewline = new AuroraViewlineResponse(
+                List.of(), "Visible as far south as northern Scotland",
+                58.0, now, true);
+        when(noaaClient.fetchViewline(4.0)).thenReturn(viewline);
+
+        mockMvc.perform(get("/api/aurora/viewline"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.southernmostLatitude").value(58.0));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline returns 403 for LITE_USER")
+    @WithMockUser(roles = {"LITE_USER"})
+    void getViewline_liteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/aurora/viewline"))
+                .andExpect(status().isForbidden());
     }
 
     // -------------------------------------------------------------------------

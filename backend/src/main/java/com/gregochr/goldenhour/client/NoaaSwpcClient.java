@@ -84,6 +84,31 @@ public class NoaaSwpcClient {
     /** Half-window size for the moving-average smoother on the viewline. */
     static final int VIEWLINE_SMOOTH_HALF_WINDOW = 2;
 
+    /**
+     * Conservative maximum southward aurora visibility by Kp index.
+     *
+     * <p>Based on real-world UK aurora observer reports, not theoretical models.
+     * OVATION tends to be optimistic about how far south aurora reaches because
+     * it models probability of overhead aurora, not naked-eye visibility from
+     * the ground (which requires clear northern horizon, dark skies, and
+     * sufficient brightness above atmospheric extinction at low elevation angles).
+     *
+     * <p>These latitudes represent where a keen photographer at a dark sky site
+     * with a clear northern horizon has a realistic chance of capturing aurora
+     * on camera. Naked-eye visibility will typically be 1-2° further north.
+     */
+    static final Map<Integer, Double> KP_LATITUDE_CAP = Map.of(
+            4, 58.0,   // Northern Scotland only
+            5, 56.0,   // Central Scotland
+            6, 54.0,   // Northern England (Durham, Northumberland)
+            7, 52.0,   // Midlands
+            8, 50.0,   // Southern England
+            9, 48.0    // Entire UK and beyond
+    );
+
+    /** Default latitude cap for Kp &lt; 4 (far northern Scotland — aurora barely visible). */
+    static final double DEFAULT_KP_CAP = 60.0;
+
     private final RestClient restClient;
     private final AuroraProperties properties;
     private final ObjectMapper mapper;
@@ -254,20 +279,22 @@ public class NoaaSwpcClient {
 
     /**
      * Returns the aurora viewline (southernmost visible aurora boundary) for UK longitudes,
-     * derived from the cached OVATION data.
+     * derived from the cached OVATION data, clamped by a physically grounded Kp-to-latitude cap.
      *
      * <p>Reuses the OVATION cache (5-minute TTL). Returns an inactive response if OVATION data
      * is unavailable or no aurora probability above threshold exists in the UK longitude range.
      *
+     * @param currentKp the current or forecast Kp index, used to cap the viewline latitude
      * @return viewline response, never {@code null}
      */
-    public AuroraViewlineResponse fetchViewline() {
+    public AuroraViewlineResponse fetchViewline(double currentKp) {
         try {
             String json = restClient.get()
                     .uri(properties.getNoaa().getOvationUrl())
                     .retrieve()
                     .body(String.class);
-            return parseViewline(json, VIEWLINE_THRESHOLD);
+            AuroraViewlineResponse raw = parseViewline(json, VIEWLINE_THRESHOLD);
+            return applyKpCap(raw, currentKp);
         } catch (Exception e) {
             LOG.warn("NOAA viewline fetch failed: {}", e.getMessage());
             return new AuroraViewlineResponse(
@@ -607,6 +634,53 @@ public class NoaaSwpcClient {
         } else {
             return "Faint aurora possible in far north Scotland";
         }
+    }
+
+    /**
+     * Returns the maximum realistic southward visibility latitude for a given Kp value.
+     *
+     * <p>For fractional Kp values (e.g. 5.3), truncates to the integer floor (Kp 5).
+     * For Kp &lt; 4, returns {@value DEFAULT_KP_CAP}°N. For Kp &ge; 10, returns 0
+     * (effectively no cap).
+     *
+     * @param kp the Kp index
+     * @return latitude cap in degrees north
+     */
+    double getKpLatitudeCap(double kp) {
+        int kpFloor = (int) kp;
+        if (kpFloor >= 10) {
+            return 0.0;
+        }
+        return KP_LATITUDE_CAP.getOrDefault(kpFloor, DEFAULT_KP_CAP);
+    }
+
+    /**
+     * Applies the Kp-to-latitude hard cap to a raw OVATION viewline response.
+     *
+     * <p>OVATION can pull the line north of the cap (real-time data overrides the
+     * theoretical cap in the conservative direction), but cannot push it south
+     * (preventing unrealistic claims like "visible across the whole UK" at Kp 6).
+     *
+     * @param raw       the uncapped viewline from {@link #parseViewline}
+     * @param currentKp the current or forecast Kp index
+     * @return a new response with latitude-capped points, southernmost latitude, and summary
+     */
+    AuroraViewlineResponse applyKpCap(AuroraViewlineResponse raw, double currentKp) {
+        if (!raw.active()) {
+            return raw;
+        }
+
+        double kpCap = getKpLatitudeCap(currentKp);
+
+        List<ViewlinePoint> clampedPoints = raw.points().stream()
+                .map(p -> new ViewlinePoint(p.longitude(), Math.max(p.latitude(), kpCap)))
+                .toList();
+
+        double clampedSouthernmost = Math.max(raw.southernmostLatitude(), kpCap);
+        String summary = viewlineSummary(clampedSouthernmost);
+
+        return new AuroraViewlineResponse(
+                clampedPoints, summary, clampedSouthernmost, raw.forecastTime(), true);
     }
 
     // -------------------------------------------------------------------------

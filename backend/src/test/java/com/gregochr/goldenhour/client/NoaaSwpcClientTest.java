@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.model.AuroraViewlineResponse;
+import com.gregochr.goldenhour.model.AuroraViewlineResponse.ViewlinePoint;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
@@ -17,6 +18,8 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -694,6 +697,127 @@ class NoaaSwpcClientTest {
         // 56°N at exactly 10% should be included; 54°N at 9% should not
         assertThat(result.southernmostLatitude()).isGreaterThanOrEqualTo(56.0);
         assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(56.5);
+    }
+
+    // -------------------------------------------------------------------------
+    // Kp latitude cap
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Kp 6 + OVATION 49°N → capped to 54°N (northern England)")
+    void applyKpCap_kp6_ovation49_cappedTo54() {
+        AuroraViewlineResponse raw = viewlineAt(49.0);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(54.0);
+        assertThat(capped.summary()).contains("northern England");
+    }
+
+    @Test
+    @DisplayName("Kp 5 + OVATION 53°N → capped to 56°N (central Scotland)")
+    void applyKpCap_kp5_ovation53_cappedTo56() {
+        AuroraViewlineResponse raw = viewlineAt(53.0);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 5.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(56.0);
+        assertThat(capped.summary()).contains("central Scotland");
+    }
+
+    @Test
+    @DisplayName("Kp 8 + OVATION 51°N → OVATION wins (more conservative than 50°N cap)")
+    void applyKpCap_kp8_ovation51_ovationWins() {
+        AuroraViewlineResponse raw = viewlineAt(51.0);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 8.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(51.0);
+    }
+
+    @Test
+    @DisplayName("Kp 7 + OVATION 49°N → capped to 52°N (Midlands)")
+    void applyKpCap_kp7_ovation49_cappedTo52() {
+        AuroraViewlineResponse raw = viewlineAt(49.0);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 7.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(52.0);
+        assertThat(capped.summary()).contains("Midlands");
+    }
+
+    @Test
+    @DisplayName("Kp 4 + OVATION 55°N → capped to 58°N (northern Scotland)")
+    void applyKpCap_kp4_ovation55_cappedTo58() {
+        AuroraViewlineResponse raw = viewlineAt(55.0);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 4.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(58.0);
+        assertThat(capped.summary()).contains("northern Scotland");
+    }
+
+    @Test
+    @DisplayName("Fractional Kp 5.3 → uses Kp 5 cap of 56°N")
+    void applyKpCap_fractionalKp5point3_usesKp5Cap() {
+        assertThat(client.getKpLatitudeCap(5.3)).isEqualTo(56.0);
+
+        AuroraViewlineResponse raw = viewlineAt(50.0);
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 5.3);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(56.0);
+    }
+
+    @Test
+    @DisplayName("Kp 9 → cap at 48°N allows 'whole of the UK'")
+    void applyKpCap_kp9_allowsWholeUk() {
+        assertThat(client.getKpLatitudeCap(9.0)).isEqualTo(48.0);
+
+        AuroraViewlineResponse raw = viewlineAt(49.0);
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 9.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(49.0);
+        assertThat(capped.summary()).contains("whole of the UK");
+    }
+
+    @Test
+    @DisplayName("Viewline points are clamped to Kp cap latitude")
+    void applyKpCap_clampsIndividualPoints() {
+        List<ViewlinePoint> points = List.of(
+                new ViewlinePoint(-5, 49.0),
+                new ViewlinePoint(-3, 52.0),
+                new ViewlinePoint(0, 55.0),
+                new ViewlinePoint(2, 48.0));
+        AuroraViewlineResponse raw = new AuroraViewlineResponse(
+                points, "test", 48.0, ZonedDateTime.now(ZoneOffset.UTC), true);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
+
+        assertThat(capped.points()).allSatisfy(
+                p -> assertThat(p.latitude()).isGreaterThanOrEqualTo(54.0));
+        assertThat(capped.points().get(2).latitude()).isEqualTo(55.0); // already above cap
+    }
+
+    @Test
+    @DisplayName("Banner consistency: Kp 6 cap produces 'northern England' summary")
+    void applyKpCap_kp6_summaryMatchesBannerHeadline() {
+        AuroraViewlineResponse raw = viewlineAt(49.0);
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
+
+        assertThat(capped.southernmostLatitude()).isEqualTo(54.0);
+        assertThat(capped.summary()).isEqualTo("Visible as far south as northern England");
+    }
+
+    /** Creates a simple active viewline response with the given southernmost latitude. */
+    private AuroraViewlineResponse viewlineAt(double southernmostLat) {
+        List<ViewlinePoint> points = List.of(
+                new ViewlinePoint(-5, southernmostLat),
+                new ViewlinePoint(0, southernmostLat + 1),
+                new ViewlinePoint(3, southernmostLat + 2));
+        return new AuroraViewlineResponse(
+                points, client.viewlineSummary(southernmostLat),
+                southernmostLat, ZonedDateTime.now(ZoneOffset.UTC), true);
     }
 
     // -------------------------------------------------------------------------

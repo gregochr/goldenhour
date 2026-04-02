@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.AuroraStatusResponse;
 import com.gregochr.goldenhour.model.AuroraViewlineResponse;
+import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -117,14 +118,44 @@ public class AuroraController {
     /**
      * Returns the aurora viewline — the southernmost visible aurora boundary for UK longitudes.
      *
-     * <p>Derived from NOAA SWPC OVATION nowcast data. Returns {@code active: false} when no
+     * <p>Derived from NOAA SWPC OVATION nowcast data, clamped by a Kp-to-latitude hard cap
+     * based on real-world UK observer reports. Returns {@code active: false} when no
      * significant aurora probability exists in the UK range.
      *
      * @return viewline response
      */
     @GetMapping("/viewline")
     public AuroraViewlineResponse getViewline() {
-        return noaaClient.fetchViewline();
+        double currentKp = resolveCurrentKp();
+        return noaaClient.fetchViewline(currentKp);
+    }
+
+    /**
+     * Resolves the current Kp index for viewline capping.
+     *
+     * <p>Uses the latest real-time Kp reading (same source as the banner). Falls back to
+     * the peak Kp from the 3-day NOAA forecast if no real-time data is available, or a
+     * conservative default of 4.0 if both sources fail.
+     *
+     * @return best-available current Kp value
+     */
+    private double resolveCurrentKp() {
+        try {
+            List<KpReading> recentKp = noaaClient.fetchKp();
+            if (!recentKp.isEmpty()) {
+                return recentKp.get(recentKp.size() - 1).kp();
+            }
+            List<KpForecast> forecast = noaaClient.fetchKpForecast();
+            if (!forecast.isEmpty()) {
+                return forecast.stream()
+                        .mapToDouble(KpForecast::kp)
+                        .max()
+                        .orElse(4.0);
+            }
+        } catch (Exception ignored) {
+            // Fail-safe — use conservative default
+        }
+        return 4.0;
     }
 
     /**
