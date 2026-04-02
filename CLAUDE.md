@@ -242,6 +242,17 @@ See `docs/product/` for detailed reference documents.
 
 **Freemium split**: LITE gets basic scores, 3-day horizon, 1 location, blurred metrics. PRO gets enhanced directional scores, 7-day horizon, unlimited locations, full metrics.
 
+### Role gating — UI pattern
+
+Every new UI feature must be assessed for role gating.
+
+- **Admin-only** (Manage tab, health widget, Run Forecast): hidden entirely
+- **PRO/ADMIN** (all other premium features): visible but greyed out for LITE users
+  - `opacity: 0.45`, `pointer-events: none`, `disabled` on interactive elements
+  - Upsell text: "Pro" pill badge (inline) or "Upgrade to Pro" (standalone)
+- **Exception**: elements too small for visual disable (e.g. marker SVG arcs) stay hidden; upsell goes on the nearest tappable surface (the popup)
+- Backend 403 gating is the real enforcement; frontend greying is the UX layer
+
 ---
 
 ## Planned Features
