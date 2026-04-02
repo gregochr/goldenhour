@@ -797,6 +797,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                           showComfortRows={isWaterfall}
                           role={role}
                           date={date}
+                          driveMinutes={userDriveTimes[String(loc.id)] ?? null}
                           onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                           onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
@@ -857,6 +858,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                 showComfortRows={isWaterfall}
                 role={role}
                 date={date}
+                driveMinutes={userDriveTimes[String(loc.id)] ?? null}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                 onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}

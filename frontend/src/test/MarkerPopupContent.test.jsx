@@ -248,7 +248,7 @@ describe('MarkerPopupContent', () => {
 
   it('shows no-forecast message when forecast is null', () => {
     renderPopup({ role: 'PRO_USER', forecast: null });
-    expect(screen.getByText('No forecast available')).toBeInTheDocument();
+    expect(screen.getByText('no forecast yet')).toBeInTheDocument();
   });
 
   describe('dust badge', () => {
@@ -638,6 +638,150 @@ describe('MarkerPopupContent', () => {
     it('does not render aurora section when forecast is null', () => {
       renderPopup({ role: 'PRO_USER', forecast: null, auroraScore: MODERATE_SCORE });
       expect(screen.queryByTestId('aurora-score-section')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('empty state enrichment', () => {
+    const EMPTY_LOCATION = {
+      name: 'Kielder',
+      solarEventType: ['SUNRISE', 'SUNSET'],
+      locationType: ['LANDSCAPE'],
+      tideType: [],
+      bortleClass: 3,
+      regionName: 'Northumberland',
+      forecastsByDate: new Map([
+        ['2026-03-03', {
+          sunrise: { solarEventTime: '2026-03-03T06:34:00' },
+          sunset: { solarEventTime: '2026-03-03T18:15:00' },
+        }],
+      ]),
+    };
+
+    function renderEmpty(overrides = {}) {
+      return render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={EMPTY_LOCATION}
+          forecast={null}
+          role="PRO_USER"
+          {...overrides}
+        />,
+      );
+    }
+
+    it('renders enriched empty state with data-testid', () => {
+      renderEmpty();
+      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.getByText('no forecast yet')).toBeInTheDocument();
+    });
+
+    it('shows location name and event badge', () => {
+      renderEmpty();
+      expect(screen.getByText('Kielder')).toBeInTheDocument();
+      expect(screen.getByText(/Sunset · 18:15/)).toBeInTheDocument();
+    });
+
+    it('shows location type and region sub-row', () => {
+      renderEmpty();
+      expect(screen.getByText(/Landscape · Northumberland/)).toBeInTheDocument();
+    });
+
+    it('shows solar times row with both sunrise and sunset', () => {
+      renderEmpty();
+      const solarRow = screen.getByTestId('solar-times-row');
+      expect(solarRow).toBeInTheDocument();
+      // Both sunrise and sunset times should be present
+      expect(solarRow.textContent).toMatch(/🌅/);
+      expect(solarRow.textContent).toMatch(/🌇/);
+    });
+
+    it('shows aurora friendly and Bortle chips when bortleClass is set', () => {
+      renderEmpty();
+      expect(screen.getByText('Aurora friendly', { exact: false })).toBeInTheDocument();
+      expect(screen.getByText('Bortle 3')).toBeInTheDocument();
+    });
+
+    it('hides aurora and Bortle chips when bortleClass is null', () => {
+      renderEmpty({
+        location: { ...EMPTY_LOCATION, bortleClass: null },
+      });
+      expect(screen.queryByText('Aurora friendly', { exact: false })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Bortle/)).not.toBeInTheDocument();
+    });
+
+    it('shows drive time chip when driveMinutes is provided', () => {
+      renderEmpty({ driveMinutes: 95 });
+      expect(screen.getByText('1 hr 35 mins')).toBeInTheDocument();
+    });
+
+    it('hides drive time chip when driveMinutes is null', () => {
+      renderEmpty({ driveMinutes: null });
+      expect(screen.queryByText(/\d+ hr/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/\d+ mins/)).not.toBeInTheDocument();
+    });
+
+    it('shows Run Forecast button for ADMIN', () => {
+      renderEmpty({ role: 'ADMIN' });
+      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+    });
+
+    it('hides Run Forecast button for non-admin roles', () => {
+      renderEmpty({ role: 'PRO_USER' });
+      expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
+    });
+
+    it('does not show solar times row when forecastsByDate has no data for date', () => {
+      renderEmpty({
+        location: { ...EMPTY_LOCATION, forecastsByDate: new Map() },
+      });
+      expect(screen.queryByTestId('solar-times-row')).not.toBeInTheDocument();
+    });
+
+    it('shows sunrise event badge when eventType is SUNRISE', () => {
+      renderEmpty({ eventType: 'SUNRISE' });
+      expect(screen.getByText(/Sunrise · 06:34/)).toBeInTheDocument();
+    });
+
+    it('hides event badge in aurora mode', () => {
+      renderEmpty({ isAuroraMode: true });
+      expect(screen.queryByText(/Sunset/)).not.toBeInTheDocument();
+    });
+
+    it('shows region only when locationType is empty', () => {
+      renderEmpty({
+        location: { ...EMPTY_LOCATION, locationType: [] },
+      });
+      expect(screen.getByText('Northumberland')).toBeInTheDocument();
+      expect(screen.queryByText(/Landscape/)).not.toBeInTheDocument();
+    });
+
+    it('shows type only when regionName is null', () => {
+      renderEmpty({
+        location: { ...EMPTY_LOCATION, regionName: null },
+      });
+      expect(screen.getByText('Landscape')).toBeInTheDocument();
+      expect(screen.queryByText(/Northumberland/)).not.toBeInTheDocument();
+    });
+
+    it('hides sub-row when both locationType and regionName are empty/null', () => {
+      renderEmpty({
+        location: { ...EMPTY_LOCATION, locationType: [], regionName: null },
+      });
+      // Sub-row should not render at all
+      expect(screen.queryByText(/Landscape/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Northumberland/)).not.toBeInTheDocument();
+    });
+
+    it('populated state is unchanged — still renders rating and summary', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          role="PRO_USER"
+        />,
+      );
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+      expect(screen.getByText('Good conditions expected.')).toBeInTheDocument();
+      expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
     });
   });
 });

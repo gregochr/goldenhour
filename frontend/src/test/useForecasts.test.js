@@ -30,6 +30,19 @@ const WILDLIFE_LOCATION = {
   enabled: true,
 };
 
+const AURORA_LOCATION = {
+  id: 7,
+  name: 'Kielder',
+  lat: 55.2,
+  lon: -2.6,
+  locationType: ['LANDSCAPE'],
+  tideType: [],
+  solarEventType: ['SUNSET'],
+  bortleClass: 3,
+  region: { name: 'Northumberland' },
+  enabled: true,
+};
+
 const DISABLED_LOCATION = {
   name: 'Closed Site',
   lat: 55.0,
@@ -134,5 +147,32 @@ describe('useForecasts', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.locations).toHaveLength(2);
+  });
+
+  it('forwards id, bortleClass, and regionName from location metadata', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    fetchLocations.mockResolvedValue([AURORA_LOCATION]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const kielder = result.current.locations.find((l) => l.name === 'Kielder');
+    expect(kielder.id).toBe(7);
+    expect(kielder.bortleClass).toBe(3);
+    expect(kielder.regionName).toBe('Northumberland');
+  });
+
+  it('defaults bortleClass to null and regionName to null when absent', async () => {
+    fetchForecasts.mockResolvedValue([]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+
+    const { result } = renderHook(() => useForecasts());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
+    expect(bamburgh.bortleClass).toBeNull();
+    expect(bamburgh.regionName).toBeNull();
   });
 });

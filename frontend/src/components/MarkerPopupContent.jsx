@@ -258,6 +258,7 @@ export default function MarkerPopupContent({
   isAstroMode = false,
   darkMode = false,
   onForecastRun,
+  driveMinutes = null,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [runningForecast, setRunningForecast] = useState(false);
@@ -773,39 +774,144 @@ export default function MarkerPopupContent({
             </div>
           )}
         </>
-      ) : (
-        <div style={{ fontSize: '12px', color: '#9ca3af', fontStyle: 'italic' }}>
-          No forecast available
-          {role === 'ADMIN' && (
-            <button
-              data-testid="run-forecast-btn"
-              disabled={runningForecast}
-              onClick={handleRunForecast}
-              style={{
-                display: 'block',
-                marginTop: '8px',
-                padding: '4px 12px',
-                fontSize: '11px',
-                fontStyle: 'normal',
-                fontWeight: 500,
-                color: '#fff',
-                backgroundColor: runningForecast ? '#6b7280' : '#3b82f6',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: runningForecast ? 'not-allowed' : 'pointer',
-                opacity: runningForecast ? 0.7 : 1,
-              }}
-            >
-              {runningForecast ? `Running\u2026 ${runProgress}` : 'Run Forecast'}
-            </button>
-          )}
-          {forecastError && (
-            <div style={{ marginTop: '4px', color: '#ef4444', fontSize: '11px', fontStyle: 'normal' }}>
-              {forecastError}
+      ) : (() => {
+        // Empty state — enrich with location metadata
+        const dayData = location.forecastsByDate?.get(date);
+        const emptySunriseRaw = dayData?.sunrise?.solarEventTime;
+        const emptySunsetRaw = dayData?.sunset?.solarEventTime;
+        const emptySunriseTime = formatEventTimeUk(emptySunriseRaw);
+        const emptySunsetTime = formatEventTimeUk(emptySunsetRaw);
+        const emptyEventTime = isSunrise ? emptySunriseTime : emptySunsetTime;
+        const emptyEventRaw = isSunrise ? emptySunriseRaw : emptySunsetRaw;
+
+        // Short day name from the solar event time (e.g. "Thu")
+        const dayLabel = emptyEventRaw
+          ? new Date(emptyEventRaw + 'Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
+          : null;
+        const sunriseDayLabel = emptySunriseRaw
+          ? new Date(emptySunriseRaw + 'Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
+          : null;
+        const sunsetDayLabel = emptySunsetRaw
+          ? new Date(emptySunsetRaw + 'Z').toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })
+          : null;
+
+        const locTypeLabel = locTypes.map((t) => POPUP_LOC_TYPE_META[t]?.label).filter(Boolean).join(' · ');
+        const subParts = [locTypeLabel, location.regionName].filter(Boolean);
+
+        const hasAuroraChip = location.bortleClass != null;
+        const hasBortleChip = location.bortleClass != null;
+        const hasDriveChip = driveMinutes != null && driveMinutes > 0;
+        const hasChips = hasAuroraChip || hasDriveChip;
+
+        return (
+          <div data-testid="empty-popup">
+
+            {/* Event badge (outer header has no badge when forecast is null) */}
+            {emptyEventTime && !isAuroraMode && !isAstroMode && (
+              <div style={{ marginBottom: '6px' }}>
+                <span style={{
+                  ...POPUP_PILL,
+                  background: isSunrise ? 'rgba(249,115,22,0.15)' : 'rgba(168,85,247,0.15)',
+                  color: isSunrise ? '#fb923c' : '#c084fc',
+                  border: `1px solid ${isSunrise ? 'rgba(249,115,22,0.35)' : 'rgba(168,85,247,0.35)'}`,
+                }}>
+                  {isSunrise ? '🌅' : '🌇'} {isSunrise ? 'Sunrise' : 'Sunset'} · {emptyEventTime}
+                </span>
+              </div>
+            )}
+
+            {/* Sub-row: type · region */}
+            {subParts.length > 0 && (
+              <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>
+                {subParts.join(' · ')}
+              </div>
+            )}
+
+            {/* Solar event row */}
+            {(emptySunriseTime || emptySunsetTime) && (
+              <div data-testid="solar-times-row" style={{
+                display: 'flex', gap: '12px', padding: '5px 8px', borderRadius: '6px',
+                background: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                marginBottom: '6px', fontSize: '11px',
+              }}>
+                {emptySunriseTime && (
+                  <span style={{ color: '#fb923c' }}>
+                    🌅 {emptySunriseTime}{sunriseDayLabel ? ` ${sunriseDayLabel}` : ''}
+                  </span>
+                )}
+                {emptySunsetTime && (
+                  <span style={{ color: '#c084fc' }}>
+                    🌇 {emptySunsetTime}{sunsetDayLabel ? ` ${sunsetDayLabel}` : ''}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Chips: aurora friendly, Bortle, drive time */}
+            {hasChips && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
+                {hasAuroraChip && (
+                  <span style={{ ...POPUP_PILL, background: 'rgba(139,92,246,0.15)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
+                    🌌 Aurora friendly
+                  </span>
+                )}
+                {hasBortleChip && (
+                  <span style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
+                    Bortle {location.bortleClass}
+                  </span>
+                )}
+                {hasDriveChip && (
+                  <span style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
+                    {formatDriveTime(driveMinutes)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Dashed divider */}
+            <div style={{
+              borderTop: `1px dashed ${darkMode ? '#3A3D45' : '#d1d5db'}`,
+              textAlign: 'center', position: 'relative', margin: '8px 0',
+            }}>
+              <span style={{
+                position: 'relative', top: '-8px',
+                background: darkMode ? '#1a1a2e' : '#fff',
+                padding: '0 8px', fontSize: '11px', color: '#6b7280',
+              }}>
+                no forecast yet
+              </span>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* Run Forecast button (admin only) */}
+            {role === 'ADMIN' && (
+              <button
+                data-testid="run-forecast-btn"
+                disabled={runningForecast}
+                onClick={handleRunForecast}
+                style={{
+                  display: 'block',
+                  padding: '4px 12px',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  color: '#fff',
+                  backgroundColor: runningForecast ? '#6b7280' : '#3b82f6',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: runningForecast ? 'not-allowed' : 'pointer',
+                  opacity: runningForecast ? 0.7 : 1,
+                }}
+              >
+                {runningForecast ? `Running\u2026 ${runProgress}` : 'Run Forecast'}
+              </button>
+            )}
+            {forecastError && (
+              <div style={{ marginTop: '4px', color: '#ef4444', fontSize: '11px' }}>
+                {forecastError}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -816,6 +922,9 @@ MarkerPopupContent.propTypes = {
     solarEventType: PropTypes.arrayOf(PropTypes.string),
     locationType: PropTypes.arrayOf(PropTypes.string),
     tideType: PropTypes.arrayOf(PropTypes.string),
+    bortleClass: PropTypes.number,
+    regionName: PropTypes.string,
+    forecastsByDate: PropTypes.object,
   }).isRequired,
   forecast: PropTypes.object,
   hourlyData: PropTypes.array.isRequired,
@@ -854,4 +963,5 @@ MarkerPopupContent.propTypes = {
   isAstroMode: PropTypes.bool,
   darkMode: PropTypes.bool,
   onForecastRun: PropTypes.func,
+  driveMinutes: PropTypes.number,
 };

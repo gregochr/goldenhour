@@ -36,6 +36,7 @@ export function useForecasts() {
       const allLocations = locationMeta
         .filter((l) => l.enabled !== false)
         .map((l) => ({
+          id: l.id,
           name: l.name,
           lat: l.lat,
           lon: l.lon,
@@ -43,6 +44,8 @@ export function useForecasts() {
           locationType: l.locationType ?? [],
           tideType: l.tideType ?? [],
           solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
+          bortleClass: l.bortleClass ?? null,
+          regionName: l.region?.name ?? null,
         }));
 
       const outcomeResults = await Promise.all(
