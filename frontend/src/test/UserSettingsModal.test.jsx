@@ -118,10 +118,23 @@ describe('UserSettingsModal', () => {
     await waitFor(() => expect(screen.getByTestId('settings-lookup-btn')).not.toBeDisabled());
   });
 
-  it('refresh drive times button is enabled for PRO user with home', async () => {
+  it('refresh drive times button is enabled for PRO user with home and no prior calculation', async () => {
     getSettings.mockResolvedValue(PRO_SETTINGS);
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled());
+  });
+
+  it('refresh drive times button is disabled when postcode unchanged since last calculation', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, driveTimesCalculatedAt: '2026-04-01T10:00:00Z' });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
+  });
+
+  it('refresh button treats differently-formatted same postcode as unchanged', async () => {
+    // Saved as "EH1 1BB" — drive times already calculated; normalised comparison should match
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: 'EH1 1BB', driveTimesCalculatedAt: '2026-04-01T10:00:00Z' });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
   });
 
   it('does not show upsell text for PRO user', async () => {
@@ -336,6 +349,35 @@ describe('UserSettingsModal', () => {
     getSettings.mockResolvedValue({ ...PRO_SETTINGS, driveTimesCalculatedAt: fiveMinAgo });
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-drive-calc-time')).toHaveTextContent('5 min ago'));
+  });
+
+  it('refresh button enables after saving a different postcode', async () => {
+    // Start with drive times already calculated for EH1 1BB
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, driveTimesCalculatedAt: '2026-04-01T10:00:00Z' });
+    lookupPostcode.mockResolvedValue({ postcode: 'NE1 7RU', placeName: 'Newcastle', latitude: 54.97, longitude: -1.61 });
+    saveHome.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: 'NE1 7RU', homePlaceName: 'Newcastle', driveTimesCalculatedAt: '2026-04-01T10:00:00Z' });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
+    // Look up and save a different postcode
+    fireEvent.change(screen.getByTestId('settings-postcode-input'), { target: { value: 'NE1 7RU' } });
+    fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+    await waitFor(() => expect(screen.getByTestId('settings-save-home-btn')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('settings-save-home-btn'));
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled());
+  });
+
+  it('refresh button disables again after successful refresh', async () => {
+    // No prior calculation — button starts enabled
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    refreshDriveTimes.mockResolvedValue({ locationsUpdated: 5, calculatedAt: '2026-04-02T10:00:00Z' });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('settings-refresh-drive-btn'));
+    // Success screen → dismiss
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-dismiss')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('settings-refresh-dismiss'));
+    // Back to settings — button should now be disabled (postcode matches)
+    await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled());
   });
 
   it('shows "Set a home location first" when no home set', async () => {

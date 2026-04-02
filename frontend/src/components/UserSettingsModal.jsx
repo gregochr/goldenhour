@@ -23,12 +23,18 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState(null);
   const [refreshError, setRefreshError] = useState(null);
+  // Tracks the postcode that drive times were last calculated for.
+  // Initialised from settings if drive times have been calculated before.
+  const [driveTimesPostcode, setDriveTimesPostcode] = useState(null);
 
   const fetchSettings = useCallback(async () => {
     try {
       const data = await getSettings();
       setSettings(data);
       if (data.homePostcode) setPostcode(data.homePostcode);
+      if (data.driveTimesCalculatedAt && data.homePostcode) {
+        setDriveTimesPostcode(data.homePostcode);
+      }
     } catch {
       // Settings fetch failed — modal will show skeleton state
     } finally {
@@ -75,6 +81,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
       const result = await refreshDriveTimes();
       setRefreshResult(result);
       setSettings((prev) => prev ? { ...prev, driveTimesCalculatedAt: result.calculatedAt } : prev);
+      setDriveTimesPostcode(settings?.homePostcode ?? null);
       onDriveTimesRefreshed?.();
     } catch (err) {
       const status = err?.response?.status;
@@ -97,6 +104,9 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
   const roleBadge = settings?.role ? ROLE_LABELS[settings.role] : null;
   const hasHome = settings?.homePostcode != null;
   const isPro = settings?.role === 'ADMIN' || settings?.role === 'PRO_USER';
+
+  const normalise = (pc) => (pc || '').replace(/\s+/g, '').toLowerCase();
+  const postcodeChanged = hasHome && normalise(settings.homePostcode) !== normalise(driveTimesPostcode);
 
   const formatCalcTime = (iso) => {
     if (!iso) return null;
@@ -231,7 +241,7 @@ export default function UserSettingsModal({ onClose, onDriveTimesRefreshed }) {
               <button
                 className="btn-primary text-sm w-full"
                 onClick={handleRefresh}
-                disabled={!isPro || !hasHome}
+                disabled={!isPro || !hasHome || !postcodeChanged}
                 data-testid="settings-refresh-drive-btn"
               >
                 Refresh drive times
