@@ -5,26 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PhotoCast — AI sunrise and sunset forecasting</title>
   <meta name="description" content="AI scores every sunrise and sunset across northern England — so you never waste a drive on grey skies.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #181818;
-      --bg-surface: #242424;
-      --bg-card: #1e1e1e;
-      --text: #e5e5e5;
-      --text-muted: #999;
-      --text-dim: #666;
-      --gold: #e5a00d;
-      --gold-muted: #b8860b;
+      --bg: #181A1E;
+      --bg-surface: #252830;
+      --bg-surface-light: #2F323A;
+      --bg-card: #252830;
+      --text: #EBEBEB;
+      --text-muted: #A0A0A0;
+      --text-dim: #6B6B6B;
+      --gold: #E5A00D;
+      --gold-light: #F5C518;
+      --gold-dark: #CC8A00;
       --gold-bg: rgba(229, 160, 13, 0.08);
       --gold-border: rgba(229, 160, 13, 0.2);
-      --border: rgba(255,255,255,0.06);
-      --border-light: rgba(255,255,255,0.1);
-      --radius: 10px;
+      --border: #3A3D45;
+      --border-light: #4A4D55;
+      --radius: 12px;
       --radius-lg: 14px;
     }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
       color: var(--text);
       background: var(--bg);
       line-height: 1.5;
@@ -34,7 +40,11 @@
 
     /* Nav */
     .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
-    .nav-logo { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); }
+    .nav-logo {
+      font-size: 36px; font-weight: 800; letter-spacing: -0.5px;
+      color: var(--text); display: flex; align-items: center; gap: 10px;
+    }
+    .nav-logo img { height: 40px; width: 40px; object-fit: contain; }
     .nav-logo span { color: var(--gold); }
     .nav-links { display: flex; gap: 1.5rem; align-items: center; }
     .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
@@ -44,9 +54,9 @@
       background: var(--gold); color: #000;
       padding: 7px 18px; border-radius: 20px;
       text-decoration: none; display: inline-block;
-      transition: opacity 0.15s;
+      transition: background 0.15s;
     }
-    .nav-cta:hover { opacity: 0.85; }
+    .nav-cta:hover { background: var(--gold-light); }
 
     /* Hero */
     .hero { text-align: center; padding: 0.5rem 0 2.5rem; }
@@ -66,9 +76,9 @@
       background: var(--gold); color: #000;
       padding: 12px 32px; border-radius: 24px;
       text-decoration: none; display: inline-block;
-      transition: opacity 0.15s;
+      transition: background 0.15s;
     }
-    .btn-gold:hover { opacity: 0.85; }
+    .btn-gold:hover { background: var(--gold-light); }
 
     /* Screenshot */
     .screenshot {
@@ -126,7 +136,7 @@
       width: 5px; height: 5px; border-radius: 50%;
       background: var(--text-dim); flex-shrink: 0;
     }
-    .featured .dot { background: var(--gold-muted); }
+    .featured .dot { background: var(--gold-dark); }
     .pro-badge {
       display: inline-block; font-size: 9px; font-weight: 600;
       padding: 2px 8px; border-radius: 10px;
@@ -157,7 +167,7 @@
   <div class="page">
 
     <nav class="nav">
-      <div class="nav-logo">Photo<span>Cast</span></div>
+      <div class="nav-logo"><img src="logo.png" alt="">Photo<span>Cast</span></div>
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
