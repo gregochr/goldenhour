@@ -496,7 +496,17 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
     if (!isAuroraMode) return null;
     const entries = Object.values(auroraScores);
     if (entries.length === 0) return null;
-    return entries.reduce((best, curr) => (curr.stars > best.stars ? curr : best), entries[0]);
+    const best = entries.reduce((b, curr) => (curr.stars > b.stars ? curr : b), entries[0]);
+    // When every location scored 1 star (all overcast / triage-rejected), don't highlight one
+    if (best.stars <= 1) return null;
+    return best;
+  }, [isAuroraMode, auroraScores]);
+
+  // True when aurora scores exist but all locations are 1 star (all overcast).
+  const allAuroraOvercast = useMemo(() => {
+    if (!isAuroraMode) return false;
+    const entries = Object.values(auroraScores);
+    return entries.length > 0 && entries.every((e) => e.stars <= 1);
   }, [isAuroraMode, auroraScores]);
 
   if (!date || locations.length === 0) {
@@ -693,6 +703,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           >
             Centre map
           </button>
+        </div>
+      )}
+      {isAuroraMode && allAuroraOvercast && (
+        <div
+          className="px-4 py-2.5 rounded-lg border border-gray-600/30 bg-gray-800/30 text-sm text-center"
+          data-testid="aurora-all-overcast-card"
+        >
+          <span className="text-gray-400">All locations overcast — no clear skies forecast tonight</span>
         </div>
       )}
 
