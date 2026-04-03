@@ -134,8 +134,8 @@ public class BriefingService {
             return null;
         }
         try {
-            AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonight();
-            AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
+            AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonightCached();
+            AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrowCached();
             if (Objects.equals(cached.auroraTonight(), liveTonight)
                     && Objects.equals(cached.auroraTomorrow(), liveTomorrow)) {
                 return cached;

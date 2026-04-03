@@ -195,6 +195,17 @@ public class NoaaSwpcClient {
     }
 
     /**
+     * Returns the cached Kp forecast without making an HTTP call.
+     * Returns {@code null} if no cached data is available.
+     *
+     * @return cached Kp forecast, or null
+     */
+    public List<KpForecast> getCachedKpForecast() {
+        CachedResult<List<KpForecast>> cache = cachedKpForecast;
+        return cache != null ? cache.data() : null;
+    }
+
+    /**
      * Returns the OVATION aurora probability nowcast at UK latitude (~55°N), cached for 5 minutes.
      *
      * <p>The OVATION grid (~900 KB) covers the full globe at 1° resolution. This method

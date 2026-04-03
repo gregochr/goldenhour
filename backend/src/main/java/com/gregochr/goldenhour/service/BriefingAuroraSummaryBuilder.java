@@ -74,12 +74,26 @@ public class BriefingAuroraSummaryBuilder {
     }
 
     /**
-     * Builds tonight's aurora summary from the active aurora state cache.
+     * Builds tonight's aurora summary, fetching weather from Open-Meteo if the cache is stale.
      * Returns {@code null} when the state machine is idle (no active alert).
      *
      * @return tonight's aurora summary, or null
      */
     public AuroraTonightSummary buildAuroraTonight() {
+        return buildAuroraTonight(true);
+    }
+
+    /**
+     * Builds tonight's aurora summary using only cached weather data (no HTTP calls).
+     * Safe to call on the GET request path without blocking.
+     *
+     * @return tonight's aurora summary, or null
+     */
+    public AuroraTonightSummary buildAuroraTonightCached() {
+        return buildAuroraTonight(false);
+    }
+
+    private AuroraTonightSummary buildAuroraTonight(boolean allowFetch) {
         if (!auroraStateCache.isActive()) {
             return null;
         }
@@ -90,7 +104,7 @@ public class BriefingAuroraSummaryBuilder {
 
             // Fetch weather for tonight's locations (cached 5 min)
             Map<Long, AuroraWeatherEnricher.AuroraWeather> weatherMap =
-                    fetchTonightWeather(scores);
+                    fetchTonightWeather(scores, allowFetch);
 
             // Group scores by region, then convert to location slots
             RegionGroupingUtils.GroupResult<AuroraForecastScore> grouped =
@@ -115,16 +129,32 @@ public class BriefingAuroraSummaryBuilder {
     }
 
     /**
-     * Builds tomorrow night's aurora forecast summary from NOAA's 3-day Kp forecast.
-     * Looks at windows 20–48 hours in the future to approximate tomorrow's dark window.
-     * Includes per-region weather and verdicts when Bortle-eligible locations exist.
-     * Returns {@code null} if the forecast cannot be fetched.
+     * Builds tomorrow night's aurora forecast summary, fetching from NOAA/Open-Meteo if needed.
      *
      * @return tomorrow's aurora forecast summary, or null
      */
     public AuroraTomorrowSummary buildAuroraTomorrow() {
+        return buildAuroraTomorrow(true);
+    }
+
+    /**
+     * Builds tomorrow night's aurora forecast summary using only cached data (no HTTP calls).
+     * Safe to call on the GET request path without blocking.
+     *
+     * @return tomorrow's aurora forecast summary, or null
+     */
+    public AuroraTomorrowSummary buildAuroraTomorrowCached() {
+        return buildAuroraTomorrow(false);
+    }
+
+    private AuroraTomorrowSummary buildAuroraTomorrow(boolean allowFetch) {
         try {
-            List<KpForecast> forecast = noaaSwpcClient.fetchKpForecast();
+            List<KpForecast> forecast = allowFetch
+                    ? noaaSwpcClient.fetchKpForecast()
+                    : noaaSwpcClient.getCachedKpForecast();
+            if (forecast == null || forecast.isEmpty()) {
+                return null;
+            }
             ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
             ZonedDateTime windowStart = now.plusHours(20);
             ZonedDateTime windowEnd = now.plusHours(48);
@@ -144,7 +174,7 @@ public class BriefingAuroraSummaryBuilder {
                 label = "Quiet";
             }
 
-            List<AuroraRegionSummary> regions = buildTomorrowRegions(now);
+            List<AuroraRegionSummary> regions = buildTomorrowRegions(now, allowFetch);
 
             return new AuroraTomorrowSummary(peakKp, label,
                     AlertLevel.fromKp(peakKp).name(), regions);
@@ -155,15 +185,20 @@ public class BriefingAuroraSummaryBuilder {
     }
 
     /**
-     * Fetches tonight's weather with a 5-minute cache to avoid spamming Open-Meteo
-     * when {@code getCachedBriefing()} calls this method repeatedly.
+     * Returns tonight's weather from cache, optionally fetching from Open-Meteo if stale.
+     *
+     * @param scores     aurora forecast scores with location references
+     * @param allowFetch if false, returns stale/empty data instead of making HTTP calls
      */
     private Map<Long, AuroraWeatherEnricher.AuroraWeather> fetchTonightWeather(
-            List<AuroraForecastScore> scores) {
+            List<AuroraForecastScore> scores, boolean allowFetch) {
         long now = System.currentTimeMillis();
         Map<Long, AuroraWeatherEnricher.AuroraWeather> cached = tonightWeatherCache;
         if (cached != null && (now - tonightWeatherCacheTimestamp) < TONIGHT_CACHE_TTL_MS) {
             return cached;
+        }
+        if (!allowFetch) {
+            return cached != null ? cached : Map.of();
         }
         try {
             List<LocationEntity> locations = scores.stream()
@@ -188,7 +223,8 @@ public class BriefingAuroraSummaryBuilder {
      * Builds per-region summaries for tomorrow using Bortle-eligible locations
      * with weather enrichment (30-minute cache).
      */
-    private List<AuroraRegionSummary> buildTomorrowRegions(ZonedDateTime now) {
+    private List<AuroraRegionSummary> buildTomorrowRegions(ZonedDateTime now,
+            boolean allowFetch) {
         try {
             List<LocationEntity> bortleLocations =
                     locationRepository.findByBortleClassIsNotNullAndEnabledTrue();
@@ -197,7 +233,7 @@ public class BriefingAuroraSummaryBuilder {
             }
 
             Map<Long, AuroraWeatherEnricher.AuroraWeather> weatherMap =
-                    fetchTomorrowWeather(bortleLocations, now);
+                    fetchTomorrowWeather(bortleLocations, now, allowFetch);
 
             RegionGroupingUtils.GroupResult<LocationEntity> grouped =
                     RegionGroupingUtils.groupByRegion(bortleLocations, loc ->
@@ -215,14 +251,21 @@ public class BriefingAuroraSummaryBuilder {
     }
 
     /**
-     * Fetches tomorrow's weather with a 30-minute cache.
+     * Returns tomorrow's weather from cache, optionally fetching from Open-Meteo if stale.
+     *
+     * @param locations  Bortle-eligible locations to fetch weather for
+     * @param now        current UTC time
+     * @param allowFetch if false, returns stale/empty data instead of making HTTP calls
      */
     private Map<Long, AuroraWeatherEnricher.AuroraWeather> fetchTomorrowWeather(
-            List<LocationEntity> locations, ZonedDateTime now) {
+            List<LocationEntity> locations, ZonedDateTime now, boolean allowFetch) {
         long currentMs = System.currentTimeMillis();
         Map<Long, AuroraWeatherEnricher.AuroraWeather> cached = tomorrowWeatherCache;
         if (cached != null && (currentMs - tomorrowWeatherCacheTimestamp) < TOMORROW_CACHE_TTL_MS) {
             return cached;
+        }
+        if (!allowFetch) {
+            return cached != null ? cached : Map.of();
         }
         // Use midnight UTC of tomorrow night (2 nights ahead if afternoon, 1 if early morning)
         ZonedDateTime targetHour = now.getHour() >= 6
