@@ -176,6 +176,14 @@ public class LocationEntity {
     @Builder.Default
     private boolean overlooksWater = false;
 
+    /** Snapped Open-Meteo grid latitude (~2 km resolution). Null until first fetch. */
+    @Column(name = "grid_lat")
+    private Double gridLat;
+
+    /** Snapped Open-Meteo grid longitude (~2 km resolution). Null until first fetch. */
+    @Column(name = "grid_lng")
+    private Double gridLng;
+
     /**
      * Returns whether this location supports the given target type based on its solar event preferences.
      *
@@ -213,5 +221,23 @@ public class LocationEntity {
                 avgShelfDepthMetres != null ? avgShelfDepthMetres : 1,
                 true
         );
+    }
+
+    /**
+     * Returns true if this location's Open-Meteo grid cell coordinates are known.
+     *
+     * @return true if both {@code gridLat} and {@code gridLng} are non-null
+     */
+    public boolean hasGridCell() {
+        return gridLat != null && gridLng != null;
+    }
+
+    /**
+     * Canonical key for grouping locations by grid cell (4 dp avoids floating-point drift).
+     *
+     * @return grid cell key in the format "lat,lng" with 4 decimal places
+     */
+    public String gridCellKey() {
+        return String.format("%.4f,%.4f", gridLat, gridLng);
     }
 }

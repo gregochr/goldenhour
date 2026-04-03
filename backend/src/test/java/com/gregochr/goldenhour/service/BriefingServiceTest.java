@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.context.ApplicationEventPublisher;
@@ -58,6 +59,8 @@ class BriefingServiceTest {
     @Mock
     private DailyBriefingCacheRepository briefingCacheRepository;
     @Mock
+    private LocationRepository locationRepository;
+    @Mock
     private BriefingBestBetAdvisor bestBetAdvisor;
     @Mock
     private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
@@ -79,7 +82,8 @@ class BriefingServiceTest {
                 solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
         briefingService = new BriefingService(
                 locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
+                jobRunService, briefingCacheRepository, locationRepository,
+                new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(), bestBetAdvisor,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
@@ -387,7 +391,7 @@ class BriefingServiceTest {
                 solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, mapper,
+                jobRunService, briefingCacheRepository, locationRepository, mapper,
                 new BriefingHeadlineGenerator(), bestBetAdvisor,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
@@ -415,7 +419,8 @@ class BriefingServiceTest {
                 solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
+                jobRunService, briefingCacheRepository, locationRepository,
+                new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(), bestBetAdvisor,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
@@ -436,7 +441,8 @@ class BriefingServiceTest {
                 solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, new ObjectMapper().findAndRegisterModules(),
+                jobRunService, briefingCacheRepository, locationRepository,
+                new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(), bestBetAdvisor,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
@@ -459,6 +465,328 @@ class BriefingServiceTest {
         verify(jobRunService).completeRun(any(), eq(0), eq(0));
     }
 
+    @Nested
+    @DisplayName("Grid cell deduplication")
+    class GridDeduplicationTests {
+
+        @Test
+        @DisplayName("Locations sharing a grid cell are fetched once and all receive weather")
+        void fetchWeather_groupsByGridCell_fetchesOncePerGroup() {
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("Bamburgh Castle").lat(55.609).lon(-1.710)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.6).gridLng(-1.7).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("Bamburgh Dunes").lat(55.611).lon(-1.712)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.6).gridLng(-1.7).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+            LocationEntity loc3 = LocationEntity.builder()
+                    .id(3L).name("Durham").lat(54.775).lon(-1.585)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(54.8).gridLng(-1.6).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+            LocationEntity loc4 = LocationEntity.builder()
+                    .id(4L).name("Durham Cathedral").lat(54.774).lon(-1.576)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(54.8).gridLng(-1.6).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3, loc4));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc1);
+            stubSolarTimes(loc2);
+            stubSolarTimes(loc3);
+            stubSolarTimes(loc4);
+
+            OpenMeteoForecastResponse bamburghForecast = buildForecastResponse();
+            OpenMeteoForecastResponse durhamForecast = buildForecastResponse();
+            // First group (Bamburgh) — fetched using loc1's coordinates
+            when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
+                    .thenReturn(bamburghForecast);
+            // Second group (Durham) — fetched using loc3's coordinates
+            when(openMeteoClient.fetchForecastBriefing(loc3.getLat(), loc3.getLon()))
+                    .thenReturn(durhamForecast);
+
+            briefingService.refreshBriefing();
+
+            // Only 2 API calls, not 4
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
+                    .fetchForecastBriefing(loc1.getLat(), loc1.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
+                    .fetchForecastBriefing(loc3.getLat(), loc3.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
+                    .fetchForecastBriefing(loc2.getLat(), loc2.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
+                    .fetchForecastBriefing(loc4.getLat(), loc4.getLon());
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            assertThat(cached.failedLocationCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("Ungrouped locations (no grid cell) are fetched individually")
+        void fetchWeather_ungroupedLocations_fetchedIndividually() {
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("NewLoc1").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("NewLoc2").lat(54.0).lon(-2.0)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc1);
+            stubSolarTimes(loc2);
+
+            OpenMeteoForecastResponse resp1 = buildForecastResponseWithGrid(55.0, -1.5);
+            OpenMeteoForecastResponse resp2 = buildForecastResponseWithGrid(54.0, -2.0);
+            when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
+                    .thenReturn(resp1);
+            when(openMeteoClient.fetchForecastBriefing(loc2.getLat(), loc2.getLon()))
+                    .thenReturn(resp2);
+
+            briefingService.refreshBriefing();
+
+            // Both fetched individually
+            org.mockito.Mockito.verify(openMeteoClient).fetchForecastBriefing(loc1.getLat(), loc1.getLon());
+            org.mockito.Mockito.verify(openMeteoClient).fetchForecastBriefing(loc2.getLat(), loc2.getLon());
+        }
+
+        @Test
+        @DisplayName("Grid coordinates are captured from response and saved")
+        void fetchWeather_capturesGridCoordinatesOnFirstFetch() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("NewLoc").lat(55.123).lon(-1.456)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            OpenMeteoForecastResponse resp = buildForecastResponseWithGrid(55.1, -1.5);
+            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                    .thenReturn(resp);
+
+            briefingService.refreshBriefing();
+
+            assertThat(loc.getGridLat()).isEqualTo(55.1);
+            assertThat(loc.getGridLng()).isEqualTo(-1.5);
+            org.mockito.Mockito.verify(locationRepository).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("Mixed grouped and ungrouped locations: 2 grouped + 1 ungrouped = 2 fetches")
+        void fetchWeather_mixedGroupedAndUngrouped_correctFetchCount() {
+            LocationEntity grouped1 = LocationEntity.builder()
+                    .id(1L).name("Bamburgh").lat(55.609).lon(-1.710)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.6).gridLng(-1.7).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+            LocationEntity grouped2 = LocationEntity.builder()
+                    .id(2L).name("Bamburgh Dunes").lat(55.611).lon(-1.712)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.6).gridLng(-1.7).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+            LocationEntity ungrouped = LocationEntity.builder()
+                    .id(3L).name("NewLoc").lat(53.0).lon(-2.0)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(grouped1, grouped2, ungrouped));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(grouped1);
+            stubSolarTimes(grouped2);
+            stubSolarTimes(ungrouped);
+
+            when(openMeteoClient.fetchForecastBriefing(grouped1.getLat(), grouped1.getLon()))
+                    .thenReturn(buildForecastResponse());
+            when(openMeteoClient.fetchForecastBriefing(ungrouped.getLat(), ungrouped.getLon()))
+                    .thenReturn(buildForecastResponseWithGrid(53.0, -2.0));
+
+            briefingService.refreshBriefing();
+
+            // 2 fetches: one for grouped pair, one for ungrouped
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
+                    .fetchForecastBriefing(grouped1.getLat(), grouped1.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
+                    .fetchForecastBriefing(ungrouped.getLat(), ungrouped.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
+                    .fetchForecastBriefing(grouped2.getLat(), grouped2.getLon());
+
+            assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("Response with null lat/lon does not persist grid coordinates")
+        void fetchWeather_nullResponseCoords_doesNotSave() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("Loc").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            // Response with null latitude/longitude
+            OpenMeteoForecastResponse resp = buildForecastResponse();
+            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                    .thenReturn(resp);
+
+            briefingService.refreshBriefing();
+
+            assertThat(loc.getGridLat()).isNull();
+            assertThat(loc.getGridLng()).isNull();
+            org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never())
+                    .saveAll(any());
+        }
+
+        @Test
+        @DisplayName("Already-populated grid cells are not re-saved")
+        void fetchWeather_alreadyPopulated_notResaved() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("Loc").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.0).gridLng(-1.5).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                    .thenReturn(buildForecastResponseWithGrid(55.0, -1.5));
+
+            briefingService.refreshBriefing();
+
+            // Grid cell was already set — no save needed
+            org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never())
+                    .saveAll(any());
+        }
+
+        @Test
+        @DisplayName("All locations in one grid cell — single API call")
+        void fetchWeather_allSameGridCell_singleFetch() {
+            List<LocationEntity> locs = new ArrayList<>();
+            for (int i = 1; i <= 5; i++) {
+                LocationEntity loc = LocationEntity.builder()
+                        .id((long) i).name("Loc" + i).lat(55.0 + i * 0.001).lon(-1.5)
+                        .locationType(Set.of(LocationType.LANDSCAPE))
+                        .tideType(Set.of()).solarEventType(Set.of())
+                        .gridLat(55.0).gridLng(-1.5).enabled(true)
+                        .createdAt(LocalDateTime.now()).build();
+                locs.add(loc);
+                stubSolarTimes(loc);
+            }
+
+            when(locationService.findAllEnabled()).thenReturn(locs);
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(openMeteoClient.fetchForecastBriefing(locs.getFirst().getLat(),
+                    locs.getFirst().getLon())).thenReturn(buildForecastResponse());
+
+            briefingService.refreshBriefing();
+
+            // 1 API call for 5 locations
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
+                    .fetchForecastBriefing(org.mockito.ArgumentMatchers.anyDouble(),
+                            org.mockito.ArgumentMatchers.anyDouble());
+            assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("saveAll failure during grid capture is logged but does not break briefing")
+        void fetchWeather_saveAllFailure_briefingStillCompletes() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("Loc").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+                    .thenReturn(buildForecastResponseWithGrid(55.0, -1.5));
+            when(locationRepository.saveAll(any()))
+                    .thenThrow(new RuntimeException("DB write failed"));
+
+            briefingService.refreshBriefing();
+
+            // Briefing still completes despite save failure
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            assertThat(cached.failedLocationCount()).isZero();
+        }
+
+        @Test
+        @DisplayName("Failed fetch marks all group members as failed")
+        void fetchWeather_failedFetch_allGroupMembersGetNull() {
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("Loc1").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.0).gridLng(-1.5).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("Loc2").lat(55.001).lon(-1.501)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.0).gridLng(-1.5).enabled(true)
+                    .createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+
+            when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
+                    .thenThrow(new RuntimeException("API timeout"));
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            // Both locations in the group failed
+            assertThat(cached.failedLocationCount()).isEqualTo(2);
+        }
+
+        private void stubSolarTimes(LocationEntity loc) {
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+        }
+    }
+
     private static LocationEntity location(String name, String regionName) {
         RegionEntity region = regionName != null
                 ? RegionEntity.builder().name(regionName).build() : null;
@@ -471,6 +799,14 @@ class BriefingServiceTest {
                 .enabled(true)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    private static OpenMeteoForecastResponse buildForecastResponseWithGrid(
+            Double gridLat, Double gridLng) {
+        OpenMeteoForecastResponse response = buildForecastResponse();
+        response.setLatitude(gridLat);
+        response.setLongitude(gridLng);
+        return response;
     }
 
     private static OpenMeteoForecastResponse buildForecastResponse() {

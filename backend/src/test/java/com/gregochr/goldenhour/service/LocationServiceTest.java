@@ -18,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -505,6 +506,120 @@ class LocationServiceTest {
                 .locationType(Set.of(LocationType.SEASCAPE, LocationType.LANDSCAPE))
                 .build();
         assertThat(locationService.isSeascape(entity)).isTrue();
+    }
+
+    // --- getGridCellSummary ---
+
+    @Test
+    @DisplayName("getGridCellSummary() returns correct counts and largest group")
+    @SuppressWarnings("unchecked")
+    void getGridCellSummary_returnsCorrectCounts() {
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Bamburgh Castle").lat(55.6).lon(-1.7)
+                .gridLat(55.6).gridLng(-1.7).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Bamburgh Dunes").lat(55.61).lon(-1.71)
+                .gridLat(55.6).gridLng(-1.7).enabled(true).build();
+        LocationEntity loc3 = LocationEntity.builder()
+                .id(3L).name("Durham").lat(54.7).lon(-1.5)
+                .gridLat(54.8).gridLng(-1.6).enabled(true).build();
+        LocationEntity loc4 = LocationEntity.builder()
+                .id(4L).name("NewLoc").lat(53.0).lon(-2.0)
+                .enabled(true).build(); // no grid cell
+
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(loc1, loc2, loc3, loc4));
+
+        Map<String, Object> summary = locationService.getGridCellSummary();
+
+        assertThat(summary.get("totalLocations")).isEqualTo(4);
+        assertThat(summary.get("locationsWithGridCell")).isEqualTo(3L);
+        assertThat(summary.get("locationsWithoutGridCell")).isEqualTo(1L);
+        assertThat(summary.get("distinctGridCells")).isEqualTo(2);
+        assertThat(summary.get("largestGroupSize")).isEqualTo(2);
+
+        Map<String, Object> example = (Map<String, Object>) summary.get("largestGroupExample");
+        assertThat(example).isNotNull();
+        assertThat((List<String>) example.get("locations")).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("getGridCellSummary() returns all zeroes for empty enabled list")
+    void getGridCellSummary_emptyList_returnsZeroes() {
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of());
+
+        Map<String, Object> summary = locationService.getGridCellSummary();
+
+        assertThat(summary.get("totalLocations")).isEqualTo(0);
+        assertThat(summary.get("locationsWithGridCell")).isEqualTo(0L);
+        assertThat(summary.get("locationsWithoutGridCell")).isEqualTo(0L);
+        assertThat(summary.get("distinctGridCells")).isEqualTo(0);
+        assertThat(summary.get("largestGroupSize")).isEqualTo(0);
+        assertThat(summary).doesNotContainKey("largestGroupExample");
+    }
+
+    @Test
+    @DisplayName("getGridCellSummary() handles all locations in one grid cell")
+    @SuppressWarnings("unchecked")
+    void getGridCellSummary_allSameGridCell() {
+        List<LocationEntity> locs = List.of(
+                LocationEntity.builder().id(1L).name("A").lat(55.0).lon(-1.5)
+                        .gridLat(55.0).gridLng(-1.5).enabled(true).build(),
+                LocationEntity.builder().id(2L).name("B").lat(55.001).lon(-1.501)
+                        .gridLat(55.0).gridLng(-1.5).enabled(true).build(),
+                LocationEntity.builder().id(3L).name("C").lat(55.002).lon(-1.502)
+                        .gridLat(55.0).gridLng(-1.5).enabled(true).build());
+
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(locs);
+
+        Map<String, Object> summary = locationService.getGridCellSummary();
+
+        assertThat(summary.get("totalLocations")).isEqualTo(3);
+        assertThat(summary.get("locationsWithGridCell")).isEqualTo(3L);
+        assertThat(summary.get("locationsWithoutGridCell")).isEqualTo(0L);
+        assertThat(summary.get("distinctGridCells")).isEqualTo(1);
+        assertThat(summary.get("largestGroupSize")).isEqualTo(3);
+
+        Map<String, Object> example = (Map<String, Object>) summary.get("largestGroupExample");
+        assertThat((List<String>) example.get("locations")).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("getGridCellSummary() single location with grid cell has group size 1")
+    void getGridCellSummary_singleLocationWithGrid() {
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Durham").lat(54.7).lon(-1.5)
+                .gridLat(54.8).gridLng(-1.6).enabled(true).build();
+
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(loc));
+
+        Map<String, Object> summary = locationService.getGridCellSummary();
+
+        assertThat(summary.get("totalLocations")).isEqualTo(1);
+        assertThat(summary.get("locationsWithGridCell")).isEqualTo(1L);
+        assertThat(summary.get("distinctGridCells")).isEqualTo(1);
+        assertThat(summary.get("largestGroupSize")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("getGridCellSummary() returns zeroes when no locations have grid cells")
+    void getGridCellSummary_noGridCells_returnsZeroes() {
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("NewLoc").lat(55.0).lon(-1.5)
+                .enabled(true).build();
+
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(loc));
+
+        Map<String, Object> summary = locationService.getGridCellSummary();
+
+        assertThat(summary.get("totalLocations")).isEqualTo(1);
+        assertThat(summary.get("locationsWithGridCell")).isEqualTo(0L);
+        assertThat(summary.get("distinctGridCells")).isEqualTo(0);
+        assertThat(summary.get("largestGroupSize")).isEqualTo(0);
+        assertThat(summary).doesNotContainKey("largestGroupExample");
     }
 
     // --- defaults ---

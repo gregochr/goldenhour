@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import java.util.NoSuchElementException;
@@ -256,6 +257,42 @@ class LocationControllerTest {
     @DisplayName("GET /api/locations returns 401 when unauthenticated")
     void getLocations_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/locations"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- Grid cell summary endpoint ---
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/grid-cells returns 200 with summary for ADMIN")
+    void getGridCells_admin_returns200() throws Exception {
+        Map<String, Object> summary = new java.util.LinkedHashMap<>();
+        summary.put("totalLocations", 10);
+        summary.put("locationsWithGridCell", 8);
+        summary.put("locationsWithoutGridCell", 2);
+        summary.put("distinctGridCells", 5);
+        summary.put("largestGroupSize", 3);
+        when(locationService.getGridCellSummary()).thenReturn(summary);
+
+        mockMvc.perform(get("/api/locations/grid-cells"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalLocations").value(10))
+                .andExpect(jsonPath("$.distinctGridCells").value(5))
+                .andExpect(jsonPath("$.largestGroupSize").value(3));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/locations/grid-cells returns 403 for non-ADMIN")
+    void getGridCells_nonAdmin_returns403() throws Exception {
+        mockMvc.perform(get("/api/locations/grid-cells"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/locations/grid-cells returns 401 when unauthenticated")
+    void getGridCells_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/locations/grid-cells"))
                 .andExpect(status().isUnauthorized());
     }
 

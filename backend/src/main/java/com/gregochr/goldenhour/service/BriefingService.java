@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -51,6 +53,7 @@ public class BriefingService {
     private final OpenMeteoClient openMeteoClient;
     private final JobRunService jobRunService;
     private final DailyBriefingCacheRepository briefingCacheRepository;
+    private final LocationRepository locationRepository;
     private final ObjectMapper objectMapper;
     private final BriefingHeadlineGenerator headlineGenerator;
     private final BriefingBestBetAdvisor bestBetAdvisor;
@@ -68,6 +71,7 @@ public class BriefingService {
      * @param openMeteoClient         resilient Open-Meteo API client
      * @param jobRunService           service for job run tracking
      * @param briefingCacheRepository repository for persisting the briefing across restarts
+     * @param locationRepository      repository for persisting grid coordinates on locations
      * @param objectMapper            Jackson mapper for JSON serialization
      * @param headlineGenerator       generator for the briefing headline
      * @param bestBetAdvisor          Claude Haiku advisor producing ranked best-bet picks
@@ -79,6 +83,7 @@ public class BriefingService {
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
             JobRunService jobRunService, DailyBriefingCacheRepository briefingCacheRepository,
+            LocationRepository locationRepository,
             ObjectMapper objectMapper,
             BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
@@ -89,6 +94,7 @@ public class BriefingService {
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
         this.briefingCacheRepository = briefingCacheRepository;
+        this.locationRepository = locationRepository;
         this.objectMapper = objectMapper;
         this.headlineGenerator = headlineGenerator;
         this.bestBetAdvisor = bestBetAdvisor;
@@ -285,12 +291,17 @@ public class BriefingService {
     }
 
     /**
-     * Fetches Open-Meteo forecast data for all locations sequentially.
+     * Fetches Open-Meteo forecast data for all locations sequentially, deduplicating by grid cell.
+     *
+     * <p>Open-Meteo snaps coordinates to the nearest ~2 km grid point, so locations sharing
+     * a grid cell get identical weather data. This method groups locations by their known grid
+     * cell (or treats ungrouped locations individually), fetches once per distinct group, and
+     * fans the result out to all members. Grid coordinates discovered from the response are
+     * persisted back to the location entity for future deduplication.
      *
      * <p>Sequential fetching lets the {@code @RateLimiter} on
      * {@link OpenMeteoClient#fetchForecast} throttle calls naturally at 8/s with no
-     * queuing pressure. This scales to any number of locations without exhausting the
-     * rate limiter (contrast with firing N parallel threads that all compete for permits).
+     * queuing pressure.
      *
      * @param locations the locations to fetch weather for
      * @param jobRun    the job run for API call tracking
@@ -298,28 +309,90 @@ public class BriefingService {
      */
     private List<BriefingSlotBuilder.LocationWeather> fetchWeatherSequential(
             List<LocationEntity> locations, JobRunEntity jobRun) {
-        List<BriefingSlotBuilder.LocationWeather> results = new ArrayList<>();
+
+        // Group locations by grid cell key — ungrouped locations get a unique key
+        Map<String, List<LocationEntity>> groups = new LinkedHashMap<>();
         for (LocationEntity loc : locations) {
+            String key = loc.hasGridCell()
+                    ? loc.gridCellKey()
+                    : "ungrouped-" + loc.getId();
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(loc);
+        }
+
+        long groupedCount = groups.values().stream().filter(g -> g.size() > 1).count();
+        long ungroupedCount = groups.values().stream().filter(g -> g.size() == 1).count()
+                - groups.values().stream()
+                    .filter(g -> g.size() == 1 && g.getFirst().hasGridCell()).count();
+        LOG.info("Briefing weather fetch: {} locations → {} grid cells ({} ungrouped)",
+                locations.size(), groups.size(), ungroupedCount);
+
+        List<BriefingSlotBuilder.LocationWeather> results = new ArrayList<>();
+
+        for (Map.Entry<String, List<LocationEntity>> entry : groups.entrySet()) {
+            List<LocationEntity> group = entry.getValue();
+            LocationEntity representative = group.getFirst();
+
             long startMs = System.currentTimeMillis();
             try {
                 OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecastBriefing(
-                        loc.getLat(), loc.getLon());
+                        representative.getLat(), representative.getLon());
                 long durationMs = System.currentTimeMillis() - startMs;
                 jobRunService.logApiCall(jobRun.getId(),
                         com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "briefing-forecast/" + loc.getName(), null,
+                        "GET", "briefing-forecast/" + representative.getName(), null,
                         durationMs, 200, null, true, null);
-                results.add(new BriefingSlotBuilder.LocationWeather(loc, forecast));
+
+                // Capture grid coordinates from the response and persist to any location missing them
+                captureGridCoordinates(forecast, group);
+
+                // Fan out to all locations in the group
+                for (LocationEntity loc : group) {
+                    results.add(new BriefingSlotBuilder.LocationWeather(loc, forecast));
+                }
             } catch (Exception e) {
                 long durationMs = System.currentTimeMillis() - startMs;
-                LOG.warn("Briefing weather fetch failed for {}: {}", loc.getName(), e.getMessage());
+                LOG.warn("Briefing weather fetch failed for group [{}]: {}",
+                        representative.getName(), e.getMessage());
                 jobRunService.logApiCall(jobRun.getId(),
                         com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "briefing-forecast/" + loc.getName(), null,
+                        "GET", "briefing-forecast/" + representative.getName(), null,
                         durationMs, null, null, false, e.getMessage());
-                results.add(new BriefingSlotBuilder.LocationWeather(loc, null));
+                for (LocationEntity loc : group) {
+                    results.add(new BriefingSlotBuilder.LocationWeather(loc, null));
+                }
             }
         }
         return results;
+    }
+
+    /**
+     * Captures snapped grid coordinates from the Open-Meteo response and persists them
+     * to any location in the group that doesn't yet have grid cell coordinates.
+     *
+     * @param forecast the Open-Meteo response containing snapped lat/lon
+     * @param group    the locations sharing this grid cell
+     */
+    private void captureGridCoordinates(OpenMeteoForecastResponse forecast,
+            List<LocationEntity> group) {
+        if (forecast.getLatitude() == null || forecast.getLongitude() == null) {
+            return;
+        }
+        List<LocationEntity> toSave = new ArrayList<>();
+        for (LocationEntity loc : group) {
+            if (!loc.hasGridCell()) {
+                loc.setGridLat(forecast.getLatitude());
+                loc.setGridLng(forecast.getLongitude());
+                toSave.add(loc);
+            }
+        }
+        if (!toSave.isEmpty()) {
+            try {
+                locationRepository.saveAll(toSave);
+                LOG.debug("Captured grid cell {},{} for {} location(s)",
+                        forecast.getLatitude(), forecast.getLongitude(), toSave.size());
+            } catch (Exception e) {
+                LOG.warn("Failed to persist grid coordinates: {}", e.getMessage());
+            }
+        }
     }
 }

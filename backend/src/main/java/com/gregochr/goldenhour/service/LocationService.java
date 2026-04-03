@@ -16,8 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -319,6 +323,48 @@ public class LocationService {
         location.setDisabledReason(null);
         location.setLastFailureAt(null);
         return locationRepository.save(location);
+    }
+
+    /**
+     * Returns a summary of grid cell groupings for all enabled locations.
+     *
+     * <p>Used by the admin grid-cells endpoint to visualise Open-Meteo deduplication.
+     *
+     * @return map containing total locations, grid cell counts, and largest group details
+     */
+    public Map<String, Object> getGridCellSummary() {
+        List<LocationEntity> enabled = findAllEnabled();
+        long withGrid = enabled.stream().filter(LocationEntity::hasGridCell).count();
+        long withoutGrid = enabled.size() - withGrid;
+
+        Map<String, List<LocationEntity>> groups = new HashMap<>();
+        for (LocationEntity loc : enabled) {
+            if (loc.hasGridCell()) {
+                groups.computeIfAbsent(loc.gridCellKey(), k -> new java.util.ArrayList<>()).add(loc);
+            }
+        }
+
+        Map.Entry<String, List<LocationEntity>> largest = groups.entrySet().stream()
+                .max(Comparator.comparingInt(e -> e.getValue().size()))
+                .orElse(null);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalLocations", enabled.size());
+        result.put("locationsWithGridCell", withGrid);
+        result.put("locationsWithoutGridCell", withoutGrid);
+        result.put("distinctGridCells", groups.size());
+        result.put("largestGroupSize", largest != null ? largest.getValue().size() : 0);
+
+        if (largest != null) {
+            Map<String, Object> example = new LinkedHashMap<>();
+            example.put("gridLat", largest.getValue().getFirst().getGridLat());
+            example.put("gridLng", largest.getValue().getFirst().getGridLng());
+            example.put("locations", largest.getValue().stream()
+                    .map(LocationEntity::getName).toList());
+            result.put("largestGroupExample", example);
+        }
+
+        return result;
     }
 
     /**

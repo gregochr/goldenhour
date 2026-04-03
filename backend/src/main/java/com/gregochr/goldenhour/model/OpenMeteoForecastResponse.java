@@ -15,6 +15,12 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class OpenMeteoForecastResponse {
 
+    /** Snapped grid latitude returned by Open-Meteo (~2 km resolution). */
+    private Double latitude;
+
+    /** Snapped grid longitude returned by Open-Meteo (~2 km resolution). */
+    private Double longitude;
+
     private Hourly hourly;
 
     /**

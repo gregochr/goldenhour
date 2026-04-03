@@ -104,4 +104,15 @@ public class LocationController {
         return locationService.resetFailures(name);
     }
 
+    /**
+     * Returns a summary of Open-Meteo grid cell groupings for enabled locations.
+     *
+     * @return grid cell statistics including total locations, distinct cells, and largest group
+     */
+    @GetMapping("/grid-cells")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Map<String, Object> getGridCellSummary() {
+        return locationService.getGridCellSummary();
+    }
+
 }
