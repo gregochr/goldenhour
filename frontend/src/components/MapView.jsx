@@ -715,7 +715,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           />
           <ZoomTracker onZoom={setZoom} />
           <FlyToController target={flyTarget} />
-          {viewlineEnabled && <AuroraViewlineOverlay viewline={viewline} />}
+          {viewlineEnabled && eventType === 'AURORA' && <AuroraViewlineOverlay viewline={viewline} />}
 
           {/* Azimuth lines for the selected location */}
           {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (

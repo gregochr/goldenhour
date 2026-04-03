@@ -2,18 +2,8 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { Polygon, Polyline, Tooltip } from 'react-leaflet';
 
-/**
- * Returns the viewline colour based on the southernmost latitude.
- *
- * Green: visible ≤55°N (northern England or further south — widespread).
- * Amber: 55–58°N (Scotland) — partial coverage.
- * Grey: >58°N — faint/far north only.
- */
-function viewlineColour(southernmostLat) {
-  if (southernmostLat <= 55) return '#33ff33';
-  if (southernmostLat <= 58) return '#ff9900';
-  return '#888888';
-}
+/** Aurora green — used for both the viewline boundary and fill. */
+const AURORA_GREEN = '#33ff33';
 
 /**
  * Leaflet overlay showing the OVATION aurora viewline on the map.
@@ -29,8 +19,6 @@ export default function AuroraViewlineOverlay({ viewline }) {
   if (!viewline || !viewline.active || !viewline.points || viewline.points.length === 0) {
     return null;
   }
-
-  const colour = viewlineColour(viewline.southernmostLatitude);
 
   // Build the viewline as [lat, lon] pairs (Leaflet format)
   const viewlineLatLngs = viewline.points.map(p => [p.latitude, p.longitude]);
@@ -51,8 +39,8 @@ export default function AuroraViewlineOverlay({ viewline }) {
       <Polygon
         positions={polygonPositions}
         pathOptions={{
-          color: colour,
-          fillColor: colour,
+          color: AURORA_GREEN,
+          fillColor: AURORA_GREEN,
           fillOpacity: 0.08,
           weight: 0,
           interactive: false,
@@ -62,7 +50,7 @@ export default function AuroraViewlineOverlay({ viewline }) {
       <Polyline
         positions={viewlineLatLngs}
         pathOptions={{
-          color: colour,
+          color: AURORA_GREEN,
           weight: 2,
           dashArray: '8, 4',
           interactive: false,

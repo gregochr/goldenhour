@@ -57,25 +57,17 @@ describe('AuroraViewlineOverlay', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('colour_green_when_south_of_55N', () => {
-    const viewline = { ...activeViewline, southernmostLatitude: 54 };
-    render(<AuroraViewlineOverlay viewline={viewline} />);
+  it('colour_is_aurora_green', () => {
+    render(<AuroraViewlineOverlay viewline={activeViewline} />);
     expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-color', '#33ff33');
     expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#33ff33');
   });
 
-  it('colour_amber_when_55_to_58N', () => {
-    const viewline = { ...activeViewline, southernmostLatitude: 56 };
-    render(<AuroraViewlineOverlay viewline={viewline} />);
-    expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-color', '#ff9900');
-    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#ff9900');
-  });
-
-  it('colour_grey_when_north_of_58N', () => {
-    const viewline = { ...activeViewline, southernmostLatitude: 60 };
-    render(<AuroraViewlineOverlay viewline={viewline} />);
-    expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-color', '#888888');
-    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#888888');
+  it('colour_is_green_regardless_of_latitude', () => {
+    const northerly = { ...activeViewline, southernmostLatitude: 60 };
+    render(<AuroraViewlineOverlay viewline={northerly} />);
+    expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-color', '#33ff33');
+    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#33ff33');
   });
 
   it('non_interactive', () => {
