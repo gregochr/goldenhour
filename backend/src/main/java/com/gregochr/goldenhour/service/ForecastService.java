@@ -237,7 +237,6 @@ public class ForecastService {
      * @param jobRun                parent job run for metrics
      * @return the pre-evaluation result
      */
-    @Bulkhead(name = "forecast")
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun) {
