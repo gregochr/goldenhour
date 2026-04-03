@@ -140,7 +140,7 @@ export default function AuroraBanner() {
           backgroundColor: status.hexColour,
           animation: isFavourable ? 'aurora-pulse 3s ease-in-out infinite' : undefined,
         }}
-        className={`px-4 py-2 text-white cursor-pointer select-none${isSimulated ? ' aurora-banner-simulated' : ''}`}
+        className={`px-4 py-2 rounded-lg text-white cursor-pointer select-none${isSimulated ? ' aurora-banner-simulated' : ''}`}
         onClick={() => {
           window.location.hash = isSimulated ? 'manage' : 'map';
         }}
@@ -150,7 +150,7 @@ export default function AuroraBanner() {
         tabIndex={0}
       >
       {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
-        <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-lg shrink-0" aria-hidden="true">{isSimulated ? '🧪' : '🌌'}</span>
             <div className="min-w-0">

@@ -209,7 +209,9 @@ function AppInner() {
       </header>
 
       <SessionExpiryBanner />
-      <AuroraBanner />
+      <div className="max-w-4xl mx-auto px-4 mt-4">
+        <AuroraBanner />
+      </div>
 
       {showRunBanner && lastCompletedRun && (
         <div
