@@ -89,7 +89,9 @@ export default function AuroraBanner() {
   const isSimulated = status.simulated === true;
 
   let locationText = null;
-  if (status.darkSkyLocationCount > 0) {
+  const allOvercast = status.darkSkyLocationCount > 0
+    && status.clearLocationCount != null && status.clearLocationCount === 0;
+  if (!allOvercast && status.darkSkyLocationCount > 0) {
     if (status.clearLocationCount != null) {
       const c = status.clearLocationCount;
       locationText = `${c} dark sky location${c !== 1 ? 's' : ''} clear`;
@@ -100,11 +102,12 @@ export default function AuroraBanner() {
   }
 
   const displayKp = status.forecastKp ?? status.kp;
+  const isForecastTrigger = !isSimulated && status.triggerType === 'forecast';
   const kpText = displayKp != null
     ? (isSimulated
         ? `Kp ${Math.round(displayKp)} (SIMULATED)`
-        : status.triggerType === 'forecast'
-          ? `Kp ${Math.round(displayKp)} forecast tonight`
+        : isForecastTrigger
+          ? `Kp ${Math.round(displayKp)} forecast `
           : `Kp ${Math.round(displayKp)}`)
     : null;
 
@@ -158,7 +161,20 @@ export default function AuroraBanner() {
                 {isSimulated ? 'SIMULATED — ' : 'Aurora Alert — '}{status.description}
               </p>
               {subtitleParts.length > 0 && (
-                <p className="text-xs opacity-90 mt-0.5">{subtitleParts.join(' · ')}</p>
+                <p className="text-xs opacity-90 mt-0.5">
+                  {subtitleParts.map((part, i) => (
+                    <React.Fragment key={i}>
+                      {i > 0 && ' · '}
+                      {part}
+                      {i === 0 && isForecastTrigger && <strong className="italic">tonight</strong>}
+                    </React.Fragment>
+                  ))}
+                </p>
+              )}
+              {allOvercast && (
+                <p data-testid="aurora-banner-overcast" className="text-xs opacity-90 mt-0.5">
+                  All locations overcast — no clear skies forecast <strong className="italic">tonight</strong>
+                </p>
               )}
               {!isSimulated && bzText && (
                 <p data-testid="aurora-banner-bz" className="text-xs opacity-90 mt-0.5">{bzText}</p>

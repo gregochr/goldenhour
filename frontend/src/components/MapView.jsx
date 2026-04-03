@@ -502,13 +502,6 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
     return best;
   }, [isAuroraMode, auroraScores]);
 
-  // True when aurora scores exist but all locations are 1 star (all overcast).
-  const allAuroraOvercast = useMemo(() => {
-    if (!isAuroraMode) return false;
-    const entries = Object.values(auroraScores);
-    return entries.length > 0 && entries.every((e) => e.stars <= 1);
-  }, [isAuroraMode, auroraScores]);
-
   if (!date || locations.length === 0) {
     return (
       <p className="text-plex-text-muted text-sm text-center py-8">
@@ -705,14 +698,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           </button>
         </div>
       )}
-      {isAuroraMode && allAuroraOvercast && (
-        <div
-          className="px-4 py-2.5 rounded-lg border border-gray-600/30 bg-gray-800/30 text-sm text-center"
-          data-testid="aurora-all-overcast-card"
-        >
-          <span className="text-gray-400">All locations overcast — no clear skies forecast tonight</span>
-        </div>
-      )}
+      {/* All-overcast message now shown inside AuroraBanner */}
 
       {/* Map */}
       <div
@@ -733,7 +719,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           />
           <ZoomTracker onZoom={setZoom} />
           <FlyToController target={flyTarget} />
-          {viewlineEnabled && eventType === 'AURORA' && <AuroraViewlineOverlay viewline={viewline} />}
+          {viewlineEnabled && eventType === 'AURORA' && date === new Date().toLocaleDateString('en-CA') && (
+            <AuroraViewlineOverlay viewline={viewline} />
+          )}
 
           {/* Azimuth lines for the selected location */}
           {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (

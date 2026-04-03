@@ -180,6 +180,22 @@ describe('MapView aurora viewline event-type gating', () => {
     expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
   });
 
+  it('viewline hidden on a future date even when Aurora selected', async () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toLocaleDateString('en-CA');
+    const forecasts = new Map([
+      [tomorrowStr, {
+        sunset: { rating: 4, solarEventTime: `${tomorrowStr}T18:00:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
+        sunrise: { rating: 3, solarEventTime: `${tomorrowStr}T06:00:00`, fierySkyPotential: 60, goldenHourPotential: 50 },
+      }],
+    ]);
+    const locs = [{ name: 'TestLoc', lat: 55.0, lon: -1.7, forecastsByDate: forecasts, locationType: ['LANDSCAPE'] }];
+    await renderMap({ locations: locs, date: tomorrowStr });
+    await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });
+    expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
+  });
+
   it('viewline disappears and reappears when toggling away and back', async () => {
     await renderMap();
     await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });

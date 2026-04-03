@@ -110,7 +110,7 @@ describe('AuroraBanner', () => {
     expect(screen.getByText(/1 dark sky location clear/i)).toBeInTheDocument();
   });
 
-  it('shows "0 dark sky locations clear" when all locations are cloudy', () => {
+  it('shows overcast message when all locations are cloudy', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
@@ -120,7 +120,8 @@ describe('AuroraBanner', () => {
       darkSkyLocationCount: 20,
       clearLocationCount: 0,
     });
-    expect(screen.getByText(/0 dark sky locations clear/i)).toBeInTheDocument();
+    expect(screen.getByTestId('aurora-banner-overcast')).toBeInTheDocument();
+    expect(screen.getByTestId('aurora-banner-overcast').textContent).toMatch(/All locations overcast/i);
   });
 
   it('shows total dark sky count when triage has not run yet', () => {
@@ -286,7 +287,7 @@ describe('AuroraBanner', () => {
   // Kp display — trigger type
   // ---------------------------------------------------------------------------
 
-  it('shows "Kp N forecast tonight" when triggerType is forecast', () => {
+  it('shows "Kp N forecast tonight" with bold italic tonight when triggerType is forecast', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
@@ -296,7 +297,11 @@ describe('AuroraBanner', () => {
       forecastKp: 6.0,
       triggerType: 'forecast',
     });
-    expect(screen.getByText(/Kp 6 forecast tonight/i)).toBeInTheDocument();
+    const subtitle = screen.getByText(/Kp 6 forecast/i).closest('p');
+    expect(subtitle.textContent).toMatch(/Kp 6 forecast\s*tonight/i);
+    const strong = subtitle.querySelector('strong.italic');
+    expect(strong).not.toBeNull();
+    expect(strong.textContent).toBe('tonight');
   });
 
   it('shows plain "Kp N" when triggerType is realtime', () => {
