@@ -544,7 +544,9 @@ public class PromptBuilder {
                                         Map.entry("basic_golden_hour", Map.of("type", "integer")),
                                         Map.entry("basic_summary", Map.of("type", "string")),
                                         Map.entry("inversion_score", Map.of("type", "integer")),
-                                        Map.entry("inversion_potential", Map.of("type", "string")))))
+                                        Map.entry("inversion_potential", Map.of(
+                                                "type", "string",
+                                                "enum", List.of("NONE", "MODERATE", "STRONG"))))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties", JsonValue.from(false))

@@ -173,7 +173,8 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             Integer inversionScore = node.has("inversion_score")
                     ? node.get("inversion_score").asInt() : null;
             String inversionPotential = node.has("inversion_potential")
-                    ? node.get("inversion_potential").stringValue() : null;
+                    ? sanitiseInversionPotential(node.get("inversion_potential").stringValue())
+                    : null;
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
                     inversionScore, inversionPotential);
@@ -257,7 +258,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             Integer inversionScore = inversionScoreMatcher.find()
                     ? Integer.parseInt(inversionScoreMatcher.group(1)) : null;
             String inversionPotential = inversionPotentialMatcher.find()
-                    ? inversionPotentialMatcher.group(1) : null;
+                    ? sanitiseInversionPotential(inversionPotentialMatcher.group(1)) : null;
 
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
@@ -266,5 +267,27 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
         throw new IllegalArgumentException(
                 "Failed to parse evaluation response: " + text, cause);
+    }
+
+    /**
+     * Normalises the inversion potential value from Claude's response to a known enum name.
+     * Maps any value containing "moderate" to MODERATE, "strong" to STRONG, otherwise NONE.
+     * Prevents VARCHAR(10) overflow in the database.
+     *
+     * @param raw the raw string from Claude's JSON response
+     * @return NONE, MODERATE, or STRONG
+     */
+    static String sanitiseInversionPotential(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String upper = raw.toUpperCase();
+        if (upper.contains("STRONG")) {
+            return "STRONG";
+        }
+        if (upper.contains("MODERATE")) {
+            return "MODERATE";
+        }
+        return "NONE";
     }
 }

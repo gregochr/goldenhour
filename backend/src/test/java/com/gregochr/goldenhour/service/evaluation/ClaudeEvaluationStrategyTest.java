@@ -291,6 +291,41 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.inversionPotential()).isEqualTo("MODERATE");
     }
 
+    @Test
+    @DisplayName("sanitiseInversionPotential() normalises verbose Claude responses to enum names")
+    void sanitiseInversionPotential_normalisesVerboseValues() {
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("STRONG")).isEqualTo("STRONG");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("MODERATE")).isEqualTo("MODERATE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("NONE")).isEqualTo("NONE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("sanitiseInversionPotential() handles verbose labels from Claude")
+    void sanitiseInversionPotential_handlesVerboseLabels() {
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential(
+                "Moderate Cloud Inversion Potential")).isEqualTo("MODERATE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential(
+                "Strong Cloud Inversion Potential")).isEqualTo("STRONG");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential(
+                "No inversion potential")).isEqualTo("NONE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential(
+                "not_applicable")).isEqualTo("NONE");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() sanitises verbose inversion_potential from Claude JSON")
+    void parseEvaluation_verboseInversionPotential_sanitisedToEnum() {
+        String json = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":75,"
+                + "\"summary\":\"Cloud blanket below.\","
+                + "\"inversion_score\":8,"
+                + "\"inversion_potential\":\"Moderate Cloud Inversion Potential\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.inversionPotential()).isEqualTo("MODERATE");
+    }
+
     // --- Helper methods ---
 
     private Message buildMessage(String text) {
