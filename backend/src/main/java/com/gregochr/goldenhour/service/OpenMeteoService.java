@@ -371,7 +371,7 @@ public class OpenMeteoService {
     public DirectionalCloudData fetchDirectionalCloudData(double lat, double lon,
             int solarAzimuthDeg, LocalDateTime solarEventTime, TargetType targetType,
             JobRunEntity jobRun) {
-        // Sample 3 solar points in a cone (azimuth ± CONE_HALF_ANGLE) to smooth grid-cell effects
+        // Compute all 5 sampling points upfront
         int[] solarBearings = {
             solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
             solarAzimuthDeg,
@@ -380,26 +380,32 @@ public class OpenMeteoService {
         double antisolarBearing = GeoUtils.antisolarBearing(solarAzimuthDeg);
         double[] antisolarPoint = GeoUtils.offsetPoint(lat, lon, antisolarBearing,
                 DIRECTIONAL_OFFSET_METRES);
+        double[] farSolarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
+                FAR_SOLAR_OFFSET_METRES);
 
-        LOG.info("Directional cloud fetch: solar cone {}±{}deg, antisolar=[{},{}] ({}deg)",
-                solarAzimuthDeg, SOLAR_CONE_HALF_ANGLE_DEG,
-                String.format("%.3f", antisolarPoint[0]), String.format("%.3f", antisolarPoint[1]),
-                (int) antisolarBearing);
+        // Build batch: [cone0, cone1, cone2, antisolar, far-solar]
+        List<double[]> coords = new ArrayList<>();
+        for (int bearing : solarBearings) {
+            coords.add(GeoUtils.offsetPoint(lat, lon, bearing, DIRECTIONAL_OFFSET_METRES));
+        }
+        coords.add(antisolarPoint);
+        coords.add(farSolarPoint);
+
+        LOG.info("Directional cloud batch fetch: 5 points (solar cone {}±{}deg, antisolar, far-solar)",
+                solarAzimuthDeg, SOLAR_CONE_HALF_ANGLE_DEG);
 
         long startMs = System.currentTimeMillis();
         try {
-            // Fetch cloud data at 3 solar cone points and average
+            List<OpenMeteoForecastResponse> responses = openMeteoClient.fetchCloudOnlyBatch(coords);
+
+            // Extract cloud data from batch response
             int solarLowSum = 0;
             int solarMidSum = 0;
             int solarHighSum = 0;
-            for (int bearing : solarBearings) {
-                double[] point = GeoUtils.offsetPoint(lat, lon, bearing,
-                        DIRECTIONAL_OFFSET_METRES);
-                OpenMeteoForecastResponse forecast = openMeteoClient.fetchCloudOnly(
-                        point[0], point[1]);
-                int idx = findBestIndex(forecast.getHourly().getTime(),
-                        solarEventTime, targetType);
-                OpenMeteoForecastResponse.Hourly h = forecast.getHourly();
+            for (int i = 0; i < solarBearings.length; i++) {
+                OpenMeteoForecastResponse f = responses.get(i);
+                int idx = findBestIndex(f.getHourly().getTime(), solarEventTime, targetType);
+                OpenMeteoForecastResponse.Hourly h = f.getHourly();
                 solarLowSum += h.getCloudCoverLow().get(idx);
                 solarMidSum += h.getCloudCoverMid().get(idx);
                 solarHighSum += h.getCloudCoverHigh().get(idx);
@@ -408,38 +414,28 @@ public class OpenMeteoService {
             int solarMid = solarMidSum / solarBearings.length;
             int solarHigh = solarHighSum / solarBearings.length;
 
-            // Fetch antisolar (single point — less sensitive to grid boundaries)
-            OpenMeteoForecastResponse antisolarForecast = openMeteoClient.fetchCloudOnly(
-                    antisolarPoint[0], antisolarPoint[1]);
+            // Antisolar (index 3)
+            OpenMeteoForecastResponse antisolarForecast = responses.get(3);
             int antisolarIdx = findBestIndex(antisolarForecast.getHourly().getTime(),
                     solarEventTime, targetType);
             OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
 
-            // Fetch far solar point (226 km) for horizon strip vs blanket detection
+            // Far solar (index 4) — treat parse failures gracefully
             Integer farSolarLow = null;
             try {
-                double[] farSolarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
-                        FAR_SOLAR_OFFSET_METRES);
-                OpenMeteoForecastResponse farForecast = openMeteoClient.fetchCloudOnly(
-                        farSolarPoint[0], farSolarPoint[1]);
+                OpenMeteoForecastResponse farForecast = responses.get(4);
                 int farIdx = findBestIndex(farForecast.getHourly().getTime(),
                         solarEventTime, targetType);
                 farSolarLow = farForecast.getHourly().getCloudCoverLow().get(farIdx);
             } catch (Exception e) {
-                LOG.warn("Far solar cloud fetch failed, strip detection unavailable: {}", e.getMessage());
+                LOG.warn("Far solar extraction failed, strip detection unavailable: {}", e.getMessage());
             }
 
             long durationMs = System.currentTimeMillis() - startMs;
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "directional-cloud-solar-cone(3)", null, durationMs, 200,
+                        "GET", "directional-cloud-batch(5)", null, durationMs, 200,
                         null, true, null);
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "directional-cloud-antisolar", null, durationMs, 200, null,
-                        true, null);
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "directional-cloud-far-solar", null, durationMs, 200, null,
-                        farSolarLow != null, farSolarLow == null ? "fetch failed" : null);
             }
 
             DirectionalCloudData result = new DirectionalCloudData(
@@ -450,7 +446,7 @@ public class OpenMeteoService {
                     farSolarLow);
 
             LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}%, "
-                    + "farSolar: L{}% ({}ms)",
+                    + "farSolar: L{}% ({}ms, 1 batch call)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
                     result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
@@ -460,11 +456,11 @@ public class OpenMeteoService {
             return result;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
-            LOG.warn("Directional cloud fetch failed ({}ms), falling back to layer inference: {}",
+            LOG.warn("Directional cloud batch fetch failed ({}ms), falling back to layer inference: {}",
                     durationMs, e.getMessage());
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "directional-cloud-solar-cone(3)", null, durationMs,
+                        "GET", "directional-cloud-batch(5)", null, durationMs,
                         getStatusCode(e), null, false, e.getMessage());
             }
             return null;
@@ -533,42 +529,42 @@ public class OpenMeteoService {
             int solarAzimuthDeg, LocalDateTime solarEventTime, LocalDateTime currentTime,
             TargetType targetType, int windFromDeg, double windSpeedMs, JobRunEntity jobRun) {
         try {
-            // 1. Fetch cloud at primary solar horizon point for temporal trend
             double[] solarPoint = GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg,
                     DIRECTIONAL_OFFSET_METRES);
+
+            // Determine if we need an upwind sample
+            double[] upwindPoint = null;
+            double upwindDistanceM = 0;
+            long secondsToEvent = Duration.between(currentTime, solarEventTime).getSeconds();
+            if (secondsToEvent > 0 && windSpeedMs > 0) {
+                upwindDistanceM = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
+                if (upwindDistanceM >= MIN_UPWIND_DISTANCE_M) {
+                    upwindPoint = GeoUtils.offsetPoint(lat, lon, windFromDeg, upwindDistanceM);
+                }
+            }
+
+            // Batch fetch: solar point + optional upwind point
+            List<double[]> coords = new ArrayList<>();
+            coords.add(solarPoint);
+            if (upwindPoint != null) {
+                coords.add(upwindPoint);
+            }
+
             long startMs = System.currentTimeMillis();
-            OpenMeteoForecastResponse solarForecast = openMeteoClient.fetchCloudOnly(
-                    solarPoint[0], solarPoint[1]);
+            List<OpenMeteoForecastResponse> responses = openMeteoClient.fetchCloudOnlyBatch(coords);
             long durationMs = System.currentTimeMillis() - startMs;
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "cloud-approach-solar-trend", null, durationMs, 200,
-                        null, true, null);
+                        "GET", "cloud-approach-batch(" + coords.size() + ")", null,
+                        durationMs, 200, null, true, null);
             }
 
-            SolarCloudTrend trend = extractSolarTrend(solarForecast, solarEventTime, targetType);
+            SolarCloudTrend trend = extractSolarTrend(responses.get(0), solarEventTime, targetType);
 
-            // 2. Upwind sample — skip if wind too light or event has passed
             UpwindCloudSample upwind = null;
-            long secondsToEvent = Duration.between(currentTime, solarEventTime).getSeconds();
-            if (secondsToEvent > 0 && windSpeedMs > 0) {
-                double upwindDistanceM = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
-                if (upwindDistanceM >= MIN_UPWIND_DISTANCE_M) {
-                    double[] upwindPoint = GeoUtils.offsetPoint(lat, lon, windFromDeg,
-                            upwindDistanceM);
-                    startMs = System.currentTimeMillis();
-                    OpenMeteoForecastResponse upwindForecast = openMeteoClient.fetchCloudOnly(
-                            upwindPoint[0], upwindPoint[1]);
-                    durationMs = System.currentTimeMillis() - startMs;
-                    if (jobRun != null) {
-                        jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                                "GET", "cloud-approach-upwind", null, durationMs, 200,
-                                null, true, null);
-                    }
-
-                    upwind = extractUpwindSample(upwindForecast, solarEventTime, currentTime,
-                            targetType, (int) (upwindDistanceM / 1000), windFromDeg);
-                }
+            if (upwindPoint != null && responses.size() > 1) {
+                upwind = extractUpwindSample(responses.get(1), solarEventTime, currentTime,
+                        targetType, (int) (upwindDistanceM / 1000), windFromDeg);
             }
 
             return new CloudApproachData(trend, upwind);
@@ -576,7 +572,7 @@ public class OpenMeteoService {
             LOG.warn("Cloud approach data fetch failed, continuing without: {}", e.getMessage());
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "cloud-approach-data", null, 0L,
+                        "GET", "cloud-approach-batch", null, 0L,
                         getStatusCode(e), null, false, e.getMessage());
             }
             return null;

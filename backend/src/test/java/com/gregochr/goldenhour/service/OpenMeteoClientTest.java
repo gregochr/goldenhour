@@ -4,10 +4,11 @@ import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -30,8 +31,12 @@ class OpenMeteoClientTest {
     @Mock
     private OpenMeteoAirQualityApi airQualityApi;
 
-    @InjectMocks
     private OpenMeteoClient openMeteoClient;
+
+    @BeforeEach
+    void setUp() {
+        openMeteoClient = new OpenMeteoClient(forecastApi, airQualityApi, new ObjectMapper());
+    }
 
     @Test
     @DisplayName("fetchForecast() delegates to forecastApi with correct parameters")

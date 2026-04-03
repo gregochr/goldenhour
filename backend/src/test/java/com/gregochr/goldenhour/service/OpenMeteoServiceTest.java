@@ -26,6 +26,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 
 /**
@@ -583,11 +584,14 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:00", "2026-06-21T21:00"),
                 List.of(5, 8), List.of(45, 50), List.of(30, 35));
 
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(solarForecast1)
-                .thenReturn(solarForecast2)
-                .thenReturn(solarForecast3)
-                .thenReturn(antisolarForecast);
+        // Far-solar response (index 4)
+        OpenMeteoForecastResponse farSolarForecast = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00", "2026-06-21T21:00"),
+                List.of(40, 50), List.of(10, 10), List.of(5, 5));
+
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(solarForecast1, solarForecast2, solarForecast3,
+                        antisolarForecast, farSolarForecast));
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
                 54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
@@ -608,7 +612,7 @@ class OpenMeteoServiceTest {
     void fetchDirectionalCloudData_apiFailure_returnsNull() {
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
 
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
                 .thenThrow(new RuntimeException("network error"));
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
@@ -627,9 +631,10 @@ class OpenMeteoServiceTest {
                 List.of("2026-06-21T20:00", "2026-06-21T21:00"),
                 List.of(10, 80), List.of(20, 90), List.of(30, 95));
 
-        // 3 solar + 1 antisolar = 4 calls, all return same response
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(beforeResponse);
+        // 5 points in 1 batch call, all return same response
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(beforeResponse, beforeResponse, beforeResponse,
+                        beforeResponse, beforeResponse));
 
         DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
                 54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
@@ -708,9 +713,8 @@ class OpenMeteoServiceTest {
                         "2026-03-11T16:00", "2026-03-11T17:00"),
                 List.of(70, 55, 30, 15), List.of(0, 0, 0, 0), List.of(50, 50, 50, 50));
 
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(solarForecast)
-                .thenReturn(upwindForecast);
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(solarForecast, upwindForecast));
 
         CloudApproachData result = openMeteoService.fetchCloudApproachData(
                 54.8975, -1.5076, 245, eventTime, currentTime,
@@ -737,7 +741,7 @@ class OpenMeteoServiceTest {
         LocalDateTime eventTime = LocalDateTime.of(2026, 3, 11, 17, 45, 0);
         LocalDateTime currentTime = LocalDateTime.of(2026, 3, 11, 13, 45, 0);
 
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
                 .thenThrow(new RuntimeException("network error"));
 
         CloudApproachData result = openMeteoService.fetchCloudApproachData(
@@ -758,8 +762,9 @@ class OpenMeteoServiceTest {
                         "2026-03-11T16:00", "2026-03-11T17:00"),
                 List.of(5, 10, 15, 20), List.of(0, 0, 0, 0), List.of(80, 80, 80, 80));
 
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(solarForecast);
+        // Only solar point, no upwind (wind=0)
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(solarForecast));
 
         CloudApproachData result = openMeteoService.fetchCloudApproachData(
                 54.8975, -1.5076, 245, eventTime, currentTime,
@@ -781,8 +786,9 @@ class OpenMeteoServiceTest {
                         "2026-03-11T12:00", "2026-03-11T13:00"),
                 List.of(5, 10, 15, 20), List.of(0, 0, 0, 0), List.of(80, 80, 80, 80));
 
-        when(openMeteoClient.fetchCloudOnly(anyDouble(), anyDouble()))
-                .thenReturn(solarForecast);
+        // Only solar point, no upwind (event passed)
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(solarForecast));
 
         CloudApproachData result = openMeteoService.fetchCloudApproachData(
                 54.8975, -1.5076, 245, eventTime, currentTime,

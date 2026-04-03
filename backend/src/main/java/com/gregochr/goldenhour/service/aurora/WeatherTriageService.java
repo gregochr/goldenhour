@@ -1,14 +1,12 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.service.OpenMeteoClient;
 import com.gregochr.goldenhour.util.GeoUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -51,15 +49,15 @@ public class WeatherTriageService {
     /** Grid resolution for deduplication — Open-Meteo grid is approximately 0.1°. */
     private static final double GRID_STEP = 0.1;
 
-    private final RestClient restClient;
+    private final OpenMeteoClient openMeteoClient;
 
     /**
-     * Constructs the triage service with the shared HTTP client.
+     * Constructs the triage service.
      *
-     * @param restClient shared HTTP client
+     * @param openMeteoClient resilient Open-Meteo client for batch cloud fetches
      */
-    public WeatherTriageService(RestClient restClient) {
-        this.restClient = restClient;
+    public WeatherTriageService(OpenMeteoClient openMeteoClient) {
+        this.openMeteoClient = openMeteoClient;
     }
 
     /**
@@ -83,12 +81,25 @@ public class WeatherTriageService {
             }
         }
 
-        // Fetch hourly cloud cover for each unique grid point
+        // Batch fetch hourly cloud cover for all unique grid points in a single API call
+        List<String> gridKeys = new ArrayList<>(gridKeyToCoord.keySet());
+        List<double[]> coords = new ArrayList<>();
+        for (String key : gridKeys) {
+            coords.add(gridKeyToCoord.get(key));
+        }
+
         Map<String, int[]> gridKeyToCloud = new HashMap<>();
-        for (Map.Entry<String, double[]> entry : gridKeyToCoord.entrySet()) {
-            double[] coord = entry.getValue();
-            int[] hourlyCloud = fetchHourlyCloud(coord[0], coord[1]);
-            gridKeyToCloud.put(entry.getKey(), hourlyCloud);
+        try {
+            List<OpenMeteoForecastResponse> responses = openMeteoClient.fetchCloudOnlyBatch(coords);
+            for (int i = 0; i < gridKeys.size(); i++) {
+                gridKeyToCloud.put(gridKeys.get(i), extractWindowCloud(responses.get(i)));
+            }
+            LOG.info("Aurora triage batch fetch: {} grid points in 1 call", coords.size());
+        } catch (Exception e) {
+            LOG.warn("Aurora triage batch fetch failed, using defaults: {}", e.getMessage());
+            for (String key : gridKeys) {
+                gridKeyToCloud.put(key, defaultCloud());
+            }
         }
 
         // Build per-location cloud average and triage decision
@@ -115,66 +126,49 @@ public class WeatherTriageService {
     }
 
     /**
-     * Fetches hourly cloud cover for the next {@value #TRIAGE_LOOKAHEAD_HOURS}+1 hours at a point.
+     * Extracts cloud cover for the triage window from a batch forecast response.
+     * Uses the total of low+mid+high cloud layers (capped at 100) as a proxy for total cloud cover.
      *
-     * @param lat latitude
-     * @param lon longitude
-     * @return array of cloud cover values (0–100) for current + next N hours; falls back to all-75
-     */
-    private int[] fetchHourlyCloud(double lat, double lon) {
-        try {
-            CloudResponse response = restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .scheme("https")
-                            .host("api.open-meteo.com")
-                            .path("/v1/forecast")
-                            .queryParam("latitude", lat)
-                            .queryParam("longitude", lon)
-                            .queryParam("hourly", "cloud_cover")
-                            .queryParam("timezone", "UTC")
-                            .queryParam("forecast_days", "1")
-                            .build())
-                    .retrieve()
-                    .body(CloudResponse.class);
-
-            if (response == null || response.hourly() == null) {
-                return defaultCloud();
-            }
-            return extractWindowCloud(response.hourly());
-        } catch (RestClientException e) {
-            LOG.warn("Open-Meteo cloud fetch failed for ({}, {}): {}", lat, lon, e.getMessage());
-            return defaultCloud();
-        }
-    }
-
-    /**
-     * Extracts cloud cover for the triage window starting at the current UTC hour.
-     *
-     * @param hourly hourly data from Open-Meteo
+     * @param forecast the forecast response from the batch call
      * @return array of {@value #TRIAGE_LOOKAHEAD_HOURS}+1 cloud cover values
      */
-    private int[] extractWindowCloud(HourlyCloudData hourly) {
-        if (hourly.time() == null || hourly.cloudCover() == null) {
+    private int[] extractWindowCloud(OpenMeteoForecastResponse forecast) {
+        if (forecast == null || forecast.getHourly() == null
+                || forecast.getHourly().getTime() == null
+                || forecast.getHourly().getCloudCoverLow() == null) {
             return defaultCloud();
         }
+        List<String> times = forecast.getHourly().getTime();
+        List<Integer> low = forecast.getHourly().getCloudCoverLow();
+        List<Integer> mid = forecast.getHourly().getCloudCoverMid();
+        List<Integer> high = forecast.getHourly().getCloudCoverHigh();
+
         String currentHour = ZonedDateTime.now(ZoneOffset.UTC)
                 .truncatedTo(ChronoUnit.HOURS)
                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"));
-        int startIdx = hourly.time().indexOf(currentHour);
+        int startIdx = times.indexOf(currentHour);
         if (startIdx < 0) {
             return defaultCloud();
         }
         int[] window = new int[TRIAGE_LOOKAHEAD_HOURS + 1];
         for (int i = 0; i <= TRIAGE_LOOKAHEAD_HOURS; i++) {
             int idx = startIdx + i;
-            if (idx < hourly.cloudCover().size()) {
-                Integer value = hourly.cloudCover().get(idx);
-                window[i] = value != null ? value : OVERCAST_THRESHOLD_PERCENT;
+            if (idx < low.size()) {
+                int total = safeGet(low, idx) + safeGet(mid, idx) + safeGet(high, idx);
+                window[i] = Math.min(total, 100);
             } else {
                 window[i] = OVERCAST_THRESHOLD_PERCENT;
             }
         }
         return window;
+    }
+
+    private int safeGet(List<Integer> list, int idx) {
+        if (list == null || idx >= list.size()) {
+            return 0;
+        }
+        Integer val = list.get(idx);
+        return val != null ? val : 0;
     }
 
     /**
@@ -258,11 +252,4 @@ public class WeatherTriageService {
             List<LocationEntity> rejected,
             Map<LocationEntity, Integer> cloudByLocation) {}
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record CloudResponse(HourlyCloudData hourly) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record HourlyCloudData(
-            List<String> time,
-            @JsonProperty("cloud_cover") List<Integer> cloudCover) {}
 }

@@ -420,6 +420,8 @@
                                 <exclude>com/gregochr/goldenhour/service/aurora/WeatherTriageService$HourlyCloudData.class</exclude>
                                 <!-- JPA composite key — equals/hashCode only, no business logic -->
                                 <exclude>com/gregochr/goldenhour/entity/UserDriveTimeId.class</exclude>
+                                <!-- Batch methods use RestClient directly — integration-tested only -->
+                                <exclude>com/gregochr/goldenhour/service/OpenMeteoClient.class</exclude>
                                 <!-- SSE controller — async plumbing difficult to unit test -->
                                 <exclude>com/gregochr/goldenhour/controller/BriefingEvaluationController.class</exclude>
                                 <!-- Legacy evaluation record — coverage gap pre-dates this feature -->

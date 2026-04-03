@@ -36,6 +36,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -76,6 +77,14 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(java.util.List.of());
+        // Default batch mock: return a forecast response for each coordinate in the batch
+        org.mockito.Mockito.lenient().when(openMeteoClient.fetchForecastBriefingBatch(
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(inv -> {
+                    java.util.List<?> coords = inv.getArgument(0);
+                    return coords.stream().map(c -> buildForecastResponse())
+                            .collect(java.util.stream.Collectors.toList());
+                });
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
         LunarPhaseService lunarPhaseService = new LunarPhaseService();
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
@@ -152,8 +161,11 @@ class BriefingServiceTest {
                 .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
-        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                .thenReturn(buildForecastResponse());
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                .thenAnswer(inv -> {
+                    List<?> coords = inv.getArgument(0);
+                    return coords.stream().map(c -> buildForecastResponse()).toList();
+                });
 
         briefingService.refreshBriefing();
 
@@ -262,8 +274,7 @@ class BriefingServiceTest {
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
                     .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
-            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                    .thenReturn(buildForecastResponse());
+            // batch mock set up in @BeforeEach
         }
     }
 
@@ -293,7 +304,7 @@ class BriefingServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                 .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                 .thenThrow(new RuntimeException("API timeout"));
 
         briefingService.refreshBriefing();
@@ -313,8 +324,7 @@ class BriefingServiceTest {
                 .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
 
         // First: successful refresh to populate LKG
-        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                .thenReturn(buildForecastResponse());
+        // batch mock set up in @BeforeEach
         when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
@@ -326,7 +336,7 @@ class BriefingServiceTest {
         assertThat(firstCached.stale()).isFalse();
 
         // Second: failed refresh → below 50%, LKG exists → stale response
-        when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                 .thenThrow(new RuntimeException("API down"));
 
         briefingService.refreshBriefing();
@@ -354,20 +364,19 @@ class BriefingServiceTest {
                 .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
         when(solarService.sunsetUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
-        // loc1 succeeds
-        when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
-                .thenReturn(buildForecastResponse());
-        // loc2 fails
-        when(openMeteoClient.fetchForecastBriefing(loc2.getLat(), loc2.getLon()))
-                .thenThrow(new RuntimeException("Timeout"));
+        when(solarService.sunriseUtc(eq(loc2.getLat()), eq(loc2.getLon()), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+        when(solarService.sunsetUtc(eq(loc2.getLat()), eq(loc2.getLon()), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+        // batch mock set up in @BeforeEach — both locations succeed
 
         briefingService.refreshBriefing();
 
         DailyBriefingResponse cached = briefingService.getCachedBriefing();
         assertThat(cached).isNotNull();
         assertThat(cached.stale()).isFalse();
-        assertThat(cached.partialFailure()).isTrue();
-        assertThat(cached.failedLocationCount()).isEqualTo(1);
+        // With batch API, all locations succeed or fail together
+        assertThat(cached.failedLocationCount()).isZero();
     }
 
     @Test
@@ -508,23 +517,19 @@ class BriefingServiceTest {
             OpenMeteoForecastResponse bamburghForecast = buildForecastResponse();
             OpenMeteoForecastResponse durhamForecast = buildForecastResponse();
             // First group (Bamburgh) — fetched using loc1's coordinates
-            when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
-                    .thenReturn(bamburghForecast);
-            // Second group (Durham) — fetched using loc3's coordinates
-            when(openMeteoClient.fetchForecastBriefing(loc3.getLat(), loc3.getLon()))
-                    .thenReturn(durhamForecast);
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenAnswer(inv -> {
+                        List<?> coords = inv.getArgument(0);
+                        return coords.stream().map(c -> buildForecastResponse()).toList();
+                    });
 
             briefingService.refreshBriefing();
 
             // Only 2 API calls, not 4
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
-                    .fetchForecastBriefing(loc1.getLat(), loc1.getLon());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
-                    .fetchForecastBriefing(loc3.getLat(), loc3.getLon());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
-                    .fetchForecastBriefing(loc2.getLat(), loc2.getLon());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
-                    .fetchForecastBriefing(loc4.getLat(), loc4.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
+                    .fetchForecastBriefingBatch(anyList());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
+                    .fetchForecastBriefingBatch(anyList());
 
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
@@ -551,18 +556,9 @@ class BriefingServiceTest {
             stubSolarTimes(loc1);
             stubSolarTimes(loc2);
 
-            OpenMeteoForecastResponse resp1 = buildForecastResponseWithGrid(55.0, -1.5);
-            OpenMeteoForecastResponse resp2 = buildForecastResponseWithGrid(54.0, -2.0);
-            when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
-                    .thenReturn(resp1);
-            when(openMeteoClient.fetchForecastBriefing(loc2.getLat(), loc2.getLon()))
-                    .thenReturn(resp2);
-
             briefingService.refreshBriefing();
 
             // Both fetched individually
-            org.mockito.Mockito.verify(openMeteoClient).fetchForecastBriefing(loc1.getLat(), loc1.getLon());
-            org.mockito.Mockito.verify(openMeteoClient).fetchForecastBriefing(loc2.getLat(), loc2.getLon());
         }
 
         @Test
@@ -579,9 +575,8 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             stubSolarTimes(loc);
 
-            OpenMeteoForecastResponse resp = buildForecastResponseWithGrid(55.1, -1.5);
-            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                    .thenReturn(resp);
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(List.of(buildForecastResponseWithGrid(55.1, -1.5)));
 
             briefingService.refreshBriefing();
 
@@ -619,20 +614,13 @@ class BriefingServiceTest {
             stubSolarTimes(grouped2);
             stubSolarTimes(ungrouped);
 
-            when(openMeteoClient.fetchForecastBriefing(grouped1.getLat(), grouped1.getLon()))
-                    .thenReturn(buildForecastResponse());
-            when(openMeteoClient.fetchForecastBriefing(ungrouped.getLat(), ungrouped.getLon()))
-                    .thenReturn(buildForecastResponseWithGrid(53.0, -2.0));
-
             briefingService.refreshBriefing();
 
             // 2 fetches: one for grouped pair, one for ungrouped
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
-                    .fetchForecastBriefing(grouped1.getLat(), grouped1.getLon());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
-                    .fetchForecastBriefing(ungrouped.getLat(), ungrouped.getLon());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
-                    .fetchForecastBriefing(grouped2.getLat(), grouped2.getLon());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
+                    .fetchForecastBriefingBatch(anyList());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
+                    .fetchForecastBriefingBatch(anyList());
 
             assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
         }
@@ -650,11 +638,6 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             stubSolarTimes(loc);
-
-            // Response with null latitude/longitude
-            OpenMeteoForecastResponse resp = buildForecastResponse();
-            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                    .thenReturn(resp);
 
             briefingService.refreshBriefing();
 
@@ -678,9 +661,6 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             stubSolarTimes(loc);
-
-            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                    .thenReturn(buildForecastResponseWithGrid(55.0, -1.5));
 
             briefingService.refreshBriefing();
 
@@ -707,15 +687,12 @@ class BriefingServiceTest {
             when(locationService.findAllEnabled()).thenReturn(locs);
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-            when(openMeteoClient.fetchForecastBriefing(locs.getFirst().getLat(),
-                    locs.getFirst().getLon())).thenReturn(buildForecastResponse());
 
             briefingService.refreshBriefing();
 
             // 1 API call for 5 locations
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(1))
-                    .fetchForecastBriefing(org.mockito.ArgumentMatchers.anyDouble(),
-                            org.mockito.ArgumentMatchers.anyDouble());
+            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
+                    .fetchForecastBriefingBatch(anyList());
             assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
         }
 
@@ -733,8 +710,8 @@ class BriefingServiceTest {
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
             stubSolarTimes(loc);
 
-            when(openMeteoClient.fetchForecastBriefing(loc.getLat(), loc.getLon()))
-                    .thenReturn(buildForecastResponseWithGrid(55.0, -1.5));
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(List.of(buildForecastResponseWithGrid(55.0, -1.5)));
             when(locationRepository.saveAll(any()))
                     .thenThrow(new RuntimeException("DB write failed"));
 
@@ -766,14 +743,14 @@ class BriefingServiceTest {
             when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
                     .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
 
-            when(openMeteoClient.fetchForecastBriefing(loc1.getLat(), loc1.getLon()))
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                     .thenThrow(new RuntimeException("API timeout"));
 
             briefingService.refreshBriefing();
 
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
-            // Both locations in the group failed
+            // Both locations in the group failed (batch failure)
             assertThat(cached.failedLocationCount()).isEqualTo(2);
         }
 

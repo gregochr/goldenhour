@@ -319,47 +319,47 @@ public class BriefingService {
             groups.computeIfAbsent(key, k -> new ArrayList<>()).add(loc);
         }
 
-        long groupedCount = groups.values().stream().filter(g -> g.size() > 1).count();
-        long ungroupedCount = groups.values().stream().filter(g -> g.size() == 1).count()
-                - groups.values().stream()
-                    .filter(g -> g.size() == 1 && g.getFirst().hasGridCell()).count();
-        LOG.info("Briefing weather fetch: {} locations → {} grid cells ({} ungrouped)",
-                locations.size(), groups.size(), ungroupedCount);
+        LOG.info("Briefing weather fetch: {} locations → {} grid cells (1 batch call)",
+                locations.size(), groups.size());
+
+        // Collect one representative coordinate per grid cell group
+        List<String> groupKeys = new ArrayList<>(groups.keySet());
+        List<double[]> coords = new ArrayList<>();
+        for (String key : groupKeys) {
+            LocationEntity rep = groups.get(key).getFirst();
+            coords.add(new double[]{rep.getLat(), rep.getLon()});
+        }
 
         List<BriefingSlotBuilder.LocationWeather> results = new ArrayList<>();
+        long startMs = System.currentTimeMillis();
+        try {
+            List<OpenMeteoForecastResponse> responses =
+                    openMeteoClient.fetchForecastBriefingBatch(coords);
+            long durationMs = System.currentTimeMillis() - startMs;
+            jobRunService.logApiCall(jobRun.getId(),
+                    com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
+                    "GET", "briefing-forecast-batch(" + coords.size() + ")", null,
+                    durationMs, 200, null, true, null);
 
-        for (Map.Entry<String, List<LocationEntity>> entry : groups.entrySet()) {
-            List<LocationEntity> group = entry.getValue();
-            LocationEntity representative = group.getFirst();
+            for (int i = 0; i < groupKeys.size(); i++) {
+                List<LocationEntity> group = groups.get(groupKeys.get(i));
+                OpenMeteoForecastResponse forecast = responses.get(i);
 
-            long startMs = System.currentTimeMillis();
-            try {
-                OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecastBriefing(
-                        representative.getLat(), representative.getLon());
-                long durationMs = System.currentTimeMillis() - startMs;
-                jobRunService.logApiCall(jobRun.getId(),
-                        com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "briefing-forecast/" + representative.getName(), null,
-                        durationMs, 200, null, true, null);
-
-                // Capture grid coordinates from the response and persist to any location missing them
                 captureGridCoordinates(forecast, group);
 
-                // Fan out to all locations in the group
                 for (LocationEntity loc : group) {
                     results.add(new BriefingSlotBuilder.LocationWeather(loc, forecast));
                 }
-            } catch (Exception e) {
-                long durationMs = System.currentTimeMillis() - startMs;
-                LOG.warn("Briefing weather fetch failed for group [{}]: {}",
-                        representative.getName(), e.getMessage());
-                jobRunService.logApiCall(jobRun.getId(),
-                        com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "briefing-forecast/" + representative.getName(), null,
-                        durationMs, null, null, false, e.getMessage());
-                for (LocationEntity loc : group) {
-                    results.add(new BriefingSlotBuilder.LocationWeather(loc, null));
-                }
+            }
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.warn("Briefing weather batch fetch failed: {}", e.getMessage());
+            jobRunService.logApiCall(jobRun.getId(),
+                    com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
+                    "GET", "briefing-forecast-batch(" + coords.size() + ")", null,
+                    durationMs, null, null, false, e.getMessage());
+            for (LocationEntity loc : locations) {
+                results.add(new BriefingSlotBuilder.LocationWeather(loc, null));
             }
         }
         return results;
