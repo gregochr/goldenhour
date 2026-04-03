@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import SchedulerView from '../components/SchedulerView.jsx';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -194,5 +194,92 @@ describe('SchedulerView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('last-fire-tide_refresh')).toHaveTextContent('3 min ago');
     });
+  });
+
+  it('save inline edit calls updateJobSchedule with correct payload for CRON', async () => {
+    updateJobSchedule.mockResolvedValue({});
+    render(<SchedulerView />);
+
+    await waitFor(() => screen.getByTestId('edit-btn-tide_refresh'));
+    fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
+
+    const input = screen.getByTestId('edit-input-tide_refresh');
+    fireEvent.change(input, { target: { value: '0 0 3 * * TUE' } });
+    fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
+
+    await waitFor(() => {
+      expect(updateJobSchedule).toHaveBeenCalledWith('tide_refresh', {
+        cronExpression: '0 0 3 * * TUE',
+      });
+    });
+  });
+
+  it('save inline edit calls updateJobSchedule with fixedDelayMs for FIXED_DELAY', async () => {
+    updateJobSchedule.mockResolvedValue({});
+    render(<SchedulerView />);
+
+    await waitFor(() => screen.getByTestId('edit-btn-aurora_polling'));
+    fireEvent.click(screen.getByTestId('edit-btn-aurora_polling'));
+
+    const input = screen.getByTestId('edit-input-aurora_polling');
+    fireEvent.change(input, { target: { value: '600000' } });
+    fireEvent.click(screen.getByTestId('save-btn-aurora_polling'));
+
+    await waitFor(() => {
+      expect(updateJobSchedule).toHaveBeenCalledWith('aurora_polling', {
+        fixedDelayMs: 600000,
+      });
+    });
+  });
+
+  it('shows error banner when API call fails', async () => {
+    pauseJob.mockRejectedValue(new Error('Network error'));
+    render(<SchedulerView />);
+
+    await waitFor(() => screen.getByTestId('pause-btn-tide_refresh'));
+    fireEvent.click(screen.getByTestId('pause-btn-tide_refresh'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to pause tide_refresh/)).toBeInTheDocument();
+    });
+  });
+
+  it('shows error banner when fetchSchedulerJobs fails', async () => {
+    fetchSchedulerJobs.mockRejectedValue(new Error('Server error'));
+    render(<SchedulerView />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load scheduler jobs/)).toBeInTheDocument();
+    });
+  });
+
+  it('polls for job updates at the configured interval', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<SchedulerView />);
+
+    // Wait for initial load to complete
+    await vi.waitFor(() => {
+      expect(fetchSchedulerJobs).toHaveBeenCalledTimes(1);
+    });
+
+    // Advance past the 30s polling interval
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    await vi.waitFor(() => {
+      expect(fetchSchedulerJobs).toHaveBeenCalledTimes(2);
+    });
+
+    // Advance another interval
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+
+    await vi.waitFor(() => {
+      expect(fetchSchedulerJobs).toHaveBeenCalledTimes(3);
+    });
+
+    vi.useRealTimers();
   });
 });

@@ -18,15 +18,21 @@ import org.springframework.scheduling.support.CronTrigger;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -290,6 +296,233 @@ class DynamicSchedulerServiceTest {
         Instant next = service.calculateNextFireTime(config);
 
         assertThat(next).isNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // wrapTarget — persistence of fire/completion times
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("wrapTarget persists lastFireTime and lastCompletionTime when runnable executes")
+    void wrapTarget_persistsFireAndCompletionTimes() {
+        SchedulerJobConfigEntity config = cronJob("tide_refresh", "0 0 2 * * MON",
+                SchedulerJobStatus.ACTIVE);
+        when(repository.findByJobKey("tide_refresh")).thenReturn(Optional.of(config));
+
+        AtomicBoolean ran = new AtomicBoolean(false);
+        service.registerJobTarget("tide_refresh", () -> ran.set(true));
+
+        // Capture the wrapped runnable from triggerNow
+        service.triggerNow("tide_refresh");
+
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(captor.capture(), any(Instant.class));
+
+        // Execute the wrapped runnable
+        captor.getValue().run();
+
+        assertThat(ran.get()).isTrue();
+        // findByJobKey called twice in wrapTarget (once for fire time, once for completion)
+        // plus once in triggerNow itself
+        verify(repository, atLeast(2)).findByJobKey("tide_refresh");
+        // save called at least twice — once for fire time, once for completion time
+        verify(repository, atLeast(2)).save(config);
+        assertThat(config.getLastFireTime()).isNotNull();
+        assertThat(config.getLastCompletionTime()).isNotNull();
+        assertThat(config.getLastCompletionTime()).isAfterOrEqualTo(config.getLastFireTime());
+    }
+
+    @Test
+    @DisplayName("wrapTarget persists lastCompletionTime even when target throws")
+    void wrapTarget_persistsCompletionTimeOnFailure() {
+        SchedulerJobConfigEntity config = cronJob("tide_refresh", "0 0 2 * * MON",
+                SchedulerJobStatus.ACTIVE);
+        when(repository.findByJobKey("tide_refresh")).thenReturn(Optional.of(config));
+
+        service.registerJobTarget("tide_refresh", () -> {
+            throw new RuntimeException("boom");
+        });
+
+        service.triggerNow("tide_refresh");
+
+        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(captor.capture(), any(Instant.class));
+
+        assertThatThrownBy(() -> captor.getValue().run())
+                .isInstanceOf(RuntimeException.class);
+
+        // Completion time should still be persisted via finally block
+        assertThat(config.getLastCompletionTime()).isNotNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // scheduleJob — FIXED_DELAY path
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("scheduleJob uses scheduleWithFixedDelay for FIXED_DELAY jobs")
+    void scheduleJob_usesFixedDelayForFixedDelayJobs() {
+        SchedulerJobConfigEntity config = fixedDelayJob("run_progress_cleanup", 300000L,
+                SchedulerJobStatus.ACTIVE);
+        when(taskScheduler.scheduleWithFixedDelay(any(Runnable.class), any(Duration.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        service.registerJobTarget("run_progress_cleanup", () -> { });
+
+        service.scheduleJob(config);
+
+        ArgumentCaptor<Duration> durationCaptor = ArgumentCaptor.forClass(Duration.class);
+        verify(taskScheduler).scheduleWithFixedDelay(any(Runnable.class),
+                durationCaptor.capture());
+        assertThat(durationCaptor.getValue()).isEqualTo(Duration.ofMillis(300000));
+    }
+
+    @Test
+    @DisplayName("scheduleJob skips scheduling when no target is registered")
+    void scheduleJob_skipsWhenNoTargetRegistered() {
+        SchedulerJobConfigEntity config = cronJob("unknown_job", "0 0 * * * *",
+                SchedulerJobStatus.ACTIVE);
+
+        service.scheduleJob(config);
+
+        verify(taskScheduler, never()).schedule(any(Runnable.class), any(CronTrigger.class));
+        verify(taskScheduler, never()).scheduleWithFixedDelay(any(Runnable.class),
+                any(Duration.class));
+    }
+
+    // -------------------------------------------------------------------------
+    // concurrent registration
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("registerJobTarget from multiple threads does not lose entries")
+    void registerJobTarget_concurrentRegistration() throws InterruptedException {
+        int threadCount = 10;
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            final String key = "job_" + i;
+            new Thread(() -> {
+                service.registerJobTarget(key, () -> { });
+                latch.countDown();
+            }).start();
+        }
+
+        assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+
+        // Verify all 10 registrations are present by scheduling each one.
+        // Use lenient stubbing since scheduleJob calls wrapTarget → findByJobKey,
+        // but the wrapped runnable isn't executed here, so some stubs won't be used.
+        lenient().when(taskScheduler.schedule(any(Runnable.class), any(CronTrigger.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+
+        int scheduled = 0;
+        for (int i = 0; i < threadCount; i++) {
+            SchedulerJobConfigEntity config = cronJob("job_" + i, "0 0 * * * *",
+                    SchedulerJobStatus.ACTIVE);
+            service.scheduleJob(config);
+            scheduled++;
+        }
+
+        assertThat(scheduled).isEqualTo(threadCount);
+        verify(taskScheduler, times(threadCount))
+                .schedule(any(Runnable.class), any(CronTrigger.class));
+    }
+
+    // -------------------------------------------------------------------------
+    // triggerNow — no registered target
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("triggerNow throws when no target is registered for the job")
+    void triggerNow_throwsWhenNoTargetRegistered() {
+        SchedulerJobConfigEntity config = cronJob("unregistered", "0 0 * * * *",
+                SchedulerJobStatus.ACTIVE);
+        when(repository.findByJobKey("unregistered")).thenReturn(Optional.of(config));
+
+        assertThatThrownBy(() -> service.triggerNow("unregistered"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No registered target");
+    }
+
+    // -------------------------------------------------------------------------
+    // pause/resume/trigger — nonexistent job key
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("pause throws NoSuchElementException for unknown job key")
+    void pause_throwsForUnknownJobKey() {
+        when(repository.findByJobKey("nonexistent")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.pause("nonexistent"))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    @DisplayName("resume throws NoSuchElementException for unknown job key")
+    void resume_throwsForUnknownJobKey() {
+        when(repository.findByJobKey("nonexistent")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.resume("nonexistent"))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    @DisplayName("triggerNow throws NoSuchElementException for unknown job key")
+    void triggerNow_throwsForUnknownJobKey() {
+        when(repository.findByJobKey("nonexistent")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.triggerNow("nonexistent"))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    @DisplayName("updateSchedule throws NoSuchElementException for unknown job key")
+    void updateSchedule_throwsForUnknownJobKey() {
+        when(repository.findByJobKey("nonexistent")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.updateSchedule("nonexistent", "0 0 * * * *", null))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    // -------------------------------------------------------------------------
+    // updateSchedule — FIXED_DELAY path
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("updateSchedule updates fixedDelayMs for FIXED_DELAY job")
+    void updateSchedule_updatesFixedDelay() {
+        SchedulerJobConfigEntity config = fixedDelayJob("run_progress_cleanup", 300000L,
+                SchedulerJobStatus.ACTIVE);
+        when(repository.findByJobKey("run_progress_cleanup"))
+                .thenReturn(Optional.of(config));
+        when(taskScheduler.scheduleWithFixedDelay(any(Runnable.class), any(Duration.class)))
+                .thenReturn(mock(ScheduledFuture.class));
+        service.registerJobTarget("run_progress_cleanup", () -> { });
+        service.scheduleJob(config);
+
+        service.updateSchedule("run_progress_cleanup", null, 600000L);
+
+        assertThat(config.getFixedDelayMs()).isEqualTo(600000L);
+    }
+
+    // -------------------------------------------------------------------------
+    // calculateNextFireTime — FIXED_DELAY with no prior run uses initial delay
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("calculateNextFireTime uses initialDelayMs when no prior completion")
+    void calculateNextFireTime_fixedDelayWithoutPriorRun() {
+        SchedulerJobConfigEntity config = fixedDelayJob("aurora_polling", 300000L,
+                SchedulerJobStatus.ACTIVE);
+        config.setInitialDelayMs(60000L);
+        config.setLastCompletionTime(null);
+
+        Instant now = Instant.now();
+        Instant next = service.calculateNextFireTime(config);
+
+        assertThat(next).isNotNull();
+        // Should be approximately now + 60s (initial delay)
+        assertThat(next).isBetween(now.plusMillis(59000), now.plusMillis(61000));
     }
 
     // -------------------------------------------------------------------------

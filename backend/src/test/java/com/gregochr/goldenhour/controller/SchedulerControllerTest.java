@@ -15,10 +15,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -129,6 +131,65 @@ class SchedulerControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"cronExpression\": \"bad\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    // -------------------------------------------------------------------------
+    // Error cases
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST trigger returns 500 when job has no registered target")
+    void triggerJob_returns500WhenNoTarget() throws Exception {
+        doThrow(new IllegalStateException("No registered target for job: orphan"))
+                .when(schedulerService).triggerNow("orphan");
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/orphan/trigger"))
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST pause returns 404 when job key does not exist")
+    void pauseJob_returns404WhenNotFound() throws Exception {
+        when(schedulerService.pause("nonexistent"))
+                .thenThrow(new NoSuchElementException());
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/nonexistent/pause"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST resume returns 404 when job key does not exist")
+    void resumeJob_returns404WhenNotFound() throws Exception {
+        when(schedulerService.resume("nonexistent"))
+                .thenThrow(new NoSuchElementException());
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/nonexistent/resume"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST trigger returns 404 when job key does not exist")
+    void triggerJob_returns404WhenNotFound() throws Exception {
+        doThrow(new NoSuchElementException())
+                .when(schedulerService).triggerNow("nonexistent");
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/nonexistent/trigger"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST pause returns 500 when job is DISABLED_BY_CONFIG")
+    void pauseJob_returns500WhenDisabledByConfig() throws Exception {
+        when(schedulerService.pause("aurora_polling"))
+                .thenThrow(new IllegalStateException("disabled by config"));
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/aurora_polling/pause"))
+                .andExpect(status().isInternalServerError());
     }
 
     // -------------------------------------------------------------------------
