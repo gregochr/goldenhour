@@ -123,7 +123,7 @@ export default function SchedulerView() {
       const data = await fetchSchedulerJobs();
       setJobs(data);
       setError(null);
-    } catch (err) {
+    } catch (_err) {
       setError('Failed to load scheduler jobs');
     } finally {
       setLoading(false);
@@ -133,9 +133,10 @@ export default function SchedulerView() {
   useEffect(() => {
     loadJobs();
     const interval = setInterval(loadJobs, POLL_INTERVAL_MS);
+    const timers = timerRefs.current;
     return () => {
       clearInterval(interval);
-      Object.values(timerRefs.current).forEach(clearTimeout);
+      Object.values(timers).forEach(clearTimeout);
     };
   }, [loadJobs]);
 
@@ -143,7 +144,7 @@ export default function SchedulerView() {
     try {
       await pauseJob(jobKey);
       await loadJobs();
-    } catch (err) {
+    } catch (_err) {
       setError(`Failed to pause ${jobKey}`);
     }
   };
@@ -152,7 +153,7 @@ export default function SchedulerView() {
     try {
       await resumeJob(jobKey);
       await loadJobs();
-    } catch (err) {
+    } catch (_err) {
       setError(`Failed to resume ${jobKey}`);
     }
   };
@@ -164,7 +165,7 @@ export default function SchedulerView() {
       timerRefs.current[jobKey] = setTimeout(() => {
         setTriggeredJobs((prev) => ({ ...prev, [jobKey]: false }));
       }, TRIGGER_CONFIRM_MS);
-    } catch (err) {
+    } catch (_err) {
       setError(`Failed to trigger ${jobKey}`);
     }
   };
@@ -191,7 +192,7 @@ export default function SchedulerView() {
       setEditingJob(null);
       setEditValue('');
       await loadJobs();
-    } catch (err) {
+    } catch (_err) {
       setError(`Failed to update schedule for ${job.jobKey}`);
     }
   };
