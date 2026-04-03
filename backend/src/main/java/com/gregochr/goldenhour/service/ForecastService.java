@@ -595,8 +595,10 @@ public class ForecastService {
                         ? data.surge().riskLevel().name() : null)
                 .surgeAdjustedRangeMetres(data.adjustedRangeMetres())
                 .surgeAstronomicalRangeMetres(data.astronomicalRangeMetres())
-                .inversionScore(evaluation.inversionScore())
-                .inversionPotential(evaluation.inversionPotential())
+                .inversionScore(data.inversionScore() != null
+                        ? evaluation.inversionScore() : null)
+                .inversionPotential(data.inversionScore() != null
+                        ? evaluation.inversionPotential() : null)
                 .build();
     }
 }
