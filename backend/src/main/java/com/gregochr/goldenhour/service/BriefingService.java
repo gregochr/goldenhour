@@ -133,16 +133,22 @@ public class BriefingService {
         if (cached == null) {
             return null;
         }
-        AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonight();
-        AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
-        if (Objects.equals(cached.auroraTonight(), liveTonight)
-                && Objects.equals(cached.auroraTomorrow(), liveTomorrow)) {
+        try {
+            AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonight();
+            AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
+            if (Objects.equals(cached.auroraTonight(), liveTonight)
+                    && Objects.equals(cached.auroraTomorrow(), liveTomorrow)) {
+                return cached;
+            }
+            return new DailyBriefingResponse(
+                    cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
+                    liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
+                    cached.failedLocationCount(), cached.bestBetModel());
+        } catch (Exception e) {
+            LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
+                    e.getMessage());
             return cached;
         }
-        return new DailyBriefingResponse(
-                cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
-                liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
-                cached.failedLocationCount(), cached.bestBetModel());
     }
 
     /**

@@ -83,30 +83,35 @@ public class BriefingAuroraSummaryBuilder {
         if (!auroraStateCache.isActive()) {
             return null;
         }
-        AlertLevel alertLevel = auroraStateCache.getCurrentLevel();
-        Double kp = auroraStateCache.getLastTriggerKp();
-        List<AuroraForecastScore> scores = auroraStateCache.getCachedScores();
+        try {
+            AlertLevel alertLevel = auroraStateCache.getCurrentLevel();
+            Double kp = auroraStateCache.getLastTriggerKp();
+            List<AuroraForecastScore> scores = auroraStateCache.getCachedScores();
 
-        // Fetch weather for tonight's locations (cached 5 min)
-        Map<Long, AuroraWeatherEnricher.AuroraWeather> weatherMap =
-                fetchTonightWeather(scores);
+            // Fetch weather for tonight's locations (cached 5 min)
+            Map<Long, AuroraWeatherEnricher.AuroraWeather> weatherMap =
+                    fetchTonightWeather(scores);
 
-        // Group scores by region, then convert to location slots
-        RegionGroupingUtils.GroupResult<AuroraForecastScore> grouped =
-                RegionGroupingUtils.groupByRegion(scores, score ->
-                        score.location().getRegion() != null
-                                ? score.location().getRegion().getName()
-                                : score.location().getName());
+            // Group scores by region, then convert to location slots
+            RegionGroupingUtils.GroupResult<AuroraForecastScore> grouped =
+                    RegionGroupingUtils.groupByRegion(scores, score ->
+                            score.location().getRegion() != null
+                                    ? score.location().getRegion().getName()
+                                    : score.location().getName());
 
-        List<AuroraRegionSummary> regions = grouped.grouped().entrySet().stream()
-                .map(e -> buildRegionSummary(e.getKey(), e.getValue(), weatherMap))
-                .collect(Collectors.toList());
+            List<AuroraRegionSummary> regions = grouped.grouped().entrySet().stream()
+                    .map(e -> buildRegionSummary(e.getKey(), e.getValue(), weatherMap))
+                    .collect(Collectors.toList());
 
-        int clearCount = (int) scores.stream()
-                .filter(s -> s.cloudPercent() < CLEAR_SKY_THRESHOLD)
-                .count();
+            int clearCount = (int) scores.stream()
+                    .filter(s -> s.cloudPercent() < CLEAR_SKY_THRESHOLD)
+                    .count();
 
-        return new AuroraTonightSummary(alertLevel, kp, clearCount, regions);
+            return new AuroraTonightSummary(alertLevel, kp, clearCount, regions);
+        } catch (Exception e) {
+            LOG.warn("Tonight aurora summary build failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
