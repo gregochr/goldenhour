@@ -571,7 +571,7 @@ class AstroConditionsServiceTest {
             int result = service.evaluateAndPersist(dates);
 
             assertThat(result).isEqualTo(1);
-            verify(astroConditionsRepository).deleteByForecastDateIn(dates);
+            verify(astroConditionsRepository).findByForecastDateIn(dates);
             verify(astroConditionsRepository).saveAll(any());
         }
     }

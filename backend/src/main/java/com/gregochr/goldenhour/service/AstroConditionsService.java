@@ -19,7 +19,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -86,7 +88,12 @@ public class AstroConditionsService {
             return 0;
         }
 
-        astroConditionsRepository.deleteByForecastDateIn(dates);
+        // Pre-load existing records for merge (avoids duplicate key violations on re-runs)
+        Map<String, Long> existingIds = new HashMap<>();
+        for (AstroConditionsEntity e : astroConditionsRepository.findByForecastDateIn(dates)) {
+            existingIds.put(e.getLocation().getId() + ":" + e.getForecastDate(), e.getId());
+        }
+
         Instant now = Instant.now();
         List<AstroConditionsEntity> allResults = new ArrayList<>();
 
@@ -96,19 +103,34 @@ public class AstroConditionsService {
             LocalDateTime dawn = solarService.nauticalDawnUtc(
                     REFERENCE_LAT, REFERENCE_LON, date.plusDays(1));
 
-            List<CompletableFuture<AstroConditionsEntity>> futures = locations.stream()
-                    .map(loc -> CompletableFuture.supplyAsync(
-                            () -> scoreLocation(loc, date, dusk, dawn, now), forecastExecutor))
-                    .toList();
+            // Process in batches to avoid overwhelming the Open-Meteo rate limiter.
+            // The @RateLimiter permits 8 calls/second; firing all locations at once
+            // causes most virtual threads to timeout waiting for permits, cascading
+            // into circuit breaker trips that also block the forecast pipeline.
+            for (int i = 0; i < locations.size(); i += BATCH_SIZE) {
+                List<LocationEntity> batch = locations.subList(
+                        i, Math.min(i + BATCH_SIZE, locations.size()));
 
-            for (CompletableFuture<AstroConditionsEntity> future : futures) {
-                try {
-                    AstroConditionsEntity result = future.join();
-                    if (result != null) {
-                        allResults.add(result);
+                List<CompletableFuture<AstroConditionsEntity>> futures = batch.stream()
+                        .map(loc -> CompletableFuture.supplyAsync(
+                                () -> scoreLocation(loc, date, dusk, dawn, now), forecastExecutor))
+                        .toList();
+
+                for (CompletableFuture<AstroConditionsEntity> future : futures) {
+                    try {
+                        AstroConditionsEntity result = future.join();
+                        if (result != null) {
+                            // Merge: reuse existing ID so JPA does UPDATE, not INSERT
+                            String key = result.getLocation().getId() + ":" + date;
+                            Long existingId = existingIds.get(key);
+                            if (existingId != null) {
+                                result.setId(existingId);
+                            }
+                            allResults.add(result);
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Astro conditions scoring failed: {}", e.getMessage());
                     }
-                } catch (Exception e) {
-                    LOG.warn("Astro conditions scoring failed: {}", e.getMessage());
                 }
             }
         }
@@ -354,6 +376,9 @@ public class AstroConditionsService {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
+
+    /** Max locations to score in parallel — matches the Open-Meteo rate limiter's limitForPeriod. */
+    static final int BATCH_SIZE = 8;
 
     /** Base score before modifiers. */
     static final double BASE_SCORE = 3.0;
