@@ -49,6 +49,8 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **User settings**: `UserSettingsService` + `UserSettingsController` — home location (postcode via `PostcodesIoClient` geocoding, lat/lon) and per-user drive times | `DriveTimeResolver` abstraction (replaces per-location `drive_duration_minutes`) | `user_drive_time` table (V67)
 
+**Dynamic scheduler**: DB-backed scheduler management (`scheduler_job_config` table, V68) | `DynamicSchedulerService` — registers job targets via `@PostConstruct`, schedules on `ApplicationReadyEvent`, pause/resume/trigger/reschedule | `SchedulerConfig` with dedicated `ThreadPoolTaskScheduler` (pool=5) | `SchedulerController` (ADMIN-only, `/api/admin/scheduler`) | `SchedulerView.jsx` in Manage → Operations → Scheduler tab | Aurora jobs auto-disabled when `aurora.enabled=false` (`DISABLED_BY_CONFIG` status) | Replaces all `@Scheduled` annotations (tide refresh, daily briefing, aurora polling, Met Office scrape, run progress cleanup)
+
 **Admin features**: User management | Expandable health status widget with live SSE service probes (mail, Claude API, Open-Meteo, tides) | Model comparison test harness (A/B/C across regions) | Prompt test harness (async, replay, comparison) | URL hash navigation | Client-side pagination | Confirmation dialog before Claude evaluation with cost estimate
 
 **Deployment**: Docker (alpine, health checks, non-root) | Cloudflare Tunnel (`photocast.online`) | H2 volume-mounted to Mac filesystem | Daily backups (keep last 7)
@@ -141,7 +143,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V67)
+## Database Migrations (V1–V68)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -175,6 +177,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V65 | `elevation_m` and `overlooks_water` columns on locations (inversion detection) |
 | V66 | `inversion_score` and `inversion_potential` columns on forecast_evaluation |
 | V67 | User home location (postcode, lat/lon) + `user_drive_time` table |
+| V68 | `scheduler_job_config` table + 5 seed rows (tide, briefing, aurora, met office, cleanup) |
 
 ---
 
@@ -225,6 +228,9 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ### User Settings (Bearer)
 `GET|PUT /api/user-settings`
+
+### Scheduler (ADMIN)
+`GET /api/admin/scheduler/jobs` | `PUT /api/admin/scheduler/jobs/{jobKey}/schedule` | `POST /api/admin/scheduler/jobs/{jobKey}/pause` | `POST /api/admin/scheduler/jobs/{jobKey}/resume` | `POST /api/admin/scheduler/jobs/{jobKey}/trigger`
 
 ### Tides (ADMIN)
 `GET /api/tides` | `GET /api/tides/stats`

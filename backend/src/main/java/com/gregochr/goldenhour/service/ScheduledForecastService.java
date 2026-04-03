@@ -5,9 +5,9 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -33,23 +33,26 @@ public class ScheduledForecastService {
     private final JobRunService jobRunService;
     private final ExchangeRateService exchangeRateService;
     private final BriefingService briefingService;
+    private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Constructs a {@code ScheduledForecastService}.
      *
-     * @param commandFactory       builds forecast commands
-     * @param commandExecutor      executes forecast commands
-     * @param tideService          the service that fetches and stores tide extremes
-     * @param locationService      the service providing persisted locations
-     * @param jobRunService        the service for tracking job run metrics
-     * @param exchangeRateService  the service for fetching exchange rates
-     * @param briefingService      the service that generates daily briefings
+     * @param commandFactory           builds forecast commands
+     * @param commandExecutor          executes forecast commands
+     * @param tideService              the service that fetches and stores tide extremes
+     * @param locationService          the service providing persisted locations
+     * @param jobRunService            the service for tracking job run metrics
+     * @param exchangeRateService      the service for fetching exchange rates
+     * @param briefingService          the service that generates daily briefings
+     * @param dynamicSchedulerService  the dynamic scheduler for job registration
      */
     public ScheduledForecastService(ForecastCommandFactory commandFactory,
             ForecastCommandExecutor commandExecutor,
             TideService tideService, LocationService locationService,
             JobRunService jobRunService, ExchangeRateService exchangeRateService,
-            BriefingService briefingService) {
+            BriefingService briefingService,
+            DynamicSchedulerService dynamicSchedulerService) {
         this.commandFactory = commandFactory;
         this.commandExecutor = commandExecutor;
         this.tideService = tideService;
@@ -57,6 +60,16 @@ public class ScheduledForecastService {
         this.jobRunService = jobRunService;
         this.exchangeRateService = exchangeRateService;
         this.briefingService = briefingService;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers tide refresh and daily briefing jobs with the dynamic scheduler.
+     */
+    @PostConstruct
+    void registerJobs() {
+        dynamicSchedulerService.registerJobTarget("tide_refresh", this::refreshTideExtremes);
+        dynamicSchedulerService.registerJobTarget("daily_briefing", this::refreshDailyBriefing);
     }
 
     /**
@@ -110,7 +123,6 @@ public class ScheduledForecastService {
      *
      * <p>Runs once a week (default: Monday at 02:00 UTC).
      */
-    @Scheduled(cron = "${tide.schedule.cron:0 0 2 * * MON}")
     public void refreshTideExtremes() {
         JobRunEntity jobRun = jobRunService.startRun(RunType.TIDE, false, null);
         List<LocationEntity> coastal = locationService.findAllEnabled().stream()
@@ -140,7 +152,6 @@ public class ScheduledForecastService {
      * Refreshes the daily briefing at 04:00, 14:00 and 22:00 UTC — a pre-flight check
      * of weather and tide conditions across all enabled colour locations.
      */
-    @Scheduled(cron = "${briefing.schedule.cron:0 0 4,14,22 * * *}")
     public void refreshDailyBriefing() {
         try {
             briefingService.refreshBriefing();

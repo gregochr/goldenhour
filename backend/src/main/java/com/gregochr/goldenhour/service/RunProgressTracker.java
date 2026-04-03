@@ -6,13 +6,13 @@ import com.gregochr.goldenhour.model.RunProgress;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 // Note: ObjectMapper is created inline with JavaTimeModule rather than injected,
 // because this service only serialises SSE payloads and does not need the full
 // Spring-configured ObjectMapper.
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -37,6 +37,8 @@ public class RunProgressTracker {
     private static final Logger LOG = LoggerFactory.getLogger(RunProgressTracker.class);
     private static final long STALE_TTL_MS = 30 * 60 * 1000L;
 
+    private final DynamicSchedulerService dynamicSchedulerService;
+
     private final ConcurrentHashMap<Long, RunProgress> activeRuns = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, CopyOnWriteArrayList<SseEmitter>> runEmitters =
             new ConcurrentHashMap<>();
@@ -44,6 +46,24 @@ public class RunProgressTracker {
     private final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+    /**
+     * Constructs the run progress tracker.
+     *
+     * @param dynamicSchedulerService the dynamic scheduler for job registration
+     */
+    public RunProgressTracker(DynamicSchedulerService dynamicSchedulerService) {
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers the cleanup job with the dynamic scheduler.
+     */
+    @PostConstruct
+    void registerJob() {
+        dynamicSchedulerService.registerJobTarget("run_progress_cleanup",
+                this::cleanupStaleEntries);
+    }
 
     /**
      * Initialises tracking for a new run with all tasks set to PENDING.
@@ -152,7 +172,6 @@ public class RunProgressTracker {
     /**
      * Removes stale run entries older than 30 minutes.
      */
-    @Scheduled(fixedDelay = 300_000)
     public void cleanupStaleEntries() {
         Instant cutoff = Instant.now().minusMillis(STALE_TTL_MS);
         activeRuns.entrySet().removeIf(entry -> entry.getValue().getStartedAt().isBefore(cutoff));

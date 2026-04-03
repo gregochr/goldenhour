@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.model.TonightWindow;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.solarutils.SolarCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,6 +33,7 @@ class AuroraPollingJobTest {
 
     @Mock private AuroraOrchestrator orchestrator;
     @Mock private SolarCalculator solarCalculator;
+    @Mock private DynamicSchedulerService dynamicSchedulerService;
 
     private AuroraPollingJob job;
     private AuroraProperties properties;
@@ -40,7 +42,8 @@ class AuroraPollingJobTest {
     void setUp() {
         properties = new AuroraProperties();
         properties.setEnabled(true);
-        job = new AuroraPollingJob(orchestrator, properties, solarCalculator);
+        job = new AuroraPollingJob(orchestrator, properties, solarCalculator,
+                dynamicSchedulerService);
     }
 
     // -------------------------------------------------------------------------

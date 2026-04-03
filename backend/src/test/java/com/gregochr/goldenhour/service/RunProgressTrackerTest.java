@@ -6,6 +6,10 @@ import com.gregochr.goldenhour.model.RunProgress;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,13 +18,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Unit tests for {@link RunProgressTracker}.
  */
+@ExtendWith(MockitoExtension.class)
 class RunProgressTrackerTest {
+
+    @Mock
+    private DynamicSchedulerService dynamicSchedulerService;
 
     private RunProgressTracker tracker;
 
     @BeforeEach
     void setUp() {
-        tracker = new RunProgressTracker();
+        tracker = new RunProgressTracker(dynamicSchedulerService);
     }
 
     private static List<String[]> tasks(String[]... entries) {

@@ -8,6 +8,7 @@ import ModelSelectionView from './ModelSelectionView.jsx';
 import ModelTestView from './ModelTestView.jsx';
 import BriefingModelTestView from './BriefingModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
+import SchedulerView from './SchedulerView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 
 const GROUPS = [
@@ -30,6 +31,7 @@ const GROUPS = [
       { value: 'modeltest', label: 'Location Model Test' },
       { value: 'briefingmodeltest', label: 'Briefing Model Test' },
       { value: 'prompttest', label: 'Prompt Test' },
+      { value: 'scheduler', label: 'Scheduler' },
     ],
   },
 ];
@@ -172,6 +174,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Prompt Regression Test</p>
             <PromptTestView />
+          </div>
+        )}
+
+        {activeTab === 'scheduler' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Scheduler</p>
+            <SchedulerView />
           </div>
         )}
       </div>

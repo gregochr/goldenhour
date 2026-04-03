@@ -2,10 +2,11 @@ package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.model.TonightWindow;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.solarutils.SolarCalculator;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -56,20 +57,32 @@ public class AuroraPollingJob {
     private final AuroraOrchestrator orchestrator;
     private final AuroraProperties properties;
     private final SolarCalculator solarCalculator;
+    private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Constructs the polling job.
      *
-     * @param orchestrator    aurora orchestrator (NOAA → AlertLevel → score)
-     * @param properties      aurora configuration
-     * @param solarCalculator solar-utils calculator for twilight checks
+     * @param orchestrator            aurora orchestrator (NOAA → AlertLevel → score)
+     * @param properties              aurora configuration
+     * @param solarCalculator         solar-utils calculator for twilight checks
+     * @param dynamicSchedulerService the dynamic scheduler for job registration
      */
     public AuroraPollingJob(AuroraOrchestrator orchestrator,
             AuroraProperties properties,
-            SolarCalculator solarCalculator) {
+            SolarCalculator solarCalculator,
+            DynamicSchedulerService dynamicSchedulerService) {
         this.orchestrator = orchestrator;
         this.properties = properties;
         this.solarCalculator = solarCalculator;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers the aurora polling job with the dynamic scheduler.
+     */
+    @PostConstruct
+    void registerJob() {
+        dynamicSchedulerService.registerJobTarget("aurora_polling", this::poll);
     }
 
     /**
@@ -78,8 +91,6 @@ public class AuroraPollingJob {
      * <p>The initial 60-second delay prevents NOAA API calls immediately on startup.
      * The fixed-delay schedule ensures the next poll does not begin until this one finishes.
      */
-    @Scheduled(fixedDelayString = "PT${aurora.poll-interval-minutes:5}M",
-               initialDelayString = "PT1M")
     public void poll() {
         if (!properties.isEnabled()) {
             return;

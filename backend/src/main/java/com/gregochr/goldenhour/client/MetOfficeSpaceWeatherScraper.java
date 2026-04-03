@@ -1,12 +1,13 @@
 package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import jakarta.annotation.PostConstruct;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.ZonedDateTime;
@@ -34,6 +35,7 @@ public class MetOfficeSpaceWeatherScraper {
     private static final int MAX_TEXT_LENGTH = 2000;
 
     private final AuroraProperties properties;
+    private final DynamicSchedulerService dynamicSchedulerService;
 
     /** Cached forecast text. Null until the first successful scrape. */
     private volatile String cachedForecastText;
@@ -44,10 +46,21 @@ public class MetOfficeSpaceWeatherScraper {
     /**
      * Constructs the scraper with aurora configuration.
      *
-     * @param properties aurora configuration (Met Office URL + scrape interval)
+     * @param properties              aurora configuration (Met Office URL + scrape interval)
+     * @param dynamicSchedulerService the dynamic scheduler for job registration
      */
-    public MetOfficeSpaceWeatherScraper(AuroraProperties properties) {
+    public MetOfficeSpaceWeatherScraper(AuroraProperties properties,
+            DynamicSchedulerService dynamicSchedulerService) {
         this.properties = properties;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers the Met Office scrape job with the dynamic scheduler.
+     */
+    @PostConstruct
+    void registerJob() {
+        dynamicSchedulerService.registerJobTarget("met_office_scrape", this::scheduledScrape);
     }
 
     /**
@@ -79,8 +92,6 @@ public class MetOfficeSpaceWeatherScraper {
      * <p>The fixed-delay schedule prevents overlap if a scrape takes longer than expected.
      * Initial delay of 5 minutes avoids hitting the page immediately on startup.
      */
-    @Scheduled(fixedDelayString = "PT${aurora.met-office.scrape-interval-minutes:60}M",
-               initialDelayString = "PT5M")
     public void scheduledScrape() {
         if (!properties.isEnabled()) {
             return;
