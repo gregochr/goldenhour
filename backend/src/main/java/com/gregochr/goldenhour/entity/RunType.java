@@ -27,5 +27,11 @@ public enum RunType {
     LIGHT_POLLUTION,
 
     /** Daily briefing — zero-Claude-cost weather pre-flight check. */
-    BRIEFING
+    BRIEFING,
+
+    /** Briefing best-bet advisor — Claude-generated photography recommendations. */
+    BRIEFING_BEST_BET,
+
+    /** Aurora location evaluation — Claude-scored aurora photography conditions. */
+    AURORA_EVALUATION
 }

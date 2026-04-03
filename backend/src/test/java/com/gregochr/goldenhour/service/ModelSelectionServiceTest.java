@@ -145,13 +145,97 @@ class ModelSelectionServiceTest {
                         .activeModel(EvaluationModel.SONNET).build()));
         when(modelSelectionRepository.findByRunType(RunType.LONG_TERM))
                 .thenReturn(Optional.empty()); // defaults to HAIKU
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.empty()); // defaults to HAIKU
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.AURORA_EVALUATION)
+                        .activeModel(EvaluationModel.SONNET).build()));
 
         Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
-        assertThat(configs).hasSize(3);
+        assertThat(configs).hasSize(5);
         assertThat(configs.get(RunType.VERY_SHORT_TERM)).isEqualTo(EvaluationModel.OPUS);
         assertThat(configs.get(RunType.SHORT_TERM)).isEqualTo(EvaluationModel.SONNET);
         assertThat(configs.get(RunType.LONG_TERM)).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(configs.get(RunType.BRIEFING_BEST_BET)).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(configs.get(RunType.AURORA_EVALUATION)).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("getActiveModel(BRIEFING_BEST_BET) returns stored model")
+    void getActiveModel_briefingBestBet_returnsStoredModel() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BRIEFING_BEST_BET)
+                        .activeModel(EvaluationModel.OPUS).build()));
+
+        assertThat(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                .isEqualTo(EvaluationModel.OPUS);
+    }
+
+    @Test
+    @DisplayName("getActiveModel(AURORA_EVALUATION) returns stored model")
+    void getActiveModel_auroraEvaluation_returnsStoredModel() {
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.AURORA_EVALUATION)
+                        .activeModel(EvaluationModel.SONNET).build()));
+
+        assertThat(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("getActiveModel(BRIEFING_BEST_BET) defaults to HAIKU when no selection")
+    void getActiveModel_briefingBestBet_defaultsToHaiku() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.empty());
+
+        assertThat(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                .isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("getActiveModel(AURORA_EVALUATION) defaults to HAIKU when no selection")
+    void getActiveModel_auroraEvaluation_defaultsToHaiku() {
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
+                .thenReturn(Optional.empty());
+
+        assertThat(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("setActiveModel(BRIEFING_BEST_BET, SONNET) upserts correctly")
+    void setActiveModel_briefingBestBet_upserts() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.empty());
+
+        EvaluationModel result = modelSelectionService.setActiveModel(
+                RunType.BRIEFING_BEST_BET, EvaluationModel.SONNET);
+
+        assertThat(result).isEqualTo(EvaluationModel.SONNET);
+        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.BRIEFING_BEST_BET);
+        assertThat(captor.getValue().getActiveModel()).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("setActiveModel(AURORA_EVALUATION, OPUS) upserts correctly")
+    void setActiveModel_auroraEvaluation_upserts() {
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
+                .thenReturn(Optional.empty());
+
+        EvaluationModel result = modelSelectionService.setActiveModel(
+                RunType.AURORA_EVALUATION, EvaluationModel.OPUS);
+
+        assertThat(result).isEqualTo(EvaluationModel.OPUS);
+        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.AURORA_EVALUATION);
+        assertThat(captor.getValue().getActiveModel()).isEqualTo(EvaluationModel.OPUS);
     }
 
     @Test

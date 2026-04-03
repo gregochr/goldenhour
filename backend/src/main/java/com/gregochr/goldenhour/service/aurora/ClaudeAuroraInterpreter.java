@@ -8,7 +8,9 @@ import com.anthropic.models.messages.TextBlockParam;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
@@ -16,6 +18,7 @@ import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,9 +53,6 @@ import java.util.Map;
 public class ClaudeAuroraInterpreter {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClaudeAuroraInterpreter.class);
-
-    /** Claude model used for aurora interpretation (Haiku — fast, cost-effective, factual). */
-    private static final String MODEL = "claude-haiku-4-5";
 
     /** Maximum tokens for the aurora scoring response. */
     private static final int MAX_TOKENS = 1024;
@@ -102,17 +102,21 @@ public class ClaudeAuroraInterpreter {
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
+    private final ModelSelectionService modelSelectionService;
 
     /**
      * Constructs the interpreter.
      *
-     * @param anthropicApiClient resilient Anthropic API client
-     * @param objectMapper       Jackson mapper for parsing Claude's JSON response
+     * @param anthropicApiClient    resilient Anthropic API client
+     * @param objectMapper          Jackson mapper for parsing Claude's JSON response
+     * @param modelSelectionService service for resolving the active Claude model
      */
     public ClaudeAuroraInterpreter(AnthropicApiClient anthropicApiClient,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ModelSelectionService modelSelectionService) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
+        this.modelSelectionService = modelSelectionService;
     }
 
     /**
@@ -141,12 +145,13 @@ public class ClaudeAuroraInterpreter {
         String userMessage = buildUserMessage(level, viableLocations, cloudByLocation,
                 spaceWeather, metOfficeText, triggerType, tonightWindow);
 
-        LOG.info("Aurora Claude call: {} locations, level={}, trigger={}",
-                viableLocations.size(), level, triggerType);
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
+        LOG.info("Aurora Claude call: {} locations, level={}, trigger={}, model={}",
+                viableLocations.size(), level, triggerType, model);
 
         Message response = anthropicApiClient.createMessage(
                 MessageCreateParams.builder()
-                        .model(MODEL)
+                        .model(model.getModelId())
                         .maxTokens(MAX_TOKENS)
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder().text(SYSTEM_PROMPT).build()))

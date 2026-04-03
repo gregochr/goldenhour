@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
@@ -21,6 +22,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,13 +55,6 @@ import java.util.Set;
 public class BriefingBestBetAdvisor {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
-
-    /** Claude model used for best-bet advisory. */
-    private static final String MODEL = EvaluationModel.OPUS.getModelId();
-
-    /** Human-readable model name for display in the UI (e.g. "Opus"). */
-    public static final String MODEL_DISPLAY_NAME = EvaluationModel.OPUS.name().charAt(0)
-            + EvaluationModel.OPUS.name().substring(1).toLowerCase();
 
     /** Maximum response tokens for the best-bet JSON. */
     private static final int MAX_TOKENS = 1024;
@@ -197,23 +192,37 @@ public class BriefingBestBetAdvisor {
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
+    private final ModelSelectionService modelSelectionService;
     private final AuroraStateCache auroraStateCache;
 
     /**
      * Constructs a {@code BriefingBestBetAdvisor}.
      *
-     * @param anthropicApiClient resilient Anthropic API client
-     * @param objectMapper       Jackson mapper for JSON building and parsing
-     * @param jobRunService      service for logging the API call in job run metrics
-     * @param auroraStateCache   read-only access to the current aurora alert state
+     * @param anthropicApiClient    resilient Anthropic API client
+     * @param objectMapper          Jackson mapper for JSON building and parsing
+     * @param jobRunService         service for logging the API call in job run metrics
+     * @param modelSelectionService service for resolving the active Claude model
+     * @param auroraStateCache      read-only access to the current aurora alert state
      */
     public BriefingBestBetAdvisor(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
+            ModelSelectionService modelSelectionService,
             AuroraStateCache auroraStateCache) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
+        this.modelSelectionService = modelSelectionService;
         this.auroraStateCache = auroraStateCache;
+    }
+
+    /**
+     * Returns the human-readable name of the currently configured model (e.g. "Opus").
+     *
+     * @return display name of the active briefing model
+     */
+    public String getModelDisplayName() {
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
+        return model.name().charAt(0) + model.name().substring(1).toLowerCase();
     }
 
     /**
@@ -242,13 +251,14 @@ public class BriefingBestBetAdvisor {
     public List<BestBet> advise(List<BriefingDay> days, Long jobRunId,
             Map<String, Integer> driveMap) {
         try {
+            EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             RollupResult rollup = buildRollupJson(days, now);
             long startMs = System.currentTimeMillis();
 
             Message response = anthropicApiClient.createMessage(
                     MessageCreateParams.builder()
-                            .model(MODEL)
+                            .model(model.getModelId())
                             .maxTokens(MAX_TOKENS)
                             .systemOfTextBlockParams(List.of(
                                     TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
@@ -263,11 +273,11 @@ public class BriefingBestBetAdvisor {
                     .findFirst()
                     .orElse("");
 
-            LOG.info("Best-bet advisor completed ({}ms)", durationMs);
+            LOG.info("Best-bet advisor completed ({}ms, model={})", durationMs, model);
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-best-bet", null,
                     durationMs, 200, raw, true, null,
-                    EvaluationModel.OPUS, null, null);
+                    model, null, null);
 
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(

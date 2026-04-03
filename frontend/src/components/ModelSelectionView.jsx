@@ -8,6 +8,8 @@ const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
   { key: 'SHORT_TERM', label: 'Short-Term (T, T+1, T+2)', tip: 'Near-term forecasts — up to 2 days out. Good balance of accuracy and cost.' },
   { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)', tip: 'Extended forecasts — 3 to 5 days out. Weather data is less precise, so a cheaper model is fine.' },
+  { key: 'BRIEFING_BEST_BET', label: 'Briefing', tip: 'Claude model for the best-bet photography advisor in the daily briefing.' },
+  { key: 'AURORA_EVALUATION', label: 'Aurora', tip: 'Claude model for scoring aurora photography conditions per location.' },
 ];
 
 /** Approximate USD to GBP rate for display purposes. */
@@ -52,6 +54,21 @@ const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
 
 /** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
 const DAYS_PER_RUN = { VERY_SHORT_TERM: 2, SHORT_TERM: 3, LONG_TERM: 3 };
+
+/** Tab-specific model card descriptions (override generic MODEL_INFO.description). */
+const TAB_DESCRIPTIONS = {
+  BRIEFING_BEST_BET: 'Analyses region-level triage data to recommend the best photography opportunity',
+  AURORA_EVALUATION: 'Evaluates aurora visibility conditions per location based on Kp forecast, cloud cover, and Bortle class',
+};
+
+/**
+ * Cost estimate config for non-forecast tabs.
+ * callsPerRun: typical calls per run. label: human description.
+ */
+const CUSTOM_COST = {
+  BRIEFING_BEST_BET: { callsPerRun: 12, label: '~12 calls/day (every 2 hours)' },
+  AURORA_EVALUATION: { callsPerRun: 35, label: '~35 locations per aurora evaluation night' },
+};
 
 const STRATEGY_INFO = {
   SKIP_LOW_RATED: {
@@ -314,7 +331,7 @@ export default function ModelSelectionView() {
                 )}
               </div>
 
-              <p className="text-sm text-plex-text-secondary mb-3">{info.description}</p>
+              <p className="text-sm text-plex-text-secondary mb-3">{TAB_DESCRIPTIONS[activeTab] || info.description}</p>
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
@@ -348,56 +365,67 @@ export default function ModelSelectionView() {
       </div>
 
       {/* Cost estimate table for the active run type */}
-      {DAYS_PER_RUN[activeTab] && locationCount > 0 && (
-        <div className="card border border-plex-border">
-          <h3 className="font-semibold text-plex-text mb-1">
-            Estimated run cost
-            <span className="font-normal text-sm text-plex-text-secondary ml-2">
-              ({locationCount} location{locationCount !== 1 ? 's' : ''}, {DAYS_PER_RUN[activeTab]} days, sunrise + sunset)
-            </span>
-          </h3>
-          <p className="text-xs text-plex-text-secondary mb-3">
-            {locationCount * DAYS_PER_RUN[activeTab] * 2} Claude calls per run, before optimisation strategies
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" data-testid="cost-estimate-table">
-              <thead>
-                <tr className="text-left text-plex-text-secondary border-b border-plex-border">
-                  <th className="pb-2 pr-4">Model</th>
-                  <th className="pb-2 pr-4 text-right">Per call</th>
-                  <th className="pb-2 text-right">Run total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {['HAIKU', 'SONNET', 'OPUS'].map((model) => {
-                  const calls = locationCount * DAYS_PER_RUN[activeTab] * 2;
-                  const total = (COST_PER_CALL[model] * calls).toFixed(2);
-                  const isActive = model === activeModelForTab;
-                  return (
-                    <tr
-                      key={model}
-                      className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}
-                    >
-                      <td className="py-1.5 pr-4 font-medium">
-                        {MODEL_INFO[model].name}
-                        {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
-                      </td>
-                      <td className="py-1.5 pr-4 text-right font-mono text-xs">
-                        {toGbp(COST_PER_CALL[model])}
-                        <span className="text-plex-text-muted"> (~${COST_PER_CALL[model].toFixed(3)})</span>
-                      </td>
-                      <td className="py-1.5 text-right font-mono text-xs">
-                        {toGbp(COST_PER_CALL[model] * calls)}
-                        <span className="text-plex-text-muted"> (${total})</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {(() => {
+        const forecastCalls = DAYS_PER_RUN[activeTab] && locationCount > 0
+          ? locationCount * DAYS_PER_RUN[activeTab] * 2
+          : null;
+        const custom = CUSTOM_COST[activeTab];
+        const calls = forecastCalls || (custom ? custom.callsPerRun : null);
+        if (!calls) return null;
+        const costLabel = forecastCalls
+          ? `${locationCount} location${locationCount !== 1 ? 's' : ''}, ${DAYS_PER_RUN[activeTab]} days, sunrise + sunset`
+          : custom.label;
+        const callLabel = forecastCalls
+          ? `${calls} Claude calls per run, before optimisation strategies`
+          : `${calls} Claude calls per run`;
+        return (
+          <div className="card border border-plex-border">
+            <h3 className="font-semibold text-plex-text mb-1">
+              Estimated run cost
+              <span className="font-normal text-sm text-plex-text-secondary ml-2">
+                ({costLabel})
+              </span>
+            </h3>
+            <p className="text-xs text-plex-text-secondary mb-3">{callLabel}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" data-testid="cost-estimate-table">
+                <thead>
+                  <tr className="text-left text-plex-text-secondary border-b border-plex-border">
+                    <th className="pb-2 pr-4">Model</th>
+                    <th className="pb-2 pr-4 text-right">Per call</th>
+                    <th className="pb-2 text-right">Run total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {['HAIKU', 'SONNET', 'OPUS'].map((model) => {
+                    const total = (COST_PER_CALL[model] * calls).toFixed(2);
+                    const isActive = model === activeModelForTab;
+                    return (
+                      <tr
+                        key={model}
+                        className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}
+                      >
+                        <td className="py-1.5 pr-4 font-medium">
+                          {MODEL_INFO[model].name}
+                          {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
+                        </td>
+                        <td className="py-1.5 pr-4 text-right font-mono text-xs">
+                          {toGbp(COST_PER_CALL[model])}
+                          <span className="text-plex-text-muted"> (~${COST_PER_CALL[model].toFixed(3)})</span>
+                        </td>
+                        <td className="py-1.5 text-right font-mono text-xs">
+                          {toGbp(COST_PER_CALL[model] * calls)}
+                          <span className="text-plex-text-muted"> (${total})</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Cost Optimisation Strategies */}
       {tabStrategies.length > 0 && (

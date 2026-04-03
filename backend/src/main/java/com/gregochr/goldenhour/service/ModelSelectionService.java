@@ -24,7 +24,8 @@ public class ModelSelectionService {
 
     /** The run types that support model configuration. */
     private static final RunType[] CONFIGURABLE_RUN_TYPES = {
-        RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM
+        RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM,
+        RunType.BRIEFING_BEST_BET, RunType.AURORA_EVALUATION
     };
 
     private final ModelSelectionRepository modelSelectionRepository;

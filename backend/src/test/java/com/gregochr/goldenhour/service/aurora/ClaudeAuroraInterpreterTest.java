@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
@@ -12,6 +14,7 @@ import com.gregochr.goldenhour.model.TonightWindow;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,8 +24,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.anthropic.models.messages.MessageCreateParams;
+import org.mockito.ArgumentCaptor;
+
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.ZoneOffset;
@@ -44,11 +52,17 @@ class ClaudeAuroraInterpreterTest {
     @Mock
     private AnthropicApiClient anthropicApiClient;
 
+    @Mock
+    private ModelSelectionService modelSelectionService;
+
     private ClaudeAuroraInterpreter interpreter;
 
     @BeforeEach
     void setUp() {
-        interpreter = new ClaudeAuroraInterpreter(anthropicApiClient, new ObjectMapper());
+        lenient().when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU);
+        interpreter = new ClaudeAuroraInterpreter(
+                anthropicApiClient, new ObjectMapper(), modelSelectionService);
     }
 
     // -------------------------------------------------------------------------
@@ -82,6 +96,36 @@ class ClaudeAuroraInterpreterTest {
         assertThat(scores).hasSize(1);
         assertThat(scores.get(0).stars()).isEqualTo(4);
         assertThat(scores.get(0).summary()).isEqualTo("Strong aurora");
+    }
+
+    @Test
+    @DisplayName("interpret passes the model from ModelSelectionService to the API call")
+    void interpret_usesConfiguredModel() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.SONNET);
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+        String jsonResponse = "[{\"name\":\"Galloway\",\"stars\":4,"
+                + "\"summary\":\"Strong aurora\",\"detail\":\"ok\"}]";
+
+        Message mockMessage = mock(Message.class);
+        ContentBlock mockBlock = mock(ContentBlock.class);
+        TextBlock mockTextBlock = mock(TextBlock.class);
+        when(anthropicApiClient.createMessage(any())).thenReturn(mockMessage);
+        when(mockMessage.content()).thenReturn(List.of(mockBlock));
+        when(mockBlock.isText()).thenReturn(true);
+        when(mockBlock.asText()).thenReturn(mockTextBlock);
+        when(mockTextBlock.text()).thenReturn(jsonResponse);
+
+        interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                data, null, TriggerType.REALTIME, null);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        assertThat(captor.getValue().model().toString())
+                .isEqualTo(EvaluationModel.SONNET.getModelId());
     }
 
     @Test

@@ -18,7 +18,9 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +41,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -50,15 +53,18 @@ class BriefingBestBetAdvisorTest {
 
     @Mock private AnthropicApiClient anthropicApiClient;
     @Mock private JobRunService jobRunService;
+    @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
 
     private BriefingBestBetAdvisor advisor;
 
     @BeforeEach
     void setUp() {
+        lenient().when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                .thenReturn(EvaluationModel.OPUS);
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
-                jobRunService, auroraStateCache);
+                jobRunService, modelSelectionService, auroraStateCache);
     }
 
     // ── parseBestBets ──
@@ -857,6 +863,37 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(contentBlock));
             when(message.usage()).thenReturn(usage);
             return message;
+        }
+    }
+
+    // ── getModelDisplayName ──
+
+    @Nested
+    @DisplayName("getModelDisplayName")
+    class ModelDisplayNameTests {
+
+        @Test
+        @DisplayName("Returns 'Opus' when OPUS is configured")
+        void returnsOpusDisplayName() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.OPUS);
+            assertThat(advisor.getModelDisplayName()).isEqualTo("Opus");
+        }
+
+        @Test
+        @DisplayName("Returns 'Haiku' when HAIKU is configured")
+        void returnsHaikuDisplayName() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            assertThat(advisor.getModelDisplayName()).isEqualTo("Haiku");
+        }
+
+        @Test
+        @DisplayName("Returns 'Sonnet' when SONNET is configured")
+        void returnsSonnetDisplayName() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET);
+            assertThat(advisor.getModelDisplayName()).isEqualTo("Sonnet");
         }
     }
 

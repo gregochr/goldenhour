@@ -56,6 +56,8 @@ class ModelsControllerTest {
         configs.put(RunType.VERY_SHORT_TERM, EvaluationModel.HAIKU);
         configs.put(RunType.SHORT_TERM, EvaluationModel.HAIKU);
         configs.put(RunType.LONG_TERM, EvaluationModel.HAIKU);
+        configs.put(RunType.BRIEFING_BEST_BET, EvaluationModel.HAIKU);
+        configs.put(RunType.AURORA_EVALUATION, EvaluationModel.HAIKU);
         return configs;
     }
 
@@ -76,6 +78,8 @@ class ModelsControllerTest {
                 .andExpect(jsonPath("$.configs.VERY_SHORT_TERM").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.SHORT_TERM").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.LONG_TERM").value("HAIKU"))
+                .andExpect(jsonPath("$.configs.BRIEFING_BEST_BET").value("HAIKU"))
+                .andExpect(jsonPath("$.configs.AURORA_EVALUATION").value("HAIKU"))
                 .andExpect(jsonPath("$.optimisationStrategies").exists());
 
         verify(modelSelectionService).getAllConfigs();
@@ -178,6 +182,42 @@ class ModelsControllerTest {
                 .contentType("application/json")
                 .content("{\"runType\":\"SHORT_TERM\",\"model\":\"INVALID_MODEL\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/active switches BRIEFING_BEST_BET to SONNET")
+    void setActiveModel_switchesBriefingBestBetToSonnet() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setActiveModel(RunType.BRIEFING_BEST_BET, EvaluationModel.SONNET))
+                .thenReturn(EvaluationModel.SONNET);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BRIEFING_BEST_BET\",\"model\":\"SONNET\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runType").value("BRIEFING_BEST_BET"))
+                .andExpect(jsonPath("$.active").value("SONNET"));
+
+        verify(modelSelectionService).setActiveModel(RunType.BRIEFING_BEST_BET, EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/active switches AURORA_EVALUATION to OPUS")
+    void setActiveModel_switchesAuroraEvaluationToOpus() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setActiveModel(RunType.AURORA_EVALUATION, EvaluationModel.OPUS))
+                .thenReturn(EvaluationModel.OPUS);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"AURORA_EVALUATION\",\"model\":\"OPUS\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runType").value("AURORA_EVALUATION"))
+                .andExpect(jsonPath("$.active").value("OPUS"));
+
+        verify(modelSelectionService).setActiveModel(RunType.AURORA_EVALUATION, EvaluationModel.OPUS);
     }
 
     // -------------------------------------------------------------------------

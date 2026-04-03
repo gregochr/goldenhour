@@ -214,7 +214,7 @@ public class BriefingService {
             DailyBriefingResponse response = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                     auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                    BriefingBestBetAdvisor.MODEL_DISPLAY_NAME);
+                    bestBetAdvisor.getModelDisplayName());
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
@@ -236,7 +236,7 @@ public class BriefingService {
                 DailyBriefingResponse response = new DailyBriefingResponse(
                         LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                         auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                        BriefingBestBetAdvisor.MODEL_DISPLAY_NAME);
+                        bestBetAdvisor.getModelDisplayName());
                 cache.set(response);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, no LKG; using partial",
                         succeeded, total, failed);

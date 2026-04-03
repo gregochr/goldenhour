@@ -13,7 +13,7 @@ vi.mock('../api/forecastApi', () => ({
   fetchLocations: vi.fn(),
 }));
 
-import { getAvailableModels, updateOptimisationStrategy } from '../api/modelsApi';
+import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi';
 import { fetchLocations } from '../api/forecastApi';
 
 const MOCK_LOCATIONS = [
@@ -29,6 +29,8 @@ const MOCK_DATA = {
     VERY_SHORT_TERM: 'HAIKU',
     SHORT_TERM: 'HAIKU',
     LONG_TERM: 'HAIKU',
+    BRIEFING_BEST_BET: 'HAIKU',
+    AURORA_EVALUATION: 'HAIKU',
   },
   optimisationStrategies: {
     VERY_SHORT_TERM: [
@@ -90,6 +92,8 @@ describe('ModelSelectionView', () => {
 
     expect(screen.getByTestId('config-tab-SHORT_TERM')).toBeInTheDocument();
     expect(screen.getByTestId('config-tab-LONG_TERM')).toBeInTheDocument();
+    expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
+    expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
   });
 
   it('shows strategy toggle buttons', async () => {
@@ -174,5 +178,112 @@ describe('ModelSelectionView', () => {
     getAvailableModels.mockReturnValue(new Promise(() => {})); // never resolves
     render(<ModelSelectionView />);
     expect(screen.getByText('Loading models...')).toBeInTheDocument();
+  });
+
+  it('switches to Briefing tab and shows custom cost estimate', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/12 Claude calls per run/)).toBeInTheDocument();
+    });
+
+    // Briefing tab should not show strategy toggles (no strategies configured)
+    expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
+  });
+
+  it('switches to Aurora tab and shows custom cost estimate', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/35 Claude calls per run/)).toBeInTheDocument();
+    });
+
+    // Aurora tab should not show strategy toggles
+    expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
+  });
+
+  it('shows tab-specific description for Briefing model cards', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    await waitFor(() => {
+      // Each model card shows the same tab-specific description (3 cards)
+      expect(screen.getAllByText(/region-level triage data/)).toHaveLength(3);
+    });
+  });
+
+  it('shows tab-specific description for Aurora model cards', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/aurora visibility conditions/)).toHaveLength(3);
+    });
+  });
+
+  it('calls setActiveModel API when switching model on Briefing tab', async () => {
+    setActiveModel.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', active: 'OPUS' });
+
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS'));
+
+    await waitFor(() => {
+      expect(setActiveModel).toHaveBeenCalledWith('BRIEFING_BEST_BET', 'OPUS');
+    });
+  });
+
+  it('calls setActiveModel API when switching model on Aurora tab', async () => {
+    setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'SONNET' });
+
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switch-AURORA_EVALUATION-SONNET')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('switch-AURORA_EVALUATION-SONNET'));
+
+    await waitFor(() => {
+      expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'SONNET');
+    });
   });
 });
