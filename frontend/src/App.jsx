@@ -236,13 +236,15 @@ function AppInner() {
       )}
 
       {isDown && (
-        <div
-          className="bg-red-900/40 border-b border-red-700 px-4 py-3"
-          data-testid="backend-down-banner"
-        >
-          <p className="max-w-4xl mx-auto text-sm text-red-300 text-center">
-            Service is temporarily unavailable. Data shown may be stale.
-          </p>
+        <div className="max-w-4xl mx-auto px-4 mt-2">
+          <div
+            className="bg-red-900/40 border border-red-700 rounded-lg px-4 py-3"
+            data-testid="backend-down-banner"
+          >
+            <p className="text-sm text-red-300 text-center">
+              Service is temporarily unavailable. Data shown may be stale.
+            </p>
+          </div>
         </div>
       )}
 
