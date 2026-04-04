@@ -202,4 +202,69 @@ class RunProgressTrackerTest {
         var emitter = tracker.subscribeNotifications();
         assertThat(emitter).isNotNull();
     }
+
+    @Test
+    @DisplayName("completeRun on unknown run is a no-op")
+    void completeRun_unknownRun_noOp() {
+        // Should not throw
+        tracker.completeRun(999L);
+    }
+
+    @Test
+    @DisplayName("completeRun marks run as complete and removes from active")
+    void completeRun_marksCompleteAndRemoves() {
+        tracker.initRun(1L, tasks(
+                new String[]{"Loc1|2026-03-15|SUNRISE", "Loc1", "2026-03-15", "SUNRISE"}
+        ));
+
+        tracker.onTaskEvent(new LocationTaskEvent(
+                this, 1L, "Loc1|2026-03-15|SUNRISE", "Loc1", "2026-03-15", "SUNRISE",
+                LocationTaskState.COMPLETE, null, null));
+
+        tracker.completeRun(1L);
+
+        // After completeRun, progress should still be accessible (kept for SSE replay)
+        RunProgress progress = tracker.getProgress(1L);
+        assertThat(progress).isNotNull();
+        assertThat(progress.getStatus()).isEqualTo(RunProgress.RunStatus.COMPLETE);
+    }
+
+    @Test
+    @DisplayName("setPhase updates progress phase")
+    void setPhase_updatesPhase() {
+        tracker.initRun(1L, tasks(
+                new String[]{"Loc1|2026-03-15|SUNRISE", "Loc1", "2026-03-15", "SUNRISE"}
+        ));
+
+        tracker.setPhase(1L, com.gregochr.goldenhour.model.RunPhase.FULL_EVALUATION);
+
+        RunProgress progress = tracker.getProgress(1L);
+        assertThat(progress.getPhase())
+                .isEqualTo(com.gregochr.goldenhour.model.RunPhase.FULL_EVALUATION);
+    }
+
+    @Test
+    @DisplayName("setPhase on unknown run is a no-op")
+    void setPhase_unknownRun_noOp() {
+        // Should not throw
+        tracker.setPhase(999L, com.gregochr.goldenhour.model.RunPhase.TRIAGE);
+    }
+
+    @Test
+    @DisplayName("Multiple runs tracked independently")
+    void multipleRuns_trackedIndependently() {
+        tracker.initRun(1L, tasks(
+                new String[]{"Loc1|2026-03-15|SUNRISE", "Loc1", "2026-03-15", "SUNRISE"}
+        ));
+        tracker.initRun(2L, tasks(
+                new String[]{"Loc2|2026-03-16|SUNSET", "Loc2", "2026-03-16", "SUNSET"}
+        ));
+
+        tracker.onTaskEvent(new LocationTaskEvent(
+                this, 1L, "Loc1|2026-03-15|SUNRISE", "Loc1", "2026-03-15", "SUNRISE",
+                LocationTaskState.COMPLETE, null, null));
+
+        assertThat(tracker.getProgress(1L).getCompleted()).isEqualTo(1);
+        assertThat(tracker.getProgress(2L).getCompleted()).isZero();
+    }
 }

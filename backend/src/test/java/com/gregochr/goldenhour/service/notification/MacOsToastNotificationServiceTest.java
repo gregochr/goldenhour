@@ -54,4 +54,32 @@ class MacOsToastNotificationServiceTest {
                 toastService.notify(new SunsetEvaluation(4, null, null, "Good conditions."),
                         "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20)));
     }
+
+    @Test
+    @DisplayName("notify() handles SUNRISE target type without throwing")
+    void notify_sunriseTargetType_doesNotThrow() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getMacosToast().setEnabled(true);
+        MacOsToastNotificationService toastService =
+                new MacOsToastNotificationService(properties);
+
+        assertThatNoException().isThrownBy(() ->
+                toastService.notify(new SunsetEvaluation(null, 60, 55, "Decent sunrise."),
+                        "Bamburgh", TargetType.SUNRISE, LocalDate.of(2026, 3, 1)));
+    }
+
+    @Test
+    @DisplayName("notify() handles summary with double quotes without throwing")
+    void notify_summaryWithQuotes_doesNotThrow() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getMacosToast().setEnabled(true);
+        MacOsToastNotificationService toastService =
+                new MacOsToastNotificationService(properties);
+
+        // Double quotes in the summary must be escaped for osascript
+        assertThatNoException().isThrownBy(() ->
+                toastService.notify(
+                        new SunsetEvaluation(null, 70, 65, "A \"beautiful\" golden sky expected."),
+                        "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 3, 1)));
+    }
 }

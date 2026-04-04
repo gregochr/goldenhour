@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -180,5 +181,54 @@ class ForecastCommandFactoryTest {
         ForecastCommand cmd = factory.create(RunType.SHORT_TERM, false);
 
         assertThat(cmd.strategy()).isSameAs(noOpStrategy);
+    }
+
+    @Test
+    @DisplayName("create with excludedSlots propagates slot exclusions to command")
+    void create_withExcludedSlots_propagates() {
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+
+        Set<String> excluded = Set.of("2026-03-15|SUNSET");
+        ForecastCommand cmd = factory.create(RunType.SHORT_TERM, true, null, null, excluded);
+
+        assertThat(cmd.excludedSlots()).isEqualTo(excluded);
+        assertThat(cmd.excludedLocations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("create with excludedLocations propagates location exclusions to command")
+    void create_withExcludedLocations_propagates() {
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+
+        Set<String> excludedSlots = Set.of();
+        Set<String> excludedLocs = Set.of("Durham UK", "Bamburgh");
+        ForecastCommand cmd = factory.create(RunType.SHORT_TERM, true, null, null,
+                excludedSlots, excludedLocs);
+
+        assertThat(cmd.excludedLocations()).isEqualTo(excludedLocs);
+    }
+
+    @Test
+    @DisplayName("create with null dates resolves to default dates for run type")
+    void create_nullDates_resolvesDefaults() {
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+
+        ForecastCommand cmd = factory.create(RunType.SHORT_TERM, false, null, null);
+
+        assertThat(cmd.dates()).hasSize(3); // today, T+1, T+2
+        assertThat(cmd.dates().getFirst()).isEqualTo(LocalDate.now(ZoneOffset.UTC));
+    }
+
+    @Test
+    @DisplayName("create(BRIEFING) uses null strategy and full horizon dates")
+    void create_briefing_usesNullStrategyAndFullHorizon() {
+        ForecastCommand cmd = factory.create(RunType.BRIEFING, false);
+
+        assertThat(cmd.runType()).isEqualTo(RunType.BRIEFING);
+        assertThat(cmd.strategy()).isNull();
+        assertThat(cmd.dates()).hasSize(6);
     }
 }

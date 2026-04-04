@@ -62,6 +62,7 @@ public class OpenMeteoClient {
      * @param airQualityApi proxy for the Open-Meteo air quality endpoint
      * @param objectMapper  Jackson object mapper for batch response parsing
      */
+    @org.springframework.beans.factory.annotation.Autowired
     public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi,
             ObjectMapper objectMapper) {
         this(forecastApi, airQualityApi, objectMapper,
