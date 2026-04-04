@@ -214,7 +214,9 @@ public class BriefingService {
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);
 
         String headline = headlineGenerator.generateHeadline(days);
-        List<BestBet> bestBets = bestBetAdvisor.advise(days, jobRun.getId(), Map.of());
+        List<BestBet> bestBets = succeeded > 0
+                ? bestBetAdvisor.advise(days, jobRun.getId(), Map.of())
+                : List.of();
         AuroraTonightSummary auroraTonight = auroraSummaryBuilder.buildAuroraTonight();
         AuroraTomorrowSummary auroraTomorrow = auroraSummaryBuilder.buildAuroraTomorrow();
 
