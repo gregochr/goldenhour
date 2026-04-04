@@ -1,0 +1,7 @@
+services:
+  landing:
+    build: .
+    container_name: photocast-landing
+    ports:
+      - "8085:80"
+    restart: unless-stopped
