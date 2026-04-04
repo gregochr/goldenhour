@@ -543,8 +543,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         ${isActive ? 'ring-1 ring-white/25' : ''}`}
       style={{
         pointerEvents: (!visible || isStanddown || past) ? 'none' : undefined,
-        opacity: isStanddown ? (visible ? 0.3 : 0.04) : undefined,
-        backgroundColor: isStanddown ? (visible ? 'rgba(180,50,50,0.04)' : undefined) : undefined,
+        opacity: isStanddown ? (visible ? 0.55 : 0.04) : undefined,
       }}
       onClick={(!visible || isStanddown || past) ? undefined : () => onToggle(date, regionName, targetType)}
     >
@@ -617,8 +616,8 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       })()}
 
       {isStanddown && region?.summary && (
-        <div className="text-red-400/50 mt-0.5" style={{ fontSize: '10px' }}>
-          {region.summary.slice(0, 24)}
+        <div className="text-red-300/60 mt-0.5" style={{ fontSize: '10px' }}>
+          {region.summary.slice(0, 30)}
         </div>
       )}
     </button>
