@@ -215,10 +215,10 @@ function AppInner() {
 
       {showRunBanner && lastCompletedRun && (
         <div
-          className="bg-green-900/40 border-b border-green-700 px-4 py-3 text-center"
+          className="bg-green-900/40 border-b border-green-700 px-4 py-3"
           data-testid="run-complete-banner"
         >
-          <p className="text-sm text-green-300">
+          <p className="max-w-4xl mx-auto text-sm text-green-300 text-center">
             Forecast run completed — {lastCompletedRun.completed} location{lastCompletedRun.completed !== 1 ? 's' : ''} updated
             {lastCompletedRun.failed > 0 && `, ${lastCompletedRun.failed} failed`}.
             {' '}
@@ -237,10 +237,10 @@ function AppInner() {
 
       {isDown && (
         <div
-          className="bg-red-900/40 border-b border-red-700 px-4 py-3 text-center"
+          className="bg-red-900/40 border-b border-red-700 px-4 py-3"
           data-testid="backend-down-banner"
         >
-          <p className="text-sm text-red-300">
+          <p className="max-w-4xl mx-auto text-sm text-red-300 text-center">
             Service is temporarily unavailable. Data shown may be stale.
           </p>
         </div>
