@@ -117,9 +117,10 @@ public class BriefingAuroraSummaryBuilder {
                     .map(e -> buildRegionSummary(e.getKey(), e.getValue(), weatherMap))
                     .collect(Collectors.toList());
 
-            int clearCount = (int) scores.stream()
-                    .filter(s -> s.cloudPercent() < CLEAR_SKY_THRESHOLD)
-                    .count();
+            // Derive total clear count from the region summaries (which use fresh weather)
+            int clearCount = regions.stream()
+                    .mapToInt(AuroraRegionSummary::clearLocationCount)
+                    .sum();
 
             return new AuroraTonightSummary(alertLevel, kp, clearCount, regions);
         } catch (Exception e) {
@@ -287,11 +288,14 @@ public class BriefingAuroraSummaryBuilder {
                 .map(s -> {
                     AuroraWeatherEnricher.AuroraWeather w =
                             weatherMap.getOrDefault(s.location().getId(), null);
+                    // Use fresh cloud data from the weather enricher when available;
+                    // fall back to the (potentially stale) score cloud percent
+                    int cloud = w != null ? w.cloudPercent() : s.cloudPercent();
                     return new AuroraLocationSlot(
                             s.location().getName(),
                             s.location().getBortleClass(),
-                            s.cloudPercent() < CLEAR_SKY_THRESHOLD,
-                            s.cloudPercent(),
+                            cloud < CLEAR_SKY_THRESHOLD,
+                            cloud,
                             w != null ? w.temperatureCelsius() : null,
                             w != null ? w.windSpeedMs() : null,
                             w != null ? w.weatherCode() : null);

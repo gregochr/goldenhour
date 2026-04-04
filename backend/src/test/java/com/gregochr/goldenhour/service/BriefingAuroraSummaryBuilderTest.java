@@ -268,6 +268,7 @@ class BriefingAuroraSummaryBuilderTest {
                 .locationType(Set.of(LocationType.LANDSCAPE))
                 .tideType(Set.of())
                 .solarEventType(Set.of())
+                .bortleClass(3)
                 .region(region)
                 .enabled(true)
                 .createdAt(LocalDateTime.now())
