@@ -21,8 +21,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -139,8 +140,40 @@ class AuroraAdminControllerTest {
                 .andExpect(status().isAccepted());
 
         verify(jobRunService).startRun(
-                any(com.gregochr.goldenhour.entity.RunType.class),
-                anyBoolean(), any(), any());
+                eq(com.gregochr.goldenhour.entity.RunType.LIGHT_POLLUTION),
+                eq(true), isNull(), isNull());
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/enrich-bortle passes API key and jobRun to enrichmentService")
+    @WithMockUser(roles = {"ADMIN"})
+    void enrichBortle_validApiKey_passesKeyAndJobRunToService() throws Exception {
+        when(auroraProperties.getLightPollutionApiKey()).thenReturn("valid-key");
+
+        mockMvc.perform(post("/api/aurora/admin/enrich-bortle"))
+                .andExpect(status().isAccepted());
+
+        verify(enrichmentService).enrichAll(eq("valid-key"), any(JobRunEntity.class));
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate passes STRONG alert level for Kp 7")
+    @WithMockUser(roles = {"ADMIN"})
+    void simulate_admin_passesCorrectAlertLevel() throws Exception {
+        AuroraProperties.BortleThreshold bortleThreshold = new AuroraProperties.BortleThreshold();
+        bortleThreshold.setModerate(4);
+        bortleThreshold.setStrong(5);
+        when(auroraProperties.getBortleThreshold()).thenReturn(bortleThreshold);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(new LocationEntity()));
+
+        mockMvc.perform(post("/api/aurora/admin/simulate")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"kp\":7.0,\"ovationProbability\":45.0,\"bzNanoTesla\":-12.0,\"gScale\":\"G3\"}"))
+                .andExpect(status().isOk());
+
+        verify(stateCache).activateSimulation(
+                eq(AlertLevel.STRONG), any(AuroraStateCache.SimulatedNoaaData.class));
     }
 
     // -------------------------------------------------------------------------

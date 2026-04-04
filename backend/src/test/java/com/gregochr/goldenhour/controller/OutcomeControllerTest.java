@@ -21,8 +21,13 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import com.gregochr.goldenhour.model.ActualOutcome;
+import org.mockito.ArgumentCaptor;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -65,7 +70,8 @@ class OutcomeControllerTest {
     @WithMockUser
     @DisplayName("GET /api/outcome returns 400 when from is after to")
     void getOutcomes_fromAfterTo_returns400() throws Exception {
-        when(outcomeService.query(any(Double.class), any(Double.class), any(), any()))
+        when(outcomeService.query(eq(54.7753), eq(-1.5849),
+                eq(LocalDate.of(2026, 2, 28)), eq(LocalDate.of(2026, 2, 1))))
                 .thenThrow(new IllegalArgumentException("'from' must not be after 'to'"));
 
         mockMvc.perform(get("/api/outcome")
@@ -126,6 +132,50 @@ class OutcomeControllerTest {
                                 """))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error").value("No location named 'Nowhere'"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/outcome passes exact dates to service")
+    void getOutcomes_passesExactDatesToService() throws Exception {
+        when(outcomeService.query(eq(54.7753), eq(-1.5849),
+                eq(LocalDate.of(2026, 3, 1)), eq(LocalDate.of(2026, 3, 31))))
+                .thenReturn(List.of());
+
+        mockMvc.perform(get("/api/outcome")
+                        .param("lat", "54.7753")
+                        .param("lon", "-1.5849")
+                        .param("from", "2026-03-01")
+                        .param("to", "2026-03-31"))
+                .andExpect(status().isOk());
+
+        verify(outcomeService).query(eq(54.7753), eq(-1.5849),
+                eq(LocalDate.of(2026, 3, 1)), eq(LocalDate.of(2026, 3, 31)));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/outcome passes deserialized DTO fields to service")
+    void recordOutcome_passesDeserializedDtoToService() throws Exception {
+        when(outcomeService.record(any())).thenReturn(buildOutcomeEntity());
+
+        mockMvc.perform(post("/api/outcome")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validOutcomeJson()))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<ActualOutcome> captor = ArgumentCaptor.forClass(ActualOutcome.class);
+        verify(outcomeService).record(captor.capture());
+        ActualOutcome captured = captor.getValue();
+        assertThat(captured.locationLat()).isEqualTo(54.7753);
+        assertThat(captured.locationLon()).isEqualTo(-1.5849);
+        assertThat(captured.locationName()).isEqualTo("Durham UK");
+        assertThat(captured.outcomeDate()).isEqualTo(LocalDate.of(2026, 2, 20));
+        assertThat(captured.targetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(captured.wentOut()).isTrue();
+        assertThat(captured.fierySkyActual()).isEqualTo(68);
+        assertThat(captured.goldenHourActual()).isEqualTo(75);
+        assertThat(captured.notes()).isEqualTo("Beautiful orange sky");
     }
 
     private ActualOutcomeEntity buildOutcomeEntity() {

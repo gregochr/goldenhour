@@ -5,8 +5,10 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -19,6 +21,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,6 +44,8 @@ class UserServiceTest {
     @InjectMocks
     private UserService userService;
 
+    // ── loadUserByUsername ──────────────────────────────────────────────────────
+
     @Test
     @DisplayName("loadUserByUsername returns the user when found")
     void loadUserByUsername_userFound_returnsUser() {
@@ -60,40 +65,129 @@ class UserServiceTest {
                 .hasMessageContaining("ghost");
     }
 
-    @Test
-    @DisplayName("createUser saves user with hashed password and returns entity")
-    void createUser_newUsername_savesAndReturns() {
-        when(userRepository.existsByUsername("bob")).thenReturn(false);
-        when(passwordEncoder.encode("pass")).thenReturn("hashed");
-        AppUserEntity saved = buildUser(2L, "bob", UserRole.LITE_USER);
-        when(userRepository.save(any())).thenReturn(saved);
+    // ── createUser ─────────────────────────────────────────────────────────────
 
-        AppUserEntity result = userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+    @Nested
+    @DisplayName("createUser")
+    class CreateUser {
 
-        assertThat(result.getUsername()).isEqualTo("bob");
-        verify(passwordEncoder).encode("pass");
+        @Test
+        @DisplayName("saves user with correct fields and returns entity")
+        void newUsername_savesWithCorrectFields() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            AppUserEntity captured = captor.getValue();
+
+            assertThat(captured.getUsername()).isEqualTo("bob");
+            assertThat(captured.getPassword()).isEqualTo("hashed");
+            assertThat(captured.getRole()).isEqualTo(UserRole.LITE_USER);
+            assertThat(captured.getEmail()).isEqualTo("bob@example.com");
+            verify(passwordEncoder).encode("pass");
+        }
+
+        @Test
+        @DisplayName("sets enabled=true on new user")
+        void setsEnabledTrue() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().isEnabled()).isTrue();
+        }
+
+        @Test
+        @DisplayName("sets passwordChangeRequired=true on new user")
+        void setsPasswordChangeRequiredTrue() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().isPasswordChangeRequired()).isTrue();
+        }
+
+        @Test
+        @DisplayName("sets createdAt to current time")
+        void setsCreatedAt() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            LocalDateTime before = LocalDateTime.now();
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getCreatedAt())
+                    .isNotNull()
+                    .isAfterOrEqualTo(before)
+                    .isCloseTo(LocalDateTime.now(), within(5, java.time.temporal.ChronoUnit.SECONDS));
+        }
+
+        @Test
+        @DisplayName("throws when username already exists")
+        void duplicateUsername_throwsException() {
+            when(userRepository.existsByUsername("alice")).thenReturn(true);
+
+            assertThatThrownBy(() -> userService.createUser("alice", "pass", UserRole.LITE_USER, "alice@example.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("alice");
+        }
+
+        @Test
+        @DisplayName("throws when email already exists")
+        void duplicateEmail_throwsException() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
+
+            assertThatThrownBy(() -> userService.createUser("bob", "pass", UserRole.LITE_USER, "taken@example.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("taken@example.com");
+        }
+
+        @Test
+        @DisplayName("null email bypasses duplicate check")
+        void nullEmail_bypassesDuplicateCheck() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, null);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getEmail()).isNull();
+        }
+
+        @Test
+        @DisplayName("blank email bypasses duplicate check")
+        void blankEmail_bypassesDuplicateCheck() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "  ");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getEmail()).isEqualTo("  ");
+        }
     }
 
-    @Test
-    @DisplayName("createUser throws IllegalArgumentException when username already exists")
-    void createUser_duplicateUsername_throwsException() {
-        when(userRepository.existsByUsername("alice")).thenReturn(true);
-
-        assertThatThrownBy(() -> userService.createUser("alice", "pass", UserRole.LITE_USER, "alice@example.com"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("alice");
-    }
-
-    @Test
-    @DisplayName("createUser throws IllegalArgumentException when email already exists")
-    void createUser_duplicateEmail_throwsException() {
-        when(userRepository.existsByUsername("bob")).thenReturn(false);
-        when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
-
-        assertThatThrownBy(() -> userService.createUser("bob", "pass", UserRole.LITE_USER, "taken@example.com"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("taken@example.com");
-    }
+    // ── listAllUsers ───────────────────────────────────────────────────────────
 
     @Test
     @DisplayName("listAllUsers delegates to repository findAll")
@@ -103,6 +197,8 @@ class UserServiceTest {
 
         assertThat(userService.listAllUsers()).hasSize(1);
     }
+
+    // ── setEnabled ─────────────────────────────────────────────────────────────
 
     @Test
     @DisplayName("setEnabled updates the enabled flag on the user")
@@ -127,6 +223,8 @@ class UserServiceTest {
                 .hasMessageContaining("99");
     }
 
+    // ── setRole ────────────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("setRole updates the role on the user")
     void setRole_existingUser_updatesRole() {
@@ -150,6 +248,8 @@ class UserServiceTest {
                 .hasMessageContaining("99");
     }
 
+    // ── setEmail ───────────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("setEmail updates the email on the user")
     void setEmail_existingUser_updatesEmail() {
@@ -172,6 +272,8 @@ class UserServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("99");
     }
+
+    // ── resetPassword ──────────────────────────────────────────────────────────
 
     @Test
     @DisplayName("resetPassword returns a PasswordResetResult and sets passwordChangeRequired")
@@ -202,110 +304,172 @@ class UserServiceTest {
                 .hasMessageContaining("99");
     }
 
-    @Test
-    @DisplayName("createPendingUser creates a disabled user with empty password and marketing opt-in true")
-    void createPendingUser_newUser_createsDisabledUser() {
-        when(userRepository.existsByUsername("newuser")).thenReturn(false);
-        when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
-        AppUserEntity saved = AppUserEntity.builder()
-                .id(10L).username("newuser").password("").role(UserRole.LITE_USER)
-                .email("new@example.com").enabled(false).createdAt(LocalDateTime.now())
-                .marketingEmailOptIn(true).build();
-        when(userRepository.save(any())).thenReturn(saved);
+    // ── createPendingUser ──────────────────────────────────────────────────────
 
-        AppUserEntity result = userService.createPendingUser("newuser", "new@example.com", true);
+    @Nested
+    @DisplayName("createPendingUser")
+    class CreatePendingUser {
 
-        assertThat(result.getUsername()).isEqualTo("newuser");
-        assertThat(result.isEnabled()).isFalse();
-        assertThat(result.isMarketingEmailOptIn()).isTrue();
+        @Test
+        @DisplayName("creates disabled user with correct fields")
+        void newUser_createsWithCorrectFields() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "new@example.com", true);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            AppUserEntity captured = captor.getValue();
+
+            assertThat(captured.getUsername()).isEqualTo("newuser");
+            assertThat(captured.getEmail()).isEqualTo("new@example.com");
+            assertThat(captured.isEnabled()).isFalse();
+            assertThat(captured.isMarketingEmailOptIn()).isTrue();
+            assertThat(captured.getRole()).isEqualTo(UserRole.LITE_USER);
+        }
+
+        @Test
+        @DisplayName("sets empty password on pending user")
+        void setsEmptyPassword() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "new@example.com", true);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getPassword()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("sets passwordChangeRequired=false on pending user")
+        void setsPasswordChangeRequiredFalse() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "new@example.com", true);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().isPasswordChangeRequired()).isFalse();
+        }
+
+        @Test
+        @DisplayName("sets role to LITE_USER regardless of other state")
+        void setsRole_LITE_USER() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "new@example.com", true);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getRole()).isEqualTo(UserRole.LITE_USER);
+        }
+
+        @Test
+        @DisplayName("stores marketing opt-in as false when user opts out")
+        void optOut_storesMarketingOptInFalse() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("bob", "bob@example.com", false);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().isMarketingEmailOptIn()).isFalse();
+            assertThat(captor.getValue().getUsername()).isEqualTo("bob");
+        }
+
+        @Test
+        @DisplayName("throws when username already exists")
+        void duplicateUsername_throws() {
+            when(userRepository.existsByUsername("alice")).thenReturn(true);
+
+            assertThatThrownBy(() -> userService.createPendingUser("alice", "alice@example.com", true))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Username already exists");
+        }
+
+        @Test
+        @DisplayName("throws when email is registered to an active account")
+        void activeEmailDuplicate_throws() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            AppUserEntity active = buildUser(1L, "existing", UserRole.LITE_USER);
+            active.setEmail("taken@example.com");
+            active.setPassword("hashed");
+            when(userRepository.findByEmail("taken@example.com")).thenReturn(Optional.of(active));
+
+            assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com", true))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Email already registered");
+        }
+
+        @Test
+        @DisplayName("deletes abandoned pending registration and re-creates")
+        void abandonedPending_deletesAndReCreates() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            AppUserEntity abandoned = AppUserEntity.builder()
+                    .id(5L).username("old").password("").role(UserRole.LITE_USER)
+                    .email("reuse@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
+            when(userRepository.findByEmail("reuse@example.com")).thenReturn(Optional.of(abandoned));
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "reuse@example.com", true);
+
+            verify(userRepository).delete(abandoned);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            AppUserEntity captured = captor.getValue();
+            assertThat(captured.getUsername()).isEqualTo("newuser");
+            assertThat(captured.getEmail()).isEqualTo("reuse@example.com");
+            assertThat(captured.isEnabled()).isFalse();
+        }
     }
 
-    @Test
-    @DisplayName("createPendingUser stores marketing opt-in as false when user opts out")
-    void createPendingUser_optOut_storesMarketingOptInFalse() {
-        when(userRepository.existsByUsername("bob")).thenReturn(false);
-        when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.empty());
-        AppUserEntity saved = AppUserEntity.builder()
-                .id(11L).username("bob").password("").role(UserRole.LITE_USER)
-                .email("bob@example.com").enabled(false).createdAt(LocalDateTime.now())
-                .marketingEmailOptIn(false).build();
-        when(userRepository.save(any())).thenReturn(saved);
+    // ── activateUser ───────────────────────────────────────────────────────────
 
-        AppUserEntity result = userService.createPendingUser("bob", "bob@example.com", false);
+    @Nested
+    @DisplayName("activateUser")
+    class ActivateUser {
 
-        assertThat(result.isMarketingEmailOptIn()).isFalse();
+        @Test
+        @DisplayName("sets password, enables account, and clears passwordChangeRequired")
+        void setsPasswordAndEnables() {
+            AppUserEntity user = AppUserEntity.builder()
+                    .id(1L).username("alice").password("").role(UserRole.LITE_USER)
+                    .enabled(false).createdAt(LocalDateTime.now()).build();
+            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+            when(passwordEncoder.encode("MyP@ss1!")).thenReturn("encoded");
+            when(userRepository.save(any())).thenReturn(user);
+
+            userService.activateUser(1L, "MyP@ss1!");
+
+            assertThat(user.isEnabled()).isTrue();
+            assertThat(user.getPassword()).isEqualTo("encoded");
+            assertThat(user.isPasswordChangeRequired()).isFalse();
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        @DisplayName("throws when user not found")
+        void missingUser_throws() {
+            when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.activateUser(99L, "pass"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("99");
+        }
     }
 
-    @Test
-    @DisplayName("createPendingUser throws when username already exists")
-    void createPendingUser_duplicateUsername_throws() {
-        when(userRepository.existsByUsername("alice")).thenReturn(true);
-
-        assertThatThrownBy(() -> userService.createPendingUser("alice", "alice@example.com", true))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Username already exists");
-    }
-
-    @Test
-    @DisplayName("createPendingUser throws when email is registered to an active account")
-    void createPendingUser_activeEmailDuplicate_throws() {
-        when(userRepository.existsByUsername("newuser")).thenReturn(false);
-        AppUserEntity active = buildUser(1L, "existing", UserRole.LITE_USER);
-        active.setEmail("taken@example.com");
-        active.setPassword("hashed");
-        when(userRepository.findByEmail("taken@example.com")).thenReturn(Optional.of(active));
-
-        assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com", true))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Email already registered");
-    }
-
-    @Test
-    @DisplayName("createPendingUser deletes abandoned pending registration and re-creates")
-    void createPendingUser_abandonedPending_deletesAndReCreates() {
-        when(userRepository.existsByUsername("newuser")).thenReturn(false);
-        AppUserEntity abandoned = AppUserEntity.builder()
-                .id(5L).username("old").password("").role(UserRole.LITE_USER)
-                .email("reuse@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
-        when(userRepository.findByEmail("reuse@example.com")).thenReturn(Optional.of(abandoned));
-        AppUserEntity saved = AppUserEntity.builder()
-                .id(6L).username("newuser").password("").role(UserRole.LITE_USER)
-                .email("reuse@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
-        when(userRepository.save(any())).thenReturn(saved);
-
-        AppUserEntity result = userService.createPendingUser("newuser", "reuse@example.com", true);
-
-        verify(userRepository).delete(abandoned);
-        assertThat(result.getUsername()).isEqualTo("newuser");
-    }
-
-    @Test
-    @DisplayName("activateUser sets password, enables account, and clears passwordChangeRequired")
-    void activateUser_setsPasswordAndEnables() {
-        AppUserEntity user = AppUserEntity.builder()
-                .id(1L).username("alice").password("").role(UserRole.LITE_USER)
-                .enabled(false).createdAt(LocalDateTime.now()).build();
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(passwordEncoder.encode("MyP@ss1!")).thenReturn("encoded");
-        when(userRepository.save(any())).thenReturn(user);
-
-        userService.activateUser(1L, "MyP@ss1!");
-
-        assertThat(user.isEnabled()).isTrue();
-        assertThat(user.getPassword()).isEqualTo("encoded");
-        assertThat(user.isPasswordChangeRequired()).isFalse();
-        verify(userRepository).save(user);
-    }
-
-    @Test
-    @DisplayName("activateUser throws when user not found")
-    void activateUser_missingUser_throws() {
-        when(userRepository.findById(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> userService.activateUser(99L, "pass"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("99");
-    }
+    // ── Helper ─────────────────────────────────────────────────────────────────
 
     private AppUserEntity buildUser(Long id, String username, UserRole role) {
         return AppUserEntity.builder()

@@ -19,8 +19,10 @@ import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -33,9 +35,13 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -69,6 +75,8 @@ class BriefingEvaluationServiceTest {
         org.mockito.Mockito.lenient().when(briefingService.isColourLocation(any())).thenReturn(true);
     }
 
+    // ── Filtering tests ────────────────────────────────────────────────────────
+
     @Test
     @DisplayName("evaluateRegion evaluates GO/MARGINAL locations only")
     void evaluates_goAndMarginal_only() {
@@ -78,18 +86,17 @@ class BriefingEvaluationServiceTest {
 
         when(locationService.findAllEnabled()).thenReturn(List.of(goLoc, marginalLoc, standdownLoc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
 
-        // Briefing with GO, MARGINAL, and STANDDOWN slots
         BriefingSlot goSlot = slot("Bamburgh", Verdict.GO);
         BriefingSlot marginalSlot = slot("Dunstanburgh", Verdict.MARGINAL);
         BriefingSlot standdownSlot = slot("Craster", Verdict.STANDDOWN);
         stubBriefing(List.of(goSlot, marginalSlot, standdownSlot));
 
-        // ForecastService stubs — use any() matchers for reliability
         ForecastPreEvalResult preEval = nonTriagedResult(goLoc);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(4, 72, 65, "Good conditions"));
@@ -97,11 +104,17 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        // Verify standdown location was never fetched — total calls should be 2 (GO + MARGINAL)
-        verify(forecastService, org.mockito.Mockito.times(2))
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any());
+        // GO + MARGINAL = 2 calls
+        verify(forecastService, times(2))
+                .fetchWeatherAndTriage(any(), eq(DATE), eq(TargetType.SUNSET), any(),
+                        any(), eq(false), any());
 
-        // Verify cache populated
+        // Standdown location must never reach forecastService
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        argThat(loc -> "Craster".equals(loc.getName())),
+                        any(), any(), any(), any(), eq(false), any());
+
         Map<String, BriefingEvaluationResult> cached =
                 service.getCachedScores(REGION, DATE, TargetType.SUNSET);
         assertThat(cached).hasSize(2);
@@ -113,16 +126,16 @@ class BriefingEvaluationServiceTest {
     @Test
     @DisplayName("Cache hit replays results without new Claude calls")
     void cacheHit_noCalls() {
-        // Pre-populate cache
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
 
         ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(4, 72, 65, "Good"));
@@ -135,22 +148,23 @@ class BriefingEvaluationServiceTest {
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter2);
 
         // ForecastService should only be called once (first run)
-        verify(forecastService).fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any());
+        verify(forecastService).fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any());
     }
 
     @Test
     @DisplayName("BriefingRefreshedEvent clears cache")
     void eventClearsCache() {
-        // Pre-populate cache
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
 
         ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(4, 72, 65, "Good"));
@@ -179,7 +193,7 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        org.mockito.Mockito.verifyNoInteractions(forecastService);
+        verifyNoInteractions(forecastService);
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
     }
 
@@ -197,7 +211,7 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        org.mockito.Mockito.verifyNoInteractions(forecastService);
+        verifyNoInteractions(forecastService);
     }
 
     @Test
@@ -211,7 +225,7 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        org.mockito.Mockito.verifyNoInteractions(forecastService);
+        verifyNoInteractions(forecastService);
     }
 
     @Test
@@ -224,7 +238,7 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        org.mockito.Mockito.verifyNoInteractions(forecastService);
+        verifyNoInteractions(forecastService);
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
     }
 
@@ -235,12 +249,12 @@ class BriefingEvaluationServiceTest {
         LocationEntity okLoc = locationInRegion("Dunstanburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(failLoc, okLoc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Dunstanburgh", Verdict.MARGINAL)));
 
-        // First call fails, second succeeds
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        // First call fails, second succeeds — must use broad any() for sequential chaining
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any()))
                 .thenThrow(new RuntimeException("API timeout"))
                 .thenReturn(nonTriagedResult(okLoc));
         when(forecastService.evaluateAndPersist(any(), any()))
@@ -251,7 +265,6 @@ class BriefingEvaluationServiceTest {
 
         Map<String, BriefingEvaluationResult> cached =
                 service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        // Only the successful one should be cached
         assertThat(cached).hasSize(1);
         assertThat(cached).containsKey("Dunstanburgh");
         assertThat(cached).doesNotContainKey("Bamburgh");
@@ -264,17 +277,17 @@ class BriefingEvaluationServiceTest {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
 
         ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(LocalDate.class), any(TargetType.class), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(4, 72, 65, "Good"))
                 .thenReturn(evaluationEntity(2, 30, 25, "Poor"));
 
-        // Stub briefing for both dates
         stubBriefingForDate(DATE, List.of(slot("Bamburgh", Verdict.GO)));
 
         SseEmitter emitter1 = mock(SseEmitter.class);
@@ -297,11 +310,12 @@ class BriefingEvaluationServiceTest {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
 
         ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNRISE), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(5, 90, 85, "Spectacular"));
@@ -321,14 +335,15 @@ class BriefingEvaluationServiceTest {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
 
         ForecastPreEvalResult triagedPreEval = new ForecastPreEvalResult(
                 true, "Heavy rain forecast", null, loc, DATE, TargetType.SUNSET,
-                null, null, 0, null, null, null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+                null, null, 0, null, null, null, null);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(triagedPreEval);
 
         SseEmitter emitter = mock(SseEmitter.class);
@@ -358,11 +373,12 @@ class BriefingEvaluationServiceTest {
                 .thenReturn(List.of(loc1))
                 .thenReturn(List.of(loc2));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
 
         ForecastPreEvalResult preEval = nonTriagedResult(loc1);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(4, 70, 60, "Good"));
@@ -388,12 +404,13 @@ class BriefingEvaluationServiceTest {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
 
         ForecastPreEvalResult preEval = nonTriagedResult(loc);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(preEval);
         when(forecastService.evaluateAndPersist(any(), any()))
                 .thenReturn(evaluationEntity(4, 72, 65, "Good"));
@@ -417,9 +434,9 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        org.mockito.Mockito.verifyNoInteractions(forecastService);
-        org.mockito.Mockito.verifyNoInteractions(modelSelectionService);
-        org.mockito.Mockito.verifyNoInteractions(jobRunService);
+        verifyNoInteractions(forecastService);
+        verifyNoInteractions(modelSelectionService);
+        verifyNoInteractions(jobRunService);
     }
 
     @Test
@@ -428,14 +445,15 @@ class BriefingEvaluationServiceTest {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
 
         ForecastPreEvalResult triagedPreEval = new ForecastPreEvalResult(
                 true, "Heavy rain", null, loc, DATE, TargetType.SUNSET,
-                null, null, 0, null, null, null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any()))
+                null, null, 0, null, null, null, null);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
                 .thenReturn(triagedPreEval);
 
         SseEmitter emitter = mock(SseEmitter.class);
@@ -444,6 +462,164 @@ class BriefingEvaluationServiceTest {
         Map<String, BriefingEvaluationResult> cached =
                 service.getCachedScores(REGION, DATE, TargetType.SUNSET);
         assertThat(cached.get("Bamburgh").rating()).isEqualTo(1);
+    }
+
+    // ── Argument verification tests ────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("Argument verification")
+    class ArgumentVerification {
+
+        @Test
+        @DisplayName("fetchWeatherAndTriage receives the correct location entity")
+        void fetchWeatherAndTriage_receives_correct_location() {
+            LocationEntity loc = locationInRegion("Bamburgh", REGION);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                    .thenReturn(JobRunEntity.builder().id(1L).build());
+            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+            ForecastPreEvalResult preEval = nonTriagedResult(loc);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                    .thenReturn(preEval);
+            when(forecastService.evaluateAndPersist(any(), any()))
+                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
+            verify(forecastService).fetchWeatherAndTriage(
+                    locCaptor.capture(), eq(DATE), eq(TargetType.SUNSET), any(),
+                    any(), eq(false), any());
+            assertThat(locCaptor.getValue().getName()).isEqualTo("Bamburgh");
+            assertThat(locCaptor.getValue().getLat()).isEqualTo(55.6);
+        }
+
+        @Test
+        @DisplayName("tideAlignmentEnabled is always false for briefing evaluations")
+        void tideAlignmentEnabled_always_false() {
+            LocationEntity loc = locationInRegion("Bamburgh", REGION);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                    .thenReturn(JobRunEntity.builder().id(1L).build());
+            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+            ForecastPreEvalResult preEval = nonTriagedResult(loc);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                    .thenReturn(preEval);
+            when(forecastService.evaluateAndPersist(any(), any()))
+                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+            // Verify tideAlignment (6th arg) is explicitly false, not just any boolean
+            verify(forecastService).fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), eq(false), any());
+
+            // And never called with true
+            verify(forecastService, never()).fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("Model from modelSelectionService is passed to fetchWeatherAndTriage")
+        void model_passed_from_modelSelectionService() {
+            LocationEntity loc = locationInRegion("Bamburgh", REGION);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.SONNET)))
+                    .thenReturn(JobRunEntity.builder().id(1L).build());
+            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+            ForecastPreEvalResult preEval = nonTriagedResult(loc);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(), eq(EvaluationModel.SONNET), eq(false), any()))
+                    .thenReturn(preEval);
+            when(forecastService.evaluateAndPersist(any(), any()))
+                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+            verify(forecastService).fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(),
+                    eq(EvaluationModel.SONNET), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("jobRun started with SHORT_TERM and manual=true")
+        void jobRun_started_with_SHORT_TERM_and_manual() {
+            LocationEntity loc = locationInRegion("Bamburgh", REGION);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                    .thenReturn(JobRunEntity.builder().id(1L).build());
+            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+            ForecastPreEvalResult preEval = nonTriagedResult(loc);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                    .thenReturn(preEval);
+            when(forecastService.evaluateAndPersist(any(), any()))
+                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+            verify(jobRunService).startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU));
+        }
+
+        @Test
+        @DisplayName("jobRun completed with correct succeeded/failed counts")
+        void jobRun_completed_with_correct_counts() {
+            LocationEntity goLoc = locationInRegion("Bamburgh", REGION);
+            LocationEntity marginalLoc = locationInRegion("Dunstanburgh", REGION);
+            when(locationService.findAllEnabled()).thenReturn(List.of(goLoc, marginalLoc));
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                    .thenReturn(JobRunEntity.builder().id(1L).build());
+            stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Dunstanburgh", Verdict.MARGINAL)));
+
+            ForecastPreEvalResult preEval = nonTriagedResult(goLoc);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                    .thenReturn(preEval);
+            when(forecastService.evaluateAndPersist(any(), any()))
+                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+            verify(jobRunService).completeRun(any(JobRunEntity.class), eq(2), eq(0), eq(List.of(DATE)));
+        }
+
+        @Test
+        @DisplayName("evaluateAndPersist receives the preEval output from fetchWeatherAndTriage")
+        void evaluateAndPersist_receives_preEval_output() {
+            LocationEntity loc = locationInRegion("Bamburgh", REGION);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+            when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                    .thenReturn(JobRunEntity.builder().id(1L).build());
+            stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+            ForecastPreEvalResult preEval = nonTriagedResult(loc);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                    .thenReturn(preEval);
+            when(forecastService.evaluateAndPersist(any(), any()))
+                    .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+            service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+            // Capture the exact ForecastPreEvalResult passed to evaluateAndPersist
+            ArgumentCaptor<ForecastPreEvalResult> captor =
+                    ArgumentCaptor.forClass(ForecastPreEvalResult.class);
+            verify(forecastService).evaluateAndPersist(captor.capture(), any(JobRunEntity.class));
+            assertThat(captor.getValue()).isSameAs(preEval);
+        }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -502,7 +678,7 @@ class BriefingEvaluationServiceTest {
     private ForecastPreEvalResult nonTriagedResult(LocationEntity loc) {
         return new ForecastPreEvalResult(
                 false, null, null, loc, DATE, TargetType.SUNSET,
-                null, null, 0, null, null, null);
+                null, null, 0, null, null, null, null);
     }
 
     private ForecastEvaluationEntity evaluationEntity(int rating, int fiery, int golden, String summary) {
