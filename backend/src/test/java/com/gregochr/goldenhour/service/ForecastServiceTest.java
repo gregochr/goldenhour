@@ -665,6 +665,74 @@ class ForecastServiceTest {
         verify(evaluationService, never()).evaluate(any(), any(), any());
     }
 
+    // --- Batch prefetch cache integration tests ---
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() with non-null prefetched map uses cache, not individual API")
+    void fetchWeatherAndTriage_withPrefetched_usesCache() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        WeatherExtractionResult cached = new WeatherExtractionResult(data, null);
+
+        java.util.Map<String, WeatherExtractionResult> prefetched = new java.util.HashMap<>();
+        prefetched.put(DURHAM_LAT + "," + DURHAM_LON, cached);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataFromCache(any(), any(), eq(prefetched)))
+                .thenReturn(cached);
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(java.util.Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null, prefetched);
+
+        verify(openMeteoService).getAtmosphericDataFromCache(any(), any(), eq(prefetched));
+        verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() with null prefetched map falls back to individual API")
+    void fetchWeatherAndTriage_withNullPrefetched_fallsToIndividual() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(java.util.Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null, null);
+
+        verify(openMeteoService).getAtmosphericDataWithResponse(
+                any(ForecastRequest.class), any(), any());
+        verify(openMeteoService, never()).getAtmosphericDataFromCache(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() throws when cache miss occurs")
+    void fetchWeatherAndTriage_cacheMiss_throwsWeatherDataFetchException() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        java.util.Map<String, WeatherExtractionResult> prefetched = new java.util.HashMap<>();
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataFromCache(any(), any(), eq(prefetched)))
+                .thenReturn(null);
+
+        assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null, prefetched))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining("Weather data fetch failed");
+    }
+
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {
         return TestAtmosphericData.builder()
                 .solarEventTime(eventTime)

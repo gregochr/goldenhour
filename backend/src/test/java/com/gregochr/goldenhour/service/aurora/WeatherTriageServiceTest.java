@@ -192,6 +192,29 @@ class WeatherTriageServiceTest {
         return resp;
     }
 
+    @Test
+    @DisplayName("triage() with empty candidate list returns empty result without calling API")
+    void triage_emptyList_returnsEmptyResult() {
+        WeatherTriageService.TriageResult result = service.triage(List.of());
+
+        assertThat(result.viable()).isEmpty();
+        assertThat(result.rejected()).isEmpty();
+        assertThat(result.cloudByLocation()).isEmpty();
+        org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.never())
+                .fetchCloudOnlyBatch(any());
+    }
+
+    @Test
+    @DisplayName("triage() calls fetchCloudOnlyBatch exactly once, not individual fetchCloudOnly")
+    void triage_usesBatchNotIndividual() {
+        stubBatchReturnsCloudData(new int[]{20, 20, 20, 20, 20, 20, 20});
+        LocationEntity loc = buildLocation(10L, "TestLoc", 55.0, -2.0, 2);
+
+        service.triage(List.of(loc));
+
+        org.mockito.Mockito.verify(openMeteoClient).fetchCloudOnlyBatch(any());
+    }
+
     private List<String> buildHourlyTimeStrings(int count) {
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm");
         ZonedDateTime base = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);

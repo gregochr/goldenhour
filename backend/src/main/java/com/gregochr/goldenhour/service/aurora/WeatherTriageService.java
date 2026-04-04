@@ -89,6 +89,9 @@ public class WeatherTriageService {
         }
 
         Map<String, int[]> gridKeyToCloud = new HashMap<>();
+        if (coords.isEmpty()) {
+            return new TriageResult(List.of(), List.of(), Map.of());
+        }
         try {
             List<OpenMeteoForecastResponse> responses = openMeteoClient.fetchCloudOnlyBatch(coords);
             for (int i = 0; i < gridKeys.size(); i++) {

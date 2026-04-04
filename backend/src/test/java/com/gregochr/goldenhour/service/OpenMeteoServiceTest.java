@@ -27,6 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -1052,5 +1054,85 @@ class OpenMeteoServiceTest {
         var result = openMeteoService.getAtmosphericDataFromCache(
                 request, LocalDateTime.of(2026, 6, 21, 6, 0), java.util.Map.of());
         assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("coordKey() formats lat/lon as 'lat,lon' string including negatives")
+    void coordKey_formatsLatLon() {
+        assertThat(OpenMeteoService.coordKey(54.77, -1.57)).isEqualTo("54.77,-1.57");
+        assertThat(OpenMeteoService.coordKey(-33.87, 151.21)).isEqualTo("-33.87,151.21");
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatch() calls both batch APIs exactly once")
+    void prefetchWeatherBatch_callsBothApis() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+
+        List<double[]> coords = List.of(new double[]{55.0, -1.5});
+        when(openMeteoClient.fetchForecastBatch(anyList())).thenReturn(List.of(f1));
+        when(openMeteoClient.fetchAirQualityBatch(anyList())).thenReturn(List.of(aq1));
+
+        openMeteoService.prefetchWeatherBatch(coords, null);
+
+        verify(openMeteoClient).fetchForecastBatch(anyList());
+        verify(openMeteoClient).fetchAirQualityBatch(anyList());
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatch() propagates exception when forecast batch fails")
+    void prefetchWeatherBatch_apiFailure_propagatesException() {
+        when(openMeteoClient.fetchForecastBatch(anyList()))
+                .thenThrow(new RuntimeException("batch API timeout"));
+
+        List<double[]> coords = List.of(new double[]{55.0, -1.5});
+
+        assertThatThrownBy(() -> openMeteoService.prefetchWeatherBatch(coords, null))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("batch API timeout");
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatch() returns empty map for empty coord list")
+    void prefetchWeatherBatch_emptyCoordList_returnsEmptyMap() {
+        when(openMeteoClient.fetchForecastBatch(anyList())).thenReturn(List.of());
+        when(openMeteoClient.fetchAirQualityBatch(anyList())).thenReturn(List.of());
+
+        var cache = openMeteoService.prefetchWeatherBatch(List.of(), null);
+
+        assertThat(cache).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getAtmosphericDataFromCache() does not call individual weather APIs")
+    void getAtmosphericDataFromCache_doesNotCallApi() {
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoAirQualityResponse aq = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+
+        when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("Should not be called"));
+        when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("Should not be called"));
+
+        var cache = java.util.Map.of("55.0,-1.5",
+                new com.gregochr.goldenhour.model.WeatherExtractionResult(null, forecast, aq));
+
+        ForecastRequest request = new ForecastRequest(55.0, -1.5, "Durham",
+                LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
+
+        var result = openMeteoService.getAtmosphericDataFromCache(
+                request, LocalDateTime.of(2026, 6, 21, 6, 0), cache);
+
+        assertThat(result).isNotNull();
+        verify(openMeteoClient, never()).fetchForecast(anyDouble(), anyDouble());
+        verify(openMeteoClient, never()).fetchAirQuality(anyDouble(), anyDouble());
     }
 }

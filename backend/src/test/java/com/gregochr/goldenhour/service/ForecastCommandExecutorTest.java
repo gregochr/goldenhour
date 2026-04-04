@@ -830,4 +830,62 @@ class ForecastCommandExecutorTest {
         verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
                 .evaluateAndPersist(any(), any());
     }
+
+    // -------------------------------------------------------------------------
+    // Batch prefetch deduplication and data flow
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("prefetchWeather deduplicates same location across multiple dates")
+    void prefetchWeather_deduplicatesSameLocation() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today, today.plusDays(1));
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // 4 tasks (1 location × 2 dates × 2 target types) but only 1 unique coordinate
+        org.mockito.ArgumentCaptor<java.util.List<double[]>> captor =
+                org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(openMeteoService).prefetchWeatherBatch(captor.capture(), any());
+        assertThat(captor.getValue()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("prefetchWeather deduplicates two locations with identical lat/lon")
+    void prefetchWeather_sameLatLon_differentNames_deduplicates() {
+        LocationEntity durham2 = LocationEntity.builder()
+                .id(5L).name("Durham Castle")
+                .lat(54.7753).lon(-1.5849)
+                .solarEventType(new HashSet<>(
+                        Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .build();
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham(), durham2), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        org.mockito.ArgumentCaptor<java.util.List<double[]>> captor =
+                org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(openMeteoService).prefetchWeatherBatch(captor.capture(), any());
+        assertThat(captor.getValue()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("triagePhase passes exact prefetched map object to fetchWeatherAndTriage")
+    void triagePhase_passesExactPrefetchedMap() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
+                        any(TargetType.class), any(), any(EvaluationModel.class),
+                        anyBoolean(), any(), eq(stubPrefetchedWeather));
+    }
 }
