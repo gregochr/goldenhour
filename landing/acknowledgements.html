@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acknowledgements — PhotoCast</title>
+  <meta name="description" content="Data sources and open-source projects that power PhotoCast.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #181A1E;
+      --bg-surface: #252830;
+      --bg-card: #252830;
+      --text: #EBEBEB;
+      --text-muted: #A0A0A0;
+      --text-dim: #6B6B6B;
+      --gold: #E5A00D;
+      --gold-light: #F5C518;
+      --border: #3A3D45;
+      --radius: 12px;
+      --radius-lg: 14px;
+    }
+    body {
+      font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
+    .nav-brand { display: flex; flex-direction: column; }
+    .nav-brand a { text-decoration: none; color: inherit; }
+    .nav-title {
+      font-size: 36px; font-weight: 800; letter-spacing: -0.025em;
+      color: var(--text); display: flex; align-items: center; gap: 12px;
+    }
+    .nav-title img { height: 40px; width: 40px; object-fit: contain; }
+    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 4px; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      font-size: 13px; font-weight: 600;
+      background: var(--gold); color: #000;
+      padding: 7px 18px; border-radius: 20px;
+      text-decoration: none; display: inline-block;
+      transition: background 0.15s;
+    }
+    .nav-cta:hover { background: var(--gold-light); }
+    .page-heading { text-align: center; padding: 0 0 3rem; }
+    .page-heading h1 {
+      font-size: clamp(28px, 5vw, 36px); font-weight: 600;
+      letter-spacing: -1px; color: var(--text);
+    }
+    .ack-intro {
+      font-size: 15px; color: var(--text-muted); line-height: 1.6;
+      text-align: center; max-width: 540px; margin: -1.5rem auto 2.5rem;
+    }
+    .ack-section { margin-bottom: 2.5rem; }
+    .ack-section h2 {
+      font-size: 18px; font-weight: 600;
+      letter-spacing: -0.2px; margin-bottom: 12px; color: var(--text);
+    }
+    .ack-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      margin-bottom: 8px;
+    }
+    .ack-card:last-child { margin-bottom: 0; }
+    .ack-name {
+      font-size: 15px; font-weight: 600; color: var(--text);
+      margin-bottom: 2px;
+    }
+    .ack-name a {
+      color: var(--text); text-decoration: none;
+      border-bottom: 1px solid var(--border);
+      transition: border-color 0.15s;
+    }
+    .ack-name a:hover { border-color: var(--gold); }
+    .ack-desc {
+      font-size: 13px; color: var(--text-muted); line-height: 1.5;
+    }
+    .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
+    .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
+    .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
+    .footer-links a:hover { color: var(--text-muted); }
+    .footer-social { display: flex; gap: 1rem; justify-content: center; margin: 1rem 0; }
+    .footer-social a { color: var(--text-dim); transition: color 0.15s; }
+    .footer-social a:hover { color: var(--gold); }
+    .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+    @media (max-width: 500px) {
+      .nav-links a:not(.nav-cta) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <nav class="nav">
+      <div class="nav-brand">
+        <a href="index.html">
+          <div class="nav-title"><img src="logo.png" alt="">PhotoCast</div>
+          <p class="nav-subtitle">AI sunrise, sunset, and aurora forecasting</p>
+        </a>
+      </div>
+      <div class="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#pricing">Pricing</a>
+        <a href="faq.html">FAQ</a>
+        <a class="nav-cta" href="https://app.photocast.online/register">Try free</a>
+      </div>
+    </nav>
+
+    <div class="page-heading">
+      <h1>Acknowledgements</h1>
+    </div>
+
+    <p class="ack-intro">PhotoCast is built on the work of many open data providers and open-source projects. We are grateful to all of them.</p>
+
+    <div class="ack-section">
+      <h2>Data sources</h2>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></div>
+        <div class="ack-desc">Weather forecast data including cloud cover at multiple altitudes, humidity, wind, temperature, precipitation, visibility, and pressure. Air quality data via CAMS (aerosol optical depth, PM2.5, dust).</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.worldtides.info/" target="_blank" rel="noopener noreferrer">WorldTides</a></div>
+        <div class="ack-desc">Tide heights and times for UK coastal stations, enabling spring tide, king tide, and tide-aligned sunrise/sunset detection.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener noreferrer">NOAA Space Weather Prediction Center</a></div>
+        <div class="ack-desc">Kp index, 3-day Kp forecast, OVATION aurora probability model, solar wind data, and G-scale geomagnetic storm alerts.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.lightpollutionmap.info/" target="_blank" rel="noopener noreferrer">Light Pollution Map</a></div>
+        <div class="ack-desc">Bortle class and sky brightness (SQM) data for dark sky assessment at aurora and astrophotography locations.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://postcodes.io/" target="_blank" rel="noopener noreferrer">Postcodes.io</a></div>
+        <div class="ack-desc">Free UK postcode geocoding for home location and personalised drive time calculation.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.ecb.europa.eu/" target="_blank" rel="noopener noreferrer">European Central Bank (via Frankfurter)</a></div>
+        <div class="ack-desc">Exchange rate data for cost display.</div>
+      </div>
+    </div>
+
+    <div class="ack-section">
+      <h2>AI</h2>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.anthropic.com/claude" target="_blank" rel="noopener noreferrer">Claude by Anthropic</a></div>
+        <div class="ack-desc">AI forecast evaluation, scoring, plain-English explanations, best-bet recommendations, and aurora interpretation.</div>
+      </div>
+    </div>
+
+    <div class="ack-section">
+      <h2>Mapping</h2>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer">Leaflet</a></div>
+        <div class="ack-desc">Open-source JavaScript library for interactive maps.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap</a></div>
+        <div class="ack-desc">Map tile data. &copy; OpenStreetMap contributors.</div>
+      </div>
+    </div>
+
+    <div class="ack-section">
+      <h2>Infrastructure</h2>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://spring.io/projects/spring-boot" target="_blank" rel="noopener noreferrer">Spring Boot</a></div>
+        <div class="ack-desc">Java application framework powering the PhotoCast backend.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://react.dev/" target="_blank" rel="noopener noreferrer">React</a></div>
+        <div class="ack-desc">JavaScript library for building the PhotoCast user interface.</div>
+      </div>
+
+      <div class="ack-card">
+        <div class="ack-name"><a href="https://www.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare</a></div>
+        <div class="ack-desc">CDN, DNS, and tunnel infrastructure for secure hosting.</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="footer-links">
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="acknowledgements.html">Acknowledgements</a>
+        <a href="faq.html">FAQ</a>
+      </div>
+      <div class="footer-social">
+        <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+        </a>
+        <a href="https://www.facebook.com/photocast" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+        </a>
+      </div>
+      <p class="footer-copy">&copy; 2026 PhotoCast</p>
+    </div>
+
+  </div>
+</body>
+</html>

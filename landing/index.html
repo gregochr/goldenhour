@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PhotoCast — AI sunrise and sunset forecasting</title>
-  <meta name="description" content="AI scores every sunrise and sunset across northern England — so you never waste a drive on grey skies.">
+  <meta name="description" content="AI analyses cloud layers, aerosols, and light direction to score every sunrise and sunset across northern England — and tells you why.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -160,6 +160,33 @@
       margin-bottom: 6px;
     }
 
+    /* FAQ teaser */
+    .faq-teaser { padding: 1.5rem 0 2.5rem; }
+    .faq-teaser h2 {
+      font-size: 26px; font-weight: 600;
+      letter-spacing: -0.5px; margin-bottom: 1.5rem;
+      color: var(--text); text-align: center;
+    }
+    .faq-item {
+      padding: 1.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .faq-item:first-of-type { border-top: 1px solid var(--border); }
+    .faq-item h3 {
+      font-size: 15px; font-weight: 600;
+      margin-bottom: 4px; color: var(--text);
+    }
+    .faq-item p {
+      font-size: 14px; color: var(--text-muted); line-height: 1.6;
+    }
+    .faq-link {
+      display: block; text-align: center;
+      font-size: 14px; color: var(--gold);
+      text-decoration: none; margin-top: 1.25rem;
+      transition: color 0.15s;
+    }
+    .faq-link:hover { color: var(--gold-light); }
+
     /* Bottom CTA */
     .bottom-cta { text-align: center; padding: 2.5rem 0; }
     .bottom-cta p { font-size: 15px; color: var(--text-muted); margin-bottom: 1.25rem; }
@@ -202,30 +229,31 @@
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
+        <a href="faq.html">FAQ</a>
         <a class="nav-cta" href="https://app.photocast.online/register">Try free</a>
       </div>
     </nav>
 
     <div class="hero">
       <h1>Know before you <em>go</em></h1>
-      <p class="hero-sub">AI scores every sunrise and sunset across northern England — so you never waste a drive on grey skies.</p>
+      <p class="hero-sub">AI analyses cloud layers, aerosols, humidity, and light direction to score every sunrise and sunset across northern England — and tells you <em>why</em>.</p>
       <a class="btn-gold" href="https://app.photocast.online/register">Get started free</a>
     </div>
 
     <div class="screenshot">
       <div class="screenshot-inner">
-        <img src="screenshot.png" alt="PhotoCast Planner showing best bet recommendations, quality slider, and heatmap grid with GO, Marginal, and Standdown verdicts across northern England regions">
+        <img src="screenshot.png" alt="PhotoCast Planner with AI-generated Best Bet and Also Good recommendations for the best sunrise and sunset opportunities, plus a heatmap grid showing GO, Marginal, and Standdown verdicts across northern England regions">
       </div>
     </div>
 
     <div class="features" id="features">
       <div class="feature">
-        <h2>Every sunrise scored before you wake up</h2>
-        <p>AI evaluates cloud cover, humidity, light direction, and even Saharan dust to score every sunrise and sunset 1–5 stars — with a plain-English explanation of why.</p>
+        <h2>AI reads the atmosphere so you don't have to</h2>
+        <p>For every sunrise and sunset, AI analyses cloud cover at three altitudes, aerosol depth, humidity, wind, visibility, and Saharan dust — then writes a plain-English verdict explaining exactly why the light will or won't be worth the drive.</p>
       </div>
       <div class="feature">
-        <h2>Plan your next three days in one glance</h2>
-        <p>Heatmap grid shows all your regions at a glance. See which slots are worth protecting in your calendar — and which are a write-off.</p>
+        <h2>AI picks your best bet — you just show up</h2>
+        <p>AI evaluates every location across the next three days and recommends exactly where and when to go — factoring in drive time, day of week, and conditions. A heatmap grid shows the full picture at a glance.</p>
       </div>
       <div class="feature">
         <h2>Catch the dramatic tides at the best light</h2>
@@ -233,11 +261,11 @@
       </div>
       <div class="feature">
         <h2>Know about aurora before dark, not after</h2>
-        <p>NOAA space weather monitoring with daytime lookahead. When conditions line up for northern lights, you'll have time to plan your evening.</p>
+        <p>NOAA space weather data, interpreted by AI. When conditions line up for northern lights, you'll get a forecast with enough time to plan your evening.</p>
       </div>
       <div class="feature">
-        <h2>Find the fog before it lifts</h2>
-        <p>Atmospheric conditions scored for valley and lakeside locations where morning fog and cloud inversions create other-worldly scenes.</p>
+        <h2>Find the mist before it lifts</h2>
+        <p>AI scores inversion potential for valley and lakeside locations — reading temperature, dew point, wind, and elevation to predict where cloud inversions will create other-worldly scenes.</p>
       </div>
       <div class="feature">
         <h2>Built for the North</h2>
@@ -253,10 +281,10 @@
 
     <div class="story" id="story">
       <h2>The story</h2>
-      <p>On the evening of 21st February, I asked AI whether tomorrow's sunrise was worth getting up for. It said yes. I asked what actually makes a great sunrise — the science behind the colour. It told me about cloud layers, aerosol depth, humidity, light direction.</p>
+      <p>On the evening of 21st February, I asked Claude — Anthropic's Artificial Intelligence platform — whether tomorrow's sunrise was worth getting up for. It said yes. I asked what actually makes a great sunrise — the science behind the colour. It told me about cloud layers, aerosol depth, humidity, light direction.</p>
       <p>I asked if the weather forecast it was using had any of that data. It didn't. I asked if a tool existed that combined all of it into a simple "go or don't go" answer for photographers. It didn't.</p>
-      <p>I decided not to risk the early alarm and the wasted drive. Instead, we started building the tool.</p>
-      <p>PhotoCast uses AI to score every sunrise and sunset across northern England — so you never have to guess whether it's worth getting up.</p>
+      <p>I decided not to risk the early alarm and the wasted drive. Instead, we started building PhotoCast.</p>
+      <p>Now, PhotoCast, with Claude, analyses 10+ atmospheric variables for every sunrise and sunset across 200+ locations — scoring the light, explaining the reasoning, and telling you exactly where to be.</p>
     </div>
 
     <div class="pricing" id="pricing">
@@ -267,8 +295,8 @@
           <div class="pricing-price">Free</div>
           <ul class="pricing-list">
             <li><span class="dot"></span>3-day forecast horizon</li>
-            <li><span class="dot"></span>Star ratings</li>
-            <li><span class="dot"></span>Weather triage verdicts</li>
+            <li><span class="dot"></span>AI star ratings</li>
+            <li><span class="dot"></span>AI weather triage verdicts</li>
             <li><span class="dot"></span>Planner heatmap grid</li>
           </ul>
         </div>
@@ -279,12 +307,30 @@
           <ul class="pricing-list">
             <li><span class="dot"></span>AI-powered best-bet picks</li>
             <li><span class="dot"></span>Per-location AI scoring</li>
+            <li><span class="dot"></span>AI-written forecast explanations</li>
             <li><span class="dot"></span>Aurora forecasting and viewline</li>
             <li><span class="dot"></span>Full score breakdowns</li>
             <li><span class="dot"></span>Personalised drive times</li>
           </ul>
         </div>
       </div>
+    </div>
+
+    <div class="faq-teaser">
+      <h2>Common questions</h2>
+      <div class="faq-item">
+        <h3>How accurate is it?</h3>
+        <p>Forecasts are based on third-party weather data and AI interpretation. They're most reliable for tomorrow and the day after. We never claim to predict the sky perfectly — we just give you much better odds than checking a generic weather app.</p>
+      </div>
+      <div class="faq-item">
+        <h3>What areas do you cover?</h3>
+        <p>Northumberland, the Lake District, North Yorkshire Coast, Yorkshire Dales, North York Moors, Tyne and Wear, and Teesdale. Over 200 named locations.</p>
+      </div>
+      <div class="faq-item">
+        <h3>What's the difference between Lite and Pro?</h3>
+        <p>Lite is free and gives you the planner heatmap, weather triage verdicts, and star ratings. Pro adds AI-powered best-bet picks, AI-powered per-location scoring with written explanations, aurora forecasting, and personalised drive times.  There are more features in the pipeline.</p>
+      </div>
+      <a class="faq-link" href="faq.html">See all questions</a>
     </div>
 
     <div class="bottom-cta">
@@ -294,9 +340,10 @@
 
     <div class="footer">
       <div class="footer-links">
-        <a href="#">Privacy</a>
-        <a href="#">Terms</a>
-        <a href="#">Acknowledgements</a>
+        <a href="privacy.html">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="acknowledgements.html">Acknowledgements</a>
+        <a href="faq.html">FAQ</a>
       </div>
       <div class="footer-social">
         <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
@@ -306,6 +353,7 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
         </a>
       </div>
+      <p class="footer-copy">Powered by <a href="https://www.anthropic.com/claude" style="color: var(--text-dim); text-decoration: none; border-bottom: 1px solid var(--border);">Claude</a></p>
       <p class="footer-copy">&copy; 2026 PhotoCast</p>
     </div>
 
