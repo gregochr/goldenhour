@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAQ — PhotoCast</title>
+  <meta name="description" content="Frequently asked questions about PhotoCast — AI sunrise and sunset forecasting for northern England photographers.">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #181A1E;
+      --bg-surface: #252830;
+      --bg-surface-light: #2F323A;
+      --bg-card: #252830;
+      --text: #EBEBEB;
+      --text-muted: #A0A0A0;
+      --text-dim: #6B6B6B;
+      --gold: #E5A00D;
+      --gold-light: #F5C518;
+      --gold-dark: #CC8A00;
+      --gold-bg: rgba(229, 160, 13, 0.08);
+      --gold-border: rgba(229, 160, 13, 0.2);
+      --border: #3A3D45;
+      --border-light: #4A4D55;
+      --radius: 12px;
+      --radius-lg: 14px;
+    }
+    body {
+      font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* Nav */
+    .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
+    .nav-brand { display: flex; flex-direction: column; }
+    .nav-brand a { text-decoration: none; color: inherit; }
+    .nav-title {
+      font-size: 36px; font-weight: 800; letter-spacing: -0.025em;
+      color: var(--text); display: flex; align-items: center; gap: 12px;
+    }
+    .nav-title img { height: 40px; width: 40px; object-fit: contain; }
+    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 4px; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
+    .nav-links a:hover { color: var(--text); }
+    .nav-cta {
+      font-size: 13px; font-weight: 600;
+      background: var(--gold); color: #000;
+      padding: 7px 18px; border-radius: 20px;
+      text-decoration: none; display: inline-block;
+      transition: background 0.15s;
+    }
+    .nav-cta:hover { background: var(--gold-light); }
+
+    /* Page heading */
+    .page-heading {
+      text-align: center;
+      padding: 0 0 3rem;
+    }
+    .page-heading h1 {
+      font-size: clamp(28px, 5vw, 36px);
+      font-weight: 600;
+      letter-spacing: -1px;
+      color: var(--text);
+    }
+
+    /* FAQ entries */
+    .faq-list { padding: 0 0 2.5rem; }
+    .faq-entry { padding-bottom: 2rem; }
+    .faq-entry:last-child { padding-bottom: 0; }
+    .faq-entry h2 {
+      font-size: 18px; font-weight: 600;
+      letter-spacing: -0.2px; margin-bottom: 8px; color: var(--text);
+    }
+    .faq-entry p {
+      font-size: 15px; color: var(--text-muted); line-height: 1.6;
+    }
+
+    /* Data sources table */
+    .table-wrapper {
+      overflow-x: auto;
+      margin-top: 1rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 560px;
+    }
+    .data-table th {
+      background: var(--bg-surface);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      line-height: 1.5;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* Footer */
+    .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
+    .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
+    .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
+    .footer-links a:hover { color: var(--text-muted); }
+    .footer-social {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin: 1rem 0;
+    }
+    .footer-social a {
+      color: var(--text-dim);
+      transition: color 0.15s;
+    }
+    .footer-social a:hover {
+      color: var(--gold);
+    }
+    .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+
+    /* Responsive */
+    @media (max-width: 500px) {
+      .nav-links a:not(.nav-cta) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <nav class="nav">
+      <div class="nav-brand">
+        <a href="index.html">
+          <div class="nav-title"><img src="logo.png" alt="">PhotoCast</div>
+          <p class="nav-subtitle">AI sunrise, sunset, and aurora forecasting</p>
+        </a>
+      </div>
+      <div class="nav-links">
+        <a href="index.html#features">Features</a>
+        <a href="index.html#pricing">Pricing</a>
+        <a class="nav-cta" href="https://app.photocast.online/register">Try free</a>
+      </div>
+    </nav>
+
+    <div class="page-heading">
+      <h1>Frequently asked questions</h1>
+    </div>
+
+    <div class="faq-list">
+
+      <div class="faq-entry">
+        <h2>What is PhotoCast?</h2>
+        <p>PhotoCast is an AI-powered forecasting tool for landscape, coastal, and wildlife photographers in northern England. It scores every sunrise and sunset across 200+ locations so you know which days are worth the drive — and which are a write-off.</p>
+      </div>
+
+      <div class="faq-entry">
+        <h2>What areas do you cover?</h2>
+        <p>Northumberland, the Lake District, North Yorkshire Coast, Yorkshire Dales, North York Moors, Tyne and Wear, and Teesdale. Over 200 named locations including coastal, mountain, valley, and waterfall spots.</p>
+      </div>
+
+      <div class="faq-entry">
+        <h2>How often do forecasts update?</h2>
+        <p>The planner updates three times a day (early morning, afternoon, and evening). Aurora data polls every 5 minutes during dark hours. Weather warnings update in near real-time.</p>
+      </div>
+
+      <div class="faq-entry">
+        <h2>How far ahead can I plan?</h2>
+        <p>Three days. Weather forecast accuracy drops sharply beyond that, so we don't pretend otherwise.</p>
+      </div>
+
+      <div class="faq-entry">
+        <h2>Where does the data come from?</h2>
+        <p>PhotoCast pulls together data from nine different sources into a single view. No other photography tool combines all of this:</p>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>What it provides</th>
+                <th>What PhotoCast does with it</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Open-Meteo Forecast</td>
+                <td>Cloud cover (low, mid, high), humidity, wind, temperature, precipitation, visibility, pressure</td>
+                <td>Directional cloud sampling at the solar horizon. Building trend detection. Weather triage (GO / MARGINAL / STANDDOWN)</td>
+              </tr>
+              <tr>
+                <td>Open-Meteo / CAMS</td>
+                <td>Aerosol optical depth, PM2.5, dust concentration</td>
+                <td>Saharan dust detection — distinguishes warm dust (fiery skies) from grey smoke (haze)</td>
+              </tr>
+              <tr>
+                <td>WorldTides</td>
+                <td>Tide heights and times for UK coastal stations</td>
+                <td>Spring tide, king tide, and tide-aligned sunrise/sunset flagging</td>
+              </tr>
+              <tr>
+                <td>NOAA SWPC</td>
+                <td>Kp index, 3-day Kp forecast, OVATION aurora probability, solar wind Bz, G-scale alerts</td>
+                <td>Aurora forecasting with daytime lookahead and visibility viewline</td>
+              </tr>
+              <tr>
+                <td>WeatherAPI.com</td>
+                <td>Met Office weather warnings (yellow, amber, red)</td>
+                <td>Safety-relevant warnings surfaced per location</td>
+              </tr>
+              <tr>
+                <td>lightpollutionmap.info</td>
+                <td>Bortle class, sky brightness (SQM)</td>
+                <td>Dark sky filtering for aurora and astrophotography locations</td>
+              </tr>
+              <tr>
+                <td>Postcodes.io</td>
+                <td>UK postcode geocoding</td>
+                <td>Home location for personalised drive times</td>
+              </tr>
+              <tr>
+                <td>solar-utils</td>
+                <td>Sunrise, sunset, civil dawn/dusk, solar noon, azimuths</td>
+                <td>Precise event timing and azimuth lines on map</td>
+              </tr>
+              <tr>
+                <td>Anthropic Claude</td>
+                <td>AI language model</td>
+                <td>Scoring, plain-English explanations, best-bet recommendations</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="faq-entry">
+        <h2>What's the difference between Lite and Pro?</h2>
+        <p>Lite is free and gives you the planner heatmap, weather triage verdicts, and star ratings. Pro (£4.99/month) adds AI-powered best-bet picks, per-location AI scoring, aurora forecasting and viewline, full score breakdowns, and personalised drive times.</p>
+      </div>
+
+      <div class="faq-entry">
+        <h2>How accurate is it?</h2>
+        <p>Forecasts are based on third-party weather data and AI interpretation. They're indicative, not guaranteed. We find the planner is most reliable for tomorrow and the day after. Three days out is useful for planning but less certain. We never claim to predict the sky perfectly — we just give you much better odds than checking a generic weather app.</p>
+      </div>
+
+      <div class="faq-entry">
+        <h2>Is PhotoCast a safety tool?</h2>
+        <p>No. PhotoCast provides forecasts for planning purposes only. Always check official weather warnings and tide tables before visiting coastal or remote locations. Conditions can change rapidly. You are responsible for your own safety at all times.</p>
+      </div>
+
+    </div>
+
+    <div class="footer">
+      <div class="footer-links">
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+        <a href="#">Acknowledgements</a>
+        <a href="faq.html">FAQ</a>
+      </div>
+      <div class="footer-social">
+        <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+        </a>
+        <a href="https://www.facebook.com/photocast" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+        </a>
+      </div>
+      <p class="footer-copy">&copy; 2026 PhotoCast</p>
+    </div>
+
+  </div>
+</body>
+</html>
