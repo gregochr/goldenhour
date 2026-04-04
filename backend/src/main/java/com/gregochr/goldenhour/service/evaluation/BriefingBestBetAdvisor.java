@@ -121,8 +121,12 @@ public class BriefingBestBetAdvisor {
             - Tide alignment matters: matched tides add foreground drama and composition
               opportunities. Always mention when tide is aligned with the event.
             - Aurora events appear as columns in the grid alongside sunrise and sunset, using
-              date-based event IDs like "2026-04-01_aurora". When aurora is active with clear
-              dark-sky locations, this is a top-tier opportunity — rank alongside king tides.
+              date-based event IDs like "2026-04-01_aurora". The aurora data includes both
+              darkSkyLocationCount (total eligible) and clearLocationCount (actually clear skies).
+              When clearLocationCount is high relative to darkSkyLocationCount, this is a top-tier
+              opportunity — rank alongside king tides. But when clearLocationCount is very low
+              (e.g. under 10% of darkSkyLocationCount), the aurora is effectively a washout —
+              do NOT recommend it as a pick. Cloud cover blocks aurora viewing.
               An aurora pick should reference the specific night and alert level.
             - When mentioning aurora in a pick for a different event, always state the night
               explicitly — write "tonight's aurora" or "aurora forecast for tomorrow night",
@@ -296,8 +300,23 @@ public class BriefingBestBetAdvisor {
     private List<BestBet> enrichWithEventData(List<BestBet> picks, List<BriefingDay> days) {
         LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
         return picks.stream().map(pick -> {
-            if (pick.event() == null || pick.event().endsWith("_aurora")) {
+            if (pick.event() == null) {
                 return pick;
+            }
+            if (pick.event().endsWith("_aurora")) {
+                String[] parts = pick.event().split("_", 2);
+                LocalDate date = LocalDate.parse(parts[0]);
+                String dayName;
+                if (date.equals(today)) {
+                    dayName = "Today";
+                } else if (date.equals(today.plusDays(1))) {
+                    dayName = "Tomorrow";
+                } else {
+                    dayName = date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH);
+                }
+                return new BestBet(pick.rank(), pick.headline(), pick.detail(),
+                        pick.event(), pick.region(), pick.confidence(), pick.nearestDriveMinutes(),
+                        dayName, "aurora", "after dark");
             }
             String[] parts = pick.event().split("_", 2);
             if (parts.length < 2) {
@@ -604,7 +623,9 @@ public class BriefingBestBetAdvisor {
         if (kp != null) {
             auroraNode.put("kp", kp);
         }
-        auroraNode.put("clearLocationCount", auroraStateCache.getCachedScores().size());
+        auroraNode.put("darkSkyLocationCount", auroraStateCache.getDarkSkyLocationCount());
+        Integer clearCount = auroraStateCache.getClearLocationCount();
+        auroraNode.put("clearLocationCount", clearCount != null ? clearCount : 0);
     }
 
     /**

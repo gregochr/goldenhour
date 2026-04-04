@@ -237,15 +237,16 @@ class BriefingBestBetAdvisorTest {
             when(auroraStateCache.isActive()).thenReturn(true);
             when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
             when(auroraStateCache.getLastTriggerKp()).thenReturn(5.2);
-            when(auroraStateCache.getCachedScores()).thenReturn(List.of(
-                    mock(AuroraForecastScore.class)
-            ));
+            when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(45);
+            when(auroraStateCache.getClearLocationCount()).thenReturn(12);
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(List.of(), now);
             String expectedAuroraId = LocalDate.now(ZoneId.of("Europe/London")) + "_aurora";
             assertThat(result.json()).contains(expectedAuroraId);
             assertThat(result.json()).contains("MODERATE");
             assertThat(result.json()).contains("5.2");
+            assertThat(result.json()).contains("\"darkSkyLocationCount\":45");
+            assertThat(result.json()).contains("\"clearLocationCount\":12");
             assertThat(result.validEvents()).contains(expectedAuroraId);
         }
 
