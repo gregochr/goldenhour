@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;

@@ -64,15 +64,22 @@ public class OpenMeteoClient {
      */
     public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi,
             ObjectMapper objectMapper) {
+        this(forecastApi, airQualityApi, objectMapper,
+                RestClient.builder().baseUrl("https://api.open-meteo.com").build(),
+                RestClient.builder().baseUrl("https://air-quality-api.open-meteo.com").build());
+    }
+
+    /**
+     * Package-private constructor for unit tests, allowing mock RestClients for batch methods.
+     */
+    OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi,
+            ObjectMapper objectMapper, RestClient forecastRestClient,
+            RestClient airQualityRestClient) {
         this.forecastApi = forecastApi;
         this.airQualityApi = airQualityApi;
         this.objectMapper = objectMapper;
-        this.forecastRestClient = RestClient.builder()
-                .baseUrl("https://api.open-meteo.com")
-                .build();
-        this.airQualityRestClient = RestClient.builder()
-                .baseUrl("https://air-quality-api.open-meteo.com")
-                .build();
+        this.forecastRestClient = forecastRestClient;
+        this.airQualityRestClient = airQualityRestClient;
     }
 
     /**
