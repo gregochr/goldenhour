@@ -1085,7 +1085,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
           </span>
           <span className="flex items-center gap-2 text-plex-text-muted" style={{ fontSize: '12px' }}>
             {briefing.stale
-              ? <span className="text-amber-400" title="Last refresh failed — showing cached data">stale data</span>
+              ? <span className="text-red-400" title="Last refresh failed — showing cached data">stale data</span>
               : briefing.partialFailure
                 ? <span title={`${briefing.failedLocationCount} location(s) failed`}>{formatAge(briefing.generatedAt)}</span>
                 : formatAge(briefing.generatedAt)}

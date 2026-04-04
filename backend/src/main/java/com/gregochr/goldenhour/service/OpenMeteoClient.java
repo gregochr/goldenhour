@@ -194,7 +194,7 @@ public class OpenMeteoClient {
                 .map(c -> String.valueOf(c[1])).collect(Collectors.joining(","));
 
         LOG.debug("Open-Meteo batch air-quality: {} points", coords.size());
-        JsonNode root = airQualityRestClient.get()
+        String json = airQualityRestClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/v1/air-quality")
                         .queryParam("latitude", latitudes)
@@ -203,9 +203,9 @@ public class OpenMeteoClient {
                         .queryParam("timezone", "UTC")
                         .build())
                 .retrieve()
-                .body(JsonNode.class);
+                .body(String.class);
 
-        return parseArrayResponse(root, OpenMeteoAirQualityResponse.class);
+        return parseArrayResponse(json, OpenMeteoAirQualityResponse.class);
     }
 
     /**
@@ -220,7 +220,7 @@ public class OpenMeteoClient {
 
         LOG.debug("Open-Meteo batch forecast: {} points, params={}",
                 coords.size(), hourlyParams.substring(0, Math.min(30, hourlyParams.length())) + "...");
-        JsonNode root = client.get()
+        String json = client.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/v1/forecast")
                         .queryParam("latitude", latitudes)
@@ -230,17 +230,18 @@ public class OpenMeteoClient {
                         .queryParam("timezone", "UTC")
                         .build())
                 .retrieve()
-                .body(JsonNode.class);
+                .body(String.class);
 
-        return parseArrayResponse(root, OpenMeteoForecastResponse.class);
+        return parseArrayResponse(json, OpenMeteoForecastResponse.class);
     }
 
     /**
      * Parses the Open-Meteo response which is a single object for 1 location
      * or a JSON array for 2+ locations.
      */
-    private <T> List<T> parseArrayResponse(JsonNode root, Class<T> type) {
+    private <T> List<T> parseArrayResponse(String json, Class<T> type) {
         try {
+            JsonNode root = objectMapper.readTree(json);
             List<T> results = new ArrayList<>();
             if (root.isArray()) {
                 for (JsonNode node : root) {
