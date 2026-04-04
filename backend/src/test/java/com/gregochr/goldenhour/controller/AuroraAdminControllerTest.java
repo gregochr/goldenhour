@@ -153,7 +153,8 @@ class AuroraAdminControllerTest {
         mockMvc.perform(post("/api/aurora/admin/enrich-bortle"))
                 .andExpect(status().isAccepted());
 
-        verify(enrichmentService).enrichAll(eq("valid-key"), any(JobRunEntity.class));
+        verify(enrichmentService, org.mockito.Mockito.timeout(2000))
+                .enrichAll(eq("valid-key"), any(JobRunEntity.class));
     }
 
     @Test
