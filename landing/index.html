@@ -110,6 +110,23 @@
       margin-top: 1rem;
       line-height: 1.5;
     }
+    .screenshot-map-wrap {
+      position: relative;
+    }
+    .screenshot-popup {
+      position: absolute;
+      right: -1rem;
+      bottom: -1.5rem;
+      width: 45%;
+      max-width: 260px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border-light);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+    .screenshot-popup img {
+      width: 100%; display: block;
+    }
 
     /* Features */
     .features { padding: 1rem 0 2.5rem; }
@@ -290,8 +307,13 @@
     </div>
 
     <div class="screenshot">
-      <div class="screenshot-inner">
-        <img src="screenshot-map.png" alt="PhotoCast map view showing scored location pins across northern England with star ratings, aurora viewline, and filter controls">
+      <div class="screenshot-map-wrap">
+        <div class="screenshot-inner">
+          <img src="screenshot-map.png" alt="PhotoCast map view showing scored location pins across northern England with star ratings, aurora viewline, and filter controls">
+        </div>
+        <div class="screenshot-popup">
+          <img src="screenshot-popup.png" alt="Location popup showing AI scores, cloud breakdown, tide status, and plain-English summary for a single location">
+        </div>
       </div>
       <p class="screenshot-caption">Scored pins across 200+ locations with star ratings and filter controls</p>
     </div>
@@ -375,7 +397,7 @@
         <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
         </a>
-        <a href="https://www.facebook.com/photocast" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
+        <a href="https://www.facebook.com/61575475181275/" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
         </a>
       </div>
