@@ -31,7 +31,9 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Retrieves atmospheric forecast data from the Open-Meteo Forecast and Air Quality APIs.
@@ -184,6 +186,94 @@ public class OpenMeteoService {
             }
             throw e;
         }
+    }
+
+    /**
+     * Batch pre-fetches forecast and air quality data for a set of unique locations.
+     *
+     * <p>Open-Meteo returns 7 days of hourly data regardless of which date is being evaluated,
+     * so a single response per location covers all dates and events. This method deduplicates
+     * coordinates and makes two batch API calls (forecast + air quality) instead of 2N individual
+     * calls.
+     *
+     * @param coords list of unique [lat, lon] pairs
+     * @param jobRun the parent job run for metrics tracking, or {@code null}
+     * @return map from coordinate key ("lat,lon") to the paired responses
+     */
+    public Map<String, WeatherExtractionResult> prefetchWeatherBatch(
+            List<double[]> coords, JobRunEntity jobRun) {
+        LOG.info("Open-Meteo batch prefetch: {} unique locations", coords.size());
+        long startMs = System.currentTimeMillis();
+
+        try {
+            List<OpenMeteoForecastResponse> forecasts = openMeteoClient.fetchForecastBatch(coords);
+            List<OpenMeteoAirQualityResponse> airQualities = openMeteoClient.fetchAirQualityBatch(coords);
+
+            Map<String, WeatherExtractionResult> cache = new LinkedHashMap<>();
+            for (int i = 0; i < coords.size(); i++) {
+                String key = coordKey(coords.get(i)[0], coords.get(i)[1]);
+                cache.put(key, new WeatherExtractionResult(null, forecasts.get(i),
+                        airQualities.get(i)));
+            }
+
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.info("Open-Meteo batch prefetch complete: {} locations in {}ms (2 API calls)",
+                    coords.size(), durationMs);
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "batch-forecast(" + coords.size() + ")", null, durationMs,
+                        200, null, true, null);
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_AIR_QUALITY,
+                        "GET", "batch-air-quality(" + coords.size() + ")", null, durationMs,
+                        200, null, true, null);
+            }
+            return cache;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.error("Open-Meteo batch prefetch failed ({}ms): {}", durationMs, e.getMessage());
+            if (jobRun != null) {
+                String errorMsg = e.getMessage() != null ? e.getMessage()
+                        : e.getClass().getSimpleName();
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "batch-forecast(" + coords.size() + ")", null, durationMs,
+                        getStatusCode(e), null, false, errorMsg);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Extracts atmospheric data from pre-fetched responses (no API call).
+     *
+     * @param request        the forecast request (location, date, target type)
+     * @param solarEventTime UTC time of the solar event
+     * @param prefetched     pre-fetched weather data keyed by coordinate key
+     * @return extraction result, or {@code null} if no data for this location
+     */
+    public WeatherExtractionResult getAtmosphericDataFromCache(ForecastRequest request,
+            LocalDateTime solarEventTime,
+            Map<String, WeatherExtractionResult> prefetched) {
+        String key = coordKey(request.latitude(), request.longitude());
+        WeatherExtractionResult cached = prefetched.get(key);
+        if (cached == null) {
+            return null;
+        }
+        AtmosphericData data = extractAtmosphericData(cached.forecastResponse(),
+                cached.airQualityResponse(), request.locationName(), solarEventTime,
+                request.targetType());
+        return new WeatherExtractionResult(data, cached.forecastResponse(),
+                cached.airQualityResponse());
+    }
+
+    /**
+     * Returns a coordinate key for cache lookups.
+     *
+     * @param lat latitude
+     * @param lon longitude
+     * @return coordinate key string
+     */
+    static String coordKey(double lat, double lon) {
+        return lat + "," + lon;
     }
 
     /**

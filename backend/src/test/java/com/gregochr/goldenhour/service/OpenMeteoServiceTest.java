@@ -987,4 +987,70 @@ class OpenMeteoServiceTest {
         response.setHourly(hourly);
         return response;
     }
+
+    // --- Batch prefetch and cache tests ---
+
+    @Test
+    @DisplayName("prefetchWeatherBatch() returns map keyed by coordKey for each location")
+    void prefetchWeatherBatch_returnsMapKeyedByCoords() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoForecastResponse f2 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(50), List.of(40), List.of(60),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+        OpenMeteoAirQualityResponse aq2 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(8.0), List.of(15.0), List.of(0.2));
+
+        List<double[]> coords = List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0});
+        when(openMeteoClient.fetchForecastBatch(anyList())).thenReturn(List.of(f1, f2));
+        when(openMeteoClient.fetchAirQualityBatch(anyList())).thenReturn(List.of(aq1, aq2));
+
+        var cache = openMeteoService.prefetchWeatherBatch(coords, null);
+
+        assertThat(cache).hasSize(2);
+        assertThat(cache).containsKey("55.0,-1.5");
+        assertThat(cache).containsKey("54.0,-2.0");
+        assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
+        assertThat(cache.get("54.0,-2.0").forecastResponse()).isSameAs(f2);
+    }
+
+    @Test
+    @DisplayName("getAtmosphericDataFromCache() extracts data from pre-fetched cache")
+    void getAtmosphericDataFromCache_extractsFromPrefetched() {
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoAirQualityResponse aq = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+
+        var cache = java.util.Map.of("55.0,-1.5",
+                new com.gregochr.goldenhour.model.WeatherExtractionResult(null, forecast, aq));
+
+        ForecastRequest request = new ForecastRequest(55.0, -1.5, "Durham",
+                LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 6, 0);
+
+        var result = openMeteoService.getAtmosphericDataFromCache(request, eventTime, cache);
+
+        assertThat(result).isNotNull();
+        assertThat(result.atmosphericData()).isNotNull();
+        assertThat(result.atmosphericData().cloud().lowCloudPercent()).isEqualTo(10);
+        assertThat(result.forecastResponse()).isSameAs(forecast);
+    }
+
+    @Test
+    @DisplayName("getAtmosphericDataFromCache() returns null for missing location")
+    void getAtmosphericDataFromCache_returnsNullForMissing() {
+        ForecastRequest request = new ForecastRequest(99.0, 99.0, "Unknown",
+                LocalDate.of(2026, 6, 21), TargetType.SUNRISE);
+        var result = openMeteoService.getAtmosphericDataFromCache(
+                request, LocalDateTime.of(2026, 6, 21, 6, 0), java.util.Map.of());
+        assertThat(result).isNull();
+    }
 }

@@ -34,6 +34,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -240,6 +241,27 @@ public class ForecastService {
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun) {
+        return fetchWeatherAndTriage(location, date, targetType, tideTypes, model,
+                tideAlignmentEnabled, jobRun, null);
+    }
+
+    /**
+     * Fetches weather data and applies triage heuristics, optionally using pre-fetched data.
+     *
+     * @param location              the location entity
+     * @param date                  the target date
+     * @param targetType            SUNRISE or SUNSET
+     * @param tideTypes             tide preferences for the location
+     * @param model                 evaluation model to use
+     * @param tideAlignmentEnabled  whether TIDE_ALIGNMENT optimisation is active
+     * @param jobRun                parent job run for metrics
+     * @param prefetchedWeather     pre-fetched weather data keyed by coord key, or null to fetch individually
+     * @return the pre-evaluation result
+     */
+    public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
+            LocalDate date, TargetType targetType, Set<TideType> tideTypes,
+            EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun,
+            Map<String, WeatherExtractionResult> prefetchedWeather) {
         String locationName = location.getName();
         double lat = location.getLat();
         double lon = location.getLon();
@@ -256,12 +278,21 @@ public class ForecastService {
 
         ForecastRequest request = new ForecastRequest(lat, lon, locationName, date, targetType);
 
-        // Fetch weather data
+        // Fetch weather data (from cache if available, otherwise individual API call)
         publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                 LocationTaskState.FETCHING_WEATHER);
         WeatherExtractionResult extraction;
         try {
-            extraction = openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun);
+            if (prefetchedWeather != null) {
+                extraction = openMeteoService.getAtmosphericDataFromCache(
+                        request, eventTime, prefetchedWeather);
+                if (extraction == null) {
+                    throw new RuntimeException("No pre-fetched data for " + locationName);
+                }
+            } else {
+                extraction = openMeteoService.getAtmosphericDataWithResponse(
+                        request, eventTime, jobRun);
+            }
         } catch (Exception e) {
             String msg = "Weather data fetch failed for " + locationName + " " + targetType
                     + ": " + e.getMessage();

@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,12 +30,14 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -85,11 +88,15 @@ class ForecastCommandExecutorTest {
     private ForecastStabilityClassifier stabilityClassifier;
 
     @Mock
+    private OpenMeteoService openMeteoService;
+
+    @Mock
     private EvaluationStrategy haikuStrategy;
 
     private NoOpEvaluationStrategy noOpStrategy;
 
     private ForecastCommandExecutor executor;
+    private Map<String, WeatherExtractionResult> stubPrefetchedWeather;
 
     private JobRunEntity stubJobRun;
 
@@ -139,10 +146,16 @@ class ForecastCommandExecutorTest {
         lenient().when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
                 .thenReturn(stubJobRun);
 
+        // Default: prefetchWeatherBatch returns a shared map that we can verify was passed through
+        stubPrefetchedWeather = new java.util.LinkedHashMap<>();
+        lenient().when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
+                .thenReturn(stubPrefetchedWeather);
+
         // Default: fetchWeatherAndTriage returns non-triaged result
         lenient().when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
-                any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class)))
+                any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class),
+                eq(stubPrefetchedWeather)))
                 .thenAnswer(invocation -> {
                     LocationEntity loc = invocation.getArgument(0);
                     LocalDate date = invocation.getArgument(1);
@@ -164,7 +177,8 @@ class ForecastCommandExecutorTest {
                 forecastService, locationService, jobRunService, solarService,
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
                 optimisationStrategyService, progressTracker, eventPublisher,
-                sentinelSelector, astroConditionsService, stabilityClassifier);
+                sentinelSelector, astroConditionsService, stabilityClassifier,
+                openMeteoService);
     }
 
     @Test
@@ -180,7 +194,8 @@ class ForecastCommandExecutorTest {
         int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
-                        any(TargetType.class), any(), eq(EvaluationModel.HAIKU), anyBoolean(), any());
+                        any(TargetType.class), any(), eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather));
     }
 
     @Test
@@ -203,7 +218,8 @@ class ForecastCommandExecutorTest {
         // All tasks triaged
         when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
-                any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class)))
+                any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class),
+                eq(stubPrefetchedWeather)))
                 .thenAnswer(invocation -> {
                     LocationEntity loc = invocation.getArgument(0);
                     LocalDate date = invocation.getArgument(1);
@@ -352,11 +368,13 @@ class ForecastCommandExecutorTest {
                 .fetchWeatherAndTriage(
                         org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
                         any(LocalDate.class), any(TargetType.class), any(),
-                        any(EvaluationModel.class), anyBoolean(), any());
+                        any(EvaluationModel.class), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather));
         verify(forecastService, never())
                 .fetchWeatherAndTriage(
                         org.mockito.ArgumentMatchers.argThat(loc -> "Whitley Bay".equals(loc.getName())),
-                        any(), any(), any(), any(), anyBoolean(), any());
+                        any(), any(), any(), any(), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather));
     }
 
     @Test
@@ -379,7 +397,8 @@ class ForecastCommandExecutorTest {
 
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY * 2))
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
-                        any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), any());
+                        any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather));
     }
 
     // -------------------------------------------------------------------------
@@ -425,7 +444,8 @@ class ForecastCommandExecutorTest {
 
         // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), anyBoolean(), any());
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                        anyBoolean(), any(), eq(stubPrefetchedWeather));
         verify(forecastService, never())
                 .evaluateAndPersist(any(), any());
     }
@@ -483,7 +503,7 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, org.mockito.Mockito.atLeastOnce())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(true), any());
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(true), any(), eq(stubPrefetchedWeather));
     }
 
     @Test
@@ -498,7 +518,7 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, org.mockito.Mockito.atLeastOnce())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any());
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any(), eq(stubPrefetchedWeather));
     }
 
     // -------------------------------------------------------------------------
@@ -680,7 +700,8 @@ class ForecastCommandExecutorTest {
 
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                any(), any(), any(), any(), any(), anyBoolean(), any(),
+                eq(stubPrefetchedWeather)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -715,7 +736,8 @@ class ForecastCommandExecutorTest {
 
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                any(), any(), any(), any(), any(), anyBoolean(), any(),
+                eq(stubPrefetchedWeather)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -749,7 +771,8 @@ class ForecastCommandExecutorTest {
         LocationEntity loc = durham(); // no gridLat/gridLng
 
         when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                any(), any(), any(), any(), any(), anyBoolean(), any(),
+                eq(stubPrefetchedWeather)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -779,7 +802,8 @@ class ForecastCommandExecutorTest {
 
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                any(), any(), any(), any(), any(), anyBoolean(), any(),
+                eq(stubPrefetchedWeather)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(

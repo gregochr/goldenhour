@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.RunPhase;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,6 +71,7 @@ public class ForecastCommandExecutor {
     private final SentinelSelector sentinelSelector;
     private final AstroConditionsService astroConditionsService;
     private final ForecastStabilityClassifier stabilityClassifier;
+    private final OpenMeteoService openMeteoService;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -87,6 +89,7 @@ public class ForecastCommandExecutor {
      * @param sentinelSelector            selects geographic sentinel locations per region
      * @param astroConditionsService      template scorer for nightly astro observing conditions
      * @param stabilityClassifier         classifies forecast stability per grid cell
+     * @param openMeteoService            Open-Meteo service for batch weather pre-fetching
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
@@ -96,7 +99,8 @@ public class ForecastCommandExecutor {
             RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher,
             SentinelSelector sentinelSelector,
             AstroConditionsService astroConditionsService,
-            ForecastStabilityClassifier stabilityClassifier) {
+            ForecastStabilityClassifier stabilityClassifier,
+            OpenMeteoService openMeteoService) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -110,6 +114,7 @@ public class ForecastCommandExecutor {
         this.sentinelSelector = sentinelSelector;
         this.astroConditionsService = astroConditionsService;
         this.stabilityClassifier = stabilityClassifier;
+        this.openMeteoService = openMeteoService;
     }
 
     /**
@@ -262,10 +267,14 @@ public class ForecastCommandExecutor {
         boolean tideAlignmentEnabled = enabledStrategies.stream()
                 .anyMatch(s -> s.getStrategyType() == OptimisationStrategyType.TIDE_ALIGNMENT);
 
-        // Phase 1: TRIAGE
+        // Pre-fetch all weather data in batch (2 API calls instead of 2N)
+        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchWeather(
+                nonSkippedTasks, jobRun);
+
+        // Phase 1: TRIAGE (uses pre-fetched data — no individual API calls)
         progressTracker.setPhase(jobRun.getId(), RunPhase.TRIAGE);
         List<ForecastPreEvalResult> triageResults = runTriagePhase(nonSkippedTasks,
-                tideAlignmentEnabled, jobRun);
+                tideAlignmentEnabled, jobRun, prefetchedWeather);
         List<ForecastPreEvalResult> survivors = triageResults.stream()
                 .filter(r -> !r.triaged())
                 .toList();
@@ -342,6 +351,26 @@ public class ForecastCommandExecutor {
     }
 
     /**
+     * Pre-fetches forecast and air quality data for all unique locations in a batch.
+     * Returns a map keyed by coordinate key for lookup during triage.
+     */
+    private Map<String, WeatherExtractionResult> prefetchWeather(
+            List<TaskDescriptor> tasks, JobRunEntity jobRun) {
+        // Deduplicate by location (same location returns the same 7-day forecast)
+        Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
+        for (TaskDescriptor task : tasks) {
+            String key = OpenMeteoService.coordKey(task.location().getLat(),
+                    task.location().getLon());
+            uniqueCoords.putIfAbsent(key, new double[]{
+                    task.location().getLat(), task.location().getLon()});
+        }
+        List<double[]> coordList = new ArrayList<>(uniqueCoords.values());
+        LOG.info("Pre-fetching weather for {} unique locations (from {} tasks)",
+                coordList.size(), tasks.size());
+        return openMeteoService.prefetchWeatherBatch(coordList, jobRun);
+    }
+
+    /**
      * Phase 1: Fetch weather data and apply triage heuristics to all non-skipped tasks in parallel.
      *
      * @param tasks                all non-skipped task descriptors
@@ -350,11 +379,13 @@ public class ForecastCommandExecutor {
      * @return triage results (triaged and surviving tasks combined)
      */
     private List<ForecastPreEvalResult> runTriagePhase(List<TaskDescriptor> tasks,
-            boolean tideAlignmentEnabled, JobRunEntity jobRun) {
+            boolean tideAlignmentEnabled, JobRunEntity jobRun,
+            Map<String, WeatherExtractionResult> prefetchedWeather) {
         return submitParallel(tasks,
                 task -> forecastService.fetchWeatherAndTriage(
                         task.location(), task.date(), task.targetType(),
-                        task.location().getTideType(), task.model(), tideAlignmentEnabled, jobRun),
+                        task.location().getTideType(), task.model(), tideAlignmentEnabled, jobRun,
+                        prefetchedWeather),
                 (task, e) -> LOG.error("Triage failed for {} {} on {} [{}]: {}",
                         task.location().getName(), task.targetType(), task.date(),
                         task.model(), e.getMessage(), e));
