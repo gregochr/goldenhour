@@ -11,7 +11,10 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,6 +80,9 @@ class ForecastCommandExecutorTest {
 
     @Mock
     private AstroConditionsService astroConditionsService;
+
+    @Mock
+    private ForecastStabilityClassifier stabilityClassifier;
 
     @Mock
     private EvaluationStrategy haikuStrategy;
@@ -145,7 +151,7 @@ class ForecastCommandExecutorTest {
                     return new ForecastPreEvalResult(false, null, null,
                             loc, date, type, LocalDateTime.now(), 90, 0,
                             model, loc.getTideType(),
-                            loc.getName() + "|" + date + "|" + type);
+                            loc.getName() + "|" + date + "|" + type, null);
                 });
 
         // Default: evaluateAndPersist returns a stub entity
@@ -158,7 +164,7 @@ class ForecastCommandExecutorTest {
                 forecastService, locationService, jobRunService, solarService,
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
                 optimisationStrategyService, progressTracker, eventPublisher,
-                sentinelSelector, astroConditionsService);
+                sentinelSelector, astroConditionsService, stabilityClassifier);
     }
 
     @Test
@@ -205,7 +211,7 @@ class ForecastCommandExecutorTest {
                     return new ForecastPreEvalResult(true, "Low cloud cover 85%", null,
                             loc, date, type, LocalDateTime.now(), 90, 0,
                             EvaluationModel.HAIKU, loc.getTideType(),
-                            loc.getName() + "|" + date + "|" + type);
+                            loc.getName() + "|" + date + "|" + type, null);
                 });
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
@@ -656,5 +662,148 @@ class ForecastCommandExecutorTest {
         // Non-sentinel tasks should be skipped (rating 3 ≤ threshold 3)
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
                 .persistCannedResult(any(), any(String.class), any());
+    }
+
+    // ── Stability filter tests ──
+
+    private static LocationEntity durhamWithGrid() {
+        LocationEntity loc = durham();
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        return loc;
+    }
+
+    @Test
+    @DisplayName("Stability filter: UNSETTLED skips T+2 tasks, keeps T+0")
+    void stabilityFilter_unsettled_skipsT2() {
+        LocationEntity loc = durhamWithGrid();
+
+        OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                .thenAnswer(inv -> {
+                    LocalDate date = inv.getArgument(1);
+                    int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                            LocalDate.now(ZoneOffset.UTC), date);
+                    return new ForecastPreEvalResult(false, null, null,
+                            loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                            daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                            loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                });
+
+        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), 54.75, -1.625,
+                        ForecastStability.UNSETTLED, "Deep low", 0));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(loc), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // Only T+0 tasks should reach Claude (2 = sunrise + sunset)
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .evaluateAndPersist(any(), any());
+    }
+
+    @Test
+    @DisplayName("Stability filter: SETTLED allows all tasks through")
+    void stabilityFilter_settled_allowsAll() {
+        LocationEntity loc = durhamWithGrid();
+
+        OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                .thenAnswer(inv -> {
+                    LocalDate date = inv.getArgument(1);
+                    int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                            LocalDate.now(ZoneOffset.UTC), date);
+                    return new ForecastPreEvalResult(false, null, null,
+                            loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                            daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                            loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                });
+
+        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), 54.75, -1.625,
+                        ForecastStability.SETTLED, "High pressure", 3));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(loc), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // All 3 days × 2 types = 6 Claude calls
+        verify(forecastService, times(3 * EXPECTED_CALLS_PER_DAY))
+                .evaluateAndPersist(any(), any());
+    }
+
+    @Test
+    @DisplayName("Stability filter: location without grid cell defaults to T+1 window")
+    void stabilityFilter_noGridCell_defaultsToT1() {
+        LocationEntity loc = durham(); // no gridLat/gridLng
+
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                .thenAnswer(inv -> {
+                    LocalDate date = inv.getArgument(1);
+                    int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                            LocalDate.now(ZoneOffset.UTC), date);
+                    return new ForecastPreEvalResult(false, null, null,
+                            loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                            daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                            loc.getName() + "|" + date + "|" + inv.getArgument(2), null);
+                });
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(loc), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // T+0 and T+1 pass (4 tasks), T+2 filtered (2 tasks skipped)
+        verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
+                .evaluateAndPersist(any(), any());
+    }
+
+    @Test
+    @DisplayName("Stability filter: TRANSITIONAL allows T+0 and T+1, skips T+2")
+    void stabilityFilter_transitional_allowsT0T1() {
+        LocationEntity loc = durhamWithGrid();
+
+        OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any()))
+                .thenAnswer(inv -> {
+                    LocalDate date = inv.getArgument(1);
+                    int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                            LocalDate.now(ZoneOffset.UTC), date);
+                    return new ForecastPreEvalResult(false, null, null,
+                            loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                            daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                            loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                });
+
+        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), 54.75, -1.625,
+                        ForecastStability.TRANSITIONAL, "Mixed signals", 1));
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                List.of(today, today.plusDays(1), today.plusDays(2)),
+                List.of(loc), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        // T+0 and T+1 pass (4 tasks), T+2 filtered
+        verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
+                .evaluateAndPersist(any(), any());
     }
 }

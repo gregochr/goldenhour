@@ -11,8 +11,10 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
@@ -28,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.BiConsumer;
@@ -66,6 +69,7 @@ public class ForecastCommandExecutor {
     private final ApplicationEventPublisher eventPublisher;
     private final SentinelSelector sentinelSelector;
     private final AstroConditionsService astroConditionsService;
+    private final ForecastStabilityClassifier stabilityClassifier;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -82,6 +86,7 @@ public class ForecastCommandExecutor {
      * @param eventPublisher              publishes location task state transition events
      * @param sentinelSelector            selects geographic sentinel locations per region
      * @param astroConditionsService      template scorer for nightly astro observing conditions
+     * @param stabilityClassifier         classifies forecast stability per grid cell
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
@@ -90,7 +95,8 @@ public class ForecastCommandExecutor {
             OptimisationStrategyService optimisationStrategyService,
             RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher,
             SentinelSelector sentinelSelector,
-            AstroConditionsService astroConditionsService) {
+            AstroConditionsService astroConditionsService,
+            ForecastStabilityClassifier stabilityClassifier) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -103,6 +109,7 @@ public class ForecastCommandExecutor {
         this.eventPublisher = eventPublisher;
         this.sentinelSelector = sentinelSelector;
         this.astroConditionsService = astroConditionsService;
+        this.stabilityClassifier = stabilityClassifier;
     }
 
     /**
@@ -307,6 +314,17 @@ public class ForecastCommandExecutor {
             return results;
         }
 
+        // Stability gating: classify per grid cell, skip tasks beyond the stability window
+        fullEvalBatch = applyStabilityFilter(fullEvalBatch);
+
+        if (fullEvalBatch.isEmpty()) {
+            progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
+            jobRunService.completeRun(jobRun, succeeded, failed, dates);
+            progressTracker.completeRun(jobRun.getId());
+            LOG.info("Forecast run complete — all remaining tasks filtered by stability");
+            return results;
+        }
+
         // Phase 3: FULL_EVALUATION
         progressTracker.setPhase(jobRun.getId(), RunPhase.FULL_EVALUATION);
         List<ForecastEvaluationEntity> fullResults = runFullEvalPhase(fullEvalBatch, jobRun);
@@ -448,6 +466,70 @@ public class ForecastCommandExecutor {
                 (task, e) -> LOG.error("Full evaluation failed for {} {} on {}: {}",
                         task.location().getName(), task.targetType(),
                         task.date(), e.getMessage(), e));
+    }
+
+    /**
+     * Classifies forecast stability per grid cell and filters out tasks whose
+     * {@code daysAhead} exceeds the stability evaluation window.
+     *
+     * <p>Each unique grid cell is classified once using the first available
+     * Open-Meteo response for that cell. Tasks without a grid cell assignment
+     * default to TRANSITIONAL (T+1 window).
+     *
+     * @param batch tasks surviving triage and sentinel phases
+     * @return filtered list of tasks within their grid cell's stability window
+     */
+    private List<ForecastPreEvalResult> applyStabilityFilter(List<ForecastPreEvalResult> batch) {
+        Map<String, GridCellStabilityResult> stabilityByCell = new ConcurrentHashMap<>();
+
+        for (ForecastPreEvalResult task : batch) {
+            LocationEntity loc = task.location();
+            if (!loc.hasGridCell() || task.forecastResponse() == null) {
+                continue;
+            }
+            String key = loc.gridCellKey();
+            stabilityByCell.computeIfAbsent(key, k -> {
+                OpenMeteoForecastResponse resp = task.forecastResponse();
+                return stabilityClassifier.classify(
+                        key, loc.getGridLat(), loc.getGridLng(),
+                        resp != null ? resp.getHourly() : null);
+            });
+        }
+
+        stabilityByCell.values().stream()
+                .collect(java.util.stream.Collectors.groupingBy(
+                        GridCellStabilityResult::stability, java.util.stream.Collectors.counting()))
+                .forEach((s, count) ->
+                        LOG.info("Stability: {} = {} grid cells", s, count));
+
+        int originalSize = batch.size();
+        List<ForecastPreEvalResult> filtered = batch.stream()
+                .filter(task -> {
+                    if (!task.location().hasGridCell()) {
+                        return task.daysAhead() <= 1;
+                    }
+                    GridCellStabilityResult stability =
+                            stabilityByCell.get(task.location().gridCellKey());
+                    if (stability == null) {
+                        return task.daysAhead() <= 1;
+                    }
+                    int maxDays = Math.min(stability.evaluationWindowDays(), 3);
+                    if (task.daysAhead() > maxDays) {
+                        LOG.debug("Stability filter: skipping {} T+{} — {} ({})",
+                                task.location().getName(), task.daysAhead(),
+                                stability.stability(), stability.reason());
+                        return false;
+                    }
+                    return true;
+                })
+                .toList();
+
+        int skipped = originalSize - filtered.size();
+        if (skipped > 0) {
+            LOG.info("Stability filter: {}/{} tasks skipped (beyond stability window)",
+                    skipped, originalSize);
+        }
+        return filtered;
     }
 
     // -------------------------------------------------------------------------

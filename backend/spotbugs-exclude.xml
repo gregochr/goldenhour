@@ -156,7 +156,10 @@
     -->
     <Match>
         <Class name="com.gregochr.goldenhour.model.ForecastPreEvalResult"/>
-        <Field name="location"/>
+        <Or>
+            <Field name="location"/>
+            <Field name="forecastResponse"/>
+        </Or>
         <Or>
             <Bug pattern="EI_EXPOSE_REP"/>
             <Bug pattern="EI_EXPOSE_REP2"/>

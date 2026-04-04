@@ -514,9 +514,7 @@ class BriefingServiceTest {
             stubSolarTimes(loc3);
             stubSolarTimes(loc4);
 
-            OpenMeteoForecastResponse bamburghForecast = buildForecastResponse();
-            OpenMeteoForecastResponse durhamForecast = buildForecastResponse();
-            // First group (Bamburgh) — fetched using loc1's coordinates
+            // Batch returns one response per coordinate in the batch
             when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
                     .thenAnswer(inv -> {
                         List<?> coords = inv.getArgument(0);
@@ -525,11 +523,19 @@ class BriefingServiceTest {
 
             briefingService.refreshBriefing();
 
-            // Only 2 API calls, not 4
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
-                    .fetchForecastBriefingBatch(anyList());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
-                    .fetchForecastBriefingBatch(anyList());
+            // Single batch call with exactly 2 coordinates (one per grid cell, not 4)
+            @SuppressWarnings("unchecked")
+            org.mockito.ArgumentCaptor<List<double[]>> captor =
+                    org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(openMeteoClient).fetchForecastBriefingBatch(captor.capture());
+            List<double[]> batchCoords = captor.getValue();
+            assertThat(batchCoords).hasSize(2);
+            // First group uses loc1 (Bamburgh Castle) as representative
+            assertThat(batchCoords.get(0)[0]).isEqualTo(loc1.getLat());
+            assertThat(batchCoords.get(0)[1]).isEqualTo(loc1.getLon());
+            // Second group uses loc3 (Durham) as representative
+            assertThat(batchCoords.get(1)[0]).isEqualTo(loc3.getLat());
+            assertThat(batchCoords.get(1)[1]).isEqualTo(loc3.getLon());
 
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
@@ -616,11 +622,17 @@ class BriefingServiceTest {
 
             briefingService.refreshBriefing();
 
-            // 2 fetches: one for grouped pair, one for ungrouped
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
-                    .fetchForecastBriefingBatch(anyList());
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
-                    .fetchForecastBriefingBatch(anyList());
+            // Single batch call with 2 coordinates: grouped pair + ungrouped
+            @SuppressWarnings("unchecked")
+            org.mockito.ArgumentCaptor<List<double[]>> captor =
+                    org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(openMeteoClient).fetchForecastBriefingBatch(captor.capture());
+            List<double[]> batchCoords = captor.getValue();
+            assertThat(batchCoords).hasSize(2);
+            // First: grouped pair representative (Bamburgh)
+            assertThat(batchCoords.get(0)[0]).isEqualTo(grouped1.getLat());
+            // Second: ungrouped location
+            assertThat(batchCoords.get(1)[0]).isEqualTo(ungrouped.getLat());
 
             assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
         }
@@ -690,9 +702,12 @@ class BriefingServiceTest {
 
             briefingService.refreshBriefing();
 
-            // 1 API call for 5 locations
-            org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.atLeastOnce())
-                    .fetchForecastBriefingBatch(anyList());
+            // Single batch call with 1 coordinate for all 5 co-located locations
+            @SuppressWarnings("unchecked")
+            org.mockito.ArgumentCaptor<List<double[]>> captor =
+                    org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(openMeteoClient).fetchForecastBriefingBatch(captor.capture());
+            assertThat(captor.getValue()).hasSize(1);
             assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
         }
 

@@ -16,18 +16,19 @@ import java.util.Set;
  * either the triaged result (with a persisted canned entity) or the atmospheric data
  * ready for Claude evaluation.
  *
- * @param triaged        {@code true} if heuristic triage determined conditions are unsuitable
- * @param triageReason   human-readable reason for triage, or {@code null} if not triaged
- * @param atmosphericData atmospheric data ready for evaluation, or {@code null} if triaged
- * @param location       the location entity
- * @param date           the forecast date
- * @param targetType     SUNRISE or SUNSET
- * @param eventTime      UTC time of the solar event
- * @param azimuth        solar azimuth in degrees
- * @param daysAhead      number of days from today
- * @param model          evaluation model to use
- * @param tideTypes      tide preferences for the location
- * @param taskKey        unique task key (locationName|date|targetType)
+ * @param triaged          {@code true} if heuristic triage determined conditions are unsuitable
+ * @param triageReason     human-readable reason for triage, or {@code null} if not triaged
+ * @param atmosphericData  atmospheric data ready for evaluation, or {@code null} if triaged
+ * @param location         the location entity
+ * @param date             the forecast date
+ * @param targetType       SUNRISE or SUNSET
+ * @param eventTime        UTC time of the solar event
+ * @param azimuth          solar azimuth in degrees
+ * @param daysAhead        number of days from today
+ * @param model            evaluation model to use
+ * @param tideTypes        tide preferences for the location
+ * @param taskKey          unique task key (locationName|date|targetType)
+ * @param forecastResponse raw Open-Meteo response for stability classification (nullable)
  */
 public record ForecastPreEvalResult(
         boolean triaged,
@@ -41,7 +42,8 @@ public record ForecastPreEvalResult(
         int daysAhead,
         EvaluationModel model,
         Set<TideType> tideTypes,
-        String taskKey
+        String taskKey,
+        OpenMeteoForecastResponse forecastResponse
 ) {
     /**
      * Compact constructor — defensive copy of tideTypes to prevent external mutation.

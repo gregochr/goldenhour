@@ -325,7 +325,8 @@ public class ForecastService {
             LOG.info("Forecast triaged: {} {} {} (T+{}) — {}", locationName, targetType,
                     date, daysAhead, reason);
             return new ForecastPreEvalResult(true, reason, forecastData, location, date,
-                    targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+                    targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
+                    forecastResponse);
         }
 
         // Apply tide alignment triage for SEASCAPE locations (when strategy is enabled)
@@ -353,12 +354,14 @@ public class ForecastService {
                 LOG.info("Forecast triaged (tide): {} {} {} (T+{}) — {}", locationName,
                         targetType, date, daysAhead, reason);
                 return new ForecastPreEvalResult(true, reason, forecastData, location, date,
-                        targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+                        targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
+                        forecastResponse);
             }
         }
 
         return new ForecastPreEvalResult(false, null, forecastData, location, date,
-                targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey);
+                targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
+                forecastResponse);
     }
 
     /**

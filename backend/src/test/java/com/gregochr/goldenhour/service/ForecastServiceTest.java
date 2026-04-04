@@ -554,7 +554,7 @@ class ForecastServiceTest {
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, data, DURHAM_LOCATION, date,
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET");
+                DURHAM + "|" + date + "|SUNSET", null);
 
         when(evaluationService.evaluate(eq(data), eq(EvaluationModel.SONNET), any()))
                 .thenReturn(evaluation);
@@ -578,7 +578,7 @@ class ForecastServiceTest {
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, data, DURHAM_LOCATION, date,
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.HAIKU, Set.of(),
-                DURHAM + "|" + date + "|SUNSET");
+                DURHAM + "|" + date + "|SUNSET", null);
 
         when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -601,7 +601,7 @@ class ForecastServiceTest {
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, data, DURHAM_LOCATION, date,
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET");
+                DURHAM + "|" + date + "|SUNSET", null);
 
         when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -625,7 +625,7 @@ class ForecastServiceTest {
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, data, DURHAM_LOCATION, date,
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET");
+                DURHAM + "|" + date + "|SUNSET", null);
 
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -656,7 +656,7 @@ class ForecastServiceTest {
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, data, DURHAM_LOCATION, date,
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
-                DURHAM + "|" + date + "|SUNSET");
+                DURHAM + "|" + date + "|SUNSET", null);
 
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 

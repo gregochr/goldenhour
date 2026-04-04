@@ -78,5 +78,11 @@ public class OpenMeteoForecastResponse {
 
         @JsonProperty("dew_point_2m")
         private List<Double> dewPoint2m;
+
+        @JsonProperty("pressure_msl")
+        private List<Double> pressureMsl;
+
+        @JsonProperty("wind_gusts_10m")
+        private List<Double> windGusts10m;
     }
 }
