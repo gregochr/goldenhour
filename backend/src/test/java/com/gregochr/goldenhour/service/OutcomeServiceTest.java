@@ -16,10 +16,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -111,5 +113,111 @@ class OutcomeServiceTest {
         assertThatThrownBy(() -> outcomeService.record(outcome))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("goldenHourActual");
+    }
+
+    @Test
+    @DisplayName("record() accepts null scores (photographer went out but didn't score)")
+    void record_nullScores_accepted() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, null, null, null);
+
+        when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThatCode(() -> outcomeService.record(outcome)).doesNotThrowAnyException();
+
+        ArgumentCaptor<ActualOutcomeEntity> captor = ArgumentCaptor.forClass(ActualOutcomeEntity.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getFierySkyActual()).isNull();
+        assertThat(captor.getValue().getGoldenHourActual()).isNull();
+    }
+
+    @Test
+    @DisplayName("record() accepts boundary score 0")
+    void record_boundaryZero_accepted() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, 0, 0, null);
+
+        when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        outcomeService.record(outcome);
+
+        ArgumentCaptor<ActualOutcomeEntity> captor = ArgumentCaptor.forClass(ActualOutcomeEntity.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getFierySkyActual()).isZero();
+        assertThat(captor.getValue().getGoldenHourActual()).isZero();
+    }
+
+    @Test
+    @DisplayName("record() accepts boundary score 100")
+    void record_boundaryHundred_accepted() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, 100, 100, null);
+
+        when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        outcomeService.record(outcome);
+
+        ArgumentCaptor<ActualOutcomeEntity> captor = ArgumentCaptor.forClass(ActualOutcomeEntity.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getFierySkyActual()).isEqualTo(100);
+        assertThat(captor.getValue().getGoldenHourActual()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("record() throws for fiery score 101")
+    void record_fierySky101_throws() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, 101, null, null);
+
+        assertThatThrownBy(() -> outcomeService.record(outcome))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("fierySkyActual");
+    }
+
+    // ── query() tests ──────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("query() returns results from repository for valid date range")
+    void query_validRange_delegatesToRepository() {
+        LocalDate from = LocalDate.of(2026, 2, 1);
+        LocalDate to = LocalDate.of(2026, 2, 28);
+        List<ActualOutcomeEntity> expected = List.of(
+                ActualOutcomeEntity.builder().id(1L).build());
+        when(repository.findByLocationLatAndLocationLonAndOutcomeDateBetweenOrderByOutcomeDateAsc(
+                eq(BigDecimal.valueOf(54.7753)), eq(BigDecimal.valueOf(-1.5849)),
+                eq(from), eq(to))).thenReturn(expected);
+
+        List<ActualOutcomeEntity> result = outcomeService.query(54.7753, -1.5849, from, to);
+
+        assertThat(result).isSameAs(expected);
+    }
+
+    @Test
+    @DisplayName("query() throws IllegalArgumentException when from is after to")
+    void query_fromAfterTo_throws() {
+        LocalDate from = LocalDate.of(2026, 3, 1);
+        LocalDate to = LocalDate.of(2026, 2, 1);
+
+        assertThatThrownBy(() -> outcomeService.query(54.7753, -1.5849, from, to))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("'from' must not be after 'to'");
+    }
+
+    @Test
+    @DisplayName("query() accepts same-day range (from == to)")
+    void query_sameDayRange_accepted() {
+        LocalDate date = LocalDate.of(2026, 3, 15);
+        when(repository.findByLocationLatAndLocationLonAndOutcomeDateBetweenOrderByOutcomeDateAsc(
+                any(), any(), eq(date), eq(date))).thenReturn(List.of());
+
+        assertThatCode(() -> outcomeService.query(54.7753, -1.5849, date, date))
+                .doesNotThrowAnyException();
     }
 }

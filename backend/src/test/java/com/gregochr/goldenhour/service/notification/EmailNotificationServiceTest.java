@@ -86,4 +86,71 @@ class EmailNotificationServiceTest {
         assertThat(sent.getText()).contains("4 / 5");
         assertThat(sent.getText()).contains("Good conditions.");
     }
+
+    @Test
+    @DisplayName("notify() skips when mailSender is null (no SMTP configured)")
+    void notify_nullMailSender_sendsNoEmail() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(true);
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, null);
+
+        emailService.notify(new SunsetEvaluation(null, 30, 40, "Moderate."),
+                "Durham UK", TargetType.SUNSET, LocalDate.of(2026, 2, 20));
+
+        // No exception — silently skipped
+    }
+
+    @Test
+    @DisplayName("notify() sets from address to noreply@photocast.online")
+    void notify_setsFromAddress() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(true);
+        properties.getEmail().setRecipient("test@example.com");
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, mailSender);
+
+        emailService.notify(new SunsetEvaluation(3, null, null, "OK."),
+                "Bamburgh", TargetType.SUNSET, LocalDate.of(2026, 3, 1));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        assertThat(captor.getValue().getFrom()).isEqualTo("noreply@photocast.online");
+    }
+
+    @Test
+    @DisplayName("notify() subject includes lowercase target type")
+    void notify_subjectIncludesTargetType() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(true);
+        properties.getEmail().setRecipient("test@example.com");
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, mailSender);
+
+        emailService.notify(new SunsetEvaluation(null, 60, 55, "Decent."),
+                "Bamburgh", TargetType.SUNRISE, LocalDate.of(2026, 3, 1));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        assertThat(captor.getValue().getSubject()).contains("sunrise");
+        assertThat(captor.getValue().getSubject()).doesNotContain("SUNRISE");
+    }
+
+    @Test
+    @DisplayName("notify() body includes date and location name")
+    void notify_bodyIncludesDateAndLocation() {
+        NotificationProperties properties = new NotificationProperties();
+        properties.getEmail().setEnabled(true);
+        properties.getEmail().setRecipient("test@example.com");
+        EmailNotificationService emailService =
+                new EmailNotificationService(properties, mailSender);
+
+        emailService.notify(new SunsetEvaluation(null, 72, 80, "Great."),
+                "Dunstanburgh", TargetType.SUNSET, LocalDate.of(2026, 4, 15));
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        assertThat(captor.getValue().getText()).contains("Dunstanburgh");
+        assertThat(captor.getValue().getText()).contains("2026-04-15");
+    }
 }

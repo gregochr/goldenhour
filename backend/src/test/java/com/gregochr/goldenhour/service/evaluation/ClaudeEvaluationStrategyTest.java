@@ -326,6 +326,115 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.inversionPotential()).isEqualTo("MODERATE");
     }
 
+    @Test
+    @DisplayName("parseEvaluation() extracts basic-tier fields when present")
+    void parseEvaluation_withBasicTierFields_extractsBasicScores() {
+        String json = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+                + "\"summary\":\"Good conditions.\","
+                + "\"basic_fiery_sky\":60,\"basic_golden_hour\":55,"
+                + "\"basic_summary\":\"Decent conditions.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.basicFierySkyPotential()).isEqualTo(60);
+        assertThat(result.basicGoldenHourPotential()).isEqualTo(55);
+        assertThat(result.basicSummary()).isEqualTo("Decent conditions.");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() returns null basic-tier fields when not present")
+    void parseEvaluation_noBasicTierFields_returnsNull() {
+        String json = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":60,"
+                + "\"summary\":\"Average.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.basicFierySkyPotential()).isNull();
+        assertThat(result.basicGoldenHourPotential()).isNull();
+        assertThat(result.basicSummary()).isNull();
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() falls back to regex when JSON has unescaped quotes in summary")
+    void parseEvaluation_regexFallback_extractsScores() {
+        // Invalid JSON due to unescaped quotes — triggers regex fallback
+        String text = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":65,"
+                + "\"summary\":\"Beautiful \"orange\" sky at sunset.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isEqualTo(72);
+        assertThat(result.goldenHourPotential()).isEqualTo(65);
+        assertThat(result.summary()).contains("orange");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() throws when regex fallback also fails")
+    void parseEvaluation_totalGarbage_throws() {
+        String text = "This is not JSON and has no matching patterns.";
+
+        assertThatThrownBy(() -> strategy.parseEvaluation(text, new ObjectMapper()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Failed to parse");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() handles rating-only response (no basic or inversion fields)")
+    void parseEvaluation_ratingOnly_minimalResponse() {
+        String json = "{\"rating\":2,\"fiery_sky\":25,\"golden_hour\":30,"
+                + "\"summary\":\"Cloudy with little colour.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(2);
+        assertThat(result.fierySkyPotential()).isEqualTo(25);
+        assertThat(result.goldenHourPotential()).isEqualTo(30);
+        assertThat(result.summary()).isEqualTo("Cloudy with little colour.");
+        assertThat(result.basicFierySkyPotential()).isNull();
+        assertThat(result.basicGoldenHourPotential()).isNull();
+        assertThat(result.basicSummary()).isNull();
+        assertThat(result.inversionScore()).isNull();
+        assertThat(result.inversionPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() without rating field returns null rating")
+    void parseEvaluation_noRatingField_returnsNullRating() {
+        String json = "{\"fiery_sky\":80,\"golden_hour\":75,"
+                + "\"summary\":\"Great sky.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.rating()).isNull();
+        assertThat(result.fierySkyPotential()).isEqualTo(80);
+        assertThat(result.goldenHourPotential()).isEqualTo(75);
+    }
+
+    @Test
+    @DisplayName("extractTokenUsage() extracts all four token counts")
+    void extractTokenUsage_extractsAllCounts() {
+        Message response = buildMessage("test", 500, 200, 1000, 300);
+
+        TokenUsage usage = strategy.extractTokenUsage(response);
+
+        assertThat(usage.inputTokens()).isEqualTo(500);
+        assertThat(usage.outputTokens()).isEqualTo(200);
+        assertThat(usage.cacheCreationInputTokens()).isEqualTo(1000);
+        assertThat(usage.cacheReadInputTokens()).isEqualTo(300);
+    }
+
+    @Test
+    @DisplayName("sanitiseInversionPotential() handles case variations")
+    void sanitiseInversionPotential_caseInsensitive() {
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("strong")).isEqualTo("STRONG");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("Strong")).isEqualTo("STRONG");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("moderate")).isEqualTo("MODERATE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("Moderate")).isEqualTo("MODERATE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("none")).isEqualTo("NONE");
+        assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("")).isEqualTo("NONE");
+    }
+
     // --- Helper methods ---
 
     private Message buildMessage(String text) {
