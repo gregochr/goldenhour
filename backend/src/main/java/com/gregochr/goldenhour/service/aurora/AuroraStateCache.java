@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -81,6 +82,7 @@ public class AuroraStateCache {
     private volatile Double lastTriggerKp = null;
     private volatile int darkSkyLocationCount = 0;
     private volatile Integer clearLocationCount = null;
+    private volatile Instant activeSince = null;
     private volatile boolean simulated = false;
     private volatile SimulatedNoaaData simulatedData = null;
 
@@ -98,6 +100,7 @@ public class AuroraStateCache {
                 AlertLevel prev = currentLevel;
                 state = State.IDLE;
                 currentLevel = null;
+                activeSince = null;
                 cachedScores = List.of();
                 darkSkyLocationCount = 0;
                 clearLocationCount = null;
@@ -110,6 +113,7 @@ public class AuroraStateCache {
         if (state == State.IDLE) {
             state = State.ACTIVE;
             currentLevel = incoming;
+            activeSince = Instant.now();
             return new Evaluation(Action.NOTIFY, incoming, null);
         }
 
@@ -117,6 +121,7 @@ public class AuroraStateCache {
         if (incoming.severity() > currentLevel.severity()) {
             AlertLevel prev = currentLevel;
             currentLevel = incoming;
+            activeSince = Instant.now();
             return new Evaluation(Action.NOTIFY, incoming, prev);
         }
 
@@ -226,6 +231,16 @@ public class AuroraStateCache {
     }
 
     /**
+     * Returns the instant when the state machine first entered the current active state,
+     * or when it last escalated to a higher alert level. Returns {@code null} when IDLE.
+     *
+     * @return detection timestamp, or {@code null}
+     */
+    public Instant getActiveSince() {
+        return activeSince;
+    }
+
+    /**
      * Activates a simulation by directly injecting alert state without going through the FSM.
      *
      * <p>Sets the machine to ACTIVE with the derived alert level and stores the fake NOAA data.
@@ -242,6 +257,7 @@ public class AuroraStateCache {
     public void activateSimulation(AlertLevel level, SimulatedNoaaData data) {
         state = State.ACTIVE;
         currentLevel = level;
+        activeSince = Instant.now();
         cachedScores = List.of();
         lastTriggerType = TriggerType.FORECAST_LOOKAHEAD;
         lastTriggerKp = data.kp();
@@ -276,6 +292,7 @@ public class AuroraStateCache {
     public void reset() {
         state = State.IDLE;
         currentLevel = null;
+        activeSince = null;
         cachedScores = List.of();
         lastTriggerType = null;
         lastTriggerKp = null;

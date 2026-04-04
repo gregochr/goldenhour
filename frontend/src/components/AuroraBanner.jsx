@@ -6,6 +6,36 @@ import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
 
 /**
+ * Formats the detection timestamp for the banner headline.
+ *
+ * - Same day: "21:34"
+ * - Yesterday: "yesterday 21:34"
+ * - Older: "3 Apr 21:34"
+ *
+ * @param {string} isoTimestamp - ISO 8601 instant from the API
+ * @returns {string|null} formatted detection label, or null if invalid/missing
+ */
+export function formatDetectedAt(isoTimestamp) {
+  if (!isoTimestamp) return null;
+  const detected = new Date(isoTimestamp);
+  if (isNaN(detected.getTime())) return null;
+
+  const now = new Date();
+  const time = detected.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+
+  if (detected >= todayStart) return time;
+  if (detected >= yesterdayStart) return `yesterday ${time}`;
+  return `${detected.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} ${time}`;
+}
+
+/**
  * Returns a Bz status descriptor based on the nanoTesla value.
  * @param {number} bz
  * @returns {{ emoji: string, label: string, explanation: string }}
@@ -87,6 +117,7 @@ export default function AuroraBanner() {
   if (dismissedLevel === status.level) return null;
 
   const isSimulated = status.simulated === true;
+  const detectedLabel = formatDetectedAt(status.detectedAt);
 
   let locationText = null;
   const allOvercast = status.darkSkyLocationCount > 0
@@ -158,7 +189,9 @@ export default function AuroraBanner() {
             <span className="text-lg shrink-0" aria-hidden="true">{isSimulated ? '🧪' : '🌌'}</span>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight">
-                {isSimulated ? 'SIMULATED — ' : 'Aurora Alert — '}{status.description}
+                {isSimulated ? 'SIMULATED — ' : 'Aurora Alert — '}
+                {!isSimulated && detectedLabel && <><span data-testid="aurora-banner-detected">Detected {detectedLabel}</span> — </>}
+                {status.description}
               </p>
               {subtitleParts.length > 0 && (
                 <p className="text-xs opacity-90 mt-0.5">

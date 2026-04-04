@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -284,6 +285,84 @@ class AuroraStateCacheTest {
 
         assertThat(cache.getLastTriggerType()).isNull();
         assertThat(cache.getLastTriggerKp()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // Detection timestamp (activeSince)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("activeSince is null initially")
+    void activeSince_initiallyNull() {
+        assertThat(cache.getActiveSince()).isNull();
+    }
+
+    @Test
+    @DisplayName("IDLE + MODERATE sets activeSince to current time")
+    void activeSince_setOnFirstNotify() {
+        Instant before = Instant.now();
+        cache.evaluate(AlertLevel.MODERATE);
+        Instant after = Instant.now();
+
+        assertThat(cache.getActiveSince()).isBetween(before, after);
+    }
+
+    @Test
+    @DisplayName("Escalation (MODERATE → STRONG) updates activeSince to new time")
+    void activeSince_updatedOnEscalation() {
+        cache.evaluate(AlertLevel.MODERATE);
+        Instant firstDetection = cache.getActiveSince();
+
+        // Small pause to ensure timestamps differ
+        cache.evaluate(AlertLevel.STRONG);
+        Instant secondDetection = cache.getActiveSince();
+
+        assertThat(secondDetection).isAfterOrEqualTo(firstDetection);
+    }
+
+    @Test
+    @DisplayName("SUPPRESS (same level) does not change activeSince")
+    void activeSince_unchangedOnSuppress() {
+        cache.evaluate(AlertLevel.MODERATE);
+        Instant original = cache.getActiveSince();
+
+        cache.evaluate(AlertLevel.MODERATE);
+
+        assertThat(cache.getActiveSince()).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("CLEAR resets activeSince to null")
+    void activeSince_clearedOnClear() {
+        cache.evaluate(AlertLevel.MODERATE);
+        assertThat(cache.getActiveSince()).isNotNull();
+
+        cache.evaluate(AlertLevel.QUIET);
+        assertThat(cache.getActiveSince()).isNull();
+    }
+
+    @Test
+    @DisplayName("reset() clears activeSince")
+    void reset_clearsActiveSince() {
+        cache.evaluate(AlertLevel.STRONG);
+        assertThat(cache.getActiveSince()).isNotNull();
+
+        cache.reset();
+        assertThat(cache.getActiveSince()).isNull();
+    }
+
+    @Test
+    @DisplayName("New event after CLEAR sets fresh activeSince")
+    void activeSince_freshAfterClearAndReactivation() {
+        cache.evaluate(AlertLevel.MODERATE);
+        Instant firstDetection = cache.getActiveSince();
+
+        cache.evaluate(AlertLevel.QUIET);   // CLEAR
+        cache.evaluate(AlertLevel.MODERATE); // New event
+        Instant secondDetection = cache.getActiveSince();
+
+        assertThat(secondDetection).isAfterOrEqualTo(firstDetection);
+        assertThat(secondDetection).isNotNull();
     }
 
     // -------------------------------------------------------------------------

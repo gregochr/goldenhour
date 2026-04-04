@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.AlertLevel;
 
+import java.time.Instant;
 import java.time.ZonedDateTime;
 
 /**
@@ -36,6 +37,8 @@ import java.time.ZonedDateTime;
  * @param updatedAt          when the most recent NOAA data was fetched
  * @param simulated          {@code true} when the active alert was injected by the admin
  *                           simulation endpoint rather than real NOAA data
+ * @param detectedAt         when the current alert level was first detected (state machine
+ *                           entered ACTIVE or escalated), or {@code null} when IDLE
  */
 public record AuroraStatusResponse(
         AlertLevel level,
@@ -52,5 +55,6 @@ public record AuroraStatusResponse(
         Double bzNanoTesla,
         String dataSource,
         ZonedDateTime updatedAt,
-        boolean simulated) {
+        boolean simulated,
+        Instant detectedAt) {
 }

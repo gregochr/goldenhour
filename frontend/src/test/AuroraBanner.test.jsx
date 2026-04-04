@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import AuroraBanner, { bzStatus } from '../components/AuroraBanner.jsx';
+import AuroraBanner, { bzStatus, formatDetectedAt } from '../components/AuroraBanner.jsx';
 
 // Mock the useAuroraStatus hook
 vi.mock('../hooks/useAuroraStatus.js', () => ({
@@ -379,6 +379,111 @@ describe('AuroraBanner', () => {
         expect(result.explanation).not.toMatch(/faint|strong|should be visible|aurora possible|aurora unlikely|aurora expected|blocked|borderline/i);
       }
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // formatDetectedAt helper — unit tests
+  // ---------------------------------------------------------------------------
+
+  describe('formatDetectedAt()', () => {
+    it('returns null for null input', () => {
+      expect(formatDetectedAt(null)).toBeNull();
+    });
+
+    it('returns null for undefined input', () => {
+      expect(formatDetectedAt(undefined)).toBeNull();
+    });
+
+    it('returns null for invalid date string', () => {
+      expect(formatDetectedAt('not-a-date')).toBeNull();
+    });
+
+    it('returns time-only for a detection today', () => {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - 30);
+      const result = formatDetectedAt(now.toISOString());
+      expect(result).toMatch(/^\d{2}:\d{2}$/);
+    });
+
+    it('returns "yesterday HH:MM" for a detection yesterday', () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(21, 34, 0, 0);
+      const result = formatDetectedAt(yesterday.toISOString());
+      expect(result).toMatch(/^yesterday \d{2}:\d{2}$/);
+    });
+
+    it('returns "D Mon HH:MM" for a detection two days ago', () => {
+      const twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      twoDaysAgo.setHours(14, 22, 0, 0);
+      const result = formatDetectedAt(twoDaysAgo.toISOString());
+      // Should be like "2 Apr 14:22"
+      expect(result).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{2}:\d{2}$/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Detection timestamp in banner headline
+  // ---------------------------------------------------------------------------
+
+  it('shows "Detected HH:MM" in headline when detectedAt is present', () => {
+    const thirtyMinsAgo = new Date();
+    thirtyMinsAgo.setMinutes(thirtyMinsAgo.getMinutes() - 30);
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert: possible aurora',
+      active: true,
+      eligibleLocations: 3,
+      detectedAt: thirtyMinsAgo.toISOString(),
+    });
+    const el = screen.getByTestId('aurora-banner-detected');
+    expect(el).toBeInTheDocument();
+    expect(el.textContent).toMatch(/^Detected \d{2}:\d{2}$/);
+  });
+
+  it('shows "Detected yesterday HH:MM" when alert persisted from yesterday', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(21, 34, 0, 0);
+    renderBanner({
+      level: 'STRONG',
+      hexColour: '#ff0000',
+      description: 'Red alert: aurora likely',
+      active: true,
+      eligibleLocations: 5,
+      detectedAt: yesterday.toISOString(),
+    });
+    const el = screen.getByTestId('aurora-banner-detected');
+    expect(el.textContent).toMatch(/^Detected yesterday \d{2}:\d{2}$/);
+  });
+
+  it('does not show detection timestamp when detectedAt is null', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert: possible aurora',
+      active: true,
+      eligibleLocations: 3,
+      detectedAt: null,
+    });
+    expect(screen.queryByTestId('aurora-banner-detected')).not.toBeInTheDocument();
+  });
+
+  it('does not show detection timestamp in simulated mode', () => {
+    const thirtyMinsAgo = new Date();
+    thirtyMinsAgo.setMinutes(thirtyMinsAgo.getMinutes() - 30);
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert: possible aurora',
+      active: true,
+      eligibleLocations: 0,
+      simulated: true,
+      detectedAt: thirtyMinsAgo.toISOString(),
+    });
+    expect(screen.queryByTestId('aurora-banner-detected')).not.toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------

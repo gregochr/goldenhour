@@ -114,7 +114,8 @@ public class AuroraController {
                 bz,
                 DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
-                stateCache.isSimulated()));
+                stateCache.isSimulated(),
+                stateCache.getActiveSince()));
     }
 
     /**
