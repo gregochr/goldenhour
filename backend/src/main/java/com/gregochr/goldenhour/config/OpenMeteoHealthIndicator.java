@@ -26,7 +26,12 @@ public class OpenMeteoHealthIndicator implements HealthIndicator {
             "https://api.open-meteo.com/v1/forecast?latitude=0&longitude=0"
                     + "&hourly=temperature_2m&forecast_days=1";
 
+    /** Cache duration — avoids burning API quota on 30-second health polls. */
+    static final long CACHE_TTL_MS = 5 * 60 * 1000L;
+
     private final RestClient restClient;
+    private volatile Health cachedHealth;
+    private volatile long cachedAt;
 
     /**
      * Constructs the indicator with a dedicated {@link RestClient} configured with a 5-second
@@ -51,20 +56,25 @@ public class OpenMeteoHealthIndicator implements HealthIndicator {
 
     @Override
     public Health health() {
+        if (cachedHealth != null && (System.currentTimeMillis() - cachedAt) < CACHE_TTL_MS) {
+            return cachedHealth;
+        }
         long start = System.currentTimeMillis();
         try {
             restClient.get().uri(PROBE_URL).retrieve().toBodilessEntity();
             long latency = System.currentTimeMillis() - start;
-            return Health.up()
+            cachedHealth = Health.up()
                     .withDetail("latencyMs", latency)
                     .build();
         } catch (Exception ex) {
             long latency = System.currentTimeMillis() - start;
             LOG.debug("Open-Meteo health probe failed in {}ms", latency, ex);
-            return Health.down()
+            cachedHealth = Health.down()
                     .withDetail("latencyMs", latency)
                     .withDetail("error", ex.getMessage())
                     .build();
         }
+        cachedAt = System.currentTimeMillis();
+        return cachedHealth;
     }
 }
