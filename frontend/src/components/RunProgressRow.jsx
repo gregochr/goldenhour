@@ -29,23 +29,25 @@ const RunProgressRow = ({ task }) => {
   const badge = STATE_BADGES[task.state] || STATE_BADGES.PENDING;
 
   return (
-    <div
-      className="flex items-center justify-between gap-2 py-1 px-2 text-xs"
-      data-testid="run-progress-row"
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="text-plex-text truncate font-medium">{task.locationName}</span>
-        <span className="text-plex-text-muted">{task.targetDate}</span>
-        <span className="text-plex-text-muted">{task.targetType}</span>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
+    <div className="py-1 px-2 text-xs" data-testid="run-progress-row">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-plex-text truncate font-medium">{task.locationName}</span>
+          <span className="text-plex-text-muted">{task.targetDate}</span>
+          <span className="text-plex-text-muted">{task.targetType}</span>
+        </div>
         <span
-          className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${badge.color}`}
+          className={`inline-block px-2 py-0.5 rounded text-xs font-medium shrink-0 ${badge.color}`}
           title={task.errorMessage || undefined}
         >
           {badge.label}
         </span>
       </div>
+      {task.state === 'FAILED' && task.errorMessage && (
+        <div className="text-red-400 truncate mt-0.5 pl-1" style={{ fontSize: '10px' }}>
+          {task.errorMessage}
+        </div>
+      )}
     </div>
   );
 };
