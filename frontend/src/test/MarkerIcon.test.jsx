@@ -242,9 +242,9 @@ describe('buildMarkerSvg', () => {
       expect(arcCircles).toHaveLength(0);
     });
 
-    it('contains the ? label', () => {
-      const svg = parseSvg(buildMarkerSvg('?', '#3A3D45', null, null, null, false));
-      expect(svg.querySelector('text').textContent).toBe('?');
+    it('contains the — label', () => {
+      const svg = parseSvg(buildMarkerSvg('—', '#3A3D45', null, null, null, false));
+      expect(svg.querySelector('text').textContent).toBe('—');
     });
 
     it('has no background track ring', () => {
@@ -417,9 +417,9 @@ describe('markerLabelAndColour', () => {
     expect(result.colour).toBe(RATING_COLOURS[3]);
   });
 
-  it('returns ? and grey when no data at all', () => {
+  it('returns — and grey when no data at all', () => {
     const result = markerLabelAndColour(null, null, null, false);
-    expect(result.label).toBe('?');
+    expect(result.label).toBe('—');
     expect(result.colour).toBe('#3A3D45');
   });
 

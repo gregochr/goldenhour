@@ -773,7 +773,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2)),
-                List.of(loc), haikuStrategy, true);
+                List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 
@@ -814,7 +814,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2)),
-                List.of(loc), haikuStrategy, true);
+                List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 
@@ -849,7 +849,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2)),
-                List.of(loc), haikuStrategy, true);
+                List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 
@@ -890,7 +890,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
                 List.of(today, today.plusDays(1), today.plusDays(2)),
-                List.of(loc), haikuStrategy, true);
+                List.of(loc), haikuStrategy, false);
 
         executor.execute(cmd);
 

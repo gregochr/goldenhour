@@ -65,7 +65,7 @@ export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlif
   if (rating != null) {
     return { label: `${rating}\u2605`, colour: RATING_COLOURS[rating] ?? '#6B6B6B' };
   }
-  return { label: '?', colour: scoreColour(null) };
+  return { label: '—', colour: scoreColour(null) };
 }
 
 /**

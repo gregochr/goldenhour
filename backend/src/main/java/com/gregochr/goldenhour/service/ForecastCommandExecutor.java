@@ -188,7 +188,8 @@ public class ForecastCommandExecutor {
             Set<String> excludedSlots = command.excludedSlots() != null
                     ? command.excludedSlots() : Set.of();
             results = executeThreePhasePipeline(locations, dates, enabledStrategies,
-                    evaluationModel, runType, jobRun, excludedSlots);
+                    evaluationModel, runType, jobRun, excludedSlots,
+                    command.triggeredManually());
         }
 
         // Astro conditions scoring (piggyback — template, no Claude)
@@ -212,7 +213,7 @@ public class ForecastCommandExecutor {
             List<LocationEntity> locations, List<LocalDate> dates,
             List<OptimisationStrategyEntity> enabledStrategies,
             EvaluationModel evaluationModel, RunType runType, JobRunEntity jobRun,
-            Set<String> excludedSlots) {
+            Set<String> excludedSlots, boolean triggeredManually) {
 
         int succeeded = 0;
         int failed = 0;
@@ -328,8 +329,13 @@ public class ForecastCommandExecutor {
             return results;
         }
 
-        // Stability gating: classify per grid cell, skip tasks beyond the stability window
-        fullEvalBatch = applyStabilityFilter(fullEvalBatch);
+        // Stability gating: classify per grid cell, skip tasks beyond the stability window.
+        // Bypass for manually triggered runs — the user explicitly requested these evaluations.
+        if (!triggeredManually) {
+            fullEvalBatch = applyStabilityFilter(fullEvalBatch);
+        } else {
+            LOG.info("Stability filter bypassed — manual run");
+        }
 
         if (fullEvalBatch.isEmpty()) {
             progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
