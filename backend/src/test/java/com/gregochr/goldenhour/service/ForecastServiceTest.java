@@ -137,7 +137,12 @@ class ForecastServiceTest {
                 DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
 
         assertThat(results).hasSize(2);
-        verify(repository, times(2)).save(any());
+        ArgumentCaptor<ForecastEvaluationEntity> saveCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(2)).save(saveCaptor.capture());
+        assertThat(saveCaptor.getAllValues())
+                .extracting(ForecastEvaluationEntity::getLocationName)
+                .containsOnly(DURHAM);
     }
 
     @Test
@@ -162,9 +167,12 @@ class ForecastServiceTest {
         forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(),
                 EvaluationModel.SONNET, null);
 
-        verify(emailService, times(2)).notify(eq(evaluation), eq(DURHAM), any(), eq(date));
-        verify(pushoverService, times(2)).notify(eq(evaluation), eq(DURHAM), any(), eq(date));
-        verify(toastService, times(2)).notify(eq(evaluation), eq(DURHAM), any(), eq(date));
+        verify(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
+        verify(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
+        verify(pushoverService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
+        verify(pushoverService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
+        verify(toastService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNRISE), eq(date));
+        verify(toastService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
     }
 
     @Test
@@ -259,12 +267,17 @@ class ForecastServiceTest {
                 DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.WILDLIFE, null);
 
         assertThat(results).hasSize(2);
-        verify(repository, times(2)).save(any());
-        verify(evaluationService, org.mockito.Mockito.never())
+        ArgumentCaptor<ForecastEvaluationEntity> wildlifeCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(2)).save(wildlifeCaptor.capture());
+        assertThat(wildlifeCaptor.getAllValues())
+                .extracting(ForecastEvaluationEntity::getEvaluationModel)
+                .containsOnly(EvaluationModel.WILDLIFE);
+        verify(evaluationService, never())
                 .evaluate(any(), any(EvaluationModel.class), any());
-        verify(emailService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
-        verify(pushoverService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
-        verify(toastService, org.mockito.Mockito.never()).notify(any(), any(), any(), any());
+        verify(emailService, never()).notify(any(), any(), any(), any());
+        verify(pushoverService, never()).notify(any(), any(), any(), any());
+        verify(toastService, never()).notify(any(), any(), any(), any());
     }
 
     @Test
@@ -399,7 +412,13 @@ class ForecastServiceTest {
 
         assertThat(result.triaged()).isTrue();
         assertThat(result.triageReason()).isEqualTo("Low cloud 85%");
-        verify(repository).save(any());
+        ArgumentCaptor<ForecastEvaluationEntity> triageCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(triageCaptor.capture());
+        ForecastEvaluationEntity triaged = triageCaptor.getValue();
+        assertThat(triaged.getLocationName()).isEqualTo(DURHAM);
+        assertThat(triaged.getTargetType()).isEqualTo(TargetType.SUNRISE);
+        assertThat(triaged.getSummary()).contains("Low cloud 85%");
     }
 
     @Test
