@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -200,8 +201,26 @@ class ForecastCommandExecutorTest {
 
         int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
         verify(forecastService, times(expectedCalls))
-                .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
-                        any(TargetType.class), any(), eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(
+                                loc -> "Durham UK".equals(loc.getName())),
+                        any(LocalDate.class), any(TargetType.class), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        // Both target types received
+        verify(forecastService, times(dates.size()))
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(
+                                loc -> "Durham UK".equals(loc.getName())),
+                        any(LocalDate.class), eq(TargetType.SUNRISE), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService, times(dates.size()))
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(
+                                loc -> "Durham UK".equals(loc.getName())),
+                        any(LocalDate.class), eq(TargetType.SUNSET), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
@@ -215,8 +234,12 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
+        ArgumentCaptor<ForecastPreEvalResult> preEvalCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+                .evaluateAndPersist(preEvalCaptor.capture(), eq(stubJobRun));
+        assertThat(preEvalCaptor.getAllValues())
+                .allMatch(pe -> "Durham UK".equals(pe.location().getName()));
     }
 
     @Test
@@ -572,8 +595,13 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
+        ArgumentCaptor<ForecastPreEvalResult> cannedCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .persistCannedResult(any(), any(String.class), any());
+                .persistCannedResult(
+                        cannedCaptor.capture(), any(String.class), eq(stubJobRun));
+        assertThat(cannedCaptor.getAllValues())
+                .allMatch(pe -> "Non-Sentinel Loc".equals(pe.location().getName()));
     }
 
     @Test
@@ -620,7 +648,10 @@ class ForecastCommandExecutorTest {
 
         verify(sentinelSelector, never()).selectSentinels(any());
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+                .evaluateAndPersist(
+                        org.mockito.ArgumentMatchers.argThat(
+                                pe -> "Durham UK".equals(pe.location().getName())),
+                        eq(stubJobRun));
     }
 
     @Test
@@ -651,9 +682,15 @@ class ForecastCommandExecutorTest {
         // Sentinel selector should never be called
         verify(sentinelSelector, never()).selectSentinels(any());
         // All 4 tasks (2 locations × 2 target types) should go to evaluateAndPersist
+        ArgumentCaptor<ForecastPreEvalResult> fullEvalCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(4))
-                .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
-        verify(forecastService, never()).persistCannedResult(any(), any(String.class), any());
+                .evaluateAndPersist(fullEvalCaptor.capture(), eq(stubJobRun));
+        assertThat(fullEvalCaptor.getAllValues())
+                .extracting(pe -> pe.location().getName())
+                .containsExactlyInAnyOrder("Loc A", "Loc A", "Loc B", "Loc B");
+        verify(forecastService, never())
+                .persistCannedResult(any(), any(String.class), any());
     }
 
     @Test
@@ -687,8 +724,13 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         // Non-sentinel tasks should be skipped (rating 3 ≤ threshold 3)
+        ArgumentCaptor<ForecastPreEvalResult> customCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .persistCannedResult(any(), any(String.class), any());
+                .persistCannedResult(
+                        customCaptor.capture(), any(String.class), eq(stubJobRun));
+        assertThat(customCaptor.getAllValues())
+                .allMatch(pe -> "Non-Sentinel Loc".equals(pe.location().getName()));
     }
 
     // ── Stability filter tests ──
@@ -732,8 +774,13 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         // Only T+0 tasks should reach Claude (2 = sunrise + sunset)
+        ArgumentCaptor<ForecastPreEvalResult> evalCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
-                .evaluateAndPersist(any(), any());
+                .evaluateAndPersist(evalCaptor.capture(), eq(stubJobRun));
+        assertThat(evalCaptor.getAllValues())
+                .extracting(ForecastPreEvalResult::date)
+                .containsOnly(today);
     }
 
     @Test
@@ -768,8 +815,13 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         // All 3 days × 2 types = 6 Claude calls
+        ArgumentCaptor<ForecastPreEvalResult> settledCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(3 * EXPECTED_CALLS_PER_DAY))
-                .evaluateAndPersist(any(), any());
+                .evaluateAndPersist(settledCaptor.capture(), eq(stubJobRun));
+        assertThat(settledCaptor.getAllValues())
+                .extracting(ForecastPreEvalResult::date)
+                .containsAll(List.of(today, today.plusDays(1), today.plusDays(2)));
     }
 
     @Test
@@ -798,8 +850,13 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         // T+0 and T+1 pass (4 tasks), T+2 filtered (2 tasks skipped)
+        ArgumentCaptor<ForecastPreEvalResult> noGridCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
         verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
-                .evaluateAndPersist(any(), any());
+                .evaluateAndPersist(noGridCaptor.capture(), eq(stubJobRun));
+        assertThat(noGridCaptor.getAllValues())
+                .extracting(ForecastPreEvalResult::date)
+                .containsOnly(today, today.plusDays(1));
     }
 
     @Test
@@ -834,8 +891,14 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         // T+0 and T+1 pass (4 tasks), T+2 filtered
+        ArgumentCaptor<ForecastPreEvalResult> transCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
+        LocalDate todayTrans = LocalDate.now(ZoneOffset.UTC);
         verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
-                .evaluateAndPersist(any(), any());
+                .evaluateAndPersist(transCaptor.capture(), eq(stubJobRun));
+        assertThat(transCaptor.getAllValues())
+                .extracting(ForecastPreEvalResult::date)
+                .containsOnly(todayTrans, todayTrans.plusDays(1));
     }
 
     // -------------------------------------------------------------------------
