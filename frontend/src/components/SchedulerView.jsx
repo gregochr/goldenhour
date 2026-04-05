@@ -61,9 +61,21 @@ function describeFixedDelay(ms) {
  * @param {string} isoString - ISO 8601 timestamp
  * @returns {string} relative time or empty string
  */
-function relativeTime(isoString) {
+function relativeTime(isoString, { future = false } = {}) {
   if (!isoString) return 'Never';
   const diff = Date.now() - new Date(isoString).getTime();
+  if (future) {
+    const ahead = -diff;
+    if (ahead <= 0) return 'just now';
+    const seconds = Math.floor(ahead / 1000);
+    if (seconds < 60) return `in ${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `in ${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `in ${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `in ${days}d`;
+  }
   if (diff < 0) return 'just now';
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -309,8 +321,8 @@ export default function SchedulerView() {
               {job.nextFireTime && (
                 <span>
                   Next:{' '}
-                  <span className="text-plex-text-secondary">
-                    {relativeTime(job.nextFireTime)}
+                  <span className="text-plex-text-secondary" data-testid={`next-fire-${job.jobKey}`}>
+                    {relativeTime(job.nextFireTime, { future: true })}
                   </span>
                 </span>
               )}

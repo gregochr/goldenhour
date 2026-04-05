@@ -214,6 +214,22 @@ describe('SchedulerView', () => {
     });
   });
 
+  it('shows future relative time for next fire', async () => {
+    render(<SchedulerView />);
+
+    await waitFor(() => {
+      // tide_refresh nextFireTime is ~24h in the future — expect "in 23h" or "in 1d"
+      expect(screen.getByTestId('next-fire-tide_refresh').textContent).toMatch(/in \d+[hd]/);
+    });
+  });
+
+  it('next fire does not show "just now" for future timestamps', async () => {
+    render(<SchedulerView />);
+
+    await waitFor(() => screen.getByTestId('next-fire-tide_refresh'));
+    expect(screen.getByTestId('next-fire-tide_refresh').textContent).not.toContain('just now');
+  });
+
   it('save inline edit calls updateJobSchedule with correct payload for CRON', async () => {
     updateJobSchedule.mockResolvedValue({});
     render(<SchedulerView />);
