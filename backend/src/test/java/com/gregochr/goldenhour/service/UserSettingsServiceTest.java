@@ -24,7 +24,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -163,8 +164,8 @@ class UserSettingsServiceTest {
     }
 
     @Test
-    @DisplayName("refreshDriveTimes succeeds and updates timestamp")
-    void refreshDriveTimes_success_updatesTimestamp() {
+    @DisplayName("refreshDriveTimes passes correct user ID and coordinates to duration service")
+    void refreshDriveTimes_success_passesCorrectArgs() {
         AppUserEntity user = buildUser();
         user.setHomeLatitude(54.7761);
         user.setHomeLongitude(-1.5733);
@@ -175,7 +176,10 @@ class UserSettingsServiceTest {
 
         assertThat(response.locationsUpdated()).isEqualTo(15);
         assertThat(response.calculatedAt()).isNotNull();
-        verify(userRepository).save(any(AppUserEntity.class));
+        verify(driveDurationService).refreshForUser(eq(42L), eq(54.7761), eq(-1.5733));
+        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getDriveTimesCalculatedAt()).isNotNull();
     }
 
     @Test
@@ -194,6 +198,70 @@ class UserSettingsServiceTest {
     }
 
     @Test
+    @DisplayName("refreshDriveTimes succeeds on first-ever refresh (null driveTimesCalculatedAt)")
+    void refreshDriveTimes_firstEver_succeeds() {
+        AppUserEntity user = buildUser();
+        user.setHomeLatitude(54.7761);
+        user.setHomeLongitude(-1.5733);
+        // driveTimesCalculatedAt is null — never refreshed before
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+        when(driveDurationService.refreshForUser(42L, 54.7761, -1.5733)).thenReturn(200);
+
+        DriveTimeRefreshResponse response = service.refreshDriveTimes(auth);
+
+        assertThat(response.locationsUpdated()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("refreshDriveTimes does not call duration service when home coordinates missing")
+    void refreshDriveTimes_noHome_doesNotCallDurationService() {
+        AppUserEntity user = buildUser();
+        // homeLatitude and homeLongitude both null
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        assertThatThrownBy(() -> service.refreshDriveTimes(auth))
+                .isInstanceOf(ResponseStatusException.class);
+        verify(driveDurationService, never()).refreshForUser(eq(42L), eq(0.0), eq(0.0));
+    }
+
+    @Test
+    @DisplayName("saveHome returns response with persisted postcode")
+    void saveHome_returnsResponseWithPostcode() {
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.saveHome(auth,
+                new SaveHomeRequest("NE1 4ST", 54.9738, -1.6131));
+
+        assertThat(response.homePostcode()).isEqualTo("NE1 4ST");
+        assertThat(response.username()).isEqualTo(USERNAME);
+    }
+
+    @Test
+    @DisplayName("getSettings includes driveTimesCalculatedAt in response")
+    void getSettings_includesDriveTimesCalculatedAt() {
+        AppUserEntity user = buildUser();
+        Instant calculated = Instant.parse("2026-04-04T18:30:00Z");
+        user.setDriveTimesCalculatedAt(calculated);
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.getSettings(auth);
+
+        assertThat(response.driveTimesCalculatedAt()).isEqualTo(calculated);
+    }
+
+    @Test
+    @DisplayName("getSettings returns null driveTimesCalculatedAt when never refreshed")
+    void getSettings_noDriveTimes_returnsNullTimestamp() {
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.getSettings(auth);
+
+        assertThat(response.driveTimesCalculatedAt()).isNull();
+    }
+
+    @Test
     @DisplayName("getUserId returns user primary key")
     void getUserId_returnsId() {
         AppUserEntity user = buildUser();
@@ -202,5 +270,15 @@ class UserSettingsServiceTest {
         Long userId = service.getUserId(auth);
 
         assertThat(userId).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("getSettings throws NoSuchElementException for unknown user")
+    void getSettings_unknownUser_throws() {
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getSettings(auth))
+                .isInstanceOf(java.util.NoSuchElementException.class)
+                .hasMessageContaining(USERNAME);
     }
 }

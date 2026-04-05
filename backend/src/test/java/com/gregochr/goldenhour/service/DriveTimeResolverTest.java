@@ -98,4 +98,40 @@ class DriveTimeResolverTest {
 
         assertThat(result).isEqualTo(entities);
     }
+
+    @Test
+    @DisplayName("getAllMinutes rounds 29 seconds to 0 minutes (rounds down)")
+    void getAllMinutes_29seconds_roundsToZero() {
+        when(repository.findByUserId(USER_ID)).thenReturn(List.of(
+                new UserDriveTimeEntity(USER_ID, 1L, 29)));
+
+        assertThat(resolver.getAllMinutes(USER_ID).get(1L)).isZero();
+    }
+
+    @Test
+    @DisplayName("getAllMinutes rounds 30 seconds to 1 minute (rounds half up)")
+    void getAllMinutes_30seconds_roundsToOne() {
+        when(repository.findByUserId(USER_ID)).thenReturn(List.of(
+                new UserDriveTimeEntity(USER_ID, 1L, 30)));
+
+        assertThat(resolver.getAllMinutes(USER_ID).get(1L)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("getAllMinutes handles zero seconds")
+    void getAllMinutes_zeroSeconds_returnsZeroMinutes() {
+        when(repository.findByUserId(USER_ID)).thenReturn(List.of(
+                new UserDriveTimeEntity(USER_ID, 1L, 0)));
+
+        assertThat(resolver.getAllMinutes(USER_ID).get(1L)).isZero();
+    }
+
+    @Test
+    @DisplayName("getAllMinutes handles multi-hour drive (7200s → 120 min)")
+    void getAllMinutes_multiHourDrive() {
+        when(repository.findByUserId(USER_ID)).thenReturn(List.of(
+                new UserDriveTimeEntity(USER_ID, 1L, 7200)));
+
+        assertThat(resolver.getAllMinutes(USER_ID).get(1L)).isEqualTo(120);
+    }
 }
