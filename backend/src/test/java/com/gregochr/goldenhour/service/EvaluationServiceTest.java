@@ -18,6 +18,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -173,5 +174,76 @@ class EvaluationServiceTest {
         assertThat(result.fierySkyPotential()).isEqualTo(70);
         // The decorator calls evaluateWithDetails, not evaluate directly
         verify(haikuStrategy).evaluateWithDetails(data);
+    }
+
+    @Test
+    @DisplayName("evaluate() without jobRun does NOT wrap with decorator — calls evaluate directly")
+    void evaluate_withoutJobRun_callsEvaluateDirectly() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        SunsetEvaluation expected = new SunsetEvaluation(3, 50, 55, "Moderate.");
+        when(sonnetStrategy.evaluate(data)).thenReturn(expected);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.SONNET, null);
+
+        assertThat(result).isSameAs(expected);
+        // Without jobRun, evaluate (not evaluateWithDetails) is called
+        verify(sonnetStrategy).evaluate(data);
+    }
+
+    @Test
+    @DisplayName("evaluate() with unknown model throws IllegalArgumentException")
+    void evaluate_unknownModel_throwsIllegalArgumentException() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        // Create a service with only HAIKU — requesting SONNET should fail
+        Map<EvaluationModel, EvaluationStrategy> limited = Map.of(
+                EvaluationModel.HAIKU, haikuStrategy);
+        EvaluationService limitedService = new EvaluationService(limited, jobRunService);
+
+        assertThatThrownBy(() -> limitedService.evaluate(data, EvaluationModel.SONNET))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SONNET");
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() with unknown model throws IllegalArgumentException")
+    void evaluateWithDetails_unknownModel_throwsIllegalArgumentException() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        Map<EvaluationModel, EvaluationStrategy> limited = Map.of(
+                EvaluationModel.HAIKU, haikuStrategy);
+        EvaluationService limitedService = new EvaluationService(limited, jobRunService);
+
+        assertThatThrownBy(() -> limitedService.evaluateWithDetails(
+                data, EvaluationModel.SONNET, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SONNET");
+    }
+
+    @Test
+    @DisplayName("evaluate() with jobRun logs API call via decorator")
+    void evaluate_withJobRun_logsApiCall() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        JobRunEntity jobRun = JobRunEntity.builder().id(42L).build();
+        EvaluationDetail detail = new EvaluationDetail(
+                new SunsetEvaluation(5, 90, 85, "Spectacular."), "prompt", "raw", 600L,
+                new TokenUsage(200, 100, 500, 100));
+
+        when(opusStrategy.getEvaluationModel()).thenReturn(EvaluationModel.OPUS);
+        when(opusStrategy.evaluateWithDetails(data)).thenReturn(detail);
+
+        SunsetEvaluation result = evaluationService.evaluate(data, EvaluationModel.OPUS, jobRun);
+
+        assertThat(result.fierySkyPotential()).isEqualTo(90);
+        // The decorator should have logged the API call
+        verify(jobRunService).logApiCall(
+                org.mockito.ArgumentMatchers.eq(42L),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq("POST"),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.eq(600L),
+                org.mockito.ArgumentMatchers.eq(200),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.isNull());
     }
 }

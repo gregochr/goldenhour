@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -175,5 +176,160 @@ class SolarServiceTest {
         LocalDateTime dawn = solarService.nauticalDawnUtc(DURHAM_LAT, DURHAM_LON, date.plusDays(1));
 
         assertThat(dusk).isBefore(dawn);
+    }
+
+    // -------------------------------------------------------------------------
+    // Southern hemisphere
+    // -------------------------------------------------------------------------
+
+    private static final double SYDNEY_LAT = -33.8688;
+    private static final double SYDNEY_LON = 151.2093;
+
+    @Test
+    @DisplayName("Southern hemisphere: December is summer, June is winter")
+    void southernHemisphere_decemberLongerThanJune() {
+        LocalDate decSolstice = LocalDate.of(2026, 12, 21);
+        LocalDate junSolstice = LocalDate.of(2026, 6, 21);
+
+        long decDayMinutes = solarService.dayLengthMinutes(SYDNEY_LAT, SYDNEY_LON, decSolstice);
+        long junDayMinutes = solarService.dayLengthMinutes(SYDNEY_LAT, SYDNEY_LON, junSolstice);
+
+        assertThat(decDayMinutes).isGreaterThan(junDayMinutes);
+    }
+
+    @Test
+    @DisplayName("Southern hemisphere: sunrise azimuth is south of East in December")
+    void southernHemisphere_sunriseAzimuth_southOfEastInDecember() {
+        int azimuth = solarService.sunriseAzimuthDeg(SYDNEY_LAT, SYDNEY_LON,
+                LocalDate.of(2026, 12, 21));
+        // In southern hemisphere summer, sunrise is south of East (azimuth > 90)
+        // Actually no — sunrise is SOUTH of east which is < 90 degrees
+        // Wait — at southern hemisphere summer solstice, the sun rises south of east
+        // In compass degrees, south of east means azimuth > 90 for southern latitudes...
+        // Actually the sun rises further south, so azimuth is between ~115-120
+        assertThat(azimuth).isGreaterThan(90);
+    }
+
+    // -------------------------------------------------------------------------
+    // Equator
+    // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // goldenBlueWindow — sunrise
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Sunrise window: blue hour starts at civil dawn, ends at sunrise")
+    void sunriseWindow_blueHourBoundaries() {
+        LocalDate date = LocalDate.of(2026, 4, 5);
+        SolarService.SolarWindow w = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, date, true);
+
+        LocalDateTime civilDawn = solarService.civilDawnUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime sunrise = solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(w.blueHourStart()).isEqualTo(civilDawn);
+        assertThat(w.blueHourEnd()).isEqualTo(sunrise);
+        assertThat(w.goldenHourStart()).isEqualTo(sunrise);
+    }
+
+    @Test
+    @DisplayName("Sunrise window: golden hour end is after sunrise (sun at +6°)")
+    void sunriseWindow_goldenHourEndAfterSunrise() {
+        LocalDate date = LocalDate.of(2026, 4, 5);
+        SolarService.SolarWindow w = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, date, true);
+
+        assertThat(w.goldenHourEnd()).isAfter(w.goldenHourStart());
+    }
+
+    @Test
+    @DisplayName("Sunrise window: golden hour is shorter than 60 mins in spring at 55°N")
+    void sunriseWindow_springGoldenHourShorterThan60Min() {
+        LocalDate date = LocalDate.of(2026, 4, 5);
+        SolarService.SolarWindow w = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, date, true);
+
+        long goldenMinutes = Duration.between(w.goldenHourStart(), w.goldenHourEnd()).toMinutes();
+        assertThat(goldenMinutes).isBetween(25L, 50L);
+    }
+
+    // -------------------------------------------------------------------------
+    // goldenBlueWindow — sunset
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Sunset window: blue hour starts at sunset, ends at civil dusk")
+    void sunsetWindow_blueHourBoundaries() {
+        LocalDate date = LocalDate.of(2026, 4, 5);
+        SolarService.SolarWindow w = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, date, false);
+
+        LocalDateTime sunset = solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date);
+        LocalDateTime civilDusk = solarService.civilDuskUtc(DURHAM_LAT, DURHAM_LON, date);
+
+        assertThat(w.blueHourStart()).isEqualTo(sunset);
+        assertThat(w.blueHourEnd()).isEqualTo(civilDusk);
+        assertThat(w.goldenHourEnd()).isEqualTo(sunset);
+    }
+
+    @Test
+    @DisplayName("Sunset window: golden hour start is before sunset (sun at +6°)")
+    void sunsetWindow_goldenHourStartBeforeSunset() {
+        LocalDate date = LocalDate.of(2026, 4, 5);
+        SolarService.SolarWindow w = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, date, false);
+
+        assertThat(w.goldenHourStart()).isBefore(w.goldenHourEnd());
+    }
+
+    @Test
+    @DisplayName("Midsummer sunset golden hour exceeds 60 minutes at 55°N")
+    void midsummerSunset_goldenHourExceeds60Min() {
+        LocalDate midsummer = LocalDate.of(2026, 6, 21);
+        SolarService.SolarWindow w = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, midsummer, false);
+
+        long goldenMinutes = Duration.between(w.goldenHourStart(), w.goldenHourEnd()).toMinutes();
+        assertThat(goldenMinutes).isGreaterThan(60);
+    }
+
+    @Test
+    @DisplayName("Winter sunset golden hour is shorter than midsummer")
+    void winterSunset_goldenHourShorterThanSummer() {
+        LocalDate winter = LocalDate.of(2026, 12, 21);
+        LocalDate summer = LocalDate.of(2026, 6, 21);
+        SolarService.SolarWindow winterW = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, winter, false);
+        SolarService.SolarWindow summerW = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, summer, false);
+
+        long winterGolden = Duration.between(winterW.goldenHourStart(), winterW.goldenHourEnd()).toMinutes();
+        long summerGolden = Duration.between(summerW.goldenHourStart(), summerW.goldenHourEnd()).toMinutes();
+
+        assertThat(winterGolden).isLessThan(summerGolden);
+    }
+
+    // -------------------------------------------------------------------------
+    // Equator
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Equator: day length is approximately 12 hours year-round")
+    void equator_dayLengthApprox12Hours() {
+        double equatorLat = 0.0;
+        double equatorLon = 0.0;
+
+        long marchDay = solarService.dayLengthMinutes(equatorLat, equatorLon,
+                LocalDate.of(2026, 3, 20));
+        long juneDay = solarService.dayLengthMinutes(equatorLat, equatorLon,
+                LocalDate.of(2026, 6, 21));
+        long decDay = solarService.dayLengthMinutes(equatorLat, equatorLon,
+                LocalDate.of(2026, 12, 21));
+
+        // All within ~15 minutes of 720 (12 hours)
+        assertThat(marchDay).isBetween(705L, 735L);
+        assertThat(juneDay).isBetween(705L, 735L);
+        assertThat(decDay).isBetween(705L, 735L);
     }
 }

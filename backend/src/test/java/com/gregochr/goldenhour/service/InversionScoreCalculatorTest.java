@@ -131,6 +131,152 @@ class InversionScoreCalculatorTest {
     }
 
     @Test
+    @DisplayName("returns null when weather data is null")
+    void calculate_nullWeather_returnsNull() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .weather(null)
+                .build();
+        assertThat(InversionScoreCalculator.calculate(data)).isNull();
+    }
+
+    @Test
+    @DisplayName("returns null when cloud data is null")
+    void calculate_nullCloud_returnsNull() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloud(null)
+                .build();
+        assertThat(InversionScoreCalculator.calculate(data)).isNull();
+    }
+
+    @Test
+    @DisplayName("boundary: gap exactly 1.0 scores 4 (top tier)")
+    void calculate_gapExactlyOne_topTier() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.0)
+                .windSpeed(new java.math.BigDecimal("1.0"))
+                .humidity(95)
+                .lowCloud(30)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 1.0 → 4, wind = 1.0 → 3, humidity 95 → 2, cloud 30 → 1 = 10
+        assertThat(score).isEqualTo(10.0);
+    }
+
+    @Test
+    @DisplayName("boundary: gap 1.01 scores 3 (second tier)")
+    void calculate_gapJustAboveOne_secondTier() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(6.01)
+                .dewPoint(5.0)
+                .windSpeed(new java.math.BigDecimal("1.0"))
+                .humidity(95)
+                .lowCloud(30)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 1.01 → 3, wind = 1.0 → 3, humidity 95 → 2, cloud 30 → 1 = 9
+        assertThat(score).isEqualTo(9.0);
+    }
+
+    @Test
+    @DisplayName("boundary: wind exactly 1.5 scores 3 (top wind tier)")
+    void calculate_windExactlyOneFive_topWindTier() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.0)
+                .windSpeed(new java.math.BigDecimal("1.5"))
+                .humidity(95)
+                .lowCloud(30)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 1.0 → 4, wind = 1.5 → 3, humidity 95 → 2, cloud 30 → 1 = 10
+        assertThat(score).isEqualTo(10.0);
+    }
+
+    @Test
+    @DisplayName("boundary: humidity exactly 70 scores 1 (lowest non-zero tier)")
+    void calculate_humidityExactly70_lowestTier() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(15.0)
+                .dewPoint(7.0)
+                .windSpeed(new java.math.BigDecimal("8.0"))
+                .humidity(70)
+                .lowCloud(5)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 8 → 0, wind = 8 → 0, humidity 70 → 1.0, cloud 5 → 0 = 1.0
+        assertThat(score).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("boundary: humidity 69 scores 0 (below threshold)")
+    void calculate_humidity69_zeroHumidityScore() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(15.0)
+                .dewPoint(7.0)
+                .windSpeed(new java.math.BigDecimal("8.0"))
+                .humidity(69)
+                .lowCloud(5)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 8 → 0, wind = 8 → 0, humidity 69 → 0, cloud 5 → 0 = 0
+        assertThat(score).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("boundary: low cloud exactly 20 scores 1 (in optimal range)")
+    void calculate_lowCloud20_inOptimalRange() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(15.0)
+                .dewPoint(7.0)
+                .windSpeed(new java.math.BigDecimal("8.0"))
+                .humidity(50)
+                .lowCloud(20)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 8 → 0, wind = 8 → 0, humidity 50 → 0, cloud 20 → 1.0 = 1.0
+        assertThat(score).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("boundary: low cloud exactly 60 scores 1 (top of optimal range)")
+    void calculate_lowCloud60_topOfOptimalRange() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(15.0)
+                .dewPoint(7.0)
+                .windSpeed(new java.math.BigDecimal("8.0"))
+                .humidity(50)
+                .lowCloud(60)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 8 → 0, wind = 8 → 0, humidity 50 → 0, cloud 60 → 1.0 = 1.0
+        assertThat(score).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("boundary: low cloud 61 scores 0.5 (overcast range)")
+    void calculate_lowCloud61_overcastRange() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .temperature(15.0)
+                .dewPoint(7.0)
+                .windSpeed(new java.math.BigDecimal("8.0"))
+                .humidity(50)
+                .lowCloud(61)
+                .build();
+
+        Double score = InversionScoreCalculator.calculate(data);
+        // gap = 8 → 0, wind = 8 → 0, humidity 50 → 0, cloud 61 → 0.5 = 0.5
+        assertThat(score).isEqualTo(0.5);
+    }
+
+    @Test
     @DisplayName("clear sky (no low cloud) gets zero cloud score")
     void calculate_clearSky_zeroCloudScore() {
         AtmosphericData data = TestAtmosphericData.builder()
