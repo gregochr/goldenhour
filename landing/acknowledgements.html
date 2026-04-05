@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Acknowledgements — PhotoCast</title>
-  <meta name="description" content="Data sources and open-source projects that power PhotoCast.">
+  <meta name="description" content="Data sources, open-source projects, and third-party services that power PhotoCast.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,13 +14,18 @@
     :root {
       --bg: #181A1E;
       --bg-surface: #252830;
+      --bg-surface-light: #2F323A;
       --bg-card: #252830;
       --text: #EBEBEB;
       --text-muted: #A0A0A0;
       --text-dim: #6B6B6B;
       --gold: #E5A00D;
       --gold-light: #F5C518;
+      --gold-dark: #CC8A00;
+      --gold-bg: rgba(229, 160, 13, 0.08);
+      --gold-border: rgba(229, 160, 13, 0.2);
       --border: #3A3D45;
+      --border-light: #4A4D55;
       --radius: 12px;
       --radius-lg: 14px;
     }
@@ -32,6 +37,8 @@
       -webkit-font-smoothing: antialiased;
     }
     .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* Nav */
     .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
     .nav-brand { display: flex; flex-direction: column; }
     .nav-brand a { text-decoration: none; color: inherit; }
@@ -52,41 +59,73 @@
       transition: background 0.15s;
     }
     .nav-cta:hover { background: var(--gold-light); }
+
+    /* Page heading */
     .page-heading { text-align: center; padding: 0 0 3rem; }
     .page-heading h1 {
       font-size: clamp(28px, 5vw, 36px); font-weight: 600;
       letter-spacing: -1px; color: var(--text);
     }
-    .ack-intro {
+
+    /* Content */
+    .content { padding: 0 0 2.5rem; }
+    .content-intro {
       font-size: 15px; color: var(--text-muted); line-height: 1.6;
       text-align: center; max-width: 540px; margin: -1.5rem auto 2.5rem;
     }
-    .ack-section { margin-bottom: 2.5rem; }
-    .ack-section h2 {
+    .content h2 {
       font-size: 18px; font-weight: 600;
-      letter-spacing: -0.2px; margin-bottom: 12px; color: var(--text);
+      letter-spacing: -0.2px; margin: 2rem 0 12px; color: var(--text);
     }
-    .ack-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
+    .content h2:first-child { margin-top: 0; }
+    .content p {
+      font-size: 15px; color: var(--text-muted); line-height: 1.6;
+      margin-bottom: 0.75rem;
+    }
+    .content ul {
+      list-style: none; padding: 0; margin-bottom: 0.75rem;
+    }
+    .content ul li {
+      font-size: 15px; color: var(--text-muted); line-height: 1.6;
+      padding: 2px 0 2px 1.25rem; position: relative;
+    }
+    .content ul li::before {
+      content: ''; position: absolute; left: 0; top: 12px;
+      width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim);
+    }
+
+    /* Table */
+    .table-wrapper {
+      overflow-x: auto;
+      margin: 0.75rem 0;
       border-radius: var(--radius);
-      padding: 1rem 1.25rem;
-      margin-bottom: 8px;
+      border: 1px solid var(--border);
     }
-    .ack-card:last-child { margin-bottom: 0; }
-    .ack-name {
-      font-size: 15px; font-weight: 600; color: var(--text);
-      margin-bottom: 2px;
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 560px;
     }
-    .ack-name a {
-      color: var(--text); text-decoration: none;
+    .data-table th {
+      background: var(--bg-surface);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      padding: 12px 16px;
       border-bottom: 1px solid var(--border);
-      transition: border-color 0.15s;
     }
-    .ack-name a:hover { border-color: var(--gold); }
-    .ack-desc {
-      font-size: 13px; color: var(--text-muted); line-height: 1.5;
+    .data-table td {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      line-height: 1.5;
     }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* Footer */
     .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
     .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
     .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
@@ -95,6 +134,7 @@
     .footer-social a { color: var(--text-dim); transition: color 0.15s; }
     .footer-social a:hover { color: var(--gold); }
     .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+
     @media (max-width: 500px) {
       .nav-links a:not(.nav-cta) { display: none; }
     }
@@ -122,82 +162,101 @@
       <h1>Acknowledgements</h1>
     </div>
 
-    <p class="ack-intro">PhotoCast is built on the work of many open data providers and open-source projects. We are grateful to all of them.</p>
+    <p class="content-intro">PhotoCast is built on the shoulders of many excellent open-source projects and third-party services. We gratefully acknowledge:</p>
 
-    <div class="ack-section">
-      <h2>Data sources</h2>
+    <div class="content">
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></div>
-        <div class="ack-desc">Weather forecast data including cloud cover at multiple altitudes, humidity, wind, temperature, precipitation, visibility, and pressure. Air quality data via CAMS (aerosol optical depth, PM2.5, dust).</div>
+      <h2>Data providers</h2>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>What they provide</th>
+              <th>Licence / Terms</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Open-Meteo</td>
+              <td>Weather forecasts and CAMS air quality data</td>
+              <td>Creative Commons Attribution 4.0 (CC BY 4.0). Data sourced from national weather services including DWD, NOAA, and Copernicus/ECMWF</td>
+            </tr>
+            <tr>
+              <td>WorldTides</td>
+              <td>Astronomical tide predictions</td>
+              <td>Commercial API — used under licence</td>
+            </tr>
+            <tr>
+              <td>NOAA Space Weather Prediction Center</td>
+              <td>Kp index, OVATION aurora model, solar wind data</td>
+              <td>US Government public domain</td>
+            </tr>
+            <tr>
+              <td>WeatherAPI.com</td>
+              <td>Met Office weather warnings</td>
+              <td>Commercial API — used under licence</td>
+            </tr>
+            <tr>
+              <td>lightpollutionmap.info</td>
+              <td>World Atlas of Artificial Night Sky Brightness (Bortle class, SQM)</td>
+              <td>Data by Jurij Stare, lightpollutionmap.info. Based on Falchi et al. (2016)</td>
+            </tr>
+            <tr>
+              <td>Postcodes.io</td>
+              <td>UK postcode geocoding</td>
+              <td>Open Government Licence v3.0. Contains OS and Royal Mail data</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.worldtides.info/" target="_blank" rel="noopener noreferrer">WorldTides</a></div>
-        <div class="ack-desc">Tide heights and times for UK coastal stations, enabling spring tide, king tide, and tide-aligned sunrise/sunset detection.</div>
-      </div>
+      <h2>Open-source software</h2>
+      <p>PhotoCast uses the following open-source libraries and frameworks:</p>
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.swpc.noaa.gov/" target="_blank" rel="noopener noreferrer">NOAA Space Weather Prediction Center</a></div>
-        <div class="ack-desc">Kp index, 3-day Kp forecast, OVATION aurora probability model, solar wind data, and G-scale geomagnetic storm alerts.</div>
-      </div>
+      <p style="color: var(--text); font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem;">Backend:</p>
+      <ul>
+        <li>Spring Boot 4 — Apache 2.0</li>
+        <li>Spring Security 7 — Apache 2.0</li>
+        <li>Flyway — Apache 2.0</li>
+        <li>H2 Database — MPL 2.0 / EPL 1.0</li>
+        <li>JJWT (JSON Web Token) — Apache 2.0</li>
+        <li>Resilience4j — Apache 2.0</li>
+        <li>Anthropic Java SDK — MIT</li>
+        <li>Jsoup — MIT</li>
+        <li>Checkstyle — LGPL 2.1</li>
+        <li>SpotBugs — LGPL 2.1</li>
+        <li>JaCoCo — EPL 2.0</li>
+      </ul>
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.lightpollutionmap.info/" target="_blank" rel="noopener noreferrer">Light Pollution Map</a></div>
-        <div class="ack-desc">Bortle class and sky brightness (SQM) data for dark sky assessment at aurora and astrophotography locations.</div>
-      </div>
+      <p style="color: var(--text); font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem;">Frontend:</p>
+      <ul>
+        <li>React 19 — MIT</li>
+        <li>Vite — MIT</li>
+        <li>Tailwind CSS v4 — MIT</li>
+        <li>Leaflet — BSD-2-Clause</li>
+        <li>react-leaflet — MIT</li>
+        <li>react-leaflet-cluster — MIT</li>
+        <li>Axios — MIT</li>
+        <li>Vitest — MIT</li>
+        <li>Playwright — Apache 2.0</li>
+      </ul>
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://postcodes.io/" target="_blank" rel="noopener noreferrer">Postcodes.io</a></div>
-        <div class="ack-desc">Free UK postcode geocoding for home location and personalised drive time calculation.</div>
-      </div>
+      <p style="color: var(--text); font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem;">Infrastructure:</p>
+      <ul>
+        <li>Docker — Apache 2.0</li>
+        <li>Nginx — BSD-2-Clause</li>
+        <li>Cloudflare Tunnel — Cloudflare Terms of Service</li>
+      </ul>
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.ecb.europa.eu/" target="_blank" rel="noopener noreferrer">European Central Bank (via Frankfurter)</a></div>
-        <div class="ack-desc">Exchange rate data for cost display.</div>
-      </div>
-    </div>
+      <h2>Our own libraries</h2>
+      <ul>
+        <li>solar-utils (v1.2.0) — sunrise, sunset, civil dawn/dusk, solar noon, and azimuth calculations. Published on GitHub Packages.</li>
+      </ul>
 
-    <div class="ack-section">
       <h2>AI</h2>
+      <p>Forecast scoring and recommendations are generated by Anthropic's Claude AI models (Haiku, Sonnet, and Opus). No personal user data is sent to the AI — only location names and weather data.</p>
 
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.anthropic.com/claude" target="_blank" rel="noopener noreferrer">Claude by Anthropic</a></div>
-        <div class="ack-desc">AI forecast evaluation, scoring, plain-English explanations, best-bet recommendations, and aurora interpretation.</div>
-      </div>
-    </div>
-
-    <div class="ack-section">
-      <h2>Mapping</h2>
-
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer">Leaflet</a></div>
-        <div class="ack-desc">Open-source JavaScript library for interactive maps.</div>
-      </div>
-
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener noreferrer">OpenStreetMap</a></div>
-        <div class="ack-desc">Map tile data. &copy; OpenStreetMap contributors.</div>
-      </div>
-    </div>
-
-    <div class="ack-section">
-      <h2>Infrastructure</h2>
-
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://spring.io/projects/spring-boot" target="_blank" rel="noopener noreferrer">Spring Boot</a></div>
-        <div class="ack-desc">Java application framework powering the PhotoCast backend.</div>
-      </div>
-
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://react.dev/" target="_blank" rel="noopener noreferrer">React</a></div>
-        <div class="ack-desc">JavaScript library for building the PhotoCast user interface.</div>
-      </div>
-
-      <div class="ack-card">
-        <div class="ack-name"><a href="https://www.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare</a></div>
-        <div class="ack-desc">CDN, DNS, and tunnel infrastructure for secure hosting.</div>
-      </div>
     </div>
 
     <div class="footer">

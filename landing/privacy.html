@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Privacy Policy — PhotoCast</title>
-  <meta name="description" content="PhotoCast privacy policy — how we handle your data.">
+  <meta name="description" content="Privacy policy for PhotoCast — how we collect, use, and protect your data.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,12 +14,18 @@
     :root {
       --bg: #181A1E;
       --bg-surface: #252830;
+      --bg-surface-light: #2F323A;
+      --bg-card: #252830;
       --text: #EBEBEB;
       --text-muted: #A0A0A0;
       --text-dim: #6B6B6B;
       --gold: #E5A00D;
       --gold-light: #F5C518;
+      --gold-dark: #CC8A00;
+      --gold-bg: rgba(229, 160, 13, 0.08);
+      --gold-border: rgba(229, 160, 13, 0.2);
       --border: #3A3D45;
+      --border-light: #4A4D55;
       --radius: 12px;
       --radius-lg: 14px;
     }
@@ -31,6 +37,8 @@
       -webkit-font-smoothing: antialiased;
     }
     .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* Nav */
     .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
     .nav-brand { display: flex; flex-direction: column; }
     .nav-brand a { text-decoration: none; color: inherit; }
@@ -51,12 +59,16 @@
       transition: background 0.15s;
     }
     .nav-cta:hover { background: var(--gold-light); }
+
+    /* Page heading */
     .page-heading { text-align: center; padding: 0 0 3rem; }
     .page-heading h1 {
       font-size: clamp(28px, 5vw, 36px); font-weight: 600;
       letter-spacing: -1px; color: var(--text);
     }
     .page-heading .updated { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
+
+    /* Legal content */
     .legal { padding: 0 0 2.5rem; }
     .legal h2 {
       font-size: 18px; font-weight: 600;
@@ -78,6 +90,39 @@
       content: ''; position: absolute; left: 0; top: 12px;
       width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim);
     }
+
+    /* Table */
+    .table-wrapper {
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 560px;
+    }
+    .data-table th {
+      background: var(--bg-surface);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      font-size: 13px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      line-height: 1.5;
+    }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    /* Footer */
     .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
     .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
     .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
@@ -86,6 +131,7 @@
     .footer-social a { color: var(--text-dim); transition: color 0.15s; }
     .footer-social a:hover { color: var(--gold); }
     .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+
     @media (max-width: 500px) {
       .nav-links a:not(.nav-cta) { display: none; }
     }
@@ -116,45 +162,134 @@
 
     <div class="legal">
 
-      <h2>What we collect</h2>
-      <p>When you create a PhotoCast account, we collect:</p>
+      <h2>Who we are</h2>
+      <p>PhotoCast is operated by Chris Gregory, an individual based in the United Kingdom. For any privacy-related queries, contact privacy@photocast.online.</p>
+
+      <h2>What data we collect</h2>
+      <p>When you register for PhotoCast, we collect:</p>
       <ul>
-        <li>Email address (for login and optional notifications)</li>
-        <li>Password (stored as a bcrypt hash — we never see or store the plain text)</li>
-        <li>Home postcode (if you choose to set one, for personalised drive times)</li>
+        <li>Your email address and username (required for account creation)</li>
+        <li>Your chosen password (stored securely using one-way hashing — we cannot read it)</li>
+      </ul>
+      <p>When you use PhotoCast, we may also collect:</p>
+      <ul>
+        <li>Your home postcode (if you choose to set a home location for drive time calculations — Pro feature)</li>
+        <li>Forecast outcome ratings you submit (your assessment of whether a forecast was accurate)</li>
+        <li>Usage data such as login times and feature interactions (for service improvement)</li>
       </ul>
 
-      <h2>How we use your data</h2>
+      <h2>Why we collect it</h2>
+      <p>We use your data to:</p>
       <ul>
-        <li>Authentication and account management</li>
-        <li>Delivering forecast notifications (if you opt in)</li>
-        <li>Calculating personalised drive times from your home location</li>
-        <li>Improving the accuracy and relevance of forecasts</li>
+        <li>Provide the PhotoCast service (account authentication, personalised forecasts, drive times)</li>
+        <li>Improve forecast accuracy through outcome feedback</li>
+        <li>Send transactional emails (account verification, password resets)</li>
+        <li>Send marketing emails about new features and photography tips (only if you opt in)</li>
       </ul>
-      <p>We do not sell, rent, or share your personal data with third parties for marketing purposes.</p>
+
+      <h2>Legal basis</h2>
+      <p>We process your data under:</p>
+      <ul>
+        <li>Consent — you provide your information when registering and can withdraw at any time</li>
+        <li>Legitimate interest — to operate and improve the service</li>
+      </ul>
 
       <h2>Third-party services</h2>
-      <p>PhotoCast uses the following external services to operate:</p>
-      <ul>
-        <li>Anthropic (Claude AI) — forecast evaluation and scoring. Atmospheric data (not personal data) is sent for analysis.</li>
-        <li>Open-Meteo — weather forecast data. No personal data is shared.</li>
-        <li>WorldTides — tidal data. No personal data is shared.</li>
-        <li>NOAA SWPC — aurora and space weather data. No personal data is shared.</li>
-        <li>Postcodes.io — postcode geocoding for drive time calculation. Only the postcode is sent.</li>
-        <li>Cloudflare — hosting and CDN. Subject to Cloudflare's privacy policy.</li>
-      </ul>
+      <p>PhotoCast uses the following third-party services that may process data on our behalf:</p>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>What data</th>
+              <th>Purpose</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Anthropic (Claude AI)</td>
+              <td>Location names and weather data only — no personal information</td>
+              <td>AI forecast scoring and recommendations</td>
+            </tr>
+            <tr>
+              <td>Open-Meteo</td>
+              <td>Location coordinates</td>
+              <td>Weather and air quality forecasts</td>
+            </tr>
+            <tr>
+              <td>WorldTides</td>
+              <td>Location coordinates</td>
+              <td>Tide predictions for coastal locations</td>
+            </tr>
+            <tr>
+              <td>NOAA SWPC</td>
+              <td>No personal data</td>
+              <td>Aurora and space weather forecasts</td>
+            </tr>
+            <tr>
+              <td>WeatherAPI.com</td>
+              <td>Location coordinates</td>
+              <td>Weather warnings</td>
+            </tr>
+            <tr>
+              <td>lightpollutionmap.info</td>
+              <td>Location coordinates</td>
+              <td>Light pollution / Bortle class data</td>
+            </tr>
+            <tr>
+              <td>Postcodes.io</td>
+              <td>UK postcodes (if you set a home location)</td>
+              <td>Postcode geocoding for drive times</td>
+            </tr>
+            <tr>
+              <td>SendGrid</td>
+              <td>Your email address</td>
+              <td>Transactional and marketing emails</td>
+            </tr>
+            <tr>
+              <td>Cloudflare</td>
+              <td>IP address (standard web traffic)</td>
+              <td>DNS, SSL, and tunnel hosting</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>No personal data (names, emails, passwords) is sent to the AI model. Prompts contain only location names and weather data.</p>
+      <p>When Stripe is integrated for Pro subscriptions, Stripe will process your payment card details directly. PhotoCast will never see or store your full card number.</p>
 
-      <h2>Cookies and tracking</h2>
-      <p>PhotoCast uses a JWT token stored in your browser for authentication. We do not use third-party analytics, advertising cookies, or tracking pixels.</p>
+      <h2>Cookies and local storage</h2>
+      <p>PhotoCast does not use tracking cookies or third-party analytics. We use browser local storage to maintain your login session (JWT authentication token). This is essential for the service to function and is not used for tracking.</p>
 
       <h2>Data retention</h2>
-      <p>Your account data is retained for as long as your account is active. Forecast data is retained for historical accuracy analysis. You can request deletion of your account and associated data by contacting us.</p>
+      <ul>
+        <li>Active accounts: data retained for the lifetime of your account</li>
+        <li>Dormant accounts: accounts with no login activity for 90 days may be deleted, along with all associated data</li>
+        <li>Marketing email preferences: retained until you change them or your account is deleted</li>
+      </ul>
 
       <h2>Your rights</h2>
-      <p>You can request access to, correction of, or deletion of your personal data at any time by emailing us. If you are in the UK or EU, you have rights under UK GDPR / EU GDPR including the right to data portability and the right to lodge a complaint with the ICO.</p>
+      <p>Under UK GDPR, you have the right to:</p>
+      <ul>
+        <li>Access your personal data — request a copy of what we hold</li>
+        <li>Rectify inaccurate data — update your email, username, or home location</li>
+        <li>Delete your data — request account deletion and removal of all associated data</li>
+        <li>Data portability — request your data in a machine-readable format</li>
+        <li>Object to processing — opt out of marketing emails at any time</li>
+        <li>Withdraw consent — you can delete your account at any time</li>
+      </ul>
+      <p>To exercise any of these rights, contact privacy@photocast.online.</p>
+
+      <h2>Children</h2>
+      <p>PhotoCast is not directed at children under 13. We do not knowingly collect data from anyone under 13. If you believe a child under 13 has registered, please contact us and we will delete the account.</p>
+
+      <h2>ICO registration</h2>
+      <p>As a UK-based data controller, we are in the process of registering with the Information Commissioner's Office (ICO).</p>
+
+      <h2>Changes to this policy</h2>
+      <p>We may update this policy from time to time. Material changes will be communicated via email to registered users. The "last updated" date at the top will always reflect the current version.</p>
 
       <h2>Contact</h2>
-      <p>For privacy enquiries, email: privacy@photocast.online</p>
+      <p>For any privacy questions or data requests: privacy@photocast.online</p>
 
     </div>
 
