@@ -213,7 +213,7 @@ class BriefingAuroraSummaryBuilderTest {
     }
 
     @Test
-    @DisplayName("buildAuroraTonight uses midnight UTC as weather target hour")
+    @DisplayName("buildAuroraTonight passes correct locations and midnight target to enricher")
     void tonightWeatherUseMidnightTarget() {
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
@@ -227,16 +227,20 @@ class BriefingAuroraSummaryBuilderTest {
 
         builder.buildAuroraTonight();
 
-        ArgumentCaptor<ZonedDateTime> captor = ArgumentCaptor.forClass(ZonedDateTime.class);
-        verify(weatherEnricher).fetchWeather(anyList(), captor.capture());
-        ZonedDateTime targetHour = captor.getValue();
-        // Target should be midnight UTC (hour == 0, minute == 0)
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LocationEntity>> locCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<ZonedDateTime> timeCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+        verify(weatherEnricher).fetchWeather(locCaptor.capture(), timeCaptor.capture());
+
+        assertThat(locCaptor.getValue()).hasSize(1);
+        assertThat(locCaptor.getValue().get(0).getName()).isEqualTo("Kielder");
+        ZonedDateTime targetHour = timeCaptor.getValue();
         assertThat(targetHour.getHour()).isZero();
         assertThat(targetHour.getMinute()).isZero();
     }
 
     @Test
-    @DisplayName("buildAuroraTomorrow uses midnight UTC as weather target hour")
+    @DisplayName("buildAuroraTomorrow passes Bortle locations and midnight target to enricher")
     void tomorrowWeatherUsesMidnightTarget() {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
@@ -250,14 +254,228 @@ class BriefingAuroraSummaryBuilderTest {
 
         builder.buildAuroraTomorrow();
 
-        ArgumentCaptor<ZonedDateTime> captor = ArgumentCaptor.forClass(ZonedDateTime.class);
-        verify(weatherEnricher).fetchWeather(anyList(), captor.capture());
-        ZonedDateTime targetHour = captor.getValue();
-        // Target should be midnight UTC (hour == 0, minute == 0)
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<LocationEntity>> locCaptor = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<ZonedDateTime> timeCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+        verify(weatherEnricher).fetchWeather(locCaptor.capture(), timeCaptor.capture());
+
+        assertThat(locCaptor.getValue()).hasSize(1);
+        assertThat(locCaptor.getValue().get(0).getName()).isEqualTo("Kielder");
+        ZonedDateTime targetHour = timeCaptor.getValue();
         assertThat(targetHour.getHour()).isZero();
         assertThat(targetHour.getMinute()).isZero();
-        // Tomorrow midnight should be at least 1 day in the future
         assertThat(targetHour).isAfter(now);
+    }
+
+    // ── Fresh weather overrides stale score cloud data ──
+
+    @Test
+    @DisplayName("Fresh enricher cloud data overrides stale score — score says clear, enricher says overcast")
+    void tonightSummary_enricherOverridesStaleScore_clearToOvercast() {
+        LocationEntity loc = location(1L, "Bamburgh", "Northumberland");
+        // Score baked in hours ago when skies were clear (30% cloud)
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 30, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        // Enricher returns fresh data showing storm has arrived (95% cloud)
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        95, 2.0, 15.0, 63)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.clearLocationCount()).isZero();
+        AuroraRegionSummary region = summary.regions().get(0);
+        assertThat(region.verdict()).isEqualTo("STANDDOWN");
+        assertThat(region.clearLocationCount()).isZero();
+        assertThat(region.locations().get(0).clear()).isFalse();
+        assertThat(region.locations().get(0).cloudPercent()).isEqualTo(95);
+    }
+
+    @Test
+    @DisplayName("Fresh enricher cloud data overrides stale score — score says overcast, enricher says clear")
+    void tonightSummary_enricherOverridesStaleScore_overcastToClear() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        // Score baked in hours ago when storm was active (90% cloud)
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 3, AlertLevel.MODERATE, 90, "Active aurora", "Overcast");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        // Enricher returns fresh data showing storm has passed (20% cloud)
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        20, 5.0, 3.0, 0)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.clearLocationCount()).isEqualTo(1);
+        AuroraRegionSummary region = summary.regions().get(0);
+        assertThat(region.verdict()).isEqualTo("GO");
+        assertThat(region.clearLocationCount()).isEqualTo(1);
+        assertThat(region.locations().get(0).clear()).isTrue();
+        assertThat(region.locations().get(0).cloudPercent()).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("Falls back to score cloud data when enricher has no data for a location")
+    void tonightSummary_fallsBackToScoreWhenEnricherMissing() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        // Enricher returns empty map — no fresh weather available
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of());
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        // Should fall back to score's 40% cloud (clear)
+        assertThat(summary.clearLocationCount()).isEqualTo(1);
+        assertThat(summary.regions().get(0).locations().get(0).cloudPercent()).isEqualTo(40);
+        assertThat(summary.regions().get(0).locations().get(0).clear()).isTrue();
+    }
+
+    // ── Multi-region with mixed weather ──
+
+    @Test
+    @DisplayName("Multi-region: one GO one STANDDOWN — clearCount is regional total, not stale score total")
+    void tonightSummary_multiRegion_mixedWeather() {
+        LocationEntity kielder = location(1L, "Kielder", "Northumberland");
+        LocationEntity bamburgh = location(2L, "Bamburgh", "Northumberland");
+        LocationEntity roseberry = location(3L, "Roseberry Topping", "North York Moors");
+
+        // All scores say clear (baked in when weather was good)
+        AuroraForecastScore s1 = new AuroraForecastScore(
+                kielder, 4, AlertLevel.MODERATE, 20, "Aurora", "Clear");
+        AuroraForecastScore s2 = new AuroraForecastScore(
+                bamburgh, 3, AlertLevel.MODERATE, 25, "Aurora", "Clear");
+        AuroraForecastScore s3 = new AuroraForecastScore(
+                roseberry, 3, AlertLevel.MODERATE, 15, "Aurora", "Clear");
+
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.5);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2, s3));
+        // Enricher: Northumberland stays clear, North York Moors now overcast
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(
+                        1L, new AuroraWeatherEnricher.AuroraWeather(25, 3.0, 4.0, 0),
+                        2L, new AuroraWeatherEnricher.AuroraWeather(30, 3.5, 5.0, 0),
+                        3L, new AuroraWeatherEnricher.AuroraWeather(85, 4.0, 12.0, 61)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        // Total: 2 clear (both in Northumberland), not 3 (which stale scores would give)
+        assertThat(summary.clearLocationCount()).isEqualTo(2);
+        assertThat(summary.regions()).hasSize(2);
+
+        AuroraRegionSummary northumberland = summary.regions().stream()
+                .filter(r -> "Northumberland".equals(r.regionName())).findFirst().orElseThrow();
+        assertThat(northumberland.verdict()).isEqualTo("GO");
+        assertThat(northumberland.clearLocationCount()).isEqualTo(2);
+        assertThat(northumberland.totalDarkSkyLocations()).isEqualTo(2);
+
+        AuroraRegionSummary northYorkMoors = summary.regions().stream()
+                .filter(r -> "North York Moors".equals(r.regionName())).findFirst().orElseThrow();
+        assertThat(northYorkMoors.verdict()).isEqualTo("STANDDOWN");
+        assertThat(northYorkMoors.clearLocationCount()).isZero();
+        assertThat(northYorkMoors.locations().get(0).cloudPercent()).isEqualTo(85);
+    }
+
+    @Test
+    @DisplayName("STANDDOWN verdict when every location in a region is overcast")
+    void tonightSummary_allOvercast_standdown() {
+        LocationEntity loc1 = location(1L, "Bamburgh", "Northumberland");
+        LocationEntity loc2 = location(2L, "Embleton", "Northumberland");
+
+        AuroraForecastScore s1 = new AuroraForecastScore(
+                loc1, 3, AlertLevel.MODERATE, 20, "Aurora", "Clear");
+        AuroraForecastScore s2 = new AuroraForecastScore(
+                loc2, 3, AlertLevel.MODERATE, 25, "Aurora", "Clear");
+
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2));
+        // Enricher: storm arrived, all overcast
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(
+                        1L, new AuroraWeatherEnricher.AuroraWeather(92, 3.0, 18.0, 65),
+                        2L, new AuroraWeatherEnricher.AuroraWeather(88, 3.5, 16.0, 63)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.clearLocationCount()).isZero();
+        AuroraRegionSummary region = summary.regions().get(0);
+        assertThat(region.verdict()).isEqualTo("STANDDOWN");
+        assertThat(region.clearLocationCount()).isZero();
+        assertThat(region.locations()).allSatisfy(slot -> {
+            assertThat(slot.clear()).isFalse();
+            assertThat(slot.cloudPercent()).isGreaterThanOrEqualTo(75);
+        });
+    }
+
+    @Test
+    @DisplayName("Cloud threshold boundary: 74% is clear, 75% is not")
+    void tonightSummary_cloudThresholdBoundary() {
+        LocationEntity clearLoc = location(1L, "Kielder", "Northumberland");
+        LocationEntity borderLoc = location(2L, "Bamburgh", "Northumberland");
+
+        AuroraForecastScore s1 = new AuroraForecastScore(
+                clearLoc, 4, AlertLevel.MODERATE, 50, "Aurora", "Mixed");
+        AuroraForecastScore s2 = new AuroraForecastScore(
+                borderLoc, 3, AlertLevel.MODERATE, 50, "Aurora", "Mixed");
+
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(
+                        1L, new AuroraWeatherEnricher.AuroraWeather(74, 4.0, 3.0, 2),
+                        2L, new AuroraWeatherEnricher.AuroraWeather(75, 4.0, 3.0, 3)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.clearLocationCount()).isEqualTo(1);
+        AuroraRegionSummary region = summary.regions().get(0);
+        assertThat(region.clearLocationCount()).isEqualTo(1);
+        assertThat(region.verdict()).isEqualTo("GO");
+    }
+
+    @Test
+    @DisplayName("bestBortleClass reflects the darkest location in the region")
+    void tonightSummary_bestBortleClass() {
+        LocationEntity dark = location(1L, "Kielder", "Northumberland");
+        dark.setBortleClass(2);
+        LocationEntity moderate = location(2L, "Bamburgh", "Northumberland");
+        moderate.setBortleClass(4);
+
+        AuroraForecastScore s1 = new AuroraForecastScore(
+                dark, 4, AlertLevel.MODERATE, 30, "Aurora", "Clear");
+        AuroraForecastScore s2 = new AuroraForecastScore(
+                moderate, 3, AlertLevel.MODERATE, 40, "Aurora", "Clear");
+
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(s1, s2));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(
+                        1L, new AuroraWeatherEnricher.AuroraWeather(30, 3.0, 4.0, 0),
+                        2L, new AuroraWeatherEnricher.AuroraWeather(40, 4.0, 5.0, 0)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.regions().get(0).bestBortleClass()).isEqualTo(2);
     }
 
     private static LocationEntity location(Long id, String name, String regionName) {
