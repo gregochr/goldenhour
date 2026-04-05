@@ -22,16 +22,19 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-          # Generates ~/.m2/settings.xml with credentials for GitHub Packages (solar-utils)
+          # Generates ~/.m2/settings.xml with credentials for GitHub Packages (solar-utils).
+          # PACKAGES_PAT is a classic PAT with read:packages scope — required because
+          # solar-utils is in a separate repo and GITHUB_TOKEN only covers the current repo.
           server-id: github
           server-username: GITHUB_ACTOR
-          server-password: GITHUB_TOKEN
+          server-password: PACKAGES_PAT
 
       # Tests use H2 in-memory (src/test/resources/application.yml) — no external DB needed.
       # mvn verify also runs JaCoCo and enforces the 80% line coverage minimum.
       - name: Build, test, and verify coverage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGES_PAT: ${{ secrets.PACKAGES_PAT }}
         run: |
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
@@ -39,6 +42,7 @@ jobs:
       - name: OWASP Dependency-Check (backend)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGES_PAT: ${{ secrets.PACKAGES_PAT }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false
