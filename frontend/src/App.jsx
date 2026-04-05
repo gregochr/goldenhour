@@ -350,18 +350,7 @@ function AppInner() {
 
       <footer className="border-t border-plex-border px-4 py-4 mt-8">
         <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
-          <p>
-            Made with ☕ by Chris —{' '}
-            <a
-              href="https://buymeacoffee.com/gregorychris"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-plex-text-secondary hover:text-plex-text underline"
-            >
-              Buy me a coffee
-            </a>
-          </p>
-          <div className="flex justify-center gap-4 mt-2">
+          <div className="flex justify-center gap-4">
             <a
               href="https://www.instagram.com/photocastuk"
               target="_blank"
