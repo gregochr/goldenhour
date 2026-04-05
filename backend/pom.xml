@@ -127,6 +127,13 @@
             <version>${anthropic-sdk.version}</version>
         </dependency>
 
+        <!-- OkHttp — explicit compile scope for HTTP/1.1 protocol config (transitive is runtime) -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
+
         <!-- ==================== Internal Libraries ==================== -->
 
         <!-- Solar Utils - extracted from plex-webhooks, install to local Maven repo first -->

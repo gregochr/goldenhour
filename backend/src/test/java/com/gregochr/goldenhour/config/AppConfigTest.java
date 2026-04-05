@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.config;
 
 import com.anthropic.client.AnthropicClient;
+import okhttp3.Protocol;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -44,6 +45,24 @@ class AppConfigTest {
         AnthropicClient client = config.anthropicClient(properties);
 
         assertThat(client).isNotNull();
+    }
+
+    @Test
+    @DisplayName("OkHttp client uses HTTP/1.1 only to avoid virtual-thread pinning")
+    void okHttpClient_usesHttp11Only() {
+        okhttp3.OkHttpClient okHttp = config.createOkHttpClient();
+
+        assertThat(okHttp.protocols())
+                .containsExactly(Protocol.HTTP_1_1)
+                .doesNotContain(Protocol.HTTP_2);
+    }
+
+    @Test
+    @DisplayName("OkHttp client has 90-second call timeout")
+    void okHttpClient_hasCallTimeout() {
+        okhttp3.OkHttpClient okHttp = config.createOkHttpClient();
+
+        assertThat(okHttp.callTimeoutMillis()).isEqualTo(90_000);
     }
 
     @Test

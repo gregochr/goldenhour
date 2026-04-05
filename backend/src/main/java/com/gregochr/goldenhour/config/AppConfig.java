@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.config;
 
+import com.anthropic.backends.AnthropicBackend;
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import com.anthropic.client.AnthropicClientImpl;
+import com.anthropic.core.ClientOptions;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
@@ -16,9 +18,14 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
+import okhttp3.ConnectionPool;
+import okhttp3.Protocol;
+
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Core Spring application configuration.
@@ -74,26 +81,50 @@ public class AppConfig {
     }
 
     /**
-     * Anthropic client for Claude API calls with connection pooling.
+     * Anthropic client for Claude API calls with HTTP/1.1 to avoid virtual-thread pinning.
      *
-     * <p>Configured from {@link AnthropicProperties}. Used exclusively by
-     * {@code AnthropicApiClient} — no other class accesses the Anthropic SDK directly.
-     * Connection pool sized to support parallel evaluation runs (5 idle connections,
-     * 2-minute keep-alive).
+     * <p>OkHttp's HTTP/2 implementation uses {@code synchronized} blocks for frame
+     * writing/reading. When 200+ virtual threads multiplex over a shared HTTP/2
+     * connection, they pin carrier threads in the ForkJoinPool and deadlock. Forcing
+     * HTTP/1.1 gives each request its own connection, avoiding monitor contention.
      *
-     * <p>A 90-second call timeout prevents OkHttp HTTP/2 threads from pinning virtual-thread
-     * carrier threads indefinitely when the Anthropic API hangs mid-response.
+     * <p>Connection pool sized at 10 idle connections with 2-minute keep-alive to
+     * support parallel evaluation runs without excessive connection churn.
      *
      * @param properties Anthropic API configuration
      * @return a configured {@link AnthropicClient}
      */
     @Bean
     public AnthropicClient anthropicClient(AnthropicProperties properties) {
-        return AnthropicOkHttpClient.builder()
+        okhttp3.OkHttpClient okHttp = createOkHttpClient();
+
+        AnthropicBackend backend = AnthropicBackend.builder()
                 .apiKey(properties.getApiKey())
-                .maxIdleConnections(5)
-                .keepAliveDuration(Duration.ofMinutes(2))
-                .timeout(Duration.ofSeconds(90))
+                .build();
+
+        com.anthropic.client.okhttp.OkHttpClient httpClient =
+                new com.anthropic.client.okhttp.OkHttpClient(okHttp, backend);
+
+        ClientOptions clientOptions = ClientOptions.builder()
+                .httpClient(httpClient)
+                .build();
+
+        return new AnthropicClientImpl(clientOptions);
+    }
+
+    /**
+     * Creates the OkHttp client with HTTP/1.1 protocol only.
+     *
+     * <p>Package-visible for testing. HTTP/1.1 avoids virtual-thread pinning
+     * caused by OkHttp's {@code synchronized} HTTP/2 frame writers.
+     *
+     * @return configured OkHttp client
+     */
+    okhttp3.OkHttpClient createOkHttpClient() {
+        return new okhttp3.OkHttpClient.Builder()
+                .protocols(List.of(Protocol.HTTP_1_1))
+                .connectionPool(new ConnectionPool(10, 2, TimeUnit.MINUTES))
+                .callTimeout(Duration.ofSeconds(90))
                 .build();
     }
 
