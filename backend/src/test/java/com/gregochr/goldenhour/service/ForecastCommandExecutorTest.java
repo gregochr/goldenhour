@@ -922,7 +922,7 @@ class ForecastCommandExecutorTest {
         // 4 tasks (1 location × 2 dates × 2 target types) but only 1 unique coordinate
         org.mockito.ArgumentCaptor<java.util.List<double[]>> captor =
                 org.mockito.ArgumentCaptor.forClass(java.util.List.class);
-        verify(openMeteoService).prefetchWeatherBatch(captor.capture(), any());
+        verify(openMeteoService).prefetchWeatherBatch(captor.capture(), eq(stubJobRun));
         assertThat(captor.getValue()).hasSize(1);
     }
 
@@ -944,7 +944,7 @@ class ForecastCommandExecutorTest {
 
         org.mockito.ArgumentCaptor<java.util.List<double[]>> captor =
                 org.mockito.ArgumentCaptor.forClass(java.util.List.class);
-        verify(openMeteoService).prefetchWeatherBatch(captor.capture(), any());
+        verify(openMeteoService).prefetchWeatherBatch(captor.capture(), eq(stubJobRun));
         assertThat(captor.getValue()).hasSize(1);
     }
 

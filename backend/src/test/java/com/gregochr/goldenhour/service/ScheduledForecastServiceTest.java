@@ -3,7 +3,6 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
-
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -79,7 +78,7 @@ class ScheduledForecastServiceTest {
         verify(commandFactory).create(rtCaptor.capture(), manualCaptor.capture());
         assertThat(rtCaptor.getValue()).isEqualTo(RunType.SHORT_TERM);
         assertThat(manualCaptor.getValue()).isFalse();
-        verify(commandExecutor).execute(any());
+        verify(commandExecutor).execute(org.mockito.ArgumentMatchers.isNotNull());
     }
 
     @Test
@@ -88,9 +87,9 @@ class ScheduledForecastServiceTest {
         scheduledForecastService.runDistantForecasts();
 
         ArgumentCaptor<RunType> rtCaptor = ArgumentCaptor.forClass(RunType.class);
-        verify(commandFactory).create(rtCaptor.capture(), any(boolean.class));
+        verify(commandFactory).create(rtCaptor.capture(), org.mockito.ArgumentMatchers.eq(false));
         assertThat(rtCaptor.getValue()).isEqualTo(RunType.LONG_TERM);
-        verify(commandExecutor).execute(any());
+        verify(commandExecutor).execute(org.mockito.ArgumentMatchers.isNotNull());
     }
 
     @Test
@@ -99,9 +98,9 @@ class ScheduledForecastServiceTest {
         scheduledForecastService.runWeatherForecasts();
 
         ArgumentCaptor<RunType> rtCaptor = ArgumentCaptor.forClass(RunType.class);
-        verify(commandFactory).create(rtCaptor.capture(), any(boolean.class));
+        verify(commandFactory).create(rtCaptor.capture(), org.mockito.ArgumentMatchers.eq(false));
         assertThat(rtCaptor.getValue()).isEqualTo(RunType.WEATHER);
-        verify(commandExecutor).execute(any());
+        verify(commandExecutor).execute(org.mockito.ArgumentMatchers.isNotNull());
     }
 
     // -------------------------------------------------------------------------
@@ -114,11 +113,14 @@ class ScheduledForecastServiceTest {
         LocationEntity durham = LocationEntity.builder().name("Durham UK")
                 .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham));
-        when(locationService.isCoastal(any())).thenReturn(true);
+        when(locationService.isCoastal(durham)).thenReturn(true);
 
         scheduledForecastService.refreshTideExtremes();
 
-        verify(tideService, times(1)).fetchAndStoreTideExtremes(any(), any());
+        ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(tideService, times(1)).fetchAndStoreTideExtremes(locCaptor.capture(),
+                org.mockito.ArgumentMatchers.isNull());
+        assertThat(locCaptor.getValue().getName()).isEqualTo("Durham UK");
     }
 
     @Test
@@ -141,15 +143,21 @@ class ScheduledForecastServiceTest {
         LocationEntity scarborough = LocationEntity.builder().name("Scarborough")
                 .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
-        when(locationService.isCoastal(any())).thenReturn(true);
+        when(locationService.isCoastal(durham)).thenReturn(true);
+        when(locationService.isCoastal(scarborough)).thenReturn(true);
         doThrow(new RuntimeException("API error"))
                 .when(tideService).fetchAndStoreTideExtremes(
                         org.mockito.ArgumentMatchers.argThat(
-                                loc -> "Durham UK".equals(loc.getName())), any());
+                                loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.isNull());
 
         scheduledForecastService.refreshTideExtremes();
 
-        verify(tideService, times(2)).fetchAndStoreTideExtremes(any(), any());
+        ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(tideService, times(2)).fetchAndStoreTideExtremes(locCaptor.capture(),
+                org.mockito.ArgumentMatchers.isNull());
+        assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
+                .containsExactly("Durham UK", "Scarborough");
     }
 
     // -------------------------------------------------------------------------
@@ -162,12 +170,16 @@ class ScheduledForecastServiceTest {
         LocationEntity bamburgh = LocationEntity.builder().name("Bamburgh")
                 .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
-        when(locationService.isCoastal(any())).thenReturn(true);
-        when(tideService.backfillTideExtremes(any(), any())).thenReturn(52);
+        when(locationService.isCoastal(bamburgh)).thenReturn(true);
+        when(tideService.backfillTideExtremes(org.mockito.ArgumentMatchers.eq(bamburgh),
+                org.mockito.ArgumentMatchers.isNull())).thenReturn(52);
 
         scheduledForecastService.backfillTideExtremes();
 
-        verify(tideService, times(1)).backfillTideExtremes(any(), any());
+        ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(tideService, times(1)).backfillTideExtremes(locCaptor.capture(),
+                org.mockito.ArgumentMatchers.isNull());
+        assertThat(locCaptor.getValue().getName()).isEqualTo("Bamburgh");
     }
 
     @Test
@@ -190,13 +202,21 @@ class ScheduledForecastServiceTest {
         LocationEntity loc2 = LocationEntity.builder().name("Loc2")
                 .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
-        when(locationService.isCoastal(any())).thenReturn(true);
-        when(tideService.backfillTideExtremes(any(), any()))
-                .thenThrow(new RuntimeException("API error"))
+        when(locationService.isCoastal(loc1)).thenReturn(true);
+        when(locationService.isCoastal(loc2)).thenReturn(true);
+        when(tideService.backfillTideExtremes(org.mockito.ArgumentMatchers.eq(loc1),
+                org.mockito.ArgumentMatchers.isNull()))
+                .thenThrow(new RuntimeException("API error"));
+        when(tideService.backfillTideExtremes(org.mockito.ArgumentMatchers.eq(loc2),
+                org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(52);
 
         scheduledForecastService.backfillTideExtremes();
 
-        verify(tideService, times(2)).backfillTideExtremes(any(), any());
+        ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(tideService, times(2)).backfillTideExtremes(locCaptor.capture(),
+                org.mockito.ArgumentMatchers.isNull());
+        assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
+                .containsExactly("Loc1", "Loc2");
     }
 }

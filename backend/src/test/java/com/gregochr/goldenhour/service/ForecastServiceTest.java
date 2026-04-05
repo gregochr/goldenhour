@@ -523,7 +523,14 @@ class ForecastServiceTest {
 
         assertThat(result.triaged()).isTrue();
         assertThat(result.triageReason()).contains("tide");
-        verify(repository).save(any());
+
+        ArgumentCaptor<ForecastEvaluationEntity> tideCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(tideCaptor.capture());
+        ForecastEvaluationEntity saved = tideCaptor.getValue();
+        assertThat(saved.getLocationName()).isEqualTo("Bamburgh");
+        assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(saved.getRating()).isEqualTo(1);
     }
 
     @Test
@@ -597,8 +604,17 @@ class ForecastServiceTest {
         ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
 
         assertThat(result).isEqualTo(savedEntity);
-        verify(evaluationService).evaluate(eq(data), eq(EvaluationModel.SONNET), any());
-        verify(repository).save(any());
+        verify(evaluationService).evaluate(eq(data), eq(EvaluationModel.SONNET), eq(null));
+
+        ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(evalCaptor.capture());
+        ForecastEvaluationEntity saved = evalCaptor.getValue();
+        assertThat(saved.getLocationName()).isEqualTo(DURHAM);
+        assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
+        assertThat(saved.getFierySkyPotential()).isEqualTo(85);
+        assertThat(saved.getGoldenHourPotential()).isEqualTo(78);
     }
 
     @Test
@@ -644,7 +660,14 @@ class ForecastServiceTest {
         ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
 
         assertThat(result).isNotNull();
-        verify(repository).save(any());
+
+        ArgumentCaptor<ForecastEvaluationEntity> notifCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(notifCaptor.capture());
+        ForecastEvaluationEntity saved = notifCaptor.getValue();
+        assertThat(saved.getLocationName()).isEqualTo(DURHAM);
+        assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
     }
 
     // --- persistCannedResult tests ---
@@ -714,7 +737,10 @@ class ForecastServiceTest {
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
-        when(openMeteoService.getAtmosphericDataFromCache(any(), any(), eq(prefetched)))
+        ForecastRequest expectedRequest = new ForecastRequest(
+                DURHAM_LAT, DURHAM_LON, DURHAM, date, TargetType.SUNSET);
+        when(openMeteoService.getAtmosphericDataFromCache(
+                eq(expectedRequest), eq(sunset), eq(prefetched)))
                 .thenReturn(cached);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(java.util.Optional.empty());
 
@@ -722,7 +748,8 @@ class ForecastServiceTest {
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
                 EvaluationModel.SONNET, true, null, prefetched, null);
 
-        verify(openMeteoService).getAtmosphericDataFromCache(any(), any(), eq(prefetched));
+        verify(openMeteoService).getAtmosphericDataFromCache(
+                eq(expectedRequest), eq(sunset), eq(prefetched));
         verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(), any(), any());
     }
 
