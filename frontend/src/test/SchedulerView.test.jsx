@@ -178,6 +178,24 @@ describe('SchedulerView', () => {
     });
   });
 
+  it('fixed delay jobs do not show raw millisecond values', async () => {
+    render(<SchedulerView />);
+
+    await waitFor(() => screen.getByTestId('scheduler-job-aurora_polling'));
+    expect(screen.getByTestId('scheduler-job-aurora_polling').textContent).not.toContain('300000ms');
+    expect(screen.getByTestId('scheduler-job-met_office_scrape').textContent).not.toContain('3600000ms');
+  });
+
+  it('fixed delay hourly job shows human-readable description', async () => {
+    render(<SchedulerView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-met_office_scrape')).toHaveTextContent(
+        'Every hour',
+      );
+    });
+  });
+
   it('shows config source for disabled jobs', async () => {
     render(<SchedulerView />);
 

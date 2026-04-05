@@ -271,13 +271,13 @@ export default function SchedulerView() {
                 <span className="font-mono">
                   {job.scheduleType === 'CRON'
                     ? job.cronExpression
-                    : `${job.fixedDelayMs}ms`}
-                </span>
-                <span className="text-plex-text-muted">
-                  {job.scheduleType === 'CRON'
-                    ? describeCron(job.cronExpression)
                     : describeFixedDelay(job.fixedDelayMs)}
                 </span>
+                {job.scheduleType === 'CRON' && (
+                  <span className="text-plex-text-muted">
+                    {describeCron(job.cronExpression)}
+                  </span>
+                )}
                 <button
                   onClick={() => handleEditStart(job)}
                   className="text-xs text-plex-gold hover:text-plex-gold/80 ml-1"
