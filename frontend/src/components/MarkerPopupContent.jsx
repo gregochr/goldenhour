@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   formatEventTimeUk,
-  formatShiftedEventTimeUk,
   formatGeneratedAtFull,
   mpsToMph,
   degreesToCompass,
 } from '../utils/conversions.js';
 import { runForecast } from '../api/forecastApi.js';
 import createEventSource from '../utils/createEventSource.js';
+import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 import ProPill from './shared/ProPill.jsx';
@@ -307,10 +307,10 @@ export default function MarkerPopupContent({
   const isSunrise = eventType === 'SUNRISE';
   const risingTide = forecast ? getRisingTideWarning(forecast, eventType) : null;
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
-  const goldenStart = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 0 : -60) : null;
-  const goldenEnd   = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 60 : 0) : null;
-  const blueStart   = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? -60 : 0) : null;
-  const blueEnd     = forecast ? formatShiftedEventTimeUk(forecast.solarEventTime, isSunrise ? 0 : 60) : null;
+  const goldenStart = forecast ? formatEventTimeUk(forecast.goldenHourStart) : null;
+  const goldenEnd   = forecast ? formatEventTimeUk(forecast.goldenHourEnd) : null;
+  const blueStart   = forecast ? formatEventTimeUk(forecast.blueHourStart) : null;
+  const blueEnd     = forecast ? formatEventTimeUk(forecast.blueHourEnd) : null;
 
   const goldenPillStyle = { ...POPUP_PILL, background: '#451a03', color: '#fcd34d', border: '1px solid rgba(217,119,6,0.4)' };
   const bluePillStyle   = { ...POPUP_PILL, background: '#1e1b4b', color: '#a5b4fc', border: '1px solid rgba(99,102,241,0.4)' };
@@ -444,7 +444,7 @@ export default function MarkerPopupContent({
                 padding: '6px 10px',
               }}>
                 🌌 Not suitable for aurora photography
-                {location.bortleClass ? ` (Bortle ${location.bortleClass})` : ''}
+                {location.bortleClass ? ` (Light pollution: ${bortleLabel(location.bortleClass)})` : ''}
               </span>
             </div>
           )}
@@ -845,7 +845,7 @@ export default function MarkerPopupContent({
               </div>
             )}
 
-            {/* Chips: aurora friendly, Bortle, drive time */}
+            {/* Chips: aurora friendly, light pollution, drive time */}
             {hasChips && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
                 {hasAuroraChip && (
@@ -855,7 +855,7 @@ export default function MarkerPopupContent({
                 )}
                 {hasBortleChip && (
                   <span style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
-                    Bortle {location.bortleClass}
+                    💡 Light pollution: {bortleLabel(location.bortleClass)} (Bortle {location.bortleClass})
                   </span>
                 )}
                 {hasDriveChip && (

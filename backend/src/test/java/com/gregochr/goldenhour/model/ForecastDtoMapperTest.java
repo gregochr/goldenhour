@@ -7,8 +7,14 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.service.LunarPhaseService;
+import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.goldenhour.service.SolarService.SolarWindow;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -16,13 +22,28 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 
 /**
  * Unit tests for {@link ForecastDtoMapper}.
  */
+@ExtendWith(MockitoExtension.class)
 class ForecastDtoMapperTest {
 
-    private final ForecastDtoMapper mapper = new ForecastDtoMapper(new LunarPhaseService());
+    @Mock
+    private SolarService solarService;
+
+    private ForecastDtoMapper mapper;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                .thenReturn(new SolarWindow(null, null, null, null));
+        mapper = new ForecastDtoMapper(new LunarPhaseService(), solarService);
+    }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
             .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();

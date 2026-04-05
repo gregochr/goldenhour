@@ -39,6 +39,9 @@ class ForecastDataAugmentorSurgeTest {
     private OpenMeteoService openMeteoService;
 
     @Mock
+    private SolarService solarService;
+
+    @Mock
     private TideService tideService;
 
     @Mock
@@ -54,7 +57,7 @@ class ForecastDataAugmentorSurgeTest {
 
     @BeforeEach
     void setUp() {
-        augmentor = new ForecastDataAugmentor(openMeteoService, tideService,
+        augmentor = new ForecastDataAugmentor(openMeteoService, solarService, tideService,
                 new LunarPhaseService(), weatherAugmentedTideService, surgeCalibrationLogger);
     }
 

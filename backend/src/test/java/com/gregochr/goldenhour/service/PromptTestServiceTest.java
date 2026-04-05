@@ -201,7 +201,8 @@ class PromptTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
                 .thenReturn(sampleDetail());
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any(EvaluationModel.class)))
@@ -261,7 +262,8 @@ class PromptTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
 
         // First location (Bamburgh) evaluation fails; second (Durham) succeeds
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.HAIKU), any()))
@@ -321,7 +323,8 @@ class PromptTestServiceTest {
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
         when(openMeteoService.getAtmosphericData(any(), any())).thenReturn(data);
-        when(augmentor.augmentWithTideData(any(), any(), any(), any())).thenReturn(data);
+        when(augmentor.augmentWithTideData(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any())).thenReturn(data);
         when(evaluationService.evaluateWithDetails(any(), any(), any())).thenReturn(sampleDetail());
         when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any())).thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
@@ -379,7 +382,8 @@ class PromptTestServiceTest {
 
         // Verify NO Open-Meteo calls
         verify(openMeteoService, never()).getAtmosphericData(any(), any());
-        verify(augmentor, never()).augmentWithTideData(any(), any(), any(), any());
+        verify(augmentor, never()).augmentWithTideData(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any());
 
         // Verify evaluation was called with parent's model
         verify(evaluationService).evaluateWithDetails(any(), eq(EvaluationModel.SONNET), any());

@@ -29,7 +29,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -51,6 +55,13 @@ class BriefingSlotBuilderTest {
 
     @BeforeEach
     void setUp() {
+        // Stub golden/blue window so tide augmentation can compute windowMinutes
+        lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                .thenReturn(new SolarService.SolarWindow(
+                        LocalDateTime.of(2026, 3, 25, 18, 0),
+                        LocalDateTime.of(2026, 3, 25, 18, 30),
+                        LocalDateTime.of(2026, 3, 25, 17, 30),
+                        LocalDateTime.of(2026, 3, 25, 18, 0)));
         slotBuilder = new BriefingSlotBuilder(solarService, locationService,
                 tideService, lunarPhaseService, new BriefingVerdictEvaluator());
     }
@@ -94,7 +105,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(tideData(TideState.LOW)));
             when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
 
@@ -115,7 +126,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(tideData(TideState.LOW)));
             when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
 
@@ -157,7 +168,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.empty());
 
             BriefingSlotBuilder.LocationWeather lw =
@@ -177,7 +188,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(tideData(TideState.LOW)));
             when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
 
@@ -202,7 +213,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(tideData(TideState.HIGH)));
             when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
 
@@ -282,7 +293,7 @@ class BriefingSlotBuilderTest {
         TideData td = new TideData(TideState.HIGH, false, null,
                 new BigDecimal("5.80"), null, null,
                 solarTime.plusMinutes(30), null);
-        when(tideService.deriveTideData(eq(loc.getId()), eq(solarTime)))
+        when(tideService.deriveTideData(eq(loc.getId()), eq(solarTime), anyLong()))
                 .thenReturn(Optional.of(td));
         when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
 
@@ -328,7 +339,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(
                             new TideData(TideState.HIGH, false, null, null, null, null,
                                     SOLAR_TIME.plusMinutes(30), null)));
@@ -359,7 +370,7 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(
                             new TideData(TideState.HIGH, false, null, null, null, null,
                                     SOLAR_TIME.plusMinutes(30), null)));
@@ -423,7 +434,7 @@ class BriefingSlotBuilderTest {
             TideData td = new TideData(TideState.HIGH, false, null,
                     new BigDecimal("5.20"), null, null,
                     SOLAR_TIME.plusMinutes(30), null);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME)))
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
                     .thenReturn(Optional.of(td));
             when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
             TideStats stats = new TideStats(

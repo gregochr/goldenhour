@@ -373,6 +373,19 @@ public class TideService {
      * @return Optional containing TideData if extremes are available, empty otherwise
      */
     public Optional<TideData> deriveTideData(Long locationId, LocalDateTime eventTime) {
+        return deriveTideData(locationId, eventTime, HIGH_LOW_THRESHOLD_MINUTES);
+    }
+
+    /**
+     * Derives tide data using an elevation-based window instead of the default ±60 min.
+     *
+     * @param locationId    the location primary key
+     * @param eventTime     UTC time of sunrise or sunset
+     * @param windowMinutes the combined blue+golden hour half-width in minutes
+     * @return Optional containing TideData if extremes are available, empty otherwise
+     */
+    public Optional<TideData> deriveTideData(Long locationId, LocalDateTime eventTime,
+            long windowMinutes) {
         List<TideExtremeEntity> extremes = tideExtremeRepository
                 .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
                         locationId,
@@ -384,7 +397,7 @@ public class TideService {
             return Optional.empty();
         }
 
-        return Optional.of(buildTideData(extremes, eventTime));
+        return Optional.of(buildTideData(extremes, eventTime, windowMinutes));
     }
 
     /**
@@ -520,8 +533,16 @@ public class TideService {
      * @return tide data snapshot including state, mid-point proximity, and next high/low events
      */
     TideData buildTideData(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
-        TideState state = classifyTideState(extremes, eventTime);
-        boolean nearMid = isMidPointAligned(extremes, eventTime);
+        return buildTideData(extremes, eventTime, HIGH_LOW_THRESHOLD_MINUTES);
+    }
+
+    /**
+     * Builds a tide data snapshot using an elevation-based window.
+     */
+    TideData buildTideData(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
+            long windowMinutes) {
+        TideState state = classifyTideState(extremes, eventTime, windowMinutes);
+        boolean nearMid = isMidPointAligned(extremes, eventTime, windowMinutes);
 
         TideExtremeEntity nextHigh = extremes.stream()
                 .filter(e -> e.getType() == TideExtremeType.HIGH
@@ -583,10 +604,18 @@ public class TideService {
      * @return HIGH, LOW, or MID
      */
     TideState classifyTideState(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
+        return classifyTideState(extremes, eventTime, HIGH_LOW_THRESHOLD_MINUTES);
+    }
+
+    /**
+     * Classifies the tide state using an elevation-based window width.
+     */
+    TideState classifyTideState(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
+            long windowMinutes) {
         boolean nearHigh = extremes.stream()
                 .filter(e -> e.getType() == TideExtremeType.HIGH)
                 .anyMatch(e -> Math.abs(ChronoUnit.MINUTES.between(e.getEventTime(), eventTime))
-                        <= HIGH_LOW_THRESHOLD_MINUTES);
+                        <= windowMinutes);
         if (nearHigh) {
             return TideState.HIGH;
         }
@@ -594,7 +623,7 @@ public class TideService {
         boolean nearLow = extremes.stream()
                 .filter(e -> e.getType() == TideExtremeType.LOW)
                 .anyMatch(e -> Math.abs(ChronoUnit.MINUTES.between(e.getEventTime(), eventTime))
-                        <= HIGH_LOW_THRESHOLD_MINUTES);
+                        <= windowMinutes);
         if (nearLow) {
             return TideState.LOW;
         }
@@ -614,12 +643,17 @@ public class TideService {
      * @return {@code true} if the event falls in a precise mid-tide window
      */
     private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
+        return isMidPointAligned(extremes, eventTime, HIGH_LOW_THRESHOLD_MINUTES);
+    }
+
+    private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
+            long windowMinutes) {
         for (int i = 0; i < extremes.size() - 1; i++) {
             LocalDateTime t1 = extremes.get(i).getEventTime();
             LocalDateTime t2 = extremes.get(i + 1).getEventTime();
             long halfSeconds = ChronoUnit.SECONDS.between(t1, t2) / 2;
             LocalDateTime midpoint = t1.plusSeconds(halfSeconds);
-            if (Math.abs(ChronoUnit.MINUTES.between(midpoint, eventTime)) <= HIGH_LOW_THRESHOLD_MINUTES) {
+            if (Math.abs(ChronoUnit.MINUTES.between(midpoint, eventTime)) <= windowMinutes) {
                 return true;
             }
         }

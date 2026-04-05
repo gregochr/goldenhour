@@ -295,19 +295,21 @@ class SolarServiceTest {
     }
 
     @Test
-    @DisplayName("Winter sunset golden hour is shorter than midsummer")
-    void winterSunset_goldenHourShorterThanSummer() {
-        LocalDate winter = LocalDate.of(2026, 12, 21);
-        LocalDate summer = LocalDate.of(2026, 6, 21);
-        SolarService.SolarWindow winterW = solarService.goldenBlueWindow(
-                DURHAM_LAT, DURHAM_LON, winter, false);
-        SolarService.SolarWindow summerW = solarService.goldenBlueWindow(
-                DURHAM_LAT, DURHAM_LON, summer, false);
+    @DisplayName("Equinox sunset golden hour is shorter than solstice at 55°N")
+    void equinoxSunset_goldenHourShorterThanSolstice() {
+        // At high latitudes the sun sets more obliquely near solstices,
+        // producing longer golden hours than at the equinox
+        LocalDate equinox = LocalDate.of(2026, 3, 20);
+        LocalDate solstice = LocalDate.of(2026, 6, 21);
+        SolarService.SolarWindow equinoxW = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, equinox, false);
+        SolarService.SolarWindow solsticeW = solarService.goldenBlueWindow(
+                DURHAM_LAT, DURHAM_LON, solstice, false);
 
-        long winterGolden = Duration.between(winterW.goldenHourStart(), winterW.goldenHourEnd()).toMinutes();
-        long summerGolden = Duration.between(summerW.goldenHourStart(), summerW.goldenHourEnd()).toMinutes();
+        long equinoxGolden = Duration.between(equinoxW.goldenHourStart(), equinoxW.goldenHourEnd()).toMinutes();
+        long solsticeGolden = Duration.between(solsticeW.goldenHourStart(), solsticeW.goldenHourEnd()).toMinutes();
 
-        assertThat(winterGolden).isLessThan(summerGolden);
+        assertThat(equinoxGolden).isLessThan(solsticeGolden);
     }
 
     // -------------------------------------------------------------------------

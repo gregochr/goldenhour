@@ -151,4 +151,58 @@ public class SolarService {
      * Empirically ~30–40 minutes at UK latitudes; 35 is a reasonable middle value.
      */
     private static final long NAUTICAL_OFFSET_MINUTES = 35;
+
+    /**
+     * The four boundary times of the blue and golden hour window for a solar event.
+     *
+     * <p>For sunrise: blueHourStart (civil dawn, −6°) → blueHourEnd (sunrise, 0°) →
+     * goldenHourStart (sunrise, 0°) → goldenHourEnd (+6°).
+     * <p>For sunset: goldenHourStart (+6°) → goldenHourEnd (sunset, 0°) →
+     * blueHourStart (sunset, 0°) → blueHourEnd (civil dusk, −6°).
+     *
+     * <p>All times are UTC {@link LocalDateTime}, consistent with the rest of SolarService.
+     *
+     * @param blueHourStart   when the blue hour begins (UTC)
+     * @param blueHourEnd     when the blue hour ends (UTC)
+     * @param goldenHourStart when the golden hour begins (UTC)
+     * @param goldenHourEnd   when the golden hour ends (UTC)
+     */
+    public record SolarWindow(
+            LocalDateTime blueHourStart,
+            LocalDateTime blueHourEnd,
+            LocalDateTime goldenHourStart,
+            LocalDateTime goldenHourEnd) {
+    }
+
+    /**
+     * Returns the elevation-based blue and golden hour window for a solar event.
+     *
+     * <p>All four boundaries are exact Meeus calculations — no fixed offsets.
+     *
+     * <p>For sunrise: blueHourStart = civil dawn (−6°), blueHourEnd = sunrise (0°),
+     * goldenHourStart = sunrise (0°), goldenHourEnd = sun at +6°.
+     *
+     * <p>For sunset: goldenHourStart = sun at +6°, goldenHourEnd = sunset (0°),
+     * blueHourStart = sunset (0°), blueHourEnd = civil dusk (−6°).
+     *
+     * @param lat       latitude in decimal degrees
+     * @param lon       longitude in decimal degrees
+     * @param date      date of the solar event
+     * @param isSunrise true for sunrise window, false for sunset
+     * @return the four boundary times, all UTC
+     */
+    public SolarWindow goldenBlueWindow(double lat, double lon, LocalDate date,
+            boolean isSunrise) {
+        if (isSunrise) {
+            LocalDateTime blueStart = civilDawnUtc(lat, lon, date);
+            LocalDateTime sunrise = sunriseUtc(lat, lon, date);
+            LocalDateTime goldenEnd = calculator.goldenHourEnd(lat, lon, date, ZoneOffset.UTC);
+            return new SolarWindow(blueStart, sunrise, sunrise, goldenEnd);
+        } else {
+            LocalDateTime goldenStart = calculator.goldenHourStart(lat, lon, date, ZoneOffset.UTC);
+            LocalDateTime sunset = sunsetUtc(lat, lon, date);
+            LocalDateTime blueEnd = civilDuskUtc(lat, lon, date);
+            return new SolarWindow(sunset, blueEnd, goldenStart, sunset);
+        }
+    }
 }

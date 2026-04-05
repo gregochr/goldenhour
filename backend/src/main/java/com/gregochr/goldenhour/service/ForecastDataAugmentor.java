@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -38,6 +39,7 @@ public class ForecastDataAugmentor {
     private static final Logger LOG = LoggerFactory.getLogger(ForecastDataAugmentor.class);
 
     private final OpenMeteoService openMeteoService;
+    private final SolarService solarService;
     private final TideService tideService;
     private final LunarPhaseService lunarPhaseService;
     private final WeatherAugmentedTideService weatherAugmentedTideService;
@@ -47,16 +49,19 @@ public class ForecastDataAugmentor {
      * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment.
      *
      * @param openMeteoService             retrieves directional cloud data from Open-Meteo
+     * @param solarService                 calculates solar event times and golden/blue windows
      * @param tideService                  fetches tide data for coastal locations
      * @param lunarPhaseService            computes lunar tide classification and moon phase
      * @param weatherAugmentedTideService  storm surge calculation service
      * @param surgeCalibrationLogger       structured logging for surge calibration
      */
-    public ForecastDataAugmentor(OpenMeteoService openMeteoService, TideService tideService,
+    public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
+            TideService tideService,
             LunarPhaseService lunarPhaseService,
             WeatherAugmentedTideService weatherAugmentedTideService,
             SurgeCalibrationLogger surgeCalibrationLogger) {
         this.openMeteoService = openMeteoService;
+        this.solarService = solarService;
         this.tideService = tideService;
         this.lunarPhaseService = lunarPhaseService;
         this.weatherAugmentedTideService = weatherAugmentedTideService;
@@ -114,15 +119,26 @@ public class ForecastDataAugmentor {
      * @param locationId the location primary key used for DB tide lookup, or {@code null} if inland
      * @param eventTime  UTC time of the solar event
      * @param tideTypes  tide preferences for this location (empty if inland)
+     * @param lat        observer latitude for golden/blue window calculation
+     * @param lon        observer longitude for golden/blue window calculation
+     * @param targetType SUNRISE or SUNSET, used for golden/blue window calculation
      * @return a new {@link AtmosphericData} with tide fields populated where applicable
      */
     public AtmosphericData augmentWithTideData(AtmosphericData base, Long locationId,
-            LocalDateTime eventTime, Set<TideType> tideTypes) {
+            LocalDateTime eventTime, Set<TideType> tideTypes,
+            double lat, double lon, TargetType targetType) {
         boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
         if (!isCoastal) {
             return base;
         }
-        var tideMaybe = tideService.deriveTideData(locationId, eventTime);
+        boolean isSunrise = targetType == TargetType.SUNRISE;
+        SolarService.SolarWindow window = solarService.goldenBlueWindow(
+                lat, lon, eventTime.toLocalDate(), isSunrise);
+        long windowMinutes = java.time.Duration.between(
+                isSunrise ? window.blueHourStart() : window.goldenHourStart(),
+                isSunrise ? window.goldenHourEnd() : window.blueHourEnd()
+        ).toMinutes() / 2;
+        var tideMaybe = tideService.deriveTideData(locationId, eventTime, windowMinutes);
         if (tideMaybe.isEmpty()) {
             return base;
         }

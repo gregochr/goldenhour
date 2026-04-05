@@ -183,7 +183,7 @@ public class ForecastService {
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.FETCHING_TIDES);
             AtmosphericData withTide = augmentor.augmentWithTideData(
-                    withApproach, locationId, eventTime, tideTypes);
+                    withApproach, locationId, eventTime, tideTypes, lat, lon, type);
             AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                     withTide, location.getSolarEventType());
             AtmosphericData withSurge = augmentor.augmentWithStormSurge(
@@ -335,7 +335,7 @@ public class ForecastService {
                     LocationTaskState.FETCHING_TIDES);
         }
         AtmosphericData withTide = augmentor.augmentWithTideData(
-                withApproach, locationId, eventTime, tideTypes);
+                withApproach, locationId, eventTime, tideTypes, lat, lon, targetType);
         AtmosphericData withOrientation = augmentor.augmentWithLocationOrientation(
                 withTide, location.getSolarEventType());
         AtmosphericData withSurge = augmentor.augmentWithStormSurge(
@@ -509,7 +509,8 @@ public class ForecastService {
 
         for (AtmosphericData baseData : hourlyData) {
             AtmosphericData forecastData = augmentor.augmentWithTideData(
-                    baseData, locationId, baseData.solarEventTime(), tideTypes);
+                    baseData, locationId, baseData.solarEventTime(), tideTypes,
+                    lat, lon, TargetType.SUNRISE);
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, TargetType.HOURLY, daysAhead,
                     forecastData.solarEventTime(), null,

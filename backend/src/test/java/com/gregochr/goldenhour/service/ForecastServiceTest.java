@@ -101,7 +101,8 @@ class ForecastServiceTest {
                 anyInt(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithCloudApproach(any(), anyDouble(), anyDouble(),
                 anyInt(), any(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithTideData(any(), any(), any(), any()))
+        lenient().when(augmentor.augmentWithTideData(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithLocationOrientation(any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));

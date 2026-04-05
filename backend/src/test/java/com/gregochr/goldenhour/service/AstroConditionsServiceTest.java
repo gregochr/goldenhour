@@ -28,7 +28,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Executors;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -63,8 +63,7 @@ class AstroConditionsServiceTest {
     void setUp() {
         service = new AstroConditionsService(
                 openMeteoClient, solarService, lunarCalculator,
-                locationRepository, astroConditionsRepository,
-                Executors.newVirtualThreadPerTaskExecutor());
+                locationRepository, astroConditionsRepository);
     }
 
     // -------------------------------------------------------------------------
@@ -317,13 +316,13 @@ class AstroConditionsServiceTest {
             OpenMeteoForecastResponse forecast = buildForecast(dusk, dawn,
                     List.of(5, 5, 5, 5, 5), List.of(500.0, 800.0, 900.0, 700.0, 600.0));
 
-            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
             // Moon below horizon (best possible) — would normally be 5 stars
             when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
                     .thenReturn(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON));
 
             AstroConditionsEntity result = service.scoreLocation(
-                    location, date, dusk, dawn, Instant.now());
+                    location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, forecast));
 
             assertThat(result).isNotNull();
             assertThat(result.getStars()).isEqualTo(1);
@@ -342,12 +341,12 @@ class AstroConditionsServiceTest {
             OpenMeteoForecastResponse forecast = buildForecast(dusk, dawn,
                     List.of(10, 10, 10, 10, 10), List.of(500.0, 800.0, 1500.0, 700.0, 600.0));
 
-            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
             when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
                     .thenReturn(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON));
 
             AstroConditionsEntity result = service.scoreLocation(
-                    location, date, dusk, dawn, Instant.now());
+                    location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, forecast));
 
             assertThat(result).isNotNull();
             assertThat(result.isFogCapped()).isFalse();
@@ -374,12 +373,12 @@ class AstroConditionsServiceTest {
             OpenMeteoForecastResponse forecast = buildForecast(dusk, dawn,
                     List.of(5, 5, 5, 5, 5), List.of(30000.0, 30000.0, 30000.0, 30000.0, 30000.0));
 
-            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
             when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
                     .thenReturn(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON));
 
             AstroConditionsEntity result = service.scoreLocation(
-                    location, date, dusk, dawn, Instant.now());
+                    location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, forecast));
 
             // base 3 + cloud 1.0 + vis 0.5 + moon 0.5 = 5.0
             assertThat(result).isNotNull();
@@ -399,12 +398,12 @@ class AstroConditionsServiceTest {
                     List.of(90, 90, 90, 90, 90),
                     List.of(2000.0, 2000.0, 2000.0, 2000.0, 2000.0));
 
-            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
             when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
                     .thenReturn(lunarPosition(60, 0.95, LunarPhase.FULL_MOON));
 
             AstroConditionsEntity result = service.scoreLocation(
-                    location, date, dusk, dawn, Instant.now());
+                    location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, forecast));
 
             // base 3 + cloud -1.5 + vis -1.0 + moon -1.0 = -0.5 → clamped to 1
             assertThat(result).isNotNull();
@@ -425,13 +424,12 @@ class AstroConditionsServiceTest {
         @DisplayName("Null forecast returns null")
         void nullForecast_returnsNull() {
             LocationEntity location = buildLocation(1L, "Durham", 3);
-            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(null);
 
             AstroConditionsEntity result = service.scoreLocation(
                     location, LocalDate.of(2026, 6, 21),
                     LocalDateTime.of(2026, 6, 21, 21, 30),
                     LocalDateTime.of(2026, 6, 22, 3, 0),
-                    Instant.now());
+                    Instant.now(), Map.of());
 
             assertThat(result).isNull();
         }
@@ -564,7 +562,7 @@ class AstroConditionsServiceTest {
             OpenMeteoForecastResponse forecast = buildForecast(dusk, dawn,
                     List.of(10, 10, 10, 10, 10),
                     List.of(25000.0, 25000.0, 25000.0, 25000.0, 25000.0));
-            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble())).thenReturn(forecast);
+            when(openMeteoClient.fetchForecastBatch(any())).thenReturn(List.of(forecast));
             when(lunarCalculator.calculate(any(), anyDouble(), anyDouble()))
                     .thenReturn(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON));
 
@@ -610,6 +608,12 @@ class AstroConditionsServiceTest {
                 new NightHour(20, visM),
                 new NightHour(20, visM),
                 new NightHour(20, visM));
+    }
+
+    private static Map<String, OpenMeteoForecastResponse> forecastMap(
+            LocationEntity location, OpenMeteoForecastResponse forecast) {
+        String key = OpenMeteoService.coordKey(location.getLat(), location.getLon());
+        return Map.of(key, forecast);
     }
 
     /**

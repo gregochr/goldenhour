@@ -133,18 +133,22 @@ class InversionScoreCalculatorTest {
     @Test
     @DisplayName("returns null when weather data is null")
     void calculate_nullWeather_returnsNull() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .weather(null)
-                .build();
+        AtmosphericData data = new AtmosphericData(
+                "Test", null, null, new com.gregochr.goldenhour.model.CloudData(10, 50, 30),
+                null, null, null, null, null, null, null, null, null, null, null, null);
         assertThat(InversionScoreCalculator.calculate(data)).isNull();
     }
 
     @Test
     @DisplayName("returns null when cloud data is null")
     void calculate_nullCloud_returnsNull() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .cloud(null)
-                .build();
+        AtmosphericData data = new AtmosphericData(
+                "Test", null, null, null,
+                new com.gregochr.goldenhour.model.WeatherData(
+                        25000, new java.math.BigDecimal("3.50"), 225,
+                        java.math.BigDecimal.ZERO, 62, 3,
+                        new java.math.BigDecimal("180.00"), null, 1013.25),
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThat(InversionScoreCalculator.calculate(data)).isNull();
     }
 

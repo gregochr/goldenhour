@@ -568,7 +568,7 @@ public class PromptTestService {
                 targetDate, targetType);
         AtmosphericData baseData = openMeteoService.getAtmosphericData(request, eventTime);
         return augmentor.augmentWithTideData(baseData, location.getId(),
-                eventTime, location.getTideType());
+                eventTime, location.getTideType(), lat, lon, targetType);
     }
 
     private PromptTestResultEntity buildSuccessResult(PromptTestRunEntity testRun,

@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -12,6 +13,7 @@ import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,8 +30,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,6 +49,9 @@ class ForecastDataAugmentorTest {
     private OpenMeteoService openMeteoService;
 
     @Mock
+    private SolarService solarService;
+
+    @Mock
     private TideService tideService;
 
     @Mock
@@ -53,6 +61,15 @@ class ForecastDataAugmentorTest {
     private ForecastDataAugmentor augmentor;
 
     private static final LocalDateTime EVENT_TIME = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+    @BeforeEach
+    void setUp() {
+        // Sunset window: golden hour 20:17-20:47, blue hour 20:47-21:17
+        lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                .thenReturn(new SolarService.SolarWindow(
+                        EVENT_TIME, EVENT_TIME.plusMinutes(30),
+                        EVENT_TIME.minusMinutes(30), EVENT_TIME));
+    }
 
     @Test
     @DisplayName("augmentWithDirectionalCloud() adds directional data when fetch succeeds")
@@ -92,7 +109,7 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("4.5"), lowTide, new BigDecimal("1.2"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.SPRING_TIDE);
@@ -103,7 +120,8 @@ class ForecastDataAugmentorTest {
         when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result.tide()).isNotNull();
         assertThat(result.tide().tideState()).isEqualTo(TideState.HIGH);
@@ -123,7 +141,7 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("6.2"), lowTide, new BigDecimal("0.8"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.KING_TIDE);
@@ -134,7 +152,8 @@ class ForecastDataAugmentorTest {
         when(tideService.getTideStats(1L)).thenReturn(Optional.empty());
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result.tide().lunarTideType()).isEqualTo(LunarTideType.KING_TIDE);
         assertThat(result.tide().lunarPhase()).isEqualTo("New Moon");
@@ -150,7 +169,7 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("6.50"), lowTide, new BigDecimal("0.80"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.KING_TIDE);
@@ -169,7 +188,8 @@ class ForecastDataAugmentorTest {
         when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result.tide().statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_EXTRA_HIGH);
     }
@@ -183,7 +203,7 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("5.80"), lowTide, new BigDecimal("0.80"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.SPRING_TIDE);
@@ -202,7 +222,8 @@ class ForecastDataAugmentorTest {
         when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result.tide().statisticalSize()).isEqualTo(TideStatisticalSize.EXTRA_HIGH);
     }
@@ -216,7 +237,7 @@ class ForecastDataAugmentorTest {
         TideData tideData = new TideData(TideState.HIGH, false,
                 highTide, new BigDecimal("4.00"), lowTide, new BigDecimal("1.20"),
                 highTide, null);
-        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.of(tideData));
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.of(tideData));
         when(tideService.calculateTideAligned(tideData, Set.of(TideType.HIGH))).thenReturn(true);
         when(lunarPhaseService.classifyTide(EVENT_TIME.toLocalDate()))
                 .thenReturn(LunarTideType.REGULAR_TIDE);
@@ -235,7 +256,8 @@ class ForecastDataAugmentorTest {
         when(tideService.getTideStats(1L)).thenReturn(Optional.of(stats));
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result.tide().statisticalSize()).isNull();
         assertThat(result.tide().lunarTideType()).isEqualTo(LunarTideType.REGULAR_TIDE);
@@ -247,10 +269,11 @@ class ForecastDataAugmentorTest {
         AtmosphericData base = TestAtmosphericData.defaults();
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of());
+                base, 1L, EVENT_TIME, Set.of(),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
-        verify(tideService, never()).deriveTideData(any(), any());
+        verify(tideService, never()).deriveTideData(any(), any(), anyLong());
     }
 
     @Test
@@ -259,10 +282,11 @@ class ForecastDataAugmentorTest {
         AtmosphericData base = TestAtmosphericData.defaults();
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, null);
+                base, 1L, EVENT_TIME, null,
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
-        verify(tideService, never()).deriveTideData(any(), any());
+        verify(tideService, never()).deriveTideData(any(), any(), anyLong());
     }
 
     @Test
@@ -271,20 +295,22 @@ class ForecastDataAugmentorTest {
         AtmosphericData base = TestAtmosphericData.defaults();
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, null, EVENT_TIME, Set.of(TideType.HIGH));
+                base, null, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
-        verify(tideService, never()).deriveTideData(any(), any());
+        verify(tideService, never()).deriveTideData(any(), any(), anyLong());
     }
 
     @Test
     @DisplayName("augmentWithTideData() returns original data when no tide extremes found")
     void augmentWithTideData_noTideData_returnsOriginal() {
         AtmosphericData base = TestAtmosphericData.defaults();
-        when(tideService.deriveTideData(1L, EVENT_TIME)).thenReturn(Optional.empty());
+        when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.empty());
 
         AtmosphericData result = augmentor.augmentWithTideData(
-                base, 1L, EVENT_TIME, Set.of(TideType.HIGH));
+                base, 1L, EVENT_TIME, Set.of(TideType.HIGH),
+                55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
     }

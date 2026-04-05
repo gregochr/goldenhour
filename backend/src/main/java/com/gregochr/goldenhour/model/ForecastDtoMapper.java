@@ -2,9 +2,12 @@ package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.LunarPhaseService;
+import com.gregochr.goldenhour.service.SolarService;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -19,14 +22,17 @@ import java.util.List;
 public class ForecastDtoMapper {
 
     private final LunarPhaseService lunarPhaseService;
+    private final SolarService solarService;
 
     /**
      * Constructs a {@code ForecastDtoMapper}.
      *
      * @param lunarPhaseService service for lunar phase and tide classification
+     * @param solarService      service for solar window calculations
      */
-    public ForecastDtoMapper(LunarPhaseService lunarPhaseService) {
+    public ForecastDtoMapper(LunarPhaseService lunarPhaseService, SolarService solarService) {
         this.lunarPhaseService = lunarPhaseService;
+        this.solarService = solarService;
     }
 
     /**
@@ -74,6 +80,29 @@ public class ForecastDtoMapper {
         if (entity.getTargetDate() != null) {
             lunarTideType = lunarPhaseService.classifyTide(entity.getTargetDate());
             lunarPhase = lunarPhaseService.getMoonPhase(entity.getTargetDate());
+        }
+
+        // Golden/blue hour window — elevation-based, not ±60 min
+        LocalDateTime goldenHourStart = null;
+        LocalDateTime goldenHourEnd = null;
+        LocalDateTime blueHourStart = null;
+        LocalDateTime blueHourEnd = null;
+        if (entity.getTargetDate() != null && entity.getTargetType() != null
+                && entity.getTargetType() != TargetType.HOURLY
+                && entity.getLocationLat() != null && entity.getLocationLon() != null) {
+            try {
+                boolean isSunrise = entity.getTargetType() == TargetType.SUNRISE;
+                SolarService.SolarWindow sw = solarService.goldenBlueWindow(
+                        entity.getLocationLat().doubleValue(),
+                        entity.getLocationLon().doubleValue(),
+                        entity.getTargetDate(), isSunrise);
+                goldenHourStart = sw.goldenHourStart();
+                goldenHourEnd = sw.goldenHourEnd();
+                blueHourStart = sw.blueHourStart();
+                blueHourEnd = sw.blueHourEnd();
+            } catch (Exception ignored) {
+                // Graceful — leave null if calculation fails (e.g. polar edge case)
+            }
         }
 
         return new ForecastEvaluationDto(
@@ -137,6 +166,10 @@ public class ForecastDtoMapper {
                 entity.getSurgeAdjustedRangeMetres(),
                 entity.getSurgeAstronomicalRangeMetres(),
                 entity.getInversionScore(),
-                entity.getInversionPotential());
+                entity.getInversionPotential(),
+                goldenHourStart,
+                goldenHourEnd,
+                blueHourStart,
+                blueHourEnd);
     }
 }

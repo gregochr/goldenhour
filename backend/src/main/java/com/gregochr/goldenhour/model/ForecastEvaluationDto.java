@@ -78,6 +78,10 @@ import java.time.LocalDateTime;
  * @param surgeAstronomicalRangeMetres   predicted astronomical tidal range (nullable)
  * @param inversionScore                 cloud inversion score 0–10 (nullable)
  * @param inversionPotential             inversion classification NONE/MODERATE/STRONG (nullable)
+ * @param goldenHourStart                UTC start of the elevation-based golden hour window (nullable)
+ * @param goldenHourEnd                  UTC end of the elevation-based golden hour window (nullable)
+ * @param blueHourStart                  UTC start of the elevation-based blue hour window (nullable)
+ * @param blueHourEnd                    UTC end of the elevation-based blue hour window (nullable)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -140,5 +144,9 @@ public record ForecastEvaluationDto(
         Double surgeAdjustedRangeMetres,
         Double surgeAstronomicalRangeMetres,
         Integer inversionScore,
-        String inversionPotential) {
+        String inversionPotential,
+        LocalDateTime goldenHourStart,
+        LocalDateTime goldenHourEnd,
+        LocalDateTime blueHourStart,
+        LocalDateTime blueHourEnd) {
 }

@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -110,8 +111,8 @@ public class BriefingSlotBuilder {
         // Extract low cloud for 3 hours leading into the event (earliest first)
         List<Integer> lowCloudTrend = extractLowCloudTrend(h, idx);
 
-        // Tide data from DB
-        TideResult tideResult = calculateTideData(loc, solarTime);
+        // Tide data from DB (using elevation-based window)
+        TideResult tideResult = calculateTideData(loc, solarTime, date, eventType);
 
         // Determine weather verdict (base check)
         Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
@@ -176,11 +177,20 @@ public class BriefingSlotBuilder {
      * @param solarTime the UTC time of the solar event
      * @return tide calculation result
      */
-    private TideResult calculateTideData(LocationEntity loc, LocalDateTime solarTime) {
+    private TideResult calculateTideData(LocationEntity loc, LocalDateTime solarTime,
+            LocalDate date, TargetType eventType) {
         if (!locationService.isCoastal(loc)) {
             return TideResult.NONE;
         }
-        Optional<TideData> tideOpt = tideService.deriveTideData(loc.getId(), solarTime);
+        boolean isSunrise = eventType == TargetType.SUNRISE;
+        SolarService.SolarWindow window = solarService.goldenBlueWindow(
+                loc.getLat(), loc.getLon(), date, isSunrise);
+        long windowMinutes = Duration.between(
+                isSunrise ? window.blueHourStart() : window.goldenHourStart(),
+                isSunrise ? window.goldenHourEnd() : window.blueHourEnd()
+        ).toMinutes() / 2;
+        Optional<TideData> tideOpt = tideService.deriveTideData(loc.getId(), solarTime,
+                windowMinutes);
         if (tideOpt.isEmpty()) {
             return TideResult.NONE;
         }
