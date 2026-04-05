@@ -11,6 +11,7 @@ import {
   formatTimestampUk,
   formatRelativeTimeUk,
   groupForecastsByDate,
+  bortleLabel,
 } from '../utils/conversions.js';
 
 describe('mpsToMph', () => {
@@ -313,6 +314,60 @@ describe('formatRelativeTimeUk', () => {
     const iso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const bare = iso.replace('Z', '');
     expect(formatRelativeTimeUk(iso)).toBe(formatRelativeTimeUk(bare));
+  });
+});
+
+describe('bortleLabel', () => {
+  it('returns null for null input', () => {
+    expect(bortleLabel(null)).toBeNull();
+  });
+
+  it('returns null for undefined input', () => {
+    expect(bortleLabel(undefined)).toBeNull();
+  });
+
+  it('returns "Exceptional" for Bortle 1', () => {
+    expect(bortleLabel(1)).toBe('Exceptional');
+  });
+
+  it('returns "Truly dark" for Bortle 2', () => {
+    expect(bortleLabel(2)).toBe('Truly dark');
+  });
+
+  it('returns "Rural sky" for Bortle 3', () => {
+    expect(bortleLabel(3)).toBe('Rural sky');
+  });
+
+  it('returns "Rural/suburban transition" for Bortle 4', () => {
+    expect(bortleLabel(4)).toBe('Rural/suburban transition');
+  });
+
+  it('returns "Suburban sky" for Bortle 5', () => {
+    expect(bortleLabel(5)).toBe('Suburban sky');
+  });
+
+  it('returns "Bright suburban" for Bortle 6', () => {
+    expect(bortleLabel(6)).toBe('Bright suburban');
+  });
+
+  it('returns "Bright suburban" for Bortle 7', () => {
+    expect(bortleLabel(7)).toBe('Bright suburban');
+  });
+
+  it('returns "City sky" for Bortle 8', () => {
+    expect(bortleLabel(8)).toBe('City sky');
+  });
+
+  it('returns "City sky" for Bortle 9', () => {
+    expect(bortleLabel(9)).toBe('City sky');
+  });
+
+  it('returns null for out-of-range value 0', () => {
+    expect(bortleLabel(0)).toBeNull();
+  });
+
+  it('returns null for out-of-range value 10', () => {
+    expect(bortleLabel(10)).toBeNull();
   });
 });
 

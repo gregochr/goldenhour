@@ -813,8 +813,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     </th>
                     <th className="pb-1 font-medium align-top w-[6%]">
                       <span className="flex items-center gap-1 text-xs text-plex-text-muted whitespace-nowrap">
-                        Bortle
-                        <InfoTip text={"Bortle class (1–9) measures light pollution.\n1–2: Excellent dark sky\n3–4: Moderate — aurora-friendly\n5–9: Light-polluted\n\nRun Refresh Light Pollution to populate."} />
+                        Light pollution
+                        <InfoTip text={"Light pollution rating (1–9).\n1–2: Excellent dark sky\n3–4: Moderate — aurora-friendly\n5–9: Light-polluted\n\nRun Refresh Light Pollution to populate."} />
                       </span>
                       <div className="mt-1 h-[26px]" />
                     </th>

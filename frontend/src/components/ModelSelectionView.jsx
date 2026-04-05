@@ -58,7 +58,7 @@ const DAYS_PER_RUN = { VERY_SHORT_TERM: 2, SHORT_TERM: 3, LONG_TERM: 3 };
 /** Tab-specific model card descriptions (override generic MODEL_INFO.description). */
 const TAB_DESCRIPTIONS = {
   BRIEFING_BEST_BET: 'Analyses region-level triage data to recommend the best photography opportunity',
-  AURORA_EVALUATION: 'Evaluates aurora visibility conditions per location based on Kp forecast, cloud cover, and Bortle class',
+  AURORA_EVALUATION: 'Evaluates aurora visibility conditions per location based on Kp forecast, cloud cover, and light pollution rating',
 };
 
 /**

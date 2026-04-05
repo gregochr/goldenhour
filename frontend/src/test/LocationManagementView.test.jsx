@@ -543,14 +543,14 @@ describe('LocationManagementView', () => {
 
   // --- Bortle column tests ---
 
-  it('shows Bortle column header in the location table', async () => {
+  it('shows Light pollution column header in the location table', async () => {
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
     await waitFor(() => {
       expect(screen.getByText('Durham')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Bortle')).toBeInTheDocument();
+    expect(screen.getByText('Light pollution')).toBeInTheDocument();
   });
 
   it('shows — in Bortle cell when bortleClass is null', async () => {

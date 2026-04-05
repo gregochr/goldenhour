@@ -488,7 +488,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 className="btn-primary text-sm"
                 onClick={handleEnrichLightPollution}
                 disabled={anyRunning}
-                title="Enrich all unenriched locations with Bortle light-pollution class"
+                title="Enrich all unenriched locations with light pollution rating"
                 data-testid="refresh-light-pollution-btn"
               >
                 {runningLightPollution ? '\u27F3 Running\u2026' : '🌌 Refresh Light Pollution'}

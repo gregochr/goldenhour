@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
-import { formatEventTimeUk } from '../utils/conversions.js';
+import { formatEventTimeUk, bortleLabel } from '../utils/conversions.js';
 import ProPill from './shared/ProPill.jsx';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
@@ -676,9 +676,9 @@ function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, 
               <span className={`inline-block w-2 h-2 rounded-full ${loc.clear ? 'bg-green-400' : 'bg-red-400/60'}`}
                 title={loc.clear ? 'Clear skies' : 'Cloudy'} />
               <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>{loc.locationName}</span>
-              {loc.bortleClass != null && (
+              {loc.bortleClass != null && bortleLabel(loc.bortleClass) && (
                 <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium" style={{ fontSize: '10px' }}>
-                  Bortle {loc.bortleClass}
+                  {bortleLabel(loc.bortleClass)} · Bortle {loc.bortleClass}
                 </span>
               )}
               <span className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
@@ -982,10 +982,10 @@ export default function HeatmapGrid({
                           {Math.round(tomorrowRegion.clearLocationCount / tomorrowRegion.totalDarkSkyLocations * 100)}% clear
                         </div>
                       )}
-                      {tomorrowRegion?.bestBortleClass != null && (
+                      {tomorrowRegion?.bestBortleClass != null && bortleLabel(tomorrowRegion.bestBortleClass) && (
                         <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
                           style={{ fontSize: '9px' }}>
-                          Bortle {tomorrowRegion.bestBortleClass}
+                          {bortleLabel(tomorrowRegion.bestBortleClass)} · Bortle {tomorrowRegion.bestBortleClass}
                         </span>
                       )}
                       {tomorrowRegion?.regionTemperatureCelsius != null && (
@@ -1031,10 +1031,10 @@ export default function HeatmapGrid({
                               {Math.round(auroraRegion.clearLocationCount / auroraRegion.totalDarkSkyLocations * 100)}% clear
                             </div>
                           )}
-                          {auroraRegion.bestBortleClass != null && (
+                          {auroraRegion.bestBortleClass != null && bortleLabel(auroraRegion.bestBortleClass) && (
                             <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
                               style={{ fontSize: '9px' }}>
-                              Bortle {auroraRegion.bestBortleClass}
+                              {bortleLabel(auroraRegion.bestBortleClass)} · Bortle {auroraRegion.bestBortleClass}
                             </span>
                           )}
                           <div className={`font-medium mt-0.5 ${AURORA_LEVEL_COLOUR[auroraTonight.alertLevel] || ''}`}

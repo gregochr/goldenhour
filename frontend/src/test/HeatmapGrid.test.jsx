@@ -177,7 +177,7 @@ describe('HeatmapGrid — aurora cells with weather', () => {
     const cells = screen.queryAllByTestId('aurora-heatmap-cell');
     expect(cells.length).toBeGreaterThan(0);
     expect(cells[0].textContent).toContain('67% clear');
-    expect(cells[0].textContent).toContain('Bortle 4');
+    expect(cells[0].textContent).toContain('Rural/suburban transition · Bortle 4');
     expect(cells[0].textContent).toContain('2°C');
   });
 

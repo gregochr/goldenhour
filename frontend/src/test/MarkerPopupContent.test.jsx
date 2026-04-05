@@ -722,18 +722,18 @@ describe('MarkerPopupContent', () => {
       expect(solarRow.textContent).toMatch(/🌇/);
     });
 
-    it('shows aurora friendly and Bortle chips when bortleClass is set', () => {
+    it('shows aurora friendly and light pollution chips when bortleClass is set', () => {
       renderEmpty();
       expect(screen.getByText('Aurora friendly', { exact: false })).toBeInTheDocument();
-      expect(screen.getByText('Bortle 3')).toBeInTheDocument();
+      expect(screen.getByText(/Light pollution: Rural sky \(Bortle 3\)/)).toBeInTheDocument();
     });
 
-    it('hides aurora and Bortle chips when bortleClass is null', () => {
+    it('hides aurora and light pollution chips when bortleClass is null', () => {
       renderEmpty({
         location: { ...EMPTY_LOCATION, bortleClass: null },
       });
       expect(screen.queryByText('Aurora friendly', { exact: false })).not.toBeInTheDocument();
-      expect(screen.queryByText(/Bortle/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Light pollution/)).not.toBeInTheDocument();
     });
 
     it('shows drive time chip when driveMinutes is provided', () => {

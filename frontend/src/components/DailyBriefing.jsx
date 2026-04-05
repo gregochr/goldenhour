@@ -10,7 +10,7 @@ import HeatmapGrid from './HeatmapGrid.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
-import { formatEventTimeUk } from '../utils/conversions.js';
+import { formatEventTimeUk, bortleLabel } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -1242,7 +1242,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
                               {isGo && (
                                 <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '11px' }}>
                                   Clear {ar.clearLocationCount}/{ar.totalDarkSkyLocations}
-                                  {ar.bestBortleClass != null && ` · Bortle ${ar.bestBortleClass}`}
+                                  {ar.bestBortleClass != null && bortleLabel(ar.bestBortleClass) && ` · ${bortleLabel(ar.bestBortleClass)} · Bortle ${ar.bestBortleClass}`}
                                 </div>
                               )}
                             </div>

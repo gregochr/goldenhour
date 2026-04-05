@@ -181,7 +181,7 @@ describe('MapView dark sky chip', () => {
     mockUseAuth.mockReturnValue({ role: 'ADMIN' });
     renderMap();
     const tips = screen.getAllByTestId('infotip-text');
-    const darkSkyTip = tips.find(t => t.textContent.includes('Bortle'));
+    const darkSkyTip = tips.find(t => t.textContent.includes('light pollution'));
     expect(darkSkyTip).toBeDefined();
     expect(darkSkyTip.textContent).toContain('Refresh Light Pollution');
   });
@@ -190,7 +190,7 @@ describe('MapView dark sky chip', () => {
     mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
     renderMap();
     const tips = screen.getAllByTestId('infotip-text');
-    const darkSkyTip = tips.find(t => t.textContent.includes('Bortle'));
+    const darkSkyTip = tips.find(t => t.textContent.includes('light pollution'));
     expect(darkSkyTip).toBeDefined();
     expect(darkSkyTip.textContent).not.toContain('Refresh Light Pollution');
   });
@@ -199,7 +199,7 @@ describe('MapView dark sky chip', () => {
     mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
     renderMap();
     const tips = screen.getAllByTestId('infotip-text');
-    const darkSkyTip = tips.find(t => t.textContent.includes('Bortle'));
+    const darkSkyTip = tips.find(t => t.textContent.includes('light pollution'));
     expect(darkSkyTip).toBeDefined();
     expect(darkSkyTip.textContent).not.toContain('Refresh Light Pollution');
   });

@@ -635,14 +635,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
             <option value={90}>🚗 ≤90 min</option>
             <option value={120}>🚗 ≤2 hrs</option>
           </select>
-          {/* Dark sky chip — hidden in Astro and Aurora modes (Bortle filtering already implicit) */}
+          {/* Dark sky chip — hidden in Astro and Aurora modes (light pollution filtering already implicit) */}
           {!isAuroraMode && !isAstroMode && (
             <>
               <span className="text-plex-border mx-1">|</span>
               <button
                 onClick={() => setDarkSkyFilter((v) => !v)}
                 data-testid="dark-sky-filter-toggle"
-                title={`Show only locations with low light pollution (Bortle class ${darkSkyThreshold} or darker). Suitable for aurora, astrophotography, and stargazing.`}
+                title={`Show only locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.`}
                 className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
                   darkSkyFilter
                     ? 'bg-indigo-900/40 border-indigo-500/60 text-indigo-300'
@@ -651,7 +651,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
               >
                 🔭 Dark sky
               </button>
-              <InfoTip text={`Shows locations with low light pollution (Bortle class ${darkSkyThreshold} or darker). Suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate Bortle classes.' : ''}`} />
+              <InfoTip text={`Shows locations with a light pollution rating of ${darkSkyThreshold} or lower — suitable for aurora, astrophotography, and stargazing.${role === 'ADMIN' ? '\n\nRun 🌌 Refresh Light Pollution in Location Management to populate ratings.' : ''}`} />
             </>
           )}
           {(activeTypeFilters.size > 0 || minStars !== null || showUnrated

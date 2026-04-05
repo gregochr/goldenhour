@@ -296,6 +296,28 @@ export function formatRelativeTimeUk(utcDateTimeStr) {
   return `${Math.floor(diffHrs / 24)}d ago`;
 }
 
+/**
+ * Returns a plain-English label for a Bortle class value.
+ *
+ * @param {number|null} bortleClass - Bortle class (1–9), or null.
+ * @returns {string|null} Label like "Rural sky", or null if unknown/null.
+ */
+export function bortleLabel(bortleClass) {
+  if (bortleClass == null) return null;
+  const labels = {
+    1: 'Exceptional',
+    2: 'Truly dark',
+    3: 'Rural sky',
+    4: 'Rural/suburban transition',
+    5: 'Suburban sky',
+    6: 'Bright suburban',
+    7: 'Bright suburban',
+    8: 'City sky',
+    9: 'City sky',
+  };
+  return labels[bortleClass] ?? null;
+}
+
 const AUTO_SELECTION_BUFFER_MS = 30 * 60 * 1000; // 30-minute afterglow buffer
 
 /**
