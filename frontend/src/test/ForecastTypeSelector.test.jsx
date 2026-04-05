@@ -68,8 +68,8 @@ describe('ForecastTypeSelector', () => {
       expect(screen.getByTestId('forecast-type-aurora')).not.toHaveAttribute('title');
     });
 
-    it('Sunrise and Sunset buttons are never disabled', () => {
-      renderSelector({ showAurora: true, auroraAvailable: false });
+    it('Sunrise and Sunset buttons are enabled when forecasts are available', () => {
+      renderSelector({ showAurora: true, auroraAvailable: false, sunriseAvailable: true, sunsetAvailable: true });
       expect(screen.getByTestId('forecast-type-sunrise')).not.toBeDisabled();
       expect(screen.getByTestId('forecast-type-sunset')).not.toBeDisabled();
     });
@@ -77,6 +77,38 @@ describe('ForecastTypeSelector', () => {
     it('does not show Pro pill when showAurora=true', () => {
       renderSelector({ showAurora: true, auroraAvailable: true });
       expect(screen.queryByTestId('pro-pill')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Sunrise/Sunset availability', () => {
+    it('disables Sunrise button when sunriseAvailable=false', () => {
+      renderSelector({ sunriseAvailable: false });
+      expect(screen.getByTestId('forecast-type-sunrise')).toBeDisabled();
+    });
+
+    it('disables Sunset button when sunsetAvailable=false', () => {
+      renderSelector({ sunsetAvailable: false });
+      expect(screen.getByTestId('forecast-type-sunset')).toBeDisabled();
+    });
+
+    it('disabled Sunrise button shows tooltip', () => {
+      renderSelector({ sunriseAvailable: false });
+      expect(screen.getByTestId('forecast-type-sunrise')).toHaveAttribute(
+        'title',
+        'No forecast available for this day',
+      );
+    });
+
+    it('does not call onChange when disabled Sunrise button is clicked', () => {
+      const { onChange } = renderSelector({ sunriseAvailable: false });
+      fireEvent.click(screen.getByTestId('forecast-type-sunrise'));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('both enabled by default when props omitted', () => {
+      renderSelector();
+      expect(screen.getByTestId('forecast-type-sunrise')).not.toBeDisabled();
+      expect(screen.getByTestId('forecast-type-sunset')).not.toBeDisabled();
     });
   });
 

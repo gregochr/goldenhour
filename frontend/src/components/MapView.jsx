@@ -510,6 +510,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
     );
   }
 
+  // Check if any location has a sunrise/sunset forecast for the selected date.
+  const sunriseAvailable = locations.some((loc) => loc.forecastsByDate.get(date)?.sunrise != null);
+  const sunsetAvailable  = locations.some((loc) => loc.forecastsByDate.get(date)?.sunset  != null);
+
   const bounds = locations.map((loc) => [loc.lat, loc.lon]);
 
   const selectedLoc = visibleLocations.find((l) => l.name === selectedLocationName) ?? null;
@@ -553,6 +557,8 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
           showAurora={role !== 'LITE_USER'}
           auroraAvailable={auroraAvailable}
           astroAvailable={astroAvailable}
+          sunriseAvailable={sunriseAvailable}
+          sunsetAvailable={sunsetAvailable}
         />
         <button
           data-testid="advanced-filters-toggle"

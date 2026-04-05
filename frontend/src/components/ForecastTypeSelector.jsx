@@ -23,15 +23,23 @@ const TYPES = [
  * @param {boolean}  props.showAurora       - True for ADMIN/PRO; false for LITE_USER.
  * @param {boolean}  props.auroraAvailable  - True when stored results exist or live alert is active.
  * @param {boolean}  props.astroAvailable   - True when astro condition dates exist.
+ * @param {boolean}  props.sunriseAvailable - True when at least one location has a sunrise forecast for the selected day.
+ * @param {boolean}  props.sunsetAvailable  - True when at least one location has a sunset forecast for the selected day.
  */
-export default function ForecastTypeSelector({ eventType, onChange, showAurora, auroraAvailable, astroAvailable = false }) {
+export default function ForecastTypeSelector({ eventType, onChange, showAurora, auroraAvailable, astroAvailable = false, sunriseAvailable = true, sunsetAvailable = true }) {
   return (
     <div className="flex items-center gap-1" data-testid="forecast-type-selector">
       {TYPES.map(({ value, label }) => {
         const isAurora = value === 'AURORA';
         const isAstro = value === 'ASTRO';
+        const isSunrise = value === 'SUNRISE';
+        const isSunset = value === 'SUNSET';
         const isLocked = isAurora && !showAurora;
-        const disabled = isLocked || (isAurora && !auroraAvailable) || (isAstro && !astroAvailable);
+        const disabled = isLocked
+          || (isAurora && !auroraAvailable)
+          || (isAstro && !astroAvailable)
+          || (isSunrise && !sunriseAvailable)
+          || (isSunset && !sunsetAvailable);
         const active = eventType === value;
         return (
           <button
@@ -42,7 +50,9 @@ export default function ForecastTypeSelector({ eventType, onChange, showAurora, 
             title={disabled
               ? isLocked
                 ? 'Upgrade to Pro for aurora forecasts'
-                : isAstro ? 'No astro condition results available' : 'No aurora forecast results available'
+                : isAstro ? 'No astro condition results available'
+                : isAurora ? 'No aurora forecast results available'
+                : 'No forecast available for this day'
               : undefined}
             className={`px-4 py-1.5 text-sm font-medium rounded-full border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               active
@@ -69,4 +79,6 @@ ForecastTypeSelector.propTypes = {
   showAurora: PropTypes.bool.isRequired,
   auroraAvailable: PropTypes.bool.isRequired,
   astroAvailable: PropTypes.bool,
+  sunriseAvailable: PropTypes.bool,
+  sunsetAvailable: PropTypes.bool,
 };
