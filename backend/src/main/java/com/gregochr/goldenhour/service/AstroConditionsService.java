@@ -9,7 +9,6 @@ import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,8 +21,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 
 /**
  * Scores nightly astro observing conditions at all dark-sky locations.
@@ -48,7 +45,6 @@ public class AstroConditionsService {
     private final LunarCalculator lunarCalculator;
     private final LocationRepository locationRepository;
     private final AstroConditionsRepository astroConditionsRepository;
-    private final Executor forecastExecutor;
 
     /**
      * Constructs the astro conditions service.
@@ -58,20 +54,17 @@ public class AstroConditionsService {
      * @param lunarCalculator          moon position/illumination calculator (solar-utils)
      * @param locationRepository       location data access
      * @param astroConditionsRepository astro conditions data access
-     * @param forecastExecutor         virtual-thread executor for parallel scoring
      */
     public AstroConditionsService(OpenMeteoClient openMeteoClient,
                                   SolarService solarService,
                                   LunarCalculator lunarCalculator,
                                   LocationRepository locationRepository,
-                                  AstroConditionsRepository astroConditionsRepository,
-                                  @Qualifier("forecastExecutor") Executor forecastExecutor) {
+                                  AstroConditionsRepository astroConditionsRepository) {
         this.openMeteoClient = openMeteoClient;
         this.solarService = solarService;
         this.lunarCalculator = lunarCalculator;
         this.locationRepository = locationRepository;
         this.astroConditionsRepository = astroConditionsRepository;
-        this.forecastExecutor = forecastExecutor;
     }
 
     /**
@@ -97,40 +90,30 @@ public class AstroConditionsService {
         Instant now = Instant.now();
         List<AstroConditionsEntity> allResults = new ArrayList<>();
 
+        // Batch-fetch weather for all dark-sky locations in 1 API call
+        Map<String, OpenMeteoForecastResponse> forecastCache = prefetchForecasts(locations);
+
         for (LocalDate date : dates) {
             LocalDateTime dusk = solarService.nauticalDuskUtc(
                     REFERENCE_LAT, REFERENCE_LON, date);
             LocalDateTime dawn = solarService.nauticalDawnUtc(
                     REFERENCE_LAT, REFERENCE_LON, date.plusDays(1));
 
-            // Process in batches to avoid overwhelming the Open-Meteo rate limiter.
-            // The @RateLimiter permits 8 calls/second; firing all locations at once
-            // causes most virtual threads to timeout waiting for permits, cascading
-            // into circuit breaker trips that also block the forecast pipeline.
-            for (int i = 0; i < locations.size(); i += BATCH_SIZE) {
-                List<LocationEntity> batch = locations.subList(
-                        i, Math.min(i + BATCH_SIZE, locations.size()));
-
-                List<CompletableFuture<AstroConditionsEntity>> futures = batch.stream()
-                        .map(loc -> CompletableFuture.supplyAsync(
-                                () -> scoreLocation(loc, date, dusk, dawn, now), forecastExecutor))
-                        .toList();
-
-                for (CompletableFuture<AstroConditionsEntity> future : futures) {
-                    try {
-                        AstroConditionsEntity result = future.join();
-                        if (result != null) {
-                            // Merge: reuse existing ID so JPA does UPDATE, not INSERT
-                            String key = result.getLocation().getId() + ":" + date;
-                            Long existingId = existingIds.get(key);
-                            if (existingId != null) {
-                                result.setId(existingId);
-                            }
-                            allResults.add(result);
+            for (LocationEntity loc : locations) {
+                try {
+                    AstroConditionsEntity result = scoreLocation(
+                            loc, date, dusk, dawn, now, forecastCache);
+                    if (result != null) {
+                        String key = result.getLocation().getId() + ":" + date;
+                        Long existingId = existingIds.get(key);
+                        if (existingId != null) {
+                            result.setId(existingId);
                         }
-                    } catch (Exception e) {
-                        LOG.warn("Astro conditions scoring failed: {}", e.getMessage());
+                        allResults.add(result);
                     }
+                } catch (Exception e) {
+                    LOG.warn("Astro conditions scoring failed for {}: {}",
+                            loc.getName(), e.getMessage());
                 }
             }
         }
@@ -144,13 +127,53 @@ public class AstroConditionsService {
     }
 
     /**
-     * Scores a single location for a single night.
+     * Batch-fetches forecast data for all locations in a single API call.
+     *
+     * @param locations the dark-sky locations to fetch
+     * @return map from coordKey to forecast response
+     */
+    private Map<String, OpenMeteoForecastResponse> prefetchForecasts(
+            List<LocationEntity> locations) {
+        // Deduplicate by coordinate (same lat/lon = same forecast)
+        Map<String, double[]> uniqueCoords = new java.util.LinkedHashMap<>();
+        for (LocationEntity loc : locations) {
+            String key = OpenMeteoService.coordKey(loc.getLat(), loc.getLon());
+            uniqueCoords.putIfAbsent(key, new double[]{loc.getLat(), loc.getLon()});
+        }
+        List<String> keys = new ArrayList<>(uniqueCoords.keySet());
+        List<double[]> coords = new ArrayList<>(uniqueCoords.values());
+
+        LOG.info("Astro conditions: batch-fetching weather for {} unique locations "
+                + "(from {} dark-sky locations)", coords.size(), locations.size());
+
+        if (coords.isEmpty()) {
+            return Map.of();
+        }
+
+        try {
+            List<OpenMeteoForecastResponse> responses =
+                    openMeteoClient.fetchForecastBatch(coords);
+            Map<String, OpenMeteoForecastResponse> cache = new HashMap<>();
+            for (int i = 0; i < keys.size(); i++) {
+                cache.put(keys.get(i), responses.get(i));
+            }
+            return cache;
+        } catch (Exception e) {
+            LOG.warn("Astro conditions batch prefetch failed, scoring will be skipped: {}",
+                    e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
+     * Scores a single location for a single night using pre-fetched forecast data.
      */
     AstroConditionsEntity scoreLocation(LocationEntity location, LocalDate date,
-                                        LocalDateTime dusk, LocalDateTime dawn, Instant now) {
+                                        LocalDateTime dusk, LocalDateTime dawn, Instant now,
+                                        Map<String, OpenMeteoForecastResponse> forecastCache) {
         try {
-            OpenMeteoForecastResponse forecast = openMeteoClient.fetchForecast(
-                    location.getLat(), location.getLon());
+            String coordKey = OpenMeteoService.coordKey(location.getLat(), location.getLon());
+            OpenMeteoForecastResponse forecast = forecastCache.get(coordKey);
             if (forecast == null || forecast.getHourly() == null) {
                 LOG.warn("No forecast data for {} on {}", location.getName(), date);
                 return null;
@@ -376,9 +399,6 @@ public class AstroConditionsService {
     // -------------------------------------------------------------------------
     // Constants
     // -------------------------------------------------------------------------
-
-    /** Max locations to score in parallel — matches the Open-Meteo rate limiter's limitForPeriod. */
-    static final int BATCH_SIZE = 8;
 
     /** Base score before modifiers. */
     static final double BASE_SCORE = 3.0;
