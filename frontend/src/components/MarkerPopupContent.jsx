@@ -11,7 +11,6 @@ import createEventSource from '../utils/createEventSource.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
-import ProPill from './shared/ProPill.jsx';
 
 /**
  * Builds the "Forecast generated" footer text. For triaged/sentinel-skipped forecasts
@@ -392,11 +391,13 @@ export default function MarkerPopupContent({
                 color: '#fbbf24',
                 border: '1px solid rgba(217, 119, 6, 0.4)',
               }}>
-                🏜️ Elevated dust (e.g. Saharan dust) — expect unusually vivid warm tones
+                {role === 'LITE_USER'
+                  ? '🌫️ High aerosols'
+                  : '🏜️ Elevated dust (e.g. Saharan dust) — expect unusually vivid warm tones'}
               </span>
             </div>
           )}
-          {forecast.inversionPotential && forecast.inversionPotential !== 'NONE' && (
+          {role !== 'LITE_USER' && forecast.inversionPotential && forecast.inversionPotential !== 'NONE' && (
             <div style={{ marginBottom: '6px' }} data-testid="inversion-badge">
               <span style={{
                 ...POPUP_PILL,
@@ -612,6 +613,11 @@ export default function MarkerPopupContent({
               {forecast.summary}
             </div>
           )}
+          {role === 'LITE_USER' && (
+            <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: '#6B6B6B', marginBottom: '8px' }}>
+              <a href="/upgrade" style={{ color: '#6366f1', textDecoration: 'none' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
+            </p>
+          )}
 
           {/* "More details" toggle */}
           <button
@@ -705,12 +711,11 @@ export default function MarkerPopupContent({
                 </div>
               )}
 
-              {/* Score bars */}
-              {forecast && (forecast.fierySkyPotential != null || role === 'LITE_USER') && (
-                <div className={role === 'LITE_USER' ? 'opacity-45 pointer-events-none' : undefined} style={{ marginBottom: '6px' }}>
+              {/* Score bars — PRO/ADMIN only */}
+              {role !== 'LITE_USER' && forecast && forecast.fierySkyPotential != null && (
+                <div style={{ marginBottom: '6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#6B6B6B', marginBottom: '4px' }}>
                     <span>Scores</span>
-                    {role === 'LITE_USER' && <ProPill className="ml-1" />}
                     <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                   </div>
                   <PopupScoreRow label="Fiery Sky" score={forecast.fierySkyPotential} />

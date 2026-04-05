@@ -435,6 +435,138 @@ class ClaudeEvaluationStrategyTest {
         assertThat(ClaudeEvaluationStrategy.sanitiseInversionPotential("")).isEqualTo("NONE");
     }
 
+    // ── Code-fenced JSON ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("parseEvaluation() strips ```json fences around response")
+    void parseEvaluation_codeFencedJson_strippedAndParsed() {
+        String fenced = "```json\n"
+                + "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,"
+                + "\"summary\":\"Fenced response.\"}\n"
+                + "```";
+
+        SunsetEvaluation result = strategy.parseEvaluation(fenced, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isEqualTo(70);
+        assertThat(result.goldenHourPotential()).isEqualTo(65);
+        assertThat(result.summary()).isEqualTo("Fenced response.");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() strips bare ``` fences (no language tag)")
+    void parseEvaluation_bareFences_strippedAndParsed() {
+        String fenced = "```\n"
+                + "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":55,"
+                + "\"summary\":\"Bare fence.\"}\n"
+                + "```";
+
+        SunsetEvaluation result = strategy.parseEvaluation(fenced, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(3);
+        assertThat(result.summary()).isEqualTo("Bare fence.");
+    }
+
+    // ── Kitchen-sink response (all fields simultaneously) ────────────────────
+
+    @Test
+    @DisplayName("parseEvaluation() extracts all fields when response contains everything")
+    void parseEvaluation_allFieldsPresent_extractsEveryField() {
+        String json = "{\"rating\":5,\"fiery_sky\":92,\"golden_hour\":88,"
+                + "\"summary\":\"Spectacular conditions.\","
+                + "\"basic_fiery_sky\":65,\"basic_golden_hour\":60,"
+                + "\"basic_summary\":\"Decent conditions.\","
+                + "\"inversion_score\":9,\"inversion_potential\":\"STRONG\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.fierySkyPotential()).isEqualTo(92);
+        assertThat(result.goldenHourPotential()).isEqualTo(88);
+        assertThat(result.summary()).isEqualTo("Spectacular conditions.");
+        assertThat(result.basicFierySkyPotential()).isEqualTo(65);
+        assertThat(result.basicGoldenHourPotential()).isEqualTo(60);
+        assertThat(result.basicSummary()).isEqualTo("Decent conditions.");
+        assertThat(result.inversionScore()).isEqualTo(9);
+        assertThat(result.inversionPotential()).isEqualTo("STRONG");
+    }
+
+    // ── Score boundary values ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("parseEvaluation() handles minimum score boundaries (rating=1, fiery=0, golden=0)")
+    void parseEvaluation_minimumScores_parsedCorrectly() {
+        String json = "{\"rating\":1,\"fiery_sky\":0,\"golden_hour\":0,"
+                + "\"summary\":\"Total overcast.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(1);
+        assertThat(result.fierySkyPotential()).isZero();
+        assertThat(result.goldenHourPotential()).isZero();
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() handles maximum score boundaries (rating=5, fiery=100, golden=100)")
+    void parseEvaluation_maximumScores_parsedCorrectly() {
+        String json = "{\"rating\":5,\"fiery_sky\":100,\"golden_hour\":100,"
+                + "\"summary\":\"Perfect conditions.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.fierySkyPotential()).isEqualTo(100);
+        assertThat(result.goldenHourPotential()).isEqualTo(100);
+    }
+
+    // ── Regex fallback for extended fields ────────────────────────────────────
+
+    @Test
+    @DisplayName("regex fallback extracts basic-tier fields from malformed JSON")
+    void parseEvaluation_regexFallback_extractsBasicFields() {
+        // Invalid JSON (unescaped quote) but regex can extract all fields
+        String text = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":65,"
+                + "\"summary\":\"Beautiful \"glow\" at sunset.\","
+                + "\"basic_fiery_sky\":55,\"basic_golden_hour\":50,"
+                + "\"basic_summary\":\"Moderate conditions.\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isEqualTo(72);
+        assertThat(result.basicFierySkyPotential()).isEqualTo(55);
+        assertThat(result.basicGoldenHourPotential()).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("regex fallback extracts inversion fields from malformed JSON")
+    void parseEvaluation_regexFallback_extractsInversionFields() {
+        String text = "{\"rating\":5,\"fiery_sky\":88,\"golden_hour\":90,"
+                + "\"summary\":\"Sea of \"clouds\" below.\","
+                + "\"inversion_score\":10,\"inversion_potential\":\"STRONG\"}";
+
+        SunsetEvaluation result = strategy.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.rating()).isEqualTo(5);
+        assertThat(result.inversionScore()).isEqualTo(10);
+        assertThat(result.inversionPotential()).isEqualTo("STRONG");
+    }
+
+    // ── Evaluate with cache-hit tokens ─────────────────────────────────────
+
+    @Test
+    @DisplayName("extractTokenUsage() handles zero cache tokens without error")
+    void extractTokenUsage_zeroCacheTokens_parsesCorrectly() {
+        Message response = buildMessage("{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":55,"
+                + "\"summary\":\"Test.\"}", 300, 50, 0, 0);
+
+        TokenUsage usage = strategy.extractTokenUsage(response);
+
+        assertThat(usage.cacheCreationInputTokens()).isZero();
+        assertThat(usage.cacheReadInputTokens()).isZero();
+        assertThat(usage.inputTokens()).isEqualTo(300);
+    }
+
     // --- Helper methods ---
 
     private Message buildMessage(String text) {

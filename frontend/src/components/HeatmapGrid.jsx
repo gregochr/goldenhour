@@ -190,7 +190,7 @@ function ratingColour(rating) {
   return 'bg-red-700/70 text-red-100';
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, isPro = true }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   if (visible.length === 0) return null;
 
   // Re-sort by Claude score only after evaluation completes (the "reveal" moment).
@@ -383,6 +383,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   typeMap={typeMap}
                   scores={slotScores}
                   evaluationComplete={progressMatch?.status === 'complete' || (!progressMatch && slotScores.size > 0)}
+                  isPro={canRunEvaluation}
                 />
               )}
             </div>

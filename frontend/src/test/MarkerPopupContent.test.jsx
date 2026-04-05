@@ -75,26 +75,26 @@ describe('MarkerPopupContent', () => {
   });
 
   describe('LITE vs PRO/ADMIN score bar visibility', () => {
-    it('shows greyed score bars with Pro pill for LITE_USER when expanded', () => {
+    it('hides score bars entirely for LITE_USER when expanded', () => {
       renderPopup({
         role: 'LITE_USER',
-        forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: null },
+        forecast: { ...BASE_FORECAST, fierySkyPotential: 78, goldenHourPotential: 62 },
       });
       fireEvent.click(screen.getByTestId('more-details-toggle'));
-      expect(screen.getByText('Scores')).toBeInTheDocument();
-      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
-      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
-      expect(screen.getByTestId('pro-pill')).toBeInTheDocument();
+      expect(screen.queryByText('Scores')).not.toBeInTheDocument();
+      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
+      expect(screen.queryByText('Golden Hour')).not.toBeInTheDocument();
     });
 
-    it('LITE score bars wrapper has opacity-45', () => {
-      renderPopup({
-        role: 'LITE_USER',
-        forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: null },
-      });
-      fireEvent.click(screen.getByTestId('more-details-toggle'));
-      const scoresWrapper = screen.getByText('Scores').closest('div[class]');
-      expect(scoresWrapper.className).toContain('opacity-45');
+    it('shows upgrade hint for LITE_USER', () => {
+      renderPopup({ role: 'LITE_USER' });
+      expect(screen.getByTestId('upgrade-hint')).toBeInTheDocument();
+      expect(screen.getByTestId('upgrade-hint').textContent).toContain('Upgrade to Pro');
+    });
+
+    it('does not show upgrade hint for PRO_USER', () => {
+      renderPopup({ role: 'PRO_USER' });
+      expect(screen.queryByTestId('upgrade-hint')).not.toBeInTheDocument();
     });
 
     it('shows score bars for PRO_USER when expanded', () => {
@@ -310,9 +310,18 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('dust-badge')).not.toBeInTheDocument();
     });
 
-    it('shows dust badge for LITE_USER (visible to all roles)', () => {
+    it('shows simplified dust badge for LITE_USER', () => {
       renderPopup({ role: 'LITE_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 60, pm25: 3 } });
       expect(screen.getByTestId('dust-badge')).toBeInTheDocument();
+      expect(screen.getByText(/High aerosols/)).toBeInTheDocument();
+      expect(screen.queryByText(/Elevated dust/)).not.toBeInTheDocument();
+    });
+
+    it('shows detailed dust badge for PRO_USER', () => {
+      renderPopup({ role: 'PRO_USER', forecast: { ...BASE_FORECAST, aerosolOpticalDepth: 0.5, dust: 60, pm25: 3 } });
+      expect(screen.getByTestId('dust-badge')).toBeInTheDocument();
+      expect(screen.getByText(/Elevated dust/)).toBeInTheDocument();
+      expect(screen.queryByText(/High aerosols/)).not.toBeInTheDocument();
     });
   });
 
@@ -339,9 +348,9 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('inversion-badge')).not.toBeInTheDocument();
     });
 
-    it('shows inversion badge for LITE_USER', () => {
+    it('hides inversion badge for LITE_USER', () => {
       renderPopup({ role: 'LITE_USER', forecast: { ...BASE_FORECAST, inversionPotential: 'STRONG', inversionScore: 9 } });
-      expect(screen.getByTestId('inversion-badge')).toBeInTheDocument();
+      expect(screen.queryByTestId('inversion-badge')).not.toBeInTheDocument();
     });
   });
 

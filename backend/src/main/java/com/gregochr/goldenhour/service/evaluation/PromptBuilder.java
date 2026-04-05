@@ -22,6 +22,10 @@ import java.util.Map;
  * <p>Extracted from {@link AbstractEvaluationStrategy} to be independently testable
  * and reusable. All prompt construction logic lives here; the strategy classes focus
  * purely on API orchestration and response parsing.
+ *
+ * <p>The {@code summary} field is constrained to one sentence. Tier-gated display
+ * (LITE vs PRO) is enforced at the UI layer — this class always generates the
+ * full response.
  */
 public class PromptBuilder {
 
@@ -154,8 +158,10 @@ public class PromptBuilder {
             + "rating 5, emphasise in summary.\n"
             + "Non-water or low elevation: inversions have no photographic value; ignore "
             + "inversion score.\n\n"
+            + "Summaries must be exactly one sentence. Do not write two sentences even if "
+            + "separated by a semicolon, dash, or conjunction.\n\n"
             + "Output your evaluation as JSON with these fields: "
-            + "rating (1-5), fiery_sky (0-100), golden_hour (0-100), summary (2 sentences).\n\n"
+            + "rating (1-5), fiery_sky (0-100), golden_hour (0-100), summary (1 sentence).\n\n"
             + "fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. "
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
@@ -191,7 +197,7 @@ public class PromptBuilder {
     /** Prompt suffix: requests all three metrics and a summary. */
     static final String PROMPT_SUFFIX =
             "Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), "
-            + "then explain in 1-2 sentences.";
+            + "then summarise in exactly one sentence.";
 
     /** 16-point compass directions, indexed by (degrees / 22.5) rounded. */
     private static final String[] CARDINAL_DIRECTIONS = {

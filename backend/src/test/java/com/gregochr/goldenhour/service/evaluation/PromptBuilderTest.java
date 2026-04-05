@@ -48,14 +48,39 @@ public class PromptBuilderTest {
     }
 
     @Test
-    @DisplayName("getPromptSuffix contains rating instruction")
-    void getPromptSuffix_containsRatingInstruction() {
+    @DisplayName("getPromptSuffix requests exactly one sentence summary")
+    void getPromptSuffix_containsOneSentenceInstruction() {
         String suffix = promptBuilder.getPromptSuffix();
 
         assertThat(suffix)
                 .contains("Rate 1-5")
                 .contains("Fiery Sky Potential")
-                .contains("Golden Hour Potential");
+                .contains("Golden Hour Potential")
+                .contains("exactly one sentence");
+    }
+
+    @Test
+    @DisplayName("system prompt enforces single-sentence summary constraint")
+    void getSystemPrompt_enforcesOneSentenceSummary() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt).contains("exactly one sentence");
+        assertThat(prompt).contains("Do not write two sentences");
+    }
+
+    @Test
+    @DisplayName("system prompt still contains all schema fields")
+    void getSystemPrompt_containsAllSchemaFields() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt)
+                .contains("rating")
+                .contains("fiery_sky")
+                .contains("golden_hour")
+                .contains("summary")
+                .contains("basic_fiery_sky")
+                .contains("basic_golden_hour")
+                .contains("basic_summary");
     }
 
     @Test
