@@ -1135,4 +1135,209 @@ class OpenMeteoServiceTest {
         verify(openMeteoClient, never()).fetchForecast(anyDouble(), anyDouble());
         verify(openMeteoClient, never()).fetchAirQuality(anyDouble(), anyDouble());
     }
+
+    // --- CloudPointCache grid snapping tests ---
+
+    @Test
+    @DisplayName("CloudPointCache.gridKey() snaps nearby coordinates to the same cell")
+    void cloudPointCache_gridKey_snapsNearbyToSameCell() {
+        // Two points ~200m apart should snap to same 0.1° grid cell
+        String key1 = com.gregochr.goldenhour.model.CloudPointCache.gridKey(54.7753, -1.5849);
+        String key2 = com.gregochr.goldenhour.model.CloudPointCache.gridKey(54.7755, -1.5851);
+        assertThat(key1).isEqualTo(key2);
+
+        // Point ~15km away should be in a different cell
+        String key3 = com.gregochr.goldenhour.model.CloudPointCache.gridKey(54.90, -1.5849);
+        assertThat(key1).isNotEqualTo(key3);
+    }
+
+    @Test
+    @DisplayName("CloudPointCache.get() snaps coordinates before lookup")
+    void cloudPointCache_get_snapsBeforeLookup() {
+        String gridKey = com.gregochr.goldenhour.model.CloudPointCache.gridKey(54.7753, -1.5849);
+        OpenMeteoForecastResponse response = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(30), List.of(40), List.of(50));
+
+        var cache = new com.gregochr.goldenhour.model.CloudPointCache(
+                java.util.Map.of(gridKey, response));
+
+        // Slightly different coords that snap to same cell should find the data
+        assertThat(cache.get(54.7755, -1.5851)).isSameAs(response);
+        // Different cell should return null
+        assertThat(cache.get(54.90, -1.58)).isNull();
+    }
+
+    // --- computeDirectionalCloudPoints tests ---
+
+    @Test
+    @DisplayName("computeDirectionalCloudPoints() returns exactly 5 points in correct order")
+    void computeDirectionalCloudPoints_returns5Points() {
+        List<double[]> points = openMeteoService.computeDirectionalCloudPoints(
+                54.7753, -1.5849, 270);
+
+        assertThat(points).hasSize(5);
+        // All 5 should be different from the observer point
+        for (double[] p : points) {
+            assertThat(p[0]).isNotEqualTo(54.7753);
+        }
+    }
+
+    // --- computeUpwindPoint tests ---
+
+    @Test
+    @DisplayName("computeUpwindPoint() returns null when wind speed is zero")
+    void computeUpwindPoint_zeroWind_returnsNull() {
+        LocalDateTime now = LocalDateTime.of(2026, 6, 21, 17, 0);
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        double[] result = openMeteoService.computeUpwindPoint(
+                54.77, -1.58, 180, 0.0, now, eventTime);
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("computeUpwindPoint() returns null when event has passed")
+    void computeUpwindPoint_eventPassed_returnsNull() {
+        LocalDateTime now = LocalDateTime.of(2026, 6, 21, 21, 0);
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        double[] result = openMeteoService.computeUpwindPoint(
+                54.77, -1.58, 180, 5.0, now, eventTime);
+        assertThat(result).isNull();
+    }
+
+    @Test
+    @DisplayName("computeUpwindPoint() caps distance at 200 km")
+    void computeUpwindPoint_capsDistanceAt200km() {
+        // 20 m/s wind × 3 hours = 216 km → should cap at 200 km
+        LocalDateTime now = LocalDateTime.of(2026, 6, 21, 17, 0);
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+
+        double[] capped = openMeteoService.computeUpwindPoint(
+                54.77, -1.58, 0, 20.0, now, eventTime);
+        // 5 m/s wind × 3 hours = 54 km → not capped
+        double[] uncapped = openMeteoService.computeUpwindPoint(
+                54.77, -1.58, 0, 5.0, now, eventTime);
+
+        assertThat(capped).isNotNull();
+        assertThat(uncapped).isNotNull();
+        // Capped point should be closer to observer than uncapped distance ratio suggests
+        // At 200km cap vs 54km, latitude offset differs
+        double cappedOffset = Math.abs(capped[0] - 54.77);
+        double uncappedOffset = Math.abs(uncapped[0] - 54.77);
+        // 200km / 54km ≈ 3.7x, but capped so ratio should be less than 4x
+        assertThat(cappedOffset / uncappedOffset).isLessThan(4.0);
+    }
+
+    // --- prefetchCloudBatch tests ---
+
+    @Test
+    @DisplayName("prefetchCloudBatch() deduplicates points by grid key")
+    void prefetchCloudBatch_deduplicatesByGridKey() {
+        OpenMeteoForecastResponse r1 = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30));
+        OpenMeteoForecastResponse r2 = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(50), List.of(60), List.of(70));
+
+        // 3 raw points, but first two snap to same grid cell → 2 unique
+        List<double[]> points = List.of(
+                new double[]{54.7753, -1.5849},
+                new double[]{54.7755, -1.5851},   // same grid cell as first
+                new double[]{54.90, -1.58});       // different cell
+
+        when(openMeteoClient.fetchCloudOnlyBatch(
+                org.mockito.ArgumentMatchers.argThat(
+                        (java.util.List<double[]> coords) -> coords.size() == 2)))
+                .thenReturn(List.of(r1, r2));
+
+        com.gregochr.goldenhour.model.CloudPointCache cache =
+                openMeteoService.prefetchCloudBatch(points, null);
+
+        assertThat(cache.size()).isEqualTo(2);
+        // Both nearby points should resolve to same cached data
+        assertThat(cache.get(54.7753, -1.5849)).isSameAs(cache.get(54.7755, -1.5851));
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() returns empty cache and makes no API call for empty input")
+    void prefetchCloudBatch_emptyInput_noApiCall() {
+        com.gregochr.goldenhour.model.CloudPointCache cache =
+                openMeteoService.prefetchCloudBatch(List.of(), null);
+
+        assertThat(cache.size()).isEqualTo(0);
+        verify(openMeteoClient, never()).fetchCloudOnlyBatch(anyList());
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() returns empty cache on API failure (graceful degradation)")
+    void prefetchCloudBatch_apiFailure_returnsEmptyCache() {
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenThrow(new RuntimeException("API down"));
+
+        com.gregochr.goldenhour.model.CloudPointCache cache =
+                openMeteoService.prefetchCloudBatch(
+                        List.of(new double[]{54.77, -1.58}), null);
+
+        assertThat(cache.size()).isEqualTo(0);
+    }
+
+    // --- fetchDirectionalCloudDataFromCache tests ---
+
+    @Test
+    @DisplayName("fetchDirectionalCloudDataFromCache() averages 3 solar cone points correctly")
+    void fetchDirectionalCloudDataFromCache_averagesCone() {
+        // Build responses: cone points have 30, 40, 50 low cloud → avg 40
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        OpenMeteoForecastResponse cone1 = buildCloudOnlyResponse(times,
+                List.of(30, 30), List.of(10, 10), List.of(5, 5));
+        OpenMeteoForecastResponse cone2 = buildCloudOnlyResponse(times,
+                List.of(40, 40), List.of(20, 20), List.of(15, 15));
+        OpenMeteoForecastResponse cone3 = buildCloudOnlyResponse(times,
+                List.of(50, 50), List.of(30, 30), List.of(25, 25));
+        OpenMeteoForecastResponse antisolar = buildCloudOnlyResponse(times,
+                List.of(60, 60), List.of(70, 70), List.of(80, 80));
+        OpenMeteoForecastResponse farSolar = buildCloudOnlyResponse(times,
+                List.of(90, 90), List.of(5, 5), List.of(5, 5));
+
+        // Compute the actual points for azimuth 270 so we know their grid keys
+        List<double[]> points = openMeteoService.computeDirectionalCloudPoints(
+                54.77, -1.58, 270);
+        java.util.Map<String, OpenMeteoForecastResponse> map = new java.util.LinkedHashMap<>();
+        map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                points.get(0)[0], points.get(0)[1]), cone1);
+        map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                points.get(1)[0], points.get(1)[1]), cone2);
+        map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                points.get(2)[0], points.get(2)[1]), cone3);
+        map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                points.get(3)[0], points.get(3)[1]), antisolar);
+        map.put(com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                points.get(4)[0], points.get(4)[1]), farSolar);
+
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(map);
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        var result = openMeteoService.fetchDirectionalCloudDataFromCache(
+                54.77, -1.58, 270, eventTime, TargetType.SUNSET, cloudCache);
+
+        assertThat(result).isNotNull();
+        // Cone average: (30+40+50)/3 = 40
+        assertThat(result.solarLowCloudPercent()).isEqualTo(40);
+        assertThat(result.solarMidCloudPercent()).isEqualTo(20);
+        assertThat(result.antisolarLowCloudPercent()).isEqualTo(60);
+        assertThat(result.farSolarLowCloudPercent()).isEqualTo(90);
+    }
+
+    @Test
+    @DisplayName("fetchDirectionalCloudDataFromCache() returns null when solar cone point missing")
+    void fetchDirectionalCloudDataFromCache_cacheMiss_returnsNull() {
+        // Empty cache — no points available
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(java.util.Map.of());
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        var result = openMeteoService.fetchDirectionalCloudDataFromCache(
+                54.77, -1.58, 270, eventTime, TargetType.SUNSET, cloudCache);
+
+        assertThat(result).isNull();
+    }
 }

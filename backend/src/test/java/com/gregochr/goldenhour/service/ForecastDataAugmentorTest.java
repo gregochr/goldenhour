@@ -469,4 +469,100 @@ class ForecastDataAugmentorTest {
 
         assertThat(result.inversionScore()).isNotNull();
     }
+
+    // --- Cache-aware routing tests ---
+
+    @Test
+    @DisplayName("augmentWithDirectionalCloud() with non-empty cache calls cache method, not API")
+    void augmentWithDirectionalCloud_withCache_callsCacheMethod() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(
+                java.util.Map.of("test_key",
+                        new com.gregochr.goldenhour.model.OpenMeteoForecastResponse()));
+
+        when(openMeteoService.fetchDirectionalCloudDataFromCache(
+                org.mockito.ArgumentMatchers.eq(54.77),
+                org.mockito.ArgumentMatchers.eq(-1.58),
+                org.mockito.ArgumentMatchers.eq(270),
+                org.mockito.ArgumentMatchers.eq(eventTime),
+                any(),
+                org.mockito.ArgumentMatchers.eq(cloudCache)))
+                .thenReturn(null);
+
+        augmentor.augmentWithDirectionalCloud(base, 54.77, -1.58, 270, eventTime, null, cloudCache);
+
+        verify(openMeteoService).fetchDirectionalCloudDataFromCache(
+                org.mockito.ArgumentMatchers.eq(54.77),
+                org.mockito.ArgumentMatchers.eq(-1.58),
+                org.mockito.ArgumentMatchers.eq(270),
+                org.mockito.ArgumentMatchers.eq(eventTime),
+                any(),
+                org.mockito.ArgumentMatchers.eq(cloudCache));
+        verify(openMeteoService, never()).fetchDirectionalCloudData(
+                anyDouble(), anyDouble(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("augmentWithDirectionalCloud() with null cache calls API method, not cache")
+    void augmentWithDirectionalCloud_nullCache_callsApiMethod() {
+        AtmosphericData base = TestAtmosphericData.defaults();
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+
+        when(openMeteoService.fetchDirectionalCloudData(
+                org.mockito.ArgumentMatchers.eq(54.77),
+                org.mockito.ArgumentMatchers.eq(-1.58),
+                org.mockito.ArgumentMatchers.eq(270),
+                org.mockito.ArgumentMatchers.eq(eventTime),
+                any(), any()))
+                .thenReturn(null);
+
+        augmentor.augmentWithDirectionalCloud(base, 54.77, -1.58, 270, eventTime, null, null);
+
+        verify(openMeteoService).fetchDirectionalCloudData(
+                org.mockito.ArgumentMatchers.eq(54.77),
+                org.mockito.ArgumentMatchers.eq(-1.58),
+                org.mockito.ArgumentMatchers.eq(270),
+                org.mockito.ArgumentMatchers.eq(eventTime),
+                any(), any());
+        verify(openMeteoService, never()).fetchDirectionalCloudDataFromCache(
+                anyDouble(), anyDouble(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("augmentWithCloudApproach() with non-empty cache calls cache method, not API")
+    void augmentWithCloudApproach_withCache_callsCacheMethod() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .windSpeed(new BigDecimal("5.0")).windDirection(180).build();
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 6, 21, 17, 0);
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(
+                java.util.Map.of("test_key",
+                        new com.gregochr.goldenhour.model.OpenMeteoForecastResponse()));
+
+        when(openMeteoService.fetchCloudApproachDataFromCache(
+                org.mockito.ArgumentMatchers.eq(54.77),
+                org.mockito.ArgumentMatchers.eq(-1.58),
+                org.mockito.ArgumentMatchers.eq(270),
+                org.mockito.ArgumentMatchers.eq(eventTime),
+                org.mockito.ArgumentMatchers.eq(currentTime),
+                any(), anyInt(), anyDouble(),
+                org.mockito.ArgumentMatchers.eq(cloudCache)))
+                .thenReturn(null);
+
+        augmentor.augmentWithCloudApproach(
+                base, 54.77, -1.58, 270, eventTime, currentTime, null, cloudCache);
+
+        verify(openMeteoService).fetchCloudApproachDataFromCache(
+                org.mockito.ArgumentMatchers.eq(54.77),
+                org.mockito.ArgumentMatchers.eq(-1.58),
+                org.mockito.ArgumentMatchers.eq(270),
+                org.mockito.ArgumentMatchers.eq(eventTime),
+                org.mockito.ArgumentMatchers.eq(currentTime),
+                any(), anyInt(), anyDouble(),
+                org.mockito.ArgumentMatchers.eq(cloudCache));
+        verify(openMeteoService, never()).fetchCloudApproachData(
+                anyDouble(), anyDouble(), anyInt(), any(), any(), any(),
+                anyInt(), anyDouble(), any());
+    }
 }
