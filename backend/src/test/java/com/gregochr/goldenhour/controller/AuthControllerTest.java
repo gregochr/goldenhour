@@ -29,6 +29,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -267,7 +268,8 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\"}"))
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Verification email sent"))
                 .andExpect(jsonPath("$.email").value("new@example.com"));
@@ -281,7 +283,8 @@ class AuthControllerTest {
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"taken\",\"email\":\"new@example.com\"}"))
+                        .content("{\"username\":\"taken\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("Username already exists"));
     }
@@ -291,9 +294,33 @@ class AuthControllerTest {
     void register_invalidUsername_returns400() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"ab\",\"email\":\"valid@example.com\"}"))
+                        .content("{\"username\":\"ab\",\"email\":\"valid@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 400 when terms not accepted")
+    void register_termsNotAccepted_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(
+                        "You must accept the Terms & Conditions and Privacy Policy to register."));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 400 when termsAccepted is explicitly false")
+    void register_termsExplicitlyFalse_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"false\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(
+                        "You must accept the Terms & Conditions and Privacy Policy to register."));
     }
 
     @Test
@@ -304,7 +331,7 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
-                                + "\"turnstileToken\":\"bad-token\"}"))
+                                + "\"termsAccepted\":\"true\",\"turnstileToken\":\"bad-token\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
     }
@@ -314,7 +341,8 @@ class AuthControllerTest {
     void register_invalidEmail_returns400() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"validuser\",\"email\":\"not-an-email\"}"))
+                        .content("{\"username\":\"validuser\",\"email\":\"not-an-email\","
+                                + "\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Invalid email address"));
     }
@@ -389,6 +417,41 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/set-password response includes termsVersion from user record")
+    void setPassword_valid_includesTermsVersion() throws Exception {
+        AppUserEntity user = AppUserEntity.builder()
+                .id(42L).username("newuser").password("hashed").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.now())
+                .termsVersion("April 2026").build();
+        doNothing().when(registrationService).setPasswordAndActivate(42L, "MyP@ssw0rd!");
+        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+
+        mockMvc.perform(post("/api/auth/set-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":42,\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termsVersion").value("April 2026"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login response includes null termsVersion for pre-existing user")
+    void login_preExistingUser_returnsNullTermsVersion() throws Exception {
+        // Pre-existing users (registered before terms feature) have no termsVersion
+        AppUserEntity preExisting = AppUserEntity.builder()
+                .id(2L).username("olduser")
+                .password(passwordEncoder.encode("OldP@ss1!"))
+                .role(UserRole.LITE_USER).enabled(true)
+                .createdAt(LocalDateTime.now()).build();
+        when(userRepository.findByUsername("olduser")).thenReturn(Optional.of(preExisting));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"olduser\",\"password\":\"OldP@ss1!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termsVersion").value(nullValue()));
+    }
+
+    @Test
     @DisplayName("POST /api/auth/set-password returns 400 for weak password")
     void setPassword_weakPassword_returns400() throws Exception {
         mockMvc.perform(post("/api/auth/set-password")
@@ -409,10 +472,25 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/login response includes termsVersion")
+    void login_validCredentials_includesTermsVersion() throws Exception {
+        adminUser.setTermsVersion("April 2026");
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"admin\",\"password\":\"golden2026\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termsVersion").value("April 2026"));
+    }
+
+    @Test
     @DisplayName("POST /api/auth/login records lastActiveAt on successful login")
     void login_validCredentials_setsLastActiveAt() throws Exception {
         when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
         when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDateTime before = LocalDateTime.now();
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -420,7 +498,9 @@ class AuthControllerTest {
                 .andExpect(status().isOk());
 
         org.mockito.Mockito.verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(
-                user -> user.getLastActiveAt() != null));
+                user -> "admin".equals(user.getUsername())
+                        && user.getLastActiveAt() != null
+                        && !user.getLastActiveAt().isBefore(before)));
     }
 
     @Test
@@ -472,7 +552,7 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
-                                + "\"marketingEmailOptIn\":\"false\"}"))
+                                + "\"marketingEmailOptIn\":\"false\",\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Verification email sent"));
     }

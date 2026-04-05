@@ -257,6 +257,7 @@ public class ForecastService {
      * @param tideAlignmentEnabled  whether TIDE_ALIGNMENT optimisation is active
      * @param jobRun                parent job run for metrics
      * @param prefetchedWeather     pre-fetched weather data keyed by coord key, or null to fetch individually
+     * @param cloudCache            pre-fetched cloud point cache, or null to fetch individually
      * @return the pre-evaluation result
      */
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,

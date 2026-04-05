@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -100,15 +101,17 @@ public class AuthController {
         refreshTokenRepository.save(tokenEntity);
 
         LOG.info("Login: user='{}' role={}", user.getUsername(), user.getRole());
-        return ResponseEntity.ok(Map.of(
-                "accessToken", accessToken,
-                "refreshToken", rawRefresh,
-                "username", user.getUsername(),
-                "role", user.getRole().name(),
-                "expiresAt", expiresAt.toInstant().toString(),
-                "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                "passwordChangeRequired", user.isPasswordChangeRequired(),
-                "marketingEmailOptIn", user.isMarketingEmailOptIn()));
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("accessToken", accessToken);
+        response.put("refreshToken", rawRefresh);
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole().name());
+        response.put("expiresAt", expiresAt.toInstant().toString());
+        response.put("refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString());
+        response.put("passwordChangeRequired", user.isPasswordChangeRequired());
+        response.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
+        response.put("termsVersion", user.getTermsVersion());
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -271,6 +274,12 @@ public class AuthController {
                     .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
         }
 
+        if (!"true".equalsIgnoreCase(body.get("termsAccepted"))) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error",
+                            "You must accept the Terms & Conditions and Privacy Policy to register."));
+        }
+
         boolean marketingEmailOptIn = !"false".equalsIgnoreCase(body.get("marketingEmailOptIn"));
 
         try {
@@ -398,15 +407,17 @@ public class AuthController {
         refreshTokenRepository.save(tokenEntity);
 
         LOG.info("Registration complete: user='{}' role={}", user.getUsername(), user.getRole());
-        return ResponseEntity.ok(Map.of(
-                "accessToken", accessToken,
-                "refreshToken", rawRefresh,
-                "username", user.getUsername(),
-                "role", user.getRole().name(),
-                "expiresAt", expiresAt.toInstant().toString(),
-                "refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString(),
-                "passwordChangeRequired", false,
-                "marketingEmailOptIn", user.isMarketingEmailOptIn()));
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("accessToken", accessToken);
+        response.put("refreshToken", rawRefresh);
+        response.put("username", user.getUsername());
+        response.put("role", user.getRole().name());
+        response.put("expiresAt", expiresAt.toInstant().toString());
+        response.put("refreshExpiresAt", refreshExpiresAt.toInstant(java.time.ZoneOffset.UTC).toString());
+        response.put("passwordChangeRequired", false);
+        response.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
+        response.put("termsVersion", user.getTermsVersion());
+        return ResponseEntity.ok(response);
     }
 
     /**

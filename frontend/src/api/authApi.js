@@ -56,11 +56,13 @@ export async function changePassword(newPassword, turnstileToken) {
  * @param {string} email - The user's email address.
  * @param {string} turnstileToken - Cloudflare Turnstile verification token.
  * @param {boolean} marketingEmailOptIn - Whether the user opts in to marketing emails.
+ * @param {boolean} termsAccepted - Whether the user accepted the Terms & Conditions and Privacy Policy.
  * @returns {Promise<{message: string, email: string}>}
  */
-export async function register(username, email, turnstileToken, marketingEmailOptIn) {
+export async function register(username, email, turnstileToken, marketingEmailOptIn, termsAccepted) {
   const response = await axios.post(`${BASE_URL}/register`, {
     username, email, turnstileToken, marketingEmailOptIn: String(marketingEmailOptIn),
+    termsAccepted: String(termsAccepted),
   });
   return response.data;
 }

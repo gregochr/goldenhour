@@ -3,8 +3,6 @@ import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser } from '../api/authApi.js';
 import TurnstileWidget from './TurnstileWidget.jsx';
-import Modal from './shared/Modal.jsx';
-
 const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS' };
 
 /** Checks a single complexity rule and returns a styled list item. */
@@ -20,55 +18,6 @@ function CheckItem({ ok, label }) {
 CheckItem.propTypes = {
   ok: PropTypes.bool.isRequired,
   label: PropTypes.string.isRequired,
-};
-
-/**
- * Privacy policy modal overlay.
- */
-function PrivacyModal({ onClose }) {
-  return (
-    <Modal label="Privacy Policy" onClose={onClose} bare>
-      <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto bg-plex-surface border border-plex-border rounded-lg shadow-xl">
-        <div className="flex items-center justify-between border-b border-plex-border px-6 py-4">
-          <h2 className="text-lg font-semibold text-plex-text">Privacy Policy</h2>
-          <button
-            onClick={onClose}
-            className="text-plex-text-secondary hover:text-plex-text text-xl leading-none"
-            aria-label="Close"
-            data-testid="privacy-close"
-          >
-            &times;
-          </button>
-        </div>
-        <div className="px-6 py-4 text-sm text-plex-text-secondary leading-relaxed space-y-4">
-          <section>
-            <h3 className="text-plex-text font-medium mb-1">Data We Collect</h3>
-            <p>We collect the email address and username you provide during registration.</p>
-          </section>
-          <section>
-            <h3 className="text-plex-text font-medium mb-1">How We Use Your Data</h3>
-            <p>Your data is used solely to provide the PhotoCast service: generating forecasts, sending notifications, and personalising your experience. We do not sell or share your data with third parties.</p>
-          </section>
-          <section>
-            <h3 className="text-plex-text font-medium mb-1">Marketing Emails</h3>
-            <p>If you opt in during registration, we may send you occasional emails about new features and photography tips. You can unsubscribe at any time by updating your preferences in the app. Transactional emails (account verification, password resets) are always sent regardless of this preference.</p>
-          </section>
-          <section>
-            <h3 className="text-plex-text font-medium mb-1">Your Rights (GDPR)</h3>
-            <p>You have the right to access, correct, or delete your personal data at any time. You may also request a copy of all data we hold about you. Contact us to exercise these rights.</p>
-          </section>
-          <section>
-            <h3 className="text-plex-text font-medium mb-1">Contact Us</h3>
-            <p>For any privacy-related questions, please email privacy@photocast.online.</p>
-          </section>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-PrivacyModal.propTypes = {
-  onClose: PropTypes.func.isRequired,
 };
 
 /**
@@ -88,8 +37,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [showPrivacy, setShowPrivacy] = useState(false);
   const [marketingOptIn, setMarketingOptIn] = useState(true);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [spTurnstileToken, setSpTurnstileToken] = useState('');
@@ -151,7 +100,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     setError('');
     setLoading(true);
     try {
-      await register(username, email, turnstileToken, marketingOptIn);
+      await register(username, email, turnstileToken, marketingOptIn, termsAccepted);
       setStep(STEPS.CHECK_EMAIL);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
@@ -293,6 +242,27 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
             <label className="flex items-start gap-2 cursor-pointer text-xs text-plex-text-secondary">
               <input
                 type="checkbox"
+                data-testid="reg-terms-accepted"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+                disabled={loading}
+                className="mt-0.5 accent-plex-gold"
+              />
+              <span>
+                I agree to the{' '}
+                <a href="https://photocast.online/terms.html" target="_blank" rel="noopener noreferrer" className="text-plex-gold hover:underline">
+                  Terms &amp; Conditions
+                </a>{' '}
+                and{' '}
+                <a href="https://photocast.online/privacy.html" target="_blank" rel="noopener noreferrer" className="text-plex-gold hover:underline">
+                  Privacy Policy
+                </a>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2 cursor-pointer text-xs text-plex-text-secondary">
+              <input
+                type="checkbox"
                 data-testid="reg-marketing-opt-in"
                 checked={marketingOptIn}
                 onChange={(e) => setMarketingOptIn(e.target.checked)}
@@ -312,7 +282,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               <p className="text-xs text-red-400" role="alert" data-testid="reg-error">{error}</p>
             )}
 
-            <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading || !turnstileToken}>
+            <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading || !turnstileToken || !termsAccepted}>
               {loading ? 'Creating account...' : 'Create account'}
             </button>
 
@@ -327,16 +297,6 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               </button>
             </div>
 
-            <div className="text-center">
-              <button
-                type="button"
-                className="text-xs text-plex-text-muted hover:text-plex-text underline"
-                onClick={() => setShowPrivacy(true)}
-                data-testid="reg-privacy-link"
-              >
-                Privacy Policy
-              </button>
-            </div>
           </form>
         )}
 
@@ -496,7 +456,6 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
           </div>
         )}
 
-        {showPrivacy && <PrivacyModal onClose={() => setShowPrivacy(false)} />}
       </div>
     </div>
   );

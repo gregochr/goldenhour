@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.TermsConstants;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -385,6 +386,38 @@ class UserServiceTest {
             verify(userRepository).save(captor.capture());
             assertThat(captor.getValue().isMarketingEmailOptIn()).isFalse();
             assertThat(captor.getValue().getUsername()).isEqualTo("bob");
+        }
+
+        @Test
+        @DisplayName("stores current terms version on pending user")
+        void setsTermsVersion() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "new@example.com", true);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getTermsVersion()).isEqualTo(TermsConstants.CURRENT_TERMS_VERSION);
+        }
+
+        @Test
+        @DisplayName("stores terms accepted timestamp on pending user")
+        void setsTermsAcceptedAt() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            java.time.Instant before = java.time.Instant.now();
+            userService.createPendingUser("newuser", "new@example.com", true);
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getTermsAcceptedAt())
+                    .isNotNull()
+                    .isAfterOrEqualTo(before)
+                    .isBefore(java.time.Instant.now().plusSeconds(5));
         }
 
         @Test

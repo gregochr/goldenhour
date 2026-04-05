@@ -533,7 +533,9 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, org.mockito.Mockito.atLeastOnce())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(true), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                        eq(true), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     @Test
@@ -548,7 +550,9 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, org.mockito.Mockito.atLeastOnce())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                        eq(false), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     // -------------------------------------------------------------------------

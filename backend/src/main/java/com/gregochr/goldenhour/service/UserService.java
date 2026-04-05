@@ -1,9 +1,12 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.TermsConstants;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import java.time.Instant;
+
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -228,6 +231,8 @@ public class UserService implements UserDetailsService {
                 .createdAt(LocalDateTime.now())
                 .passwordChangeRequired(false)
                 .marketingEmailOptIn(marketingEmailOptIn)
+                .termsAcceptedAt(Instant.now())
+                .termsVersion(TermsConstants.CURRENT_TERMS_VERSION)
                 .build();
         return userRepository.save(user);
     }

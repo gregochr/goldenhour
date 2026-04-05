@@ -99,6 +99,14 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "drive_times_calculated_at")
     private Instant driveTimesCalculatedAt;
 
+    /** When the user accepted the Terms &amp; Conditions. */
+    @Column(name = "terms_accepted_at")
+    private Instant termsAcceptedAt;
+
+    /** The version of the Terms &amp; Conditions the user accepted (e.g. "April 2026"). */
+    @Column(name = "terms_version", length = 20)
+    private String termsVersion;
+
     /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.
      * Spring Security requires the {@code ROLE_} prefix for {@code hasRole()} expressions.
