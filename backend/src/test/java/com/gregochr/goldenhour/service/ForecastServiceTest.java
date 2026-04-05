@@ -95,8 +95,12 @@ class ForecastServiceTest {
         // Lenient because not every test exercises both augmentation paths.
         lenient().when(augmentor.augmentWithDirectionalCloud(any(), anyDouble(), anyDouble(),
                 anyInt(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithDirectionalCloud(any(), anyDouble(), anyDouble(),
+                anyInt(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithCloudApproach(any(), anyDouble(), anyDouble(),
                 anyInt(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithCloudApproach(any(), anyDouble(), anyDouble(),
+                anyInt(), any(), any(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithTideData(any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithLocationOrientation(any(), any()))
@@ -686,7 +690,7 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null, prefetched);
+                EvaluationModel.SONNET, true, null, prefetched, null);
 
         verify(openMeteoService).getAtmosphericDataFromCache(any(), any(), eq(prefetched));
         verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(), any(), any());
@@ -707,7 +711,7 @@ class ForecastServiceTest {
 
         forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null, null);
+                EvaluationModel.SONNET, true, null, null, null);
 
         verify(openMeteoService).getAtmosphericDataWithResponse(
                 any(ForecastRequest.class), any(), any());
@@ -728,7 +732,7 @@ class ForecastServiceTest {
 
         assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
                 DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
-                EvaluationModel.SONNET, true, null, prefetched))
+                EvaluationModel.SONNET, true, null, prefetched, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
     }

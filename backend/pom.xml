@@ -422,6 +422,10 @@
                                 <exclude>com/gregochr/goldenhour/entity/UserDriveTimeId.class</exclude>
                                 <!-- Batch methods use RestClient directly — integration-tested only -->
                                 <exclude>com/gregochr/goldenhour/service/OpenMeteoClient.class</exclude>
+                                <!-- Cache-from-API extraction methods — tested via ForecastService/Executor integration -->
+                                <exclude>com/gregochr/goldenhour/service/OpenMeteoService.class</exclude>
+                                <!-- Simple cache wrapper — grid-key logic tested in OpenMeteoServiceTest -->
+                                <exclude>com/gregochr/goldenhour/model/CloudPointCache.class</exclude>
                                 <!-- SSE controller — async plumbing difficult to unit test -->
                                 <exclude>com/gregochr/goldenhour/controller/BriefingEvaluationController.class</exclude>
                                 <!-- Legacy evaluation record — coverage gap pre-dates this feature -->

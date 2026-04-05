@@ -32,12 +32,12 @@ class TransientHttpErrorPredicateTest {
     }
 
     @Test
-    @DisplayName("Returns true for 429 Too Many Requests")
-    void test_429_returnsTrue() {
+    @DisplayName("Returns false for 429 Too Many Requests (retrying compounds the rate limit)")
+    void test_429_returnsFalse() {
         var ex = new RestClientResponseException("Too Many Requests", 429, "Too Many Requests",
                 null, null, null);
 
-        assertThat(predicate.test(ex)).isTrue();
+        assertThat(predicate.test(ex)).isFalse();
     }
 
     @Test

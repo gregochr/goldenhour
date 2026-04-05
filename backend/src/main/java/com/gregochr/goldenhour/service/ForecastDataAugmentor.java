@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideData;
@@ -77,8 +78,29 @@ public class ForecastDataAugmentor {
      */
     public AtmosphericData augmentWithDirectionalCloud(AtmosphericData base, double lat,
             double lon, int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun) {
-        var directional = openMeteoService.fetchDirectionalCloudData(
-                lat, lon, solarAzimuth, eventTime, base.targetType(), jobRun);
+        return augmentWithDirectionalCloud(base, lat, lon, solarAzimuth, eventTime, jobRun, null);
+    }
+
+    /**
+     * Cache-aware overload that reads from a pre-fetched {@link CloudPointCache} if available.
+     *
+     * @param base         atmospheric data without directional cloud fields
+     * @param lat          observer latitude
+     * @param lon          observer longitude
+     * @param solarAzimuth compass bearing of the sun
+     * @param eventTime    UTC time of the solar event
+     * @param jobRun       the parent job run for metrics tracking, or {@code null}
+     * @param cloudCache   pre-fetched cloud cache, or {@code null} to fetch per-evaluation
+     * @return a new {@link AtmosphericData} with directional cloud populated where available
+     */
+    public AtmosphericData augmentWithDirectionalCloud(AtmosphericData base, double lat,
+            double lon, int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun,
+            CloudPointCache cloudCache) {
+        var directional = (cloudCache != null && cloudCache.size() > 0)
+                ? openMeteoService.fetchDirectionalCloudDataFromCache(
+                        lat, lon, solarAzimuth, eventTime, base.targetType(), cloudCache)
+                : openMeteoService.fetchDirectionalCloudData(
+                        lat, lon, solarAzimuth, eventTime, base.targetType(), jobRun);
         return directional != null ? base.withDirectionalCloud(directional) : base;
     }
 
@@ -179,13 +201,41 @@ public class ForecastDataAugmentor {
     public AtmosphericData augmentWithCloudApproach(AtmosphericData base, double lat,
             double lon, int solarAzimuth, LocalDateTime eventTime, LocalDateTime currentTime,
             JobRunEntity jobRun) {
+        return augmentWithCloudApproach(base, lat, lon, solarAzimuth, eventTime,
+                currentTime, jobRun, null);
+    }
+
+    /**
+     * Cache-aware overload that reads from a pre-fetched {@link CloudPointCache} if available.
+     *
+     * @param base           atmospheric data to augment
+     * @param lat            observer latitude
+     * @param lon            observer longitude
+     * @param solarAzimuth   compass bearing of the sun
+     * @param eventTime      UTC time of the solar event
+     * @param currentTime    current UTC time
+     * @param jobRun         the parent job run for metrics tracking, or {@code null}
+     * @param cloudCache     pre-fetched cloud cache, or {@code null} to fetch per-evaluation
+     * @return a new {@link AtmosphericData} with cloud approach data populated where available
+     */
+    public AtmosphericData augmentWithCloudApproach(AtmosphericData base, double lat,
+            double lon, int solarAzimuth, LocalDateTime eventTime, LocalDateTime currentTime,
+            JobRunEntity jobRun, CloudPointCache cloudCache) {
         if (base.weather() == null) {
             return base;
         }
-        CloudApproachData approach = openMeteoService.fetchCloudApproachData(
-                lat, lon, solarAzimuth, eventTime, currentTime, base.targetType(),
-                base.weather().windDirectionDegrees(),
-                base.weather().windSpeedMs().doubleValue(), jobRun);
+        CloudApproachData approach;
+        if (cloudCache != null && cloudCache.size() > 0) {
+            approach = openMeteoService.fetchCloudApproachDataFromCache(
+                    lat, lon, solarAzimuth, eventTime, currentTime, base.targetType(),
+                    base.weather().windDirectionDegrees(),
+                    base.weather().windSpeedMs().doubleValue(), cloudCache);
+        } else {
+            approach = openMeteoService.fetchCloudApproachData(
+                    lat, lon, solarAzimuth, eventTime, currentTime, base.targetType(),
+                    base.weather().windDirectionDegrees(),
+                    base.weather().windSpeedMs().doubleValue(), jobRun);
+        }
         return approach != null ? base.withCloudApproach(approach) : base;
     }
 

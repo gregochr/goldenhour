@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
@@ -271,10 +272,14 @@ public class ForecastCommandExecutor {
         Map<String, WeatherExtractionResult> prefetchedWeather = prefetchWeather(
                 nonSkippedTasks, jobRun);
 
+        // Pre-fetch all cloud sampling points in 1 batch call (~300 calls → 1)
+        CloudPointCache cloudCache = prefetchCloudPoints(
+                nonSkippedTasks, prefetchedWeather, jobRun);
+
         // Phase 1: TRIAGE (uses pre-fetched data — no individual API calls)
         progressTracker.setPhase(jobRun.getId(), RunPhase.TRIAGE);
         List<ForecastPreEvalResult> triageResults = runTriagePhase(nonSkippedTasks,
-                tideAlignmentEnabled, jobRun, prefetchedWeather);
+                tideAlignmentEnabled, jobRun, prefetchedWeather, cloudCache);
         List<ForecastPreEvalResult> survivors = triageResults.stream()
                 .filter(r -> !r.triaged())
                 .toList();
@@ -371,6 +376,65 @@ public class ForecastCommandExecutor {
     }
 
     /**
+     * Pre-fetches cloud-only data for all directional cloud and cloud approach sampling points.
+     * Computes azimuth per task, generates 5 directional + 1 solar horizon + optional upwind
+     * point, and batch-fetches all unique grid cells in a single API call.
+     */
+    private CloudPointCache prefetchCloudPoints(List<TaskDescriptor> tasks,
+            Map<String, WeatherExtractionResult> prefetchedWeather, JobRunEntity jobRun) {
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        List<double[]> allPoints = new ArrayList<>();
+
+        for (TaskDescriptor task : tasks) {
+            double lat = task.location().getLat();
+            double lon = task.location().getLon();
+            LocalDate date = task.date();
+            TargetType targetType = task.targetType();
+
+            int azimuth = targetType == TargetType.SUNRISE
+                    ? solarService.sunriseAzimuthDeg(lat, lon, date)
+                    : solarService.sunsetAzimuthDeg(lat, lon, date);
+
+            // 5 directional cloud points (cone + antisolar + far-solar)
+            allPoints.addAll(openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth));
+
+            // Solar horizon point for cloud approach trend (same as cone centre — already included)
+            // Upwind point (needs wind from prefetched weather)
+            String coordKey = OpenMeteoService.coordKey(lat, lon);
+            WeatherExtractionResult cached = prefetchedWeather.get(coordKey);
+            if (cached != null && cached.forecastResponse() != null
+                    && cached.forecastResponse().getHourly() != null) {
+                LocalDateTime eventTime = targetType == TargetType.SUNRISE
+                        ? solarService.sunriseUtc(lat, lon, date)
+                        : solarService.sunsetUtc(lat, lon, date);
+                OpenMeteoForecastResponse.Hourly h = cached.forecastResponse().getHourly();
+                List<String> times = h.getTime();
+                if (times != null && h.getWindDirection10m() != null
+                        && h.getWindSpeed10m() != null) {
+                    int idx = com.gregochr.goldenhour.util.TimeSlotUtils
+                            .findNearestIndex(times, eventTime);
+                    if (idx < h.getWindDirection10m().size()
+                            && idx < h.getWindSpeed10m().size()) {
+                        Integer windDir = h.getWindDirection10m().get(idx);
+                        Double windSpeed = h.getWindSpeed10m().get(idx);
+                        if (windDir != null && windSpeed != null) {
+                            double[] upwind = openMeteoService.computeUpwindPoint(
+                                    lat, lon, windDir, windSpeed, now, eventTime);
+                            if (upwind != null) {
+                                allPoints.add(upwind);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        LOG.info("Pre-fetching cloud points: {} raw points from {} tasks",
+                allPoints.size(), tasks.size());
+        return openMeteoService.prefetchCloudBatch(allPoints, jobRun);
+    }
+
+    /**
      * Phase 1: Fetch weather data and apply triage heuristics to all non-skipped tasks in parallel.
      *
      * @param tasks                all non-skipped task descriptors
@@ -380,12 +444,13 @@ public class ForecastCommandExecutor {
      */
     private List<ForecastPreEvalResult> runTriagePhase(List<TaskDescriptor> tasks,
             boolean tideAlignmentEnabled, JobRunEntity jobRun,
-            Map<String, WeatherExtractionResult> prefetchedWeather) {
+            Map<String, WeatherExtractionResult> prefetchedWeather,
+            CloudPointCache cloudCache) {
         return submitParallel(tasks,
                 task -> forecastService.fetchWeatherAndTriage(
                         task.location(), task.date(), task.targetType(),
                         task.location().getTideType(), task.model(), tideAlignmentEnabled, jobRun,
-                        prefetchedWeather),
+                        prefetchedWeather, cloudCache),
                 (task, e) -> LOG.error("Triage failed for {} {} on {} [{}]: {}",
                         task.location().getName(), task.targetType(), task.date(),
                         task.model(), e.getMessage(), e));

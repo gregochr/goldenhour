@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.ForecastStability;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -97,6 +98,7 @@ class ForecastCommandExecutorTest {
 
     private ForecastCommandExecutor executor;
     private Map<String, WeatherExtractionResult> stubPrefetchedWeather;
+    private CloudPointCache stubCloudCache;
 
     private JobRunEntity stubJobRun;
 
@@ -151,11 +153,16 @@ class ForecastCommandExecutorTest {
         lenient().when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
                 .thenReturn(stubPrefetchedWeather);
 
+        // Default: prefetchCloudBatch returns a shared cache
+        stubCloudCache = new CloudPointCache(java.util.Map.of());
+        lenient().when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+                .thenReturn(stubCloudCache);
+
         // Default: fetchWeatherAndTriage returns non-triaged result
         lenient().when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
                 any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class),
-                eq(stubPrefetchedWeather)))
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
                 .thenAnswer(invocation -> {
                     LocationEntity loc = invocation.getArgument(0);
                     LocalDate date = invocation.getArgument(1);
@@ -195,7 +202,7 @@ class ForecastCommandExecutorTest {
         verify(forecastService, times(expectedCalls))
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                         any(TargetType.class), any(), eq(EvaluationModel.HAIKU), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather));
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     @Test
@@ -219,7 +226,7 @@ class ForecastCommandExecutorTest {
         when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
                 any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class),
-                eq(stubPrefetchedWeather)))
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
                 .thenAnswer(invocation -> {
                     LocationEntity loc = invocation.getArgument(0);
                     LocalDate date = invocation.getArgument(1);
@@ -369,12 +376,12 @@ class ForecastCommandExecutorTest {
                         org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
                         any(LocalDate.class), any(TargetType.class), any(),
                         any(EvaluationModel.class), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather));
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService, never())
                 .fetchWeatherAndTriage(
                         org.mockito.ArgumentMatchers.argThat(loc -> "Whitley Bay".equals(loc.getName())),
                         any(), any(), any(), any(), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather));
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     @Test
@@ -398,7 +405,7 @@ class ForecastCommandExecutorTest {
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY * 2))
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                         any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather));
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     // -------------------------------------------------------------------------
@@ -445,7 +452,7 @@ class ForecastCommandExecutorTest {
         // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
                 .fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                        anyBoolean(), any(), eq(stubPrefetchedWeather));
+                        anyBoolean(), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService, never())
                 .evaluateAndPersist(any(), any());
     }
@@ -503,7 +510,7 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, org.mockito.Mockito.atLeastOnce())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(true), any(), eq(stubPrefetchedWeather));
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(true), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     @Test
@@ -518,7 +525,7 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, org.mockito.Mockito.atLeastOnce())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any(), eq(stubPrefetchedWeather));
+                .fetchWeatherAndTriage(any(), any(), any(), any(), any(), eq(false), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     // -------------------------------------------------------------------------
@@ -701,7 +708,7 @@ class ForecastCommandExecutorTest {
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(forecastService.fetchWeatherAndTriage(
                 any(), any(), any(), any(), any(), anyBoolean(), any(),
-                eq(stubPrefetchedWeather)))
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -737,7 +744,7 @@ class ForecastCommandExecutorTest {
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(forecastService.fetchWeatherAndTriage(
                 any(), any(), any(), any(), any(), anyBoolean(), any(),
-                eq(stubPrefetchedWeather)))
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -772,7 +779,7 @@ class ForecastCommandExecutorTest {
 
         when(forecastService.fetchWeatherAndTriage(
                 any(), any(), any(), any(), any(), anyBoolean(), any(),
-                eq(stubPrefetchedWeather)))
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -803,7 +810,7 @@ class ForecastCommandExecutorTest {
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
         when(forecastService.fetchWeatherAndTriage(
                 any(), any(), any(), any(), any(), anyBoolean(), any(),
-                eq(stubPrefetchedWeather)))
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
                 .thenAnswer(inv -> {
                     LocalDate date = inv.getArgument(1);
                     int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
@@ -886,6 +893,6 @@ class ForecastCommandExecutorTest {
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                         any(TargetType.class), any(), any(EvaluationModel.class),
-                        anyBoolean(), any(), eq(stubPrefetchedWeather));
+                        anyBoolean(), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 }

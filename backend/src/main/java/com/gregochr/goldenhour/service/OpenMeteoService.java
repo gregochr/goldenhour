@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
@@ -274,6 +275,247 @@ public class OpenMeteoService {
      */
     static String coordKey(double lat, double lon) {
         return lat + "," + lon;
+    }
+
+    /**
+     * Computes the 5 directional cloud sampling points for a given observer and solar azimuth:
+     * 3 solar cone points (azimuth ± 15°), 1 antisolar, 1 far-solar (226 km).
+     *
+     * @param lat             observer latitude
+     * @param lon             observer longitude
+     * @param solarAzimuthDeg compass bearing of the sun
+     * @return list of 5 [lat, lon] pairs
+     */
+    public List<double[]> computeDirectionalCloudPoints(double lat, double lon,
+            int solarAzimuthDeg) {
+        List<double[]> points = new ArrayList<>();
+        int[] solarBearings = {
+            solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
+            solarAzimuthDeg,
+            solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
+        };
+        for (int bearing : solarBearings) {
+            points.add(GeoUtils.offsetPoint(lat, lon, bearing, DIRECTIONAL_OFFSET_METRES));
+        }
+        points.add(GeoUtils.offsetPoint(lat, lon,
+                GeoUtils.antisolarBearing(solarAzimuthDeg), DIRECTIONAL_OFFSET_METRES));
+        points.add(GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, FAR_SOLAR_OFFSET_METRES));
+        return points;
+    }
+
+    /**
+     * Computes the solar horizon point used for cloud approach trend analysis.
+     *
+     * @param lat             observer latitude
+     * @param lon             observer longitude
+     * @param solarAzimuthDeg compass bearing of the sun
+     * @return [lat, lon] pair at 113 km along the solar bearing
+     */
+    public double[] computeSolarHorizonPoint(double lat, double lon, int solarAzimuthDeg) {
+        return GeoUtils.offsetPoint(lat, lon, solarAzimuthDeg, DIRECTIONAL_OFFSET_METRES);
+    }
+
+    /**
+     * Computes the upwind sampling point, or {@code null} if conditions don't warrant it.
+     *
+     * @param lat           observer latitude
+     * @param lon           observer longitude
+     * @param windFromDeg   wind-from bearing in degrees
+     * @param windSpeedMs   wind speed in m/s
+     * @param currentTime   current UTC time
+     * @param eventTime     UTC time of the solar event
+     * @return [lat, lon] pair, or {@code null} if wind is calm or event has passed
+     */
+    public double[] computeUpwindPoint(double lat, double lon, int windFromDeg,
+            double windSpeedMs, LocalDateTime currentTime, LocalDateTime eventTime) {
+        long secondsToEvent = Duration.between(currentTime, eventTime).getSeconds();
+        if (secondsToEvent <= 0 || windSpeedMs <= 0) {
+            return null;
+        }
+        double dist = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
+        if (dist < MIN_UPWIND_DISTANCE_M) {
+            return null;
+        }
+        return GeoUtils.offsetPoint(lat, lon, windFromDeg, dist);
+    }
+
+    /**
+     * Batch pre-fetches cloud-only data for a set of sampling points.
+     *
+     * <p>Deduplicates by Open-Meteo's ~0.1° grid resolution and makes a single batch
+     * API call. Returns a {@link CloudPointCache} for lookup during augmentation.
+     *
+     * @param allCoords raw [lat, lon] pairs (may contain duplicates)
+     * @param jobRun    the parent job run for metrics tracking, or {@code null}
+     * @return a cache of cloud-only responses keyed by grid cell
+     */
+    public CloudPointCache prefetchCloudBatch(List<double[]> allCoords, JobRunEntity jobRun) {
+        // Deduplicate by grid key
+        Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
+        for (double[] coord : allCoords) {
+            String key = CloudPointCache.gridKey(coord[0], coord[1]);
+            uniqueByGrid.putIfAbsent(key, coord);
+        }
+
+        List<String> gridKeys = new ArrayList<>(uniqueByGrid.keySet());
+        List<double[]> coords = new ArrayList<>(uniqueByGrid.values());
+
+        LOG.info("Cloud batch prefetch: {} raw points -> {} unique grid cells",
+                allCoords.size(), coords.size());
+
+        if (coords.isEmpty()) {
+            return new CloudPointCache(Map.of());
+        }
+
+        long startMs = System.currentTimeMillis();
+        try {
+            List<OpenMeteoForecastResponse> responses =
+                    openMeteoClient.fetchCloudOnlyBatch(coords);
+
+            Map<String, OpenMeteoForecastResponse> cacheMap = new LinkedHashMap<>();
+            for (int i = 0; i < gridKeys.size(); i++) {
+                cacheMap.put(gridKeys.get(i), responses.get(i));
+            }
+
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.info("Cloud batch prefetch complete: {} grid cells in {}ms (1 API call)",
+                    coords.size(), durationMs);
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
+                        durationMs, 200, null, true, null);
+            }
+            return new CloudPointCache(cacheMap);
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.warn("Cloud batch prefetch failed ({}ms), directional cloud will be unavailable: {}",
+                    durationMs, e.getMessage());
+            if (jobRun != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                        "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
+                        durationMs, getStatusCode(e), null, false, e.getMessage());
+            }
+            return new CloudPointCache(Map.of());
+        }
+    }
+
+    /**
+     * Extracts directional cloud data from a pre-fetched {@link CloudPointCache}.
+     * Falls back to {@code null} if any required point is missing from the cache.
+     *
+     * @param lat              observer latitude
+     * @param lon              observer longitude
+     * @param solarAzimuthDeg  compass bearing of the sun
+     * @param solarEventTime   UTC time of the solar event
+     * @param targetType       SUNRISE or SUNSET
+     * @param cloudCache       pre-fetched cloud data cache
+     * @return directional cloud data, or {@code null} if cache is incomplete
+     */
+    public DirectionalCloudData fetchDirectionalCloudDataFromCache(double lat, double lon,
+            int solarAzimuthDeg, LocalDateTime solarEventTime, TargetType targetType,
+            CloudPointCache cloudCache) {
+        List<double[]> points = computeDirectionalCloudPoints(lat, lon, solarAzimuthDeg);
+
+        try {
+            int[] solarBearings = {
+                solarAzimuthDeg - SOLAR_CONE_HALF_ANGLE_DEG,
+                solarAzimuthDeg,
+                solarAzimuthDeg + SOLAR_CONE_HALF_ANGLE_DEG
+            };
+
+            int solarLowSum = 0;
+            int solarMidSum = 0;
+            int solarHighSum = 0;
+            for (int i = 0; i < solarBearings.length; i++) {
+                OpenMeteoForecastResponse f = cloudCache.get(points.get(i)[0], points.get(i)[1]);
+                if (f == null) {
+                    return null;
+                }
+                int idx = findBestIndex(f.getHourly().getTime(), solarEventTime, targetType);
+                OpenMeteoForecastResponse.Hourly h = f.getHourly();
+                solarLowSum += h.getCloudCoverLow().get(idx);
+                solarMidSum += h.getCloudCoverMid().get(idx);
+                solarHighSum += h.getCloudCoverHigh().get(idx);
+            }
+
+            // Antisolar (index 3)
+            OpenMeteoForecastResponse antisolarF = cloudCache.get(points.get(3)[0], points.get(3)[1]);
+            if (antisolarF == null) {
+                return null;
+            }
+            int antisolarIdx = findBestIndex(antisolarF.getHourly().getTime(),
+                    solarEventTime, targetType);
+            OpenMeteoForecastResponse.Hourly ah = antisolarF.getHourly();
+
+            // Far solar (index 4)
+            Integer farSolarLow = null;
+            OpenMeteoForecastResponse farF = cloudCache.get(points.get(4)[0], points.get(4)[1]);
+            if (farF != null) {
+                int farIdx = findBestIndex(farF.getHourly().getTime(), solarEventTime, targetType);
+                farSolarLow = farF.getHourly().getCloudCoverLow().get(farIdx);
+            }
+
+            return new DirectionalCloudData(
+                    solarLowSum / solarBearings.length,
+                    solarMidSum / solarBearings.length,
+                    solarHighSum / solarBearings.length,
+                    ah.getCloudCoverLow().get(antisolarIdx),
+                    ah.getCloudCoverMid().get(antisolarIdx),
+                    ah.getCloudCoverHigh().get(antisolarIdx),
+                    farSolarLow);
+        } catch (Exception e) {
+            LOG.warn("Directional cloud extraction from cache failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extracts cloud approach data from a pre-fetched {@link CloudPointCache}.
+     *
+     * @param lat              observer latitude
+     * @param lon              observer longitude
+     * @param solarAzimuthDeg  compass bearing of the sun
+     * @param solarEventTime   UTC time of the solar event
+     * @param currentTime      current UTC time
+     * @param targetType       SUNRISE or SUNSET
+     * @param windFromDeg      wind-from bearing
+     * @param windSpeedMs      wind speed in m/s
+     * @param cloudCache       pre-fetched cloud data cache
+     * @return cloud approach data, or {@code null} if cache is incomplete
+     */
+    public CloudApproachData fetchCloudApproachDataFromCache(double lat, double lon,
+            int solarAzimuthDeg, LocalDateTime solarEventTime, LocalDateTime currentTime,
+            TargetType targetType, int windFromDeg, double windSpeedMs,
+            CloudPointCache cloudCache) {
+        try {
+            double[] solarPoint = computeSolarHorizonPoint(lat, lon, solarAzimuthDeg);
+            OpenMeteoForecastResponse solarF = cloudCache.get(solarPoint[0], solarPoint[1]);
+            if (solarF == null) {
+                return null;
+            }
+
+            SolarCloudTrend trend = extractSolarTrend(solarF, solarEventTime, targetType);
+
+            UpwindCloudSample upwind = null;
+            double[] upwindPoint = computeUpwindPoint(lat, lon, windFromDeg, windSpeedMs,
+                    currentTime, solarEventTime);
+            if (upwindPoint != null) {
+                OpenMeteoForecastResponse upwindF = cloudCache.get(
+                        upwindPoint[0], upwindPoint[1]);
+                if (upwindF != null) {
+                    long secondsToEvent = Duration.between(currentTime, solarEventTime)
+                            .getSeconds();
+                    double dist = Math.min(windSpeedMs * secondsToEvent, MAX_UPWIND_DISTANCE_M);
+                    upwind = extractUpwindSample(upwindF, solarEventTime, currentTime,
+                            targetType, (int) (dist / 1000), windFromDeg);
+                }
+            }
+
+            return new CloudApproachData(trend, upwind);
+        } catch (Exception e) {
+            LOG.warn("Cloud approach extraction from cache failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

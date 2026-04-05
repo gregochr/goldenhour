@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
@@ -242,7 +243,7 @@ public class ForecastService {
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun) {
         return fetchWeatherAndTriage(location, date, targetType, tideTypes, model,
-                tideAlignmentEnabled, jobRun, null);
+                tideAlignmentEnabled, jobRun, null, null);
     }
 
     /**
@@ -261,7 +262,8 @@ public class ForecastService {
     public ForecastPreEvalResult fetchWeatherAndTriage(LocationEntity location,
             LocalDate date, TargetType targetType, Set<TideType> tideTypes,
             EvaluationModel model, boolean tideAlignmentEnabled, JobRunEntity jobRun,
-            Map<String, WeatherExtractionResult> prefetchedWeather) {
+            Map<String, WeatherExtractionResult> prefetchedWeather,
+            CloudPointCache cloudCache) {
         String locationName = location.getName();
         double lat = location.getLat();
         double lon = location.getLon();
@@ -321,10 +323,10 @@ public class ForecastService {
         publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                 LocationTaskState.FETCHING_CLOUD);
         AtmosphericData withDirectional = augmentor.augmentWithDirectionalCloud(
-                baseData, lat, lon, azimuth, eventTime, jobRun);
+                baseData, lat, lon, azimuth, eventTime, jobRun, cloudCache);
         AtmosphericData withApproach = augmentor.augmentWithCloudApproach(
                 withDirectional, lat, lon, azimuth, eventTime,
-                LocalDateTime.now(ZoneOffset.UTC), jobRun);
+                LocalDateTime.now(ZoneOffset.UTC), jobRun, cloudCache);
 
         // Augment with tide data (skip state transition for non-coastal locations)
         if (tideTypes != null && !tideTypes.isEmpty()) {
