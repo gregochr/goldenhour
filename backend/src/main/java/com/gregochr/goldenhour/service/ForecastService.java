@@ -549,9 +549,13 @@ public class ForecastService {
         if (runId == null) {
             return;
         }
-        eventPublisher.publishEvent(new LocationTaskEvent(
-                this, runId, taskKey, locationName, targetDate, targetType,
-                state, errorMessage, failedStep));
+        try {
+            eventPublisher.publishEvent(new LocationTaskEvent(
+                    this, runId, taskKey, locationName, targetDate, targetType,
+                    state, errorMessage, failedStep));
+        } catch (Exception e) {
+            LOG.debug("SSE event publish failed (emitter likely closed): {}", e.getMessage());
+        }
     }
 
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,

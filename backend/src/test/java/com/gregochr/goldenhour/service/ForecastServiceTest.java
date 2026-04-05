@@ -12,6 +12,8 @@ import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.ForecastRequest;
+import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.model.TriageRule;
@@ -476,7 +478,14 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, jobRun);
 
         // Should publish FETCHING_WEATHER, FETCHING_CLOUD (no FETCHING_TIDES — empty tideTypes)
-        verify(eventPublisher, times(2)).publishEvent(any());
+        ArgumentCaptor<LocationTaskEvent> eventCaptor =
+                ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        List<LocationTaskEvent> events = eventCaptor.getAllValues();
+        assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.FETCHING_WEATHER);
+        assertThat(events.get(0).getJobRunId()).isEqualTo(42L);
+        assertThat(events.get(0).getLocationName()).isEqualTo(DURHAM);
+        assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FETCHING_CLOUD);
     }
 
     // --- tide alignment optimisation strategy tests ---
@@ -755,6 +764,56 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null, prefetched, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() continues when SSE event publish throws")
+    void fetchWeatherAndTriage_ssePublishThrows_continuesNormally() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(99L);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        // Simulate SSE emitter closed — publishEvent throws on every call
+        doThrow(new IllegalStateException("ResponseBodyEmitter has already completed"))
+                .when(eventPublisher).publishEvent(any(LocationTaskEvent.class));
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, jobRun);
+
+        // Triage should complete successfully despite SSE failures
+        assertThat(result).isNotNull();
+        assertThat(result.triaged()).isFalse();
+        assertThat(result.location().getName()).isEqualTo(DURHAM);
+        assertThat(result.atmosphericData()).isEqualTo(data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() does not publish events when jobRun is null")
+    void fetchWeatherAndTriage_nullJobRun_noEvents() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verify(eventPublisher, never()).publishEvent(any(LocationTaskEvent.class));
     }
 
     private AtmosphericData buildAtmosphericData(LocalDateTime eventTime, TargetType targetType) {
