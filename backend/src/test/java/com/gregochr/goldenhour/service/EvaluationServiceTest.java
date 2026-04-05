@@ -3,6 +3,9 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.TargetType;
+
+import java.time.LocalDate;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -234,16 +237,17 @@ class EvaluationServiceTest {
 
         assertThat(result.fierySkyPotential()).isEqualTo(90);
         // The decorator should have logged the API call
-        verify(jobRunService).logApiCall(
+        verify(jobRunService).logAnthropicApiCall(
                 org.mockito.ArgumentMatchers.eq(42L),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.eq("POST"),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.eq(600L),
                 org.mockito.ArgumentMatchers.eq(200),
                 org.mockito.ArgumentMatchers.isNull(),
                 org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.isNull());
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.eq(EvaluationModel.OPUS),
+                org.mockito.ArgumentMatchers.eq(new TokenUsage(200, 100, 500, 100)),
+                org.mockito.ArgumentMatchers.eq(false),
+                org.mockito.ArgumentMatchers.any(LocalDate.class),
+                org.mockito.ArgumentMatchers.any(TargetType.class));
     }
 }
