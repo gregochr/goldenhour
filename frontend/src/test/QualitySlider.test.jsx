@@ -71,4 +71,19 @@ describe('QualitySlider', () => {
     render(<QualitySlider value={3} onChange={() => {}} showing={5} total={12} />);
     expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', TIER_LABELS[3]);
   });
+
+  it('displays WORTH IT label at best-quality tier', () => {
+    render(<QualitySlider value={0} onChange={() => {}} showing={2} total={10} />);
+    expect(screen.getByText((t) => t.includes('WORTH IT + king tide or aurora'))).toBeInTheDocument();
+  });
+
+  it('displays MAYBE label at marginal tier', () => {
+    render(<QualitySlider value={3} onChange={() => {}} showing={5} total={12} />);
+    expect(screen.getByText((t) => t.includes('MAYBE + tide aligned'))).toBeInTheDocument();
+  });
+
+  it('displays Everything including standdown at lowest tier', () => {
+    render(<QualitySlider value={5} onChange={() => {}} showing={12} total={12} />);
+    expect(screen.getByText((t) => t.includes('Everything including standdown'))).toBeInTheDocument();
+  });
 });

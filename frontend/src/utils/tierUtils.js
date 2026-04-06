@@ -12,11 +12,11 @@
 export const TIER_KEYS = ['go-king', 'go-tide', 'go-plain', 'ma-tide', 'ma-plain', 'standdown'];
 
 export const TIER_LABELS = [
-  'GO + king tide or aurora',
-  'GO + any tide alignment',
-  'All GO conditions',
-  'Marginal + tide aligned',
-  'All marginal included',
+  'WORTH IT + king tide or aurora',
+  'WORTH IT + any tide alignment',
+  'All WORTH IT conditions',
+  'MAYBE + tide aligned',
+  'All MAYBE included',
   'Everything including standdown',
 ];
 

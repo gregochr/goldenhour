@@ -24,7 +24,7 @@ function VerdictPill({ verdict }) {
     MARGINAL: 'bg-amber-600 text-white',
     STANDDOWN: 'bg-red-900/60 text-red-200/70',
   };
-  const labels = { GO: 'GO', MARGINAL: 'Marginal', STANDDOWN: 'Standdown' };
+  const labels = { GO: 'WORTH IT', MARGINAL: 'MAYBE', STANDDOWN: 'Stand Down' };
   return (
     <span
       data-testid="verdict-pill"
@@ -324,7 +324,7 @@ function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unus
     <div className="flex flex-wrap gap-0.5 mt-1">
       {upcoming.map(({ es, region }) => {
         const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
-        const label = region.verdict === 'GO' ? 'GO' : 'Marginal';
+        const label = region.verdict === 'GO' ? 'WORTH IT' : 'MAYBE';
         const c = region.verdict === 'GO'
           ? 'bg-green-500/30 text-green-300'
           : 'bg-amber-500/30 text-amber-300';
@@ -508,8 +508,8 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
 
   const eventLabel = bestEs?.targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
   const verdictLabel = isStanddown ? 'Poor'
-    : bestVerdict === 'GO' ? `GO ${eventLabel}`
-      : `Marginal ${eventLabel}`;
+    : bestVerdict === 'GO' ? `Worth it ${eventLabel}`
+      : `Maybe ${eventLabel}`;
 
   return (
     <div className={`rounded border ${cardBg} mb-1.5`}

@@ -423,8 +423,81 @@ describe('DailyBriefing', () => {
 
     const pills = screen.getAllByTestId('verdict-pill');
     const pillTexts = pills.map((p) => p.textContent);
-    expect(pillTexts).toContain('Standdown');
-    expect(pillTexts).toContain('GO');
+    expect(pillTexts).toContain('Stand Down');
+    expect(pillTexts).toContain('WORTH IT');
+  });
+
+  it('shows MAYBE verdict pill for MARGINAL region', async () => {
+    localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const pills = screen.getAllByTestId('verdict-pill');
+    const pillTexts = pills.map((p) => p.textContent);
+    expect(pillTexts).toContain('MAYBE');
+  });
+
+  it('mobile region card shows Worth it sunset for GO sunset region', async () => {
+    const dateStr = futureDateStr();
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: dateStr,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ regionName: 'Lake District', verdict: 'GO', summary: 'Clear', tideHighlights: [], slots: [{ locationName: 'Keswick', solarEventTime: `${dateStr}T18:30:00`, verdict: 'GO', tideAligned: false, flags: [] }] }],
+          unregioned: [],
+        }],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const regionRows = screen.getAllByTestId('region-row');
+    const goRow = regionRows.find((r) => r.textContent.includes('Lake District'));
+    expect(goRow.textContent).toContain('Worth it sunset');
+  });
+
+  it('mobile region card shows Maybe sunrise for MARGINAL sunrise region', async () => {
+    localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+    const dateStr = futureDateStr();
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: dateStr,
+        eventSummaries: [{
+          targetType: 'SUNRISE',
+          regions: [{ regionName: 'Northumberland', verdict: 'MARGINAL', summary: 'Cloud', tideHighlights: [], slots: [{ locationName: 'Bamburgh', solarEventTime: `${dateStr}T05:47:00`, verdict: 'MARGINAL', tideAligned: false, flags: [] }] }],
+          unregioned: [],
+        }],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const regionRows = screen.getAllByTestId('region-row');
+    const marginalRow = regionRows.find((r) => r.textContent.includes('Northumberland'));
+    expect(marginalRow.textContent).toContain('Maybe sunrise');
+  });
+
+  it('mobile region card hides verdictLabel for STANDDOWN', async () => {
+    localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+    getDailyBriefing.mockResolvedValue(buildBriefing());
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const regionRows = screen.getAllByTestId('region-row');
+    const standdownRow = regionRows.find((r) => r.textContent.includes('Coastal North'));
+    expect(standdownRow.textContent).not.toContain('Worth it');
+    expect(standdownRow.textContent).not.toContain('Maybe');
+    expect(standdownRow.textContent).not.toContain('Poor');
   });
 
   it('regions sorted GO first, then MARGINAL, then STANDDOWN', async () => {
@@ -1419,17 +1492,26 @@ describe('DailyBriefing', () => {
       }
     });
 
-    it('GO cells in the grid show verdict text', async () => {
+    it('GO cells in the grid show Worth it sunset label', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('briefing-heatmap'));
-      // Each sub-column cell (sunrise/sunset) shows its own verdict label
-      // "GO sunset" or "GO sunrise" text should appear in enabled cells
       const cells = screen.getAllByTestId('heatmap-cell');
       const enabledCells = cells.filter((c) => !c.disabled);
       expect(enabledCells.length).toBeGreaterThanOrEqual(1);
-      const goCell = enabledCells.find((c) => c.textContent.includes('GO'));
+      const goCell = enabledCells.find((c) => c.textContent.includes('Worth it sunset'));
       expect(goCell).toBeTruthy();
+    });
+
+    it('MARGINAL cells in the grid show Maybe sunrise label', async () => {
+      localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-heatmap'));
+      const cells = screen.getAllByTestId('heatmap-cell');
+      const enabledCells = cells.filter((c) => !c.disabled);
+      const marginalCell = enabledCells.find((c) => c.textContent.includes('Maybe sunrise'));
+      expect(marginalCell).toBeTruthy();
     });
   });
 

@@ -108,7 +108,7 @@ function VerdictPill({ verdict }) {
     MARGINAL: 'bg-amber-600 text-white',
     STANDDOWN: 'bg-red-900/60 text-red-200/70',
   };
-  const labels = { GO: 'GO', MARGINAL: 'Marginal', STANDDOWN: 'Standdown' };
+  const labels = { GO: 'WORTH IT', MARGINAL: 'MAYBE', STANDDOWN: 'Stand Down' };
   return (
     <span
       data-testid="verdict-pill"
@@ -517,8 +517,8 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
   const verdictLabel = isStanddown ? 'Poor'
-    : region.verdict === 'GO' ? `GO ${eventLabel}`
-      : `Marginal ${eventLabel}`;
+    : region.verdict === 'GO' ? `Worth it ${eventLabel}`
+      : `Maybe ${eventLabel}`;
 
   // Clear % from best slot
   const bestSlot = (region.slots || []).reduce((best, s) => {

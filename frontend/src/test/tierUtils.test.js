@@ -102,6 +102,17 @@ describe('TIER_LABELS', () => {
   it('has 6 entries', () => expect(TIER_LABELS).toHaveLength(6));
   it('first label describes GO + king tide', () => expect(TIER_LABELS[0]).toMatch(/king/i));
   it('last label describes everything', () => expect(TIER_LABELS[5]).toMatch(/standdown/i));
+
+  it('GO tiers use WORTH IT label', () => {
+    expect(TIER_LABELS[0]).toBe('WORTH IT + king tide or aurora');
+    expect(TIER_LABELS[1]).toBe('WORTH IT + any tide alignment');
+    expect(TIER_LABELS[2]).toBe('All WORTH IT conditions');
+  });
+
+  it('MARGINAL tiers use MAYBE label', () => {
+    expect(TIER_LABELS[3]).toBe('MAYBE + tide aligned');
+    expect(TIER_LABELS[4]).toBe('All MAYBE included');
+  });
 });
 
 describe('TIER_KEYS', () => {

@@ -255,6 +255,99 @@ describe('HeatmapGrid — aurora cells with weather', () => {
   });
 });
 
+describe('HeatmapGrid — verdict labels', () => {
+  it('GO region cell shows Worth it sunset label', () => {
+    renderGrid();
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    const goCell = cells.find((c) => c.textContent.includes('Worth it sunset'));
+    expect(goCell).toBeTruthy();
+  });
+
+  it('MARGINAL region cell shows Maybe sunset label', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'MARGINAL',
+          summary: 'Partial cloud',
+          slots: [{ locationName: 'Bamburgh', verdict: 'MARGINAL', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    const marginalCell = cells.find((c) => c.textContent.includes('Maybe sunset'));
+    expect(marginalCell).toBeTruthy();
+  });
+
+  it('STANDDOWN region cell shows Poor label (no event type suffix)', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'STANDDOWN',
+          summary: 'Heavy rain',
+          slots: [{ locationName: 'Bamburgh', verdict: 'STANDDOWN', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    // STANDDOWN cells are disabled and show "Poor" — not "Worth it" or "Maybe"
+    const standdownCell = cells.find((c) => c.disabled);
+    expect(standdownCell).toBeTruthy();
+    expect(standdownCell.textContent).not.toContain('Worth it');
+    expect(standdownCell.textContent).not.toContain('Maybe');
+  });
+
+  it('GO cell uses green text colour', () => {
+    renderGrid();
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    const goCell = cells.find((c) => c.textContent.includes('Worth it sunset'));
+    expect(goCell.querySelector('.text-green-300')).toBeTruthy();
+  });
+
+  it('MARGINAL cell uses amber text colour', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'MARGINAL',
+          summary: 'Partial cloud',
+          slots: [{ locationName: 'Bamburgh', verdict: 'MARGINAL', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    const marginalCell = cells.find((c) => c.textContent.includes('Maybe sunset'));
+    expect(marginalCell.querySelector('.text-amber-300')).toBeTruthy();
+  });
+});
+
 describe('HeatmapGrid — no astro column in heatmap', () => {
   it('does not render astro moon sub-columns', () => {
     renderGrid();
