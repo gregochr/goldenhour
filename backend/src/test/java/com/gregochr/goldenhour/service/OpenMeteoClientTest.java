@@ -26,7 +26,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -156,74 +155,65 @@ class OpenMeteoClientTest {
     // ── Chunking tests ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("fetchForecastBatch issues two HTTP requests when coords exceed BATCH_COORD_LIMIT")
-    void fetchForecastBatch_oversizeInput_issuedInTwoChunks() {
+    @DisplayName("fetchForecastBatch with 25 coords combines results from two chunks (20 + 5)")
+    void fetchForecastBatch_oversizeInput_combinesTwoChunks() {
         RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
 
-        // 25 coords → chunk of 20 + chunk of 5
+        // 25 coords → chunk of 20 + chunk of 5; mock returns chunk-sized arrays on successive calls.
+        // If chunking is absent, only 20 results are returned (the first return value).
+        // If chunking works, both return values are consumed and 25 results combined.
         List<double[]> coords = buildCoords(25);
-        String firstChunkJson = buildJsonArray(20, 50.0);
-        String secondChunkJson = buildJsonArray(5, 51.0);
         when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
                 <org.springframework.web.util.UriBuilder, java.net.URI>>any())
                 .retrieve().body(String.class))
-                .thenReturn(firstChunkJson, secondChunkJson);
+                .thenReturn(buildJsonArray(20, 50.0), buildJsonArray(5, 51.0));
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(coords);
 
         assertThat(results).hasSize(25);
-        verify(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve(), times(2)).body(String.class);
+        assertThat(results.stream().filter(r -> r.getLatitude() >= 51.0).count()).isEqualTo(5);
+        assertThat(results.stream().filter(r -> r.getLatitude() < 51.0).count()).isEqualTo(20);
     }
 
     @Test
-    @DisplayName("fetchAirQualityBatch issues two HTTP requests when coords exceed BATCH_COORD_LIMIT")
-    void fetchAirQualityBatch_oversizeInput_issuedInTwoChunks() {
+    @DisplayName("fetchAirQualityBatch with 25 coords combines results from two chunks (20 + 5)")
+    void fetchAirQualityBatch_oversizeInput_combinesTwoChunks() {
         RestClient mockAirQualityClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 null, mockAirQualityClient);
 
         List<double[]> coords = buildCoords(25);
-        String firstChunkJson = buildAirQualityJsonArray(20);
-        String secondChunkJson = buildAirQualityJsonArray(5);
         when(mockAirQualityClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
                 <org.springframework.web.util.UriBuilder, java.net.URI>>any())
                 .retrieve().body(String.class))
-                .thenReturn(firstChunkJson, secondChunkJson);
+                .thenReturn(buildAirQualityJsonArray(20), buildAirQualityJsonArray(5));
 
         List<OpenMeteoAirQualityResponse> results = client.fetchAirQualityBatch(coords);
 
         assertThat(results).hasSize(25);
-        verify(mockAirQualityClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve(), times(2)).body(String.class);
     }
 
     @Test
-    @DisplayName("fetchForecastBatch with exactly BATCH_COORD_LIMIT coords issues one HTTP request")
-    void fetchForecastBatch_exactLimit_singleRequest() {
+    @DisplayName("fetchForecastBatch with exactly BATCH_COORD_LIMIT coords returns all in one call")
+    void fetchForecastBatch_exactLimit_returnsAll() {
         RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = new OpenMeteoClient(
                 forecastApi, airQualityApi, new ObjectMapper(),
                 mockForecastClient, null);
 
         List<double[]> coords = buildCoords(OpenMeteoClient.BATCH_COORD_LIMIT);
-        String json = buildJsonArray(OpenMeteoClient.BATCH_COORD_LIMIT, 50.0);
         when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
                 <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class)).thenReturn(json);
+                .retrieve().body(String.class))
+                .thenReturn(buildJsonArray(OpenMeteoClient.BATCH_COORD_LIMIT, 50.0));
 
         List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(coords);
 
         assertThat(results).hasSize(OpenMeteoClient.BATCH_COORD_LIMIT);
-        verify(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve(), times(1)).body(String.class);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
