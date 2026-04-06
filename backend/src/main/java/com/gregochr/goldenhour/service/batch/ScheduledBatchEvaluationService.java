@@ -1,0 +1,332 @@
+package com.gregochr.goldenhour.service.batch;
+
+import com.anthropic.client.AnthropicClient;
+import com.anthropic.models.messages.CacheControlEphemeral;
+import com.anthropic.models.messages.TextBlockParam;
+import com.anthropic.models.messages.batches.BatchCreateParams;
+import com.anthropic.models.messages.batches.MessageBatch;
+import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.service.aurora.TriggerType;
+import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.SpaceWeatherData;
+import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.LocationService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
+import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
+import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
+import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
+import com.gregochr.goldenhour.client.NoaaSwpcClient;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Submits forecast and aurora evaluations to the Anthropic Batch API for cost-efficient
+ * asynchronous processing.
+ *
+ * <p>FORECAST batch: one request per GO/MARGINAL location in the current daily briefing.
+ * The {@code customId} encodes {@code "regionName|date|targetType|locationName"} so
+ * {@link BatchResultProcessor} can route results to the correct evaluation cache entry.
+ *
+ * <p>AURORA batch: a single request containing the full multi-location aurora prompt
+ * (identical structure to the real-time path). The {@code customId} is
+ * {@code "aurora|<alertLevel>"}.
+ *
+ * <p>Both jobs are registered with {@link DynamicSchedulerService} and controlled via
+ * the Scheduler admin UI.
+ */
+@Service
+public class ScheduledBatchEvaluationService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
+
+    private final AnthropicClient anthropicClient;
+    private final ForecastBatchRepository batchRepository;
+    private final LocationService locationService;
+    private final BriefingService briefingService;
+    private final ForecastService forecastService;
+    private final PromptBuilder promptBuilder;
+    private final ModelSelectionService modelSelectionService;
+    private final NoaaSwpcClient noaaSwpcClient;
+    private final WeatherTriageService weatherTriageService;
+    private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
+    private final AuroraOrchestrator auroraOrchestrator;
+    private final LocationRepository locationRepository;
+    private final AuroraProperties auroraProperties;
+    private final MetOfficeSpaceWeatherScraper metOfficeScraper;
+    private final DynamicSchedulerService dynamicSchedulerService;
+
+    /**
+     * Constructs the batch evaluation service.
+     *
+     * @param anthropicClient         raw Anthropic SDK client for batch API access
+     * @param batchRepository         repository for persisting batch records
+     * @param locationService         service for retrieving enabled locations
+     * @param briefingService         service for accessing the cached daily briefing
+     * @param forecastService         service for weather fetch and triage
+     * @param promptBuilder           builds system prompt and user messages
+     * @param modelSelectionService   resolves the active Claude model per run type
+     * @param noaaSwpcClient          NOAA SWPC space weather data client
+     * @param weatherTriageService    aurora weather triage
+     * @param claudeAuroraInterpreter aurora prompt builder and response parser
+     * @param auroraOrchestrator      derives alert level from space weather data
+     * @param locationRepository      location JPA repository for Bortle-filtered candidates
+     * @param auroraProperties        aurora configuration (Bortle thresholds)
+     * @param metOfficeScraper        Met Office space weather narrative
+     * @param dynamicSchedulerService scheduler to register job targets
+     */
+    public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
+            ForecastBatchRepository batchRepository,
+            LocationService locationService,
+            BriefingService briefingService,
+            ForecastService forecastService,
+            PromptBuilder promptBuilder,
+            ModelSelectionService modelSelectionService,
+            NoaaSwpcClient noaaSwpcClient,
+            WeatherTriageService weatherTriageService,
+            ClaudeAuroraInterpreter claudeAuroraInterpreter,
+            AuroraOrchestrator auroraOrchestrator,
+            LocationRepository locationRepository,
+            AuroraProperties auroraProperties,
+            MetOfficeSpaceWeatherScraper metOfficeScraper,
+            DynamicSchedulerService dynamicSchedulerService) {
+        this.anthropicClient = anthropicClient;
+        this.batchRepository = batchRepository;
+        this.locationService = locationService;
+        this.briefingService = briefingService;
+        this.forecastService = forecastService;
+        this.promptBuilder = promptBuilder;
+        this.modelSelectionService = modelSelectionService;
+        this.noaaSwpcClient = noaaSwpcClient;
+        this.weatherTriageService = weatherTriageService;
+        this.claudeAuroraInterpreter = claudeAuroraInterpreter;
+        this.auroraOrchestrator = auroraOrchestrator;
+        this.locationRepository = locationRepository;
+        this.auroraProperties = auroraProperties;
+        this.metOfficeScraper = metOfficeScraper;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers job targets with the dynamic scheduler.
+     */
+    @PostConstruct
+    public void registerJobTargets() {
+        dynamicSchedulerService.registerJobTarget(
+                "near_term_batch_evaluation", this::submitForecastBatch);
+        dynamicSchedulerService.registerJobTarget(
+                "aurora_batch_evaluation", this::submitAuroraBatch);
+    }
+
+    /**
+     * Builds and submits a forecast evaluation batch to the Anthropic Batch API.
+     *
+     * <p>Iterates over all GO and MARGINAL location slots from the current daily briefing.
+     * For each, fetches weather data and (if triage passes) adds a request to the batch.
+     * Skips submission if no non-triaged locations are found.
+     */
+    public void submitForecastBatch() {
+        DailyBriefingResponse briefing = briefingService.getCachedBriefing();
+        if (briefing == null) {
+            LOG.info("Forecast batch skipped: no cached briefing available");
+            return;
+        }
+
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
+        List<BatchCreateParams.Request> requests = new ArrayList<>();
+
+        for (BriefingDay day : briefing.days()) {
+            LocalDate date = day.date();
+            for (BriefingEventSummary eventSummary : day.eventSummaries()) {
+                TargetType targetType = eventSummary.targetType();
+                for (BriefingRegion region : eventSummary.regions()) {
+                    String regionName = region.regionName();
+                    for (BriefingSlot slot : region.slots()) {
+                        if (slot.verdict() != Verdict.GO && slot.verdict() != Verdict.MARGINAL) {
+                            continue;
+                        }
+                        LocationEntity location = findLocation(slot.locationName());
+                        if (location == null) {
+                            LOG.warn("Forecast batch: unknown location '{}', skipping",
+                                    slot.locationName());
+                            continue;
+                        }
+                        try {
+                            ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
+                                    location, date, targetType, location.getTideType(),
+                                    model, false, null);
+                            if (preEval.triaged()) {
+                                LOG.debug("Forecast batch: {} triaged ({}), skipping",
+                                        location.getName(), preEval.triageReason());
+                                continue;
+                            }
+                            BatchCreateParams.Request request =
+                                    buildForecastRequest(regionName, date, targetType,
+                                            location, preEval.atmosphericData(), model);
+                            requests.add(request);
+                        } catch (Exception e) {
+                            LOG.warn("Forecast batch: weather fetch failed for {}: {}",
+                                    location.getName(), e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+
+        if (requests.isEmpty()) {
+            LOG.info("Forecast batch: no evaluable locations found, skipping submission");
+            return;
+        }
+
+        submitBatch(requests, BatchType.FORECAST, "Forecast batch");
+    }
+
+    /**
+     * Builds and submits an aurora evaluation batch to the Anthropic Batch API.
+     *
+     * <p>Fetches current NOAA SWPC data, derives the alert level, and runs weather triage.
+     * Submits a single batch request if any locations pass triage. Skips submission if the
+     * alert level is QUIET or no locations are viable.
+     */
+    public void submitAuroraBatch() {
+        SpaceWeatherData spaceWeather;
+        try {
+            spaceWeather = noaaSwpcClient.fetchAll();
+        } catch (Exception e) {
+            LOG.warn("Aurora batch skipped: NOAA fetch failed — {}", e.getMessage());
+            return;
+        }
+
+        AlertLevel level = auroraOrchestrator.deriveAlertLevel(spaceWeather);
+        if (level == AlertLevel.QUIET) {
+            LOG.info("Aurora batch skipped: alert level is QUIET");
+            return;
+        }
+
+        int threshold = (level == AlertLevel.STRONG)
+                ? auroraProperties.getBortleThreshold().getStrong()
+                : auroraProperties.getBortleThreshold().getModerate();
+
+        List<LocationEntity> candidates = locationRepository
+                .findByBortleClassLessThanEqualAndEnabledTrue(threshold);
+
+        if (candidates.isEmpty()) {
+            LOG.info("Aurora batch skipped: no Bortle-eligible locations (threshold={})", threshold);
+            return;
+        }
+
+        WeatherTriageService.TriageResult triage = weatherTriageService.triage(candidates);
+        if (triage.viable().isEmpty()) {
+            LOG.info("Aurora batch skipped: no locations passed weather triage");
+            return;
+        }
+
+        String metOfficeText = metOfficeScraper.getForecastText();
+        String userMessage = claudeAuroraInterpreter.buildUserMessage(
+                level, triage.viable(), triage.cloudByLocation(), spaceWeather,
+                metOfficeText, TriggerType.FORECAST_LOOKAHEAD, null);
+
+        EvaluationModel model =
+                modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
+        String customId = "aurora|" + level.name();
+
+        BatchCreateParams.Request request = BatchCreateParams.Request.builder()
+                .customId(customId)
+                .params(BatchCreateParams.Request.Params.builder()
+                        .model(model.getModelId())
+                        .maxTokens(1024)
+                        .addUserMessage(userMessage)
+                        .build())
+                .build();
+
+        submitBatch(List.of(request), BatchType.AURORA, "Aurora batch");
+    }
+
+    /**
+     * Submits a list of requests to the Anthropic Batch API and persists the tracking entity.
+     */
+    private void submitBatch(List<BatchCreateParams.Request> requests,
+            BatchType batchType, String logPrefix) {
+        try {
+            BatchCreateParams params = BatchCreateParams.builder()
+                    .requests(requests)
+                    .build();
+
+            MessageBatch batch = anthropicClient.messages().batches().create(params);
+
+            java.time.Instant expiresAt = batch.expiresAt().toInstant();
+
+            ForecastBatchEntity entity = new ForecastBatchEntity(
+                    batch.id(), batchType, requests.size(), expiresAt);
+            batchRepository.save(entity);
+
+            LOG.info("{} submitted: batchId={}, {} request(s), expires={}",
+                    logPrefix, batch.id(), requests.size(), expiresAt);
+        } catch (Exception e) {
+            LOG.error("{} submission failed: {}", logPrefix, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Builds a single batch request for a forecast location.
+     *
+     * <p>The {@code customId} format is {@code "regionName|date|targetType|locationName"},
+     * which {@link BatchResultProcessor} uses to write results to the correct cache entry.
+     */
+    private BatchCreateParams.Request buildForecastRequest(String regionName, LocalDate date,
+            TargetType targetType, LocationEntity location, AtmosphericData data,
+            EvaluationModel model) {
+        String userMessage = data.surge() != null
+                ? promptBuilder.buildUserMessage(data, data.surge(),
+                        data.adjustedRangeMetres(), data.astronomicalRangeMetres())
+                : promptBuilder.buildUserMessage(data);
+
+        String customId = regionName + "|" + date + "|" + targetType + "|" + location.getName();
+
+        return BatchCreateParams.Request.builder()
+                .customId(customId)
+                .params(BatchCreateParams.Request.Params.builder()
+                        .model(model.getModelId())
+                        .maxTokens(512)
+                        .systemOfTextBlockParams(List.of(
+                                TextBlockParam.builder()
+                                        .text(promptBuilder.getSystemPrompt())
+                                        .cacheControl(CacheControlEphemeral.builder().build())
+                                        .build()))
+                        .addUserMessage(userMessage)
+                        .build())
+                .build();
+    }
+
+    private LocationEntity findLocation(String name) {
+        return locationService.findAllEnabled().stream()
+                .filter(loc -> loc.getName().equals(name))
+                .findFirst()
+                .orElse(null);
+    }
+}
