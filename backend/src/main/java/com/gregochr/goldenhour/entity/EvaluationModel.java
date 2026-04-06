@@ -13,7 +13,7 @@ public enum EvaluationModel {
     HAIKU("4.5", "claude-haiku-4-5"),
 
     /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
-    SONNET("4.5", "claude-sonnet-4-5-20250929"),
+    SONNET("4.6", "claude-sonnet-4-6"),
 
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
     OPUS("4.6", "claude-opus-4-6"),

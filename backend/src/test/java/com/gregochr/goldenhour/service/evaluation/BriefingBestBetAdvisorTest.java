@@ -38,10 +38,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.anthropic.models.messages.MessageCreateParams;
+import org.mockito.ArgumentCaptor;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -610,6 +614,31 @@ class BriefingBestBetAdvisorTest {
             assertThat(pick.dayName()).isNull();
             assertThat(pick.eventType()).isNull();
             assertThat(pick.eventTime()).isNull();
+        }
+
+        @Test
+        @DisplayName("advise passes the model from ModelSelectionService to the API call")
+        void advise_usesModelFromSelectionService() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn("{\"picks\":[]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            assertThat(captor.getValue().model().toString())
+                    .isEqualTo(EvaluationModel.HAIKU.getModelId());
         }
     }
 

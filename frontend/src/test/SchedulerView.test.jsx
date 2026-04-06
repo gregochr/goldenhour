@@ -287,6 +287,46 @@ describe('SchedulerView', () => {
     });
   });
 
+  it('shows "Triggered ✓" (with checkmark) after triggering a job', async () => {
+    triggerJob.mockResolvedValue({});
+    render(<SchedulerView />);
+    await waitFor(() => screen.getByTestId('trigger-btn-tide_refresh'));
+
+    fireEvent.click(screen.getByTestId('trigger-btn-tide_refresh'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('trigger-btn-tide_refresh').textContent).toBe('Triggered \u2713');
+    });
+  });
+
+  it('cron hint updates live as the user edits the expression', async () => {
+    render(<SchedulerView />);
+    await waitFor(() => screen.getByTestId('edit-btn-tide_refresh'));
+
+    fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
+
+    const input = screen.getByTestId('edit-input-tide_refresh');
+    // Change to a daily expression
+    fireEvent.change(input, { target: { value: '0 0 6 * * *' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Daily at 06:00 UTC')).toBeInTheDocument();
+    });
+  });
+
+  it('cron hint is not shown when editing a FIXED_DELAY job', async () => {
+    const { within } = await import('@testing-library/react');
+    render(<SchedulerView />);
+    await waitFor(() => screen.getByTestId('edit-btn-aurora_polling'));
+
+    fireEvent.click(screen.getByTestId('edit-btn-aurora_polling'));
+
+    // aurora_polling is FIXED_DELAY — no cron hint should appear within that card
+    const card = screen.getByTestId('scheduler-job-aurora_polling');
+    expect(within(card).queryByText(/Daily at/)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/Every .* at/)).not.toBeInTheDocument();
+  });
+
   it('polls for job updates at the configured interval', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(<SchedulerView />);

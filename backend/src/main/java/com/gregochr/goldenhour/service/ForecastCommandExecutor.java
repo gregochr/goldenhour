@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -13,6 +14,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -27,16 +29,20 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Executes {@link ForecastCommand} instances using a three-phase pipeline:
@@ -73,6 +79,10 @@ public class ForecastCommandExecutor {
     private final AstroConditionsService astroConditionsService;
     private final ForecastStabilityClassifier stabilityClassifier;
     private final OpenMeteoService openMeteoService;
+
+    /** Most recent stability snapshot, populated after each scheduled triage run. */
+    private final AtomicReference<StabilitySummaryResponse> latestStabilitySummary =
+            new AtomicReference<>();
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -571,6 +581,16 @@ public class ForecastCommandExecutor {
     }
 
     /**
+     * Returns the most recent stability summary, or {@code null} if no scheduled run
+     * has completed yet (manual runs bypass the stability filter and do not update this).
+     *
+     * @return latest snapshot, or {@code null}
+     */
+    public StabilitySummaryResponse getLatestStabilitySummary() {
+        return latestStabilitySummary.get();
+    }
+
+    /**
      * Classifies forecast stability per grid cell and filters out tasks whose
      * {@code daysAhead} exceeds the stability evaluation window.
      *
@@ -598,11 +618,31 @@ public class ForecastCommandExecutor {
             });
         }
 
-        stabilityByCell.values().stream()
-                .collect(java.util.stream.Collectors.groupingBy(
-                        GridCellStabilityResult::stability, java.util.stream.Collectors.counting()))
-                .forEach((s, count) ->
-                        LOG.info("Stability: {} = {} grid cells", s, count));
+        Map<ForecastStability, Long> countsByStability = stabilityByCell.values().stream()
+                .collect(Collectors.groupingBy(GridCellStabilityResult::stability, Collectors.counting()));
+        countsByStability.forEach((s, count) ->
+                LOG.info("Stability: {} = {} grid cells", s, count));
+
+        // Collect unique location names per grid cell for the summary snapshot.
+        Map<String, Set<String>> locationsByCell = new LinkedHashMap<>();
+        for (ForecastPreEvalResult task : batch) {
+            if (task.location().hasGridCell()) {
+                locationsByCell
+                        .computeIfAbsent(task.location().gridCellKey(), k -> new LinkedHashSet<>())
+                        .add(task.location().getName());
+            }
+        }
+
+        // Build and cache summary for admin endpoint.
+        List<StabilitySummaryResponse.GridCellDetail> cellDetails = stabilityByCell.values().stream()
+                .map(r -> new StabilitySummaryResponse.GridCellDetail(
+                        r.gridCellKey(), r.gridLat(), r.gridLng(),
+                        r.stability(), r.reason(), r.evaluationWindowDays(),
+                        List.copyOf(locationsByCell.getOrDefault(r.gridCellKey(), Set.of()))))
+                .sorted(java.util.Comparator.comparing(StabilitySummaryResponse.GridCellDetail::gridCellKey))
+                .toList();
+        latestStabilitySummary.set(new StabilitySummaryResponse(
+                Instant.now(), stabilityByCell.size(), countsByStability, cellDetails));
 
         int originalSize = batch.size();
         List<ForecastPreEvalResult> filtered = batch.stream()

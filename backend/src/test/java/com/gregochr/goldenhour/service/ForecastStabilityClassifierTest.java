@@ -236,6 +236,43 @@ class ForecastStabilityClassifierTest {
         assertThat(result.stability()).isEqualTo(ForecastStability.TRANSITIONAL);
     }
 
+    @Test
+    @DisplayName("High pressure at exactly 1018 hPa with stable delta → reason contains 'High pressure dominant'")
+    void highPressureAt1018Boundary_reducesScore() {
+        // pressure = 1018, delta ≈ 0 → qualifies for the >= 1018 && >= -1 branch
+        OpenMeteoForecastResponse.Hourly hourly = buildHourly(
+                steadyPressure(1018.0), lowPrecipProbs(), clearWeatherCodes(), calmGusts());
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625, hourly);
+
+        assertThat(result.reason()).contains("High pressure dominant");
+        assertThat(result.stability()).isEqualTo(ForecastStability.SETTLED);
+    }
+
+    @Test
+    @DisplayName("Pressure at 1017 hPa (just below 1018 threshold) → no 'High pressure dominant' signal")
+    void pressureJustBelow1018_noHighPressureSignal() {
+        OpenMeteoForecastResponse.Hourly hourly = buildHourly(
+                steadyPressure(1017.0), lowPrecipProbs(), clearWeatherCodes(), calmGusts());
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625, hourly);
+
+        assertThat(result.reason()).doesNotContain("High pressure dominant");
+    }
+
+    @Test
+    @DisplayName("Precip max > 70% with high variance → reason contains 'uncertain timing'")
+    void highPrecipWithHighVariance_uncertainTimingInReason() {
+        // alternating 90/10 → max=90 > 70, variance=1600 > 400
+        OpenMeteoForecastResponse.Hourly hourly = buildHourly(
+                steadyPressure(1010.0), highPrecipProbs(), clearWeatherCodes(), calmGusts());
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625, hourly);
+
+        assertThat(result.reason()).contains("timing uncertain");
+        assertThat(result.reason()).contains("90%");
+    }
+
     // ── Result field population ──
 
     @Test

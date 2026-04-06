@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
@@ -961,5 +962,57 @@ class ForecastCommandExecutorTest {
                 .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                         any(TargetType.class), any(), any(EvaluationModel.class),
                         anyBoolean(), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
+    }
+
+    // -------------------------------------------------------------------------
+    // Stability snapshot cache
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Stability snapshot: scheduled run populates getLatestStabilitySummary()")
+    void stabilitySnapshot_populatedAfterScheduledRun() {
+        LocationEntity loc = durhamWithGrid();
+        OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(today), any(), any(), any(), anyBoolean(), any(),
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                .thenReturn(new ForecastPreEvalResult(false, null, null,
+                        loc, today, TargetType.SUNSET, LocalDateTime.now(), 270,
+                        0, EvaluationModel.HAIKU, loc.getTideType(),
+                        loc.getName() + "|" + today + "|SUNSET", resp));
+
+        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), 54.75, -1.625,
+                        ForecastStability.SETTLED, "High pressure dominant (1025 hPa)", 3));
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                List.of(today), List.of(loc), haikuStrategy, false);
+        executor.execute(cmd);
+
+        StabilitySummaryResponse summary = executor.getLatestStabilitySummary();
+        assertThat(summary).isNotNull();
+        assertThat(summary.totalGridCells()).isEqualTo(1);
+        assertThat(summary.cells()).hasSize(1);
+        StabilitySummaryResponse.GridCellDetail cell = summary.cells().get(0);
+        assertThat(cell.gridCellKey()).isEqualTo("54.7500,-1.6250");
+        assertThat(cell.stability()).isEqualTo(ForecastStability.SETTLED);
+        assertThat(cell.evaluationWindowDays()).isEqualTo(3);
+        assertThat(cell.locationNames()).containsExactly("Durham UK");
+    }
+
+    @Test
+    @DisplayName("Stability snapshot: manual run does not update getLatestStabilitySummary()")
+    void stabilitySnapshot_notUpdatedByManualRun() {
+        LocationEntity loc = durhamWithGrid();
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                List.of(today), List.of(loc), haikuStrategy, true);
+        executor.execute(cmd);
+
+        assertThat(executor.getLatestStabilitySummary()).isNull();
     }
 }

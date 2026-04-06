@@ -250,31 +250,33 @@ export default function SchedulerView() {
           {/* Schedule line */}
           <div className="text-xs text-plex-text-secondary">
             {editingJob === job.jobKey ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-xs text-plex-text font-mono w-48"
-                  data-testid={`edit-input-${job.jobKey}`}
-                />
-                <button
-                  onClick={() => handleEditSave(job)}
-                  className="text-xs text-green-400 hover:text-green-300"
-                  data-testid={`save-btn-${job.jobKey}`}
-                >
-                  Save
-                </button>
-                <button
-                  onClick={handleEditCancel}
-                  className="text-xs text-plex-text-muted hover:text-plex-text"
-                  data-testid={`cancel-btn-${job.jobKey}`}
-                >
-                  Cancel
-                </button>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-xs text-plex-text font-mono w-48"
+                    data-testid={`edit-input-${job.jobKey}`}
+                  />
+                  <button
+                    onClick={() => handleEditSave(job)}
+                    className="text-xs text-green-400 hover:text-green-300"
+                    data-testid={`save-btn-${job.jobKey}`}
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleEditCancel}
+                    className="text-xs text-plex-text-muted hover:text-plex-text"
+                    data-testid={`cancel-btn-${job.jobKey}`}
+                  >
+                    Cancel
+                  </button>
+                </div>
                 {job.scheduleType === 'CRON' && editValue && (
-                  <span className="text-plex-text-muted ml-1">
-                    ({describeCron(editValue)})
+                  <span className="text-plex-text-muted text-xs">
+                    {describeCron(editValue)}
                   </span>
                 )}
               </div>
