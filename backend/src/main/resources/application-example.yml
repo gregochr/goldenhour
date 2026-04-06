@@ -147,8 +147,8 @@ resilience4j:
         slidingWindowSize: 20
         minimumNumberOfCalls: 10
         failureRateThreshold: 50
-        waitDurationInOpenState: 30s
-        permittedNumberOfCallsInHalfOpenState: 5
+        waitDurationInOpenState: 65s
+        permittedNumberOfCallsInHalfOpenState: 1
         automaticTransitionFromOpenToHalfOpenEnabled: true
   retry:
     retryAspectOrder: 2
@@ -176,6 +176,9 @@ resilience4j:
     instances:
       forecast:
         maxConcurrentCalls: 8
+        maxWaitDuration: 120s
+      claude:
+        maxConcurrentCalls: 6
         maxWaitDuration: 120s
 
 management:

@@ -405,6 +405,7 @@ public class ForecastService {
      * @param jobRun  parent job run for metrics
      * @return the saved evaluation entity
      */
+    @Bulkhead(name = "claude")
     public ForecastEvaluationEntity evaluateAndPersist(ForecastPreEvalResult preEval,
             JobRunEntity jobRun) {
         Long runId = jobRun != null ? jobRun.getId() : null;

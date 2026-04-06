@@ -49,6 +49,15 @@ public class OpenMeteoClient {
     /** Comma-separated hourly air quality parameters requested from Open-Meteo. */
     static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
+    /**
+     * Maximum number of coordinate pairs per Open-Meteo batch request.
+     *
+     * <p>Open-Meteo uses comma-separated lat/lon query parameters. With {@code ~50} production
+     * locations and long parameter strings, uncapped batch requests exceed the HTTP 414 URI-too-long
+     * limit. Keeping chunks at 20 keeps each GET URL well within safe bounds.
+     */
+    static final int BATCH_COORD_LIMIT = 20;
+
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
     private final RestClient forecastRestClient;
@@ -187,7 +196,8 @@ public class OpenMeteoClient {
     }
 
     /**
-     * Fetches air quality data for multiple points in a single API call.
+     * Fetches air quality data for multiple points, chunking into batches of
+     * {@value #BATCH_COORD_LIMIT} to stay within HTTP URI length limits.
      *
      * @param coords list of [lat, lon] pairs
      * @return list of responses in the same order as the input coordinates
@@ -196,12 +206,24 @@ public class OpenMeteoClient {
     @CircuitBreaker(name = "open-meteo")
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoAirQualityResponse> fetchAirQualityBatch(List<double[]> coords) {
+        if (coords.size() <= BATCH_COORD_LIMIT) {
+            return fetchAirQualityChunk(coords);
+        }
+        List<OpenMeteoAirQualityResponse> results = new ArrayList<>();
+        for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
+            results.addAll(fetchAirQualityChunk(chunk));
+        }
+        return results;
+    }
+
+    private List<OpenMeteoAirQualityResponse> fetchAirQualityChunk(List<double[]> coords) {
         String latitudes = coords.stream()
                 .map(c -> String.valueOf(c[0])).collect(Collectors.joining(","));
         String longitudes = coords.stream()
                 .map(c -> String.valueOf(c[1])).collect(Collectors.joining(","));
 
-        LOG.debug("Open-Meteo batch air-quality: {} points", coords.size());
+        LOG.debug("Open-Meteo batch air-quality chunk: {} points", coords.size());
         String json = airQualityRestClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/v1/air-quality")
@@ -218,15 +240,29 @@ public class OpenMeteoClient {
 
     /**
      * Internal batch forecast fetch — shared by cloud-only, full forecast, and briefing methods.
+     * Transparently chunks into batches of {@value #BATCH_COORD_LIMIT} to avoid HTTP 414 errors.
      */
     private List<OpenMeteoForecastResponse> fetchForecastBatchInternal(
+            List<double[]> coords, String hourlyParams, RestClient client) {
+        if (coords.size() <= BATCH_COORD_LIMIT) {
+            return fetchForecastChunk(coords, hourlyParams, client);
+        }
+        List<OpenMeteoForecastResponse> results = new ArrayList<>();
+        for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
+            results.addAll(fetchForecastChunk(chunk, hourlyParams, client));
+        }
+        return results;
+    }
+
+    private List<OpenMeteoForecastResponse> fetchForecastChunk(
             List<double[]> coords, String hourlyParams, RestClient client) {
         String latitudes = coords.stream()
                 .map(c -> String.valueOf(c[0])).collect(Collectors.joining(","));
         String longitudes = coords.stream()
                 .map(c -> String.valueOf(c[1])).collect(Collectors.joining(","));
 
-        LOG.debug("Open-Meteo batch forecast: {} points, params={}",
+        LOG.debug("Open-Meteo batch forecast chunk: {} points, params={}",
                 coords.size(), hourlyParams.substring(0, Math.min(30, hourlyParams.length())) + "...");
         String json = client.get()
                 .uri(uriBuilder -> uriBuilder
