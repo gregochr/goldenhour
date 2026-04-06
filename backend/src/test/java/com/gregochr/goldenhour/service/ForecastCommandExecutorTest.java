@@ -200,29 +200,22 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
-        int expectedCalls = dates.size() * EXPECTED_CALLS_PER_DAY;
-        verify(forecastService, times(expectedCalls))
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(
-                                loc -> "Durham UK".equals(loc.getName())),
-                        any(LocalDate.class), any(TargetType.class), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
-        // Both target types received
-        verify(forecastService, times(dates.size()))
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(
-                                loc -> "Durham UK".equals(loc.getName())),
-                        any(LocalDate.class), eq(TargetType.SUNRISE), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
-        verify(forecastService, times(dates.size()))
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(
-                                loc -> "Durham UK".equals(loc.getName())),
-                        any(LocalDate.class), eq(TargetType.SUNSET), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        for (LocalDate date : dates) {
+            verify(forecastService)
+                    .fetchWeatherAndTriage(
+                            org.mockito.ArgumentMatchers.argThat(
+                                    (LocationEntity loc) -> loc != null && "Durham UK".equals(loc.getName())),
+                            eq(date), eq(TargetType.SUNRISE), eq(Set.of()),
+                            eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                            eq(stubPrefetchedWeather), eq(stubCloudCache));
+            verify(forecastService)
+                    .fetchWeatherAndTriage(
+                            org.mockito.ArgumentMatchers.argThat(
+                                    (LocationEntity loc) -> loc != null && "Durham UK".equals(loc.getName())),
+                            eq(date), eq(TargetType.SUNSET), eq(Set.of()),
+                            eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                            eq(stubPrefetchedWeather), eq(stubCloudCache));
+        }
     }
 
     @Test
@@ -269,7 +262,7 @@ class ForecastCommandExecutorTest {
 
         // No evaluations should happen
         verify(forecastService, never())
-                .evaluateAndPersist(any(), any());
+                .evaluateAndPersist(any(ForecastPreEvalResult.class), eq(stubJobRun));
     }
 
     @Test
@@ -284,10 +277,11 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
-        verify(forecastService, times(1))
-                .runForecasts(any(LocationEntity.class), any(LocalDate.class),
-                        org.mockito.ArgumentMatchers.isNull(),
-                        any(), eq(EvaluationModel.WILDLIFE), any());
+        verify(forecastService)
+                .runForecasts(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Wildlife Reserve".equals(loc.getName())),
+                        eq(today), org.mockito.ArgumentMatchers.isNull(),
+                        eq(Set.of()), eq(EvaluationModel.WILDLIFE), eq(stubJobRun));
     }
 
     @Test
@@ -304,8 +298,10 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         verify(forecastService, never())
-                .runForecasts(eq(durham()), any(LocalDate.class), any(),
-                        any(), eq(EvaluationModel.WILDLIFE), any());
+                .runForecasts(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), org.mockito.ArgumentMatchers.isNull(),
+                        eq(Set.of()), eq(EvaluationModel.WILDLIFE), eq(stubJobRun));
     }
 
     @Test
@@ -395,16 +391,29 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         // fetchWeatherAndTriage should be called only for Durham (2 target types), not Whitley
-        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+        verify(forecastService)
                 .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
-                        any(LocalDate.class), any(TargetType.class), any(),
-                        any(EvaluationModel.class), anyBoolean(), any(),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService, never())
                 .fetchWeatherAndTriage(
                         org.mockito.ArgumentMatchers.argThat(loc -> "Whitley Bay".equals(loc.getName())),
-                        any(), any(), any(), any(), anyBoolean(), any(),
+                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Whitley Bay".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
@@ -426,9 +435,242 @@ class ForecastCommandExecutorTest {
 
         executor.execute(cmd);
 
+        ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
+        ArgumentCaptor<TargetType> typeCaptor = ArgumentCaptor.forClass(TargetType.class);
         verify(forecastService, times(EXPECTED_CALLS_PER_DAY * 2))
-                .fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
-                        any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), any(),
+                .fetchWeatherAndTriage(
+                        locCaptor.capture(), eq(today), typeCaptor.capture(), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
+                .containsExactlyInAnyOrder("Durham UK", "Durham UK", "Whitley Bay", "Whitley Bay");
+        assertThat(typeCaptor.getAllValues())
+                .containsExactlyInAnyOrder(
+                        TargetType.SUNRISE, TargetType.SUNSET,
+                        TargetType.SUNRISE, TargetType.SUNSET);
+    }
+
+    // -------------------------------------------------------------------------
+    // Solar event timing skip (shouldSkipEvent)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Past sunrise today is dropped before triage; sunset still proceeds")
+    void execute_pastSunriseToday_sunriseDropped_sunsetProceeds() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDateTime twoHoursAgo = LocalDateTime.now(ZoneOffset.UTC).minusHours(2);
+
+        // Sunrise happened 2 h ago — should be silently dropped before triage
+        when(solarService.sunriseUtc(eq(durham().getLat()), eq(durham().getLon()), eq(today)))
+                .thenReturn(twoHoursAgo);
+        // Sunset remains at MAX (far future) from lenient setUp stub
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true);
+        executor.execute(cmd);
+
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+    }
+
+    @Test
+    @DisplayName("Future-date slots are never dropped by solar timing — shouldSkipEvent only applies to today")
+    void execute_futureDateSlots_neverDroppedBySolarTiming() {
+        // shouldSkipEvent short-circuits on targetDate != today without calling solarService,
+        // so no stub needed — the default lenient MAX stub covers any residual calls.
+        LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(tomorrow),
+                List.of(durham()), haikuStrategy, true);
+        executor.execute(cmd);
+
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(tomorrow), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(tomorrow), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+    }
+
+    // -------------------------------------------------------------------------
+    // Excluded slots
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("Excluded SUNRISE slot is dropped before triage; SUNSET still proceeds")
+    void execute_excludedSunriseSlot_onlySunsetPassedToTriage() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String excludedSlot = today + "|SUNRISE";
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true, Set.of(excludedSlot), Set.of());
+        executor.execute(cmd);
+
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+    }
+
+    @Test
+    @DisplayName("Excluded SUNSET slot is dropped before triage; SUNRISE still proceeds")
+    void execute_excludedSunsetSlot_onlySunrisePassedToTriage() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String excludedSlot = today + "|SUNSET";
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, true, Set.of(excludedSlot), Set.of());
+        executor.execute(cmd);
+
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+    }
+
+    // -------------------------------------------------------------------------
+    // Triage phase outcomes
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("All tasks triaged: persistCannedResult and evaluateAndPersist never called")
+    void execute_allTasksTriaged_noPersistAndNoEvaluate() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // Both SUNRISE and SUNSET come back triaged
+        when(forecastService.fetchWeatherAndTriage(
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                .thenAnswer(inv -> new ForecastPreEvalResult(true, "Low cloud 88%", null,
+                        durham(), today, TargetType.SUNRISE, LocalDateTime.now(), 90, 0,
+                        EvaluationModel.HAIKU, Set.of(), "Durham UK|" + today + "|SUNRISE", null));
+        when(forecastService.fetchWeatherAndTriage(
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                .thenAnswer(inv -> new ForecastPreEvalResult(true, "Precipitation 3mm", null,
+                        durham(), today, TargetType.SUNSET, LocalDateTime.now(), 90, 0,
+                        EvaluationModel.HAIKU, Set.of(), "Durham UK|" + today + "|SUNSET", null));
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, false);
+        executor.execute(cmd);
+
+        verify(forecastService, never())
+                .persistCannedResult(any(ForecastPreEvalResult.class),
+                        org.mockito.ArgumentMatchers.anyString(), eq(stubJobRun));
+        verify(forecastService, never())
+                .evaluateAndPersist(any(ForecastPreEvalResult.class), eq(stubJobRun));
+    }
+
+    @Test
+    @DisplayName("Mixed triage: survivor proceeds to evaluateAndPersist; triaged location does not")
+    void execute_mixedTriage_survivorEvaluated_triagedLocationNot() {
+        LocationEntity whitley = LocationEntity.builder()
+                .id(3L).name("Whitley Bay").lat(55.04).lon(-1.44)
+                .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
+                .build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham(), whitley));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        // Durham triaged for both event types
+        when(forecastService.fetchWeatherAndTriage(
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                .thenAnswer(inv -> new ForecastPreEvalResult(true, "Low cloud 90%", null,
+                        durham(), today, TargetType.SUNRISE, LocalDateTime.now(), 90, 0,
+                        EvaluationModel.HAIKU, Set.of(), "Durham UK|" + today + "|SUNRISE", null));
+        when(forecastService.fetchWeatherAndTriage(
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                .thenAnswer(inv -> new ForecastPreEvalResult(true, "Low cloud 90%", null,
+                        durham(), today, TargetType.SUNSET, LocalDateTime.now(), 90, 0,
+                        EvaluationModel.HAIKU, Set.of(), "Durham UK|" + today + "|SUNSET", null));
+        // Whitley Bay survives triage (default stub returns triaged=false)
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                null, haikuStrategy, false);
+        executor.execute(cmd);
+
+        // Whitley Bay evaluated for both event types
+        ArgumentCaptor<ForecastPreEvalResult> captor = ArgumentCaptor.forClass(ForecastPreEvalResult.class);
+        verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                .evaluateAndPersist(captor.capture(), eq(stubJobRun));
+        assertThat(captor.getAllValues())
+                .allMatch(pe -> "Whitley Bay".equals(pe.location().getName()));
+    }
+
+    @Test
+    @DisplayName("Optimisation skip produces no persistCannedResult call — no phantom DB write")
+    void execute_scheduledOptimisationSkip_persistCannedResultNeverCalled() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        when(optimisationSkipEvaluator.shouldSkip(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                eq(today), eq(TargetType.SUNRISE)))
+                .thenReturn(true);
+        when(optimisationSkipEvaluator.shouldSkip(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                eq(today), eq(TargetType.SUNSET)))
+                .thenReturn(true);
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
+                List.of(durham()), haikuStrategy, false); // scheduled
+        executor.execute(cmd);
+
+        verify(forecastService, never())
+                .persistCannedResult(any(ForecastPreEvalResult.class),
+                        org.mockito.ArgumentMatchers.anyString(), eq(stubJobRun));
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService, never())
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
+                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
@@ -456,11 +698,11 @@ class ForecastCommandExecutorTest {
 
         verify(optimisationSkipEvaluator)
                 .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNRISE));
         verify(optimisationSkipEvaluator)
                 .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNSET));
     }
 
@@ -472,7 +714,7 @@ class ForecastCommandExecutorTest {
 
         when(optimisationSkipEvaluator.shouldSkip(
                 org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                 eq(today), org.mockito.ArgumentMatchers.any(TargetType.class)))
                 .thenReturn(true);
 
@@ -483,13 +725,13 @@ class ForecastCommandExecutorTest {
 
         verify(forecastService, never())
                 .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNRISE), any(),
                         eq(EvaluationModel.HAIKU), anyBoolean(), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService, never())
                 .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNSET), any(),
                         eq(EvaluationModel.HAIKU), anyBoolean(), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
@@ -516,21 +758,21 @@ class ForecastCommandExecutorTest {
 
         verify(optimisationSkipEvaluator, never())
                 .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNRISE));
         verify(optimisationSkipEvaluator, never())
                 .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNSET));
         verify(forecastService)
                 .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNRISE), any(),
                         eq(EvaluationModel.HAIKU), anyBoolean(), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService)
                 .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNSET), any(),
                         eq(EvaluationModel.HAIKU), anyBoolean(), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
