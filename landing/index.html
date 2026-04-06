@@ -87,6 +87,14 @@
       transition: background 0.15s;
     }
     .btn-gold:hover { background: var(--gold-light); }
+    .btn-disabled {
+      background: var(--bg-surface-light); color: var(--text-muted);
+      cursor: default; pointer-events: none;
+    }
+    .nav-cta-disabled {
+      background: var(--bg-surface-light); color: var(--text-muted);
+      cursor: default; pointer-events: none;
+    }
 
     /* Screenshot */
     .screenshot {
@@ -261,7 +269,7 @@
         <a href="#features">Features</a>
         <a href="#pricing">Pricing</a>
         <a href="faq.html">FAQ</a>
-        <a class="nav-cta" href="https://app.photocast.online/register">Try free</a>
+        <span class="nav-cta nav-cta-disabled">Coming soon</span>
       </div>
     </nav>
 
@@ -269,7 +277,7 @@
       <p class="hero-eyebrow">For landscape photographers</p>
       <h1>Know before you <em>go</em></h1>
       <p class="hero-sub">PhotoCast, with Artificial Intelligence, analyses cloud layers, aerosols, humidity, and light direction to score sunrise and sunset across northern England — and tells you <em>why</em>.</p>
-      <a class="btn-gold" href="https://app.photocast.online/register">Get started free</a>
+      <span class="btn-gold btn-disabled">Coming soon</span>
     </div>
 
     <div class="screenshot">
@@ -382,8 +390,8 @@
     </div>
 
     <div class="bottom-cta">
-      <p>See for yourself — the free tier is fully functional.</p>
-      <a class="btn-gold" href="https://app.photocast.online/register">Create an account</a>
+      <p>Registration opening soon — follow us for launch updates.</p>
+      <span class="btn-gold btn-disabled">Coming soon</span>
     </div>
 
     <div class="footer">
