@@ -55,7 +55,7 @@ public class ClaudeAuroraInterpreter {
     private static final Logger LOG = LoggerFactory.getLogger(ClaudeAuroraInterpreter.class);
 
     /** Maximum tokens for the aurora scoring response. */
-    private static final int MAX_TOKENS = 1024;
+    static final int MAX_TOKENS = 1024;
 
     private static final DateTimeFormatter TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Europe/London"));
@@ -169,9 +169,38 @@ public class ClaudeAuroraInterpreter {
     }
 
     /**
-     * Builds the user message with all space weather data, trigger context, and location details.
+     * Parses a batch aurora response text into scored results.
+     *
+     * <p>Called by {@code BatchResultProcessor} when a completed aurora batch is processed.
+     * Re-uses the same parsing logic as the synchronous path.
+     *
+     * @param raw              raw JSON text from Claude
+     * @param level            the alert level under which the batch was submitted
+     * @param locations        the viable locations passed to the batch (re-triaged at result time)
+     * @param cloudByLocation  cloud cover per location from re-triage
+     * @return scored aurora forecast results
      */
-    String buildUserMessage(AlertLevel level,
+    public List<AuroraForecastScore> parseBatchResponse(String raw, AlertLevel level,
+            List<LocationEntity> locations,
+            Map<LocationEntity, Integer> cloudByLocation) {
+        return parseResponse(raw, level, locations, cloudByLocation);
+    }
+
+    /**
+     * Builds the user message with all space weather data, trigger context, and location details.
+     *
+     * <p>Package-private for unit testing; also called by the batch evaluation service.
+     *
+     * @param level          the current aurora alert level
+     * @param locations      list of viable locations to score
+     * @param cloudByLocation average cloud cover (0-100) per location
+     * @param spaceWeather   current NOAA SWPC space weather data
+     * @param metOfficeText  Met Office space weather narrative (may be null)
+     * @param triggerType    whether this is a forecast lookahead or real-time alert
+     * @param tonightWindow  tonight's dark period window (may be null for real-time alerts)
+     * @return the formatted user message for Claude
+     */
+    public String buildUserMessage(AlertLevel level,
             List<LocationEntity> locations,
             Map<LocationEntity, Integer> cloudByLocation,
             SpaceWeatherData spaceWeather,

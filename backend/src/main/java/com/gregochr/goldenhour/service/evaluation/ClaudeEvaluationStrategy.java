@@ -153,7 +153,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      * @return the parsed evaluation
      * @throws IllegalArgumentException if the response cannot be parsed
      */
-    SunsetEvaluation parseEvaluation(String text, ObjectMapper mapper) {
+    public SunsetEvaluation parseEvaluation(String text, ObjectMapper mapper) {
         String cleaned = text.trim()
                 .replaceAll("(?s)^```(?:json)?\\s*", "")
                 .replaceAll("(?s)\\s*```$", "")

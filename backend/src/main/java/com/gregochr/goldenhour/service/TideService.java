@@ -631,21 +631,6 @@ public class TideService {
         return TideState.MID;
     }
 
-    /**
-     * Returns {@code true} when the solar event is within {@value #HIGH_LOW_THRESHOLD_MINUTES}
-     * minutes of the midpoint between any consecutive pair of tide extremes.
-     *
-     * <p>Consecutive pairs are taken from the chronologically sorted {@code extremes} list.
-     * In practice extremes alternate HIGH-LOW-HIGH-LOW so each pair spans one tidal phase.
-     *
-     * @param extremes  stored tide extremes in chronological order
-     * @param eventTime UTC time of the solar event
-     * @return {@code true} if the event falls in a precise mid-tide window
-     */
-    private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime) {
-        return isMidPointAligned(extremes, eventTime, HIGH_LOW_THRESHOLD_MINUTES);
-    }
-
     private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
             long windowMinutes) {
         for (int i = 0; i < extremes.size() - 1; i++) {

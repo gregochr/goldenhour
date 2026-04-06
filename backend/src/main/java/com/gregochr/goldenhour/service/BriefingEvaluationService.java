@@ -218,6 +218,25 @@ public class BriefingEvaluationService {
     }
 
     /**
+     * Writes batch-evaluated results directly into the cache for a given region/date/targetType.
+     *
+     * <p>Called by {@code BatchResultProcessor} after successfully fetching completed batch results
+     * from Anthropic. The cache key format matches the SSE path exactly so subsequent SSE requests
+     * return from cache rather than re-invoking Claude.
+     *
+     * @param cacheKey the cache key in the format "regionName|date|targetType"
+     * @param results  the evaluation results to store
+     */
+    public void writeFromBatch(String cacheKey,
+            List<BriefingEvaluationResult> results) {
+        ConcurrentHashMap<String, BriefingEvaluationResult> resultMap = new ConcurrentHashMap<>();
+        results.forEach(r -> resultMap.put(r.locationName(), r));
+        cache.put(cacheKey, new CachedEvaluation(resultMap, Instant.now()));
+        LOG.info("Batch results written to evaluation cache for key: {} ({} results)",
+                cacheKey, results.size());
+    }
+
+    /**
      * Clears all cached evaluation results. Called when the briefing refreshes.
      */
     public void clearCache() {

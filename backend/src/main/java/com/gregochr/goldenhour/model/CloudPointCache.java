@@ -22,7 +22,7 @@ public class CloudPointCache {
      * @param cache grid key to cloud-only forecast response
      */
     public CloudPointCache(Map<String, OpenMeteoForecastResponse> cache) {
-        this.cache = cache;
+        this.cache = Map.copyOf(cache);
     }
 
     /**

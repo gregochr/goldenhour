@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.model;
 import com.gregochr.goldenhour.entity.ForecastStability;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +26,14 @@ public record StabilitySummaryResponse(
         List<GridCellDetail> cells) {
 
     /**
+     * Compact constructor — defensive copies of mutable collections.
+     */
+    public StabilitySummaryResponse {
+        countsByStability = Collections.unmodifiableMap(countsByStability);
+        cells = List.copyOf(cells);
+    }
+
+    /**
      * Detail for a single Open-Meteo grid cell.
      *
      * @param gridCellKey          canonical key (e.g. {@code "54.7500,-1.6250"})
@@ -43,5 +52,12 @@ public record StabilitySummaryResponse(
             String reason,
             int evaluationWindowDays,
             List<String> locationNames) {
+
+        /**
+         * Compact constructor — defensive copy of locationNames.
+         */
+        public GridCellDetail {
+            locationNames = List.copyOf(locationNames);
+        }
     }
 }

@@ -185,7 +185,7 @@ public class AuroraOrchestrator {
      * @param data live NOAA SWPC data
      * @return the derived {@link AlertLevel}
      */
-    AlertLevel deriveAlertLevel(SpaceWeatherData data) {
+    public AlertLevel deriveAlertLevel(SpaceWeatherData data) {
         double currentKp = latestKp(data);
         double ovationProbability = data.ovation() != null
                 ? data.ovation().probabilityAtLatitude() : 0.0;
