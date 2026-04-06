@@ -101,10 +101,7 @@ public class ForecastDataAugmentor {
     public AtmosphericData augmentWithDirectionalCloud(AtmosphericData base, double lat,
             double lon, int solarAzimuth, LocalDateTime eventTime, JobRunEntity jobRun,
             CloudPointCache cloudCache) {
-        // cloudCache == null: no pre-fetch context (single-location path) → fall back to individual call.
-        // cloudCache != null: pre-fetch was attempted. Use the cache (returns null on miss/empty cache),
-        // but NEVER fall back to individual calls — that would flood Open-Meteo if the pre-fetch failed.
-        var directional = (cloudCache != null)
+        var directional = (cloudCache != null && cloudCache.size() > 0)
                 ? openMeteoService.fetchDirectionalCloudDataFromCache(
                         lat, lon, solarAzimuth, eventTime, base.targetType(), cloudCache)
                 : openMeteoService.fetchDirectionalCloudData(
@@ -243,9 +240,8 @@ public class ForecastDataAugmentor {
         if (base.weather() == null) {
             return base;
         }
-        // Same null-vs-empty distinction as augmentWithDirectionalCloud above.
         CloudApproachData approach;
-        if (cloudCache != null) {
+        if (cloudCache != null && cloudCache.size() > 0) {
             approach = openMeteoService.fetchCloudApproachDataFromCache(
                     lat, lon, solarAzimuth, eventTime, currentTime, base.targetType(),
                     base.weather().windDirectionDegrees(),
