@@ -437,8 +437,8 @@ class ForecastCommandExecutorTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("execute() delegates skip decision to OptimisationSkipEvaluator")
-    void execute_delegatesToSkipEvaluator() {
+    @DisplayName("Scheduled run delegates skip decision to OptimisationSkipEvaluator for each event type")
+    void execute_scheduledRun_delegatesToSkipEvaluatorForEachEventType() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
@@ -450,35 +450,90 @@ class ForecastCommandExecutorTest {
                 .thenReturn(strategies);
 
         ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
-                List.of(durham()), haikuStrategy, true);
+                List.of(durham()), haikuStrategy, false); // scheduled — not manual
 
         executor.execute(cmd);
 
-        // Verify evaluator was called for each target type
-        verify(optimisationSkipEvaluator, times(EXPECTED_CALLS_PER_DAY))
-                .shouldSkip(eq(strategies), any(LocationEntity.class), eq(today), any(TargetType.class));
+        verify(optimisationSkipEvaluator)
+                .shouldSkip(eq(strategies),
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE));
+        verify(optimisationSkipEvaluator)
+                .shouldSkip(eq(strategies),
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET));
     }
 
     @Test
-    @DisplayName("execute() skips when OptimisationSkipEvaluator returns true")
-    void execute_skipsWhenEvaluatorSaysSkip() {
+    @DisplayName("Scheduled run skips evaluation when OptimisationSkipEvaluator returns true")
+    void execute_scheduledRun_skipsWhenEvaluatorSaysSkip() {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
-        when(optimisationSkipEvaluator.shouldSkip(any(), any(LocationEntity.class), any(), any()))
+        when(optimisationSkipEvaluator.shouldSkip(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                eq(today), org.mockito.ArgumentMatchers.any(TargetType.class)))
                 .thenReturn(true);
 
         ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
-                List.of(durham()), haikuStrategy, true);
+                List.of(durham()), haikuStrategy, false); // scheduled — not manual
 
         executor.execute(cmd);
 
-        // forecastService should never be called since evaluator says skip
         verify(forecastService, never())
-                .fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                        anyBoolean(), any(), eq(stubPrefetchedWeather), eq(stubCloudCache));
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService, never())
-                .evaluateAndPersist(any(), any());
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService, never()).evaluateAndPersist(any(ForecastPreEvalResult.class), any(JobRunEntity.class));
+    }
+
+    @Test
+    @DisplayName("Manual run bypasses OptimisationSkipEvaluator and always proceeds to triage")
+    void execute_manualRun_bypassesOptimisationSkipEvaluator() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today);
+
+        var strategies = List.of(
+                OptimisationStrategyEntity.builder()
+                        .strategyType(OptimisationStrategyType.SKIP_LOW_RATED)
+                        .enabled(true).paramValue(3).build());
+        when(optimisationStrategyService.getEnabledStrategies(RunType.SHORT_TERM))
+                .thenReturn(strategies);
+
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
+                List.of(durham()), haikuStrategy, true); // manual
+
+        executor.execute(cmd);
+
+        verify(optimisationSkipEvaluator, never())
+                .shouldSkip(eq(strategies),
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE));
+        verify(optimisationSkipEvaluator, never())
+                .shouldSkip(eq(strategies),
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET));
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNRISE), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
+        verify(forecastService)
+                .fetchWeatherAndTriage(
+                        org.mockito.ArgumentMatchers.argThat(loc -> "Durham UK".equals(loc.getName())),
+                        eq(today), eq(TargetType.SUNSET), any(),
+                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
     @Test

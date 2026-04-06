@@ -252,10 +252,12 @@ public class ForecastCommandExecutor {
                             targetDate.toString(), targetType.name()});
 
                     String slotKey = targetDate + "|" + targetType.name();
+                    boolean optimisationSkip = !triggeredManually
+                            && optimisationSkipEvaluator.shouldSkip(
+                                    enabledStrategies, location, targetDate, targetType);
                     if (excludedSlots.contains(slotKey)
                             || shouldSkipEvent(targetDate, targetType, location, today, now)
-                            || optimisationSkipEvaluator.shouldSkip(
-                                    enabledStrategies, location, targetDate, targetType)) {
+                            || optimisationSkip) {
                         skippedKeys.add(new String[]{taskKey, location.getName(),
                                 targetDate.toString(), targetType.name()});
                     } else {
