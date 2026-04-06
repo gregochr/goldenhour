@@ -58,6 +58,15 @@ public class OpenMeteoClient {
      */
     static final int BATCH_COORD_LIMIT = 20;
 
+    /**
+     * Milliseconds to sleep between successive chunk requests within a single batch call.
+     *
+     * <p>Chunk HTTP requests bypass the Resilience4j rate limiter (which only wraps the
+     * public batch method). A small inter-chunk pause prevents bursting Open-Meteo with
+     * many back-to-back requests when large cloud pre-fetches are split into many chunks.
+     */
+    private static final int INTER_CHUNK_DELAY_MS = 80;
+
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
     private final RestClient forecastRestClient;
@@ -211,6 +220,9 @@ public class OpenMeteoClient {
         }
         List<OpenMeteoAirQualityResponse> results = new ArrayList<>();
         for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            if (i > 0) {
+                sleepQuietly(INTER_CHUNK_DELAY_MS);
+            }
             List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
             results.addAll(fetchAirQualityChunk(chunk));
         }
@@ -249,6 +261,9 @@ public class OpenMeteoClient {
         }
         List<OpenMeteoForecastResponse> results = new ArrayList<>();
         for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            if (i > 0) {
+                sleepQuietly(INTER_CHUNK_DELAY_MS);
+            }
             List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
             results.addAll(fetchForecastChunk(chunk, hourlyParams, client));
         }
@@ -277,6 +292,19 @@ public class OpenMeteoClient {
                 .body(String.class);
 
         return parseArrayResponse(json, OpenMeteoForecastResponse.class);
+    }
+
+    /**
+     * Sleeps for the given number of milliseconds, swallowing {@code InterruptedException}.
+     * Used to add a small pause between batch chunks so we do not burst Open-Meteo with many
+     * back-to-back requests within a single decorated method call.
+     */
+    private static void sleepQuietly(int millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
