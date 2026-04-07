@@ -160,7 +160,11 @@ public class BriefingEvaluationService {
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
         JobRunEntity jobRun = jobRunService.startRun(RunType.SHORT_TERM, true, model);
 
+        // Seed with any partial batch results so the final cache is complete
         ConcurrentHashMap<String, BriefingEvaluationResult> results = new ConcurrentHashMap<>();
+        if (cached != null) {
+            results.putAll(cached.results());
+        }
 
         int total = toEvaluate.size();
         int completed = 0;

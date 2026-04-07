@@ -249,6 +249,116 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("submitForecastBatch: two regions, only the uncached one submits a request")
+    void submitForecastBatch_twoRegions_onlyUncachedRegionSubmitted() {
+        stubBatchService();
+
+        // Briefing with two regions: North East (cached) and Yorkshire (not cached)
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
+        BriefingSlot northEastSlot = new BriefingSlot("Durham UK",
+                LocalDateTime.of(2026, 4, 7, 5, 30),
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
+        BriefingSlot yorkshireSlot = new BriefingSlot("Flamborough Head",
+                LocalDateTime.of(2026, 4, 7, 5, 30),
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
+        BriefingRegion northEastRegion = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(northEastSlot),
+                null, null, null, null);
+        BriefingRegion yorkshireRegion = new BriefingRegion(
+                "Yorkshire", Verdict.GO, "Summary", List.of(), List.of(yorkshireSlot),
+                null, null, null, null);
+        BriefingEventSummary es = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(northEastRegion, yorkshireRegion), List.of());
+        BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(es));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(day), null, null, null, false, false, 0, null);
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        // North East is cached; Yorkshire is not
+        when(briefingEvaluationService.hasEvaluation(eq("North East|2026-04-07|SUNRISE")))
+                .thenReturn(true);
+        when(briefingEvaluationService.hasEvaluation(eq("Yorkshire|2026-04-07|SUNRISE")))
+                .thenReturn(false);
+
+        LocationEntity yorkshireLoc = buildLocation("Flamborough Head");
+        RegionEntity yorkshireRegionEntity = new RegionEntity();
+        yorkshireRegionEntity.setName("Yorkshire");
+        yorkshireLoc.setRegion(yorkshireRegionEntity);
+        when(locationService.findAllEnabled()).thenReturn(List.of(yorkshireLoc));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, yorkshireLoc,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, yorkshireLoc.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_tworgn");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Only Yorkshire's location reaches the batch — requestCount must be 1
+        ArgumentCaptor<ForecastBatchEntity> entityCaptor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getRequestCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: customId encodes regionName|date|targetType|locationName")
+    void submitForecastBatch_customIdFormat_matchesBatchResultProcessorContract() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_customid");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(paramsCaptor.capture());
+
+        BatchCreateParams params = paramsCaptor.getValue();
+        assertThat(params.requests()).hasSize(1);
+        // customId must match the format BatchResultProcessor.parseResults() depends on
+        assertThat(params.requests().get(0).customId())
+                .isEqualTo("North East|2026-04-07|SUNRISE|Durham UK");
+    }
+
+    @Test
     @DisplayName("submitForecastBatch skips T+2 location when stability is UNSETTLED (window=0)")
     void submitForecastBatch_unsettledStability_skipsLocation() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);

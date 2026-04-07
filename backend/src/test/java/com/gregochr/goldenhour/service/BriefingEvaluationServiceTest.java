@@ -834,6 +834,67 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("evaluateRegion: partial cache from batch is merged with new SSE results in final cache")
+    void evaluateRegion_partialCacheHit_finalCacheMergesBatchAndSseResults() {
+        LocationEntity durham = locationInRegion("Durham", REGION);
+        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
+
+        // Durham pre-cached via batch — Bamburgh is NOT cached
+        BriefingEvaluationResult durhamBatchResult =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Batch result");
+        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(durhamBatchResult));
+
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, bamburgh));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Durham", Verdict.GO), slot("Bamburgh", Verdict.GO)));
+
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                .thenReturn(nonTriagedResult(bamburgh));
+        when(forecastService.evaluateAndPersist(any(), any()))
+                .thenReturn(evaluationEntity(3, 55, 48, "SSE result"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        // Final cache must contain both Durham (from batch) and Bamburgh (from SSE)
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+        assertThat(scores).hasSize(2);
+        assertThat(scores.get("Durham").summary()).isEqualTo("Batch result");
+        assertThat(scores.get("Bamburgh").summary()).isEqualTo("SSE result");
+    }
+
+    @Test
+    @DisplayName("cancelOutstandingForecastBatches: two FORECAST batches — both cancelled and saved")
+    void cancel_twoForecastBatches_bothCancelled() {
+        MessageService messageService = mock(MessageService.class);
+        BatchService batchService = mock(BatchService.class);
+        when(anthropicClient.messages()).thenReturn(messageService);
+        when(messageService.batches()).thenReturn(batchService);
+
+        ForecastBatchEntity batchA = new ForecastBatchEntity(
+                "batch_a", BatchType.FORECAST, 5, Instant.now().plusSeconds(3600));
+        ForecastBatchEntity batchB = new ForecastBatchEntity(
+                "batch_b", BatchType.FORECAST, 3, Instant.now().plusSeconds(3600));
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batchA, batchB));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository, times(2)).save(captor.capture());
+        List<ForecastBatchEntity> saved = captor.getAllValues();
+        assertThat(saved).extracting(ForecastBatchEntity::getStatus)
+                .containsOnly(BatchStatus.CANCELLED);
+        assertThat(saved).extracting(ForecastBatchEntity::getAnthropicBatchId)
+                .containsExactlyInAnyOrder("batch_a", "batch_b");
+        assertThat(saved).extracting(ForecastBatchEntity::getEndedAt)
+                .doesNotContainNull();
+    }
+
+    @Test
     @DisplayName("evaluateRegion: cancel called even when full region is already in cache")
     void evaluateRegion_fullCacheHit_stillCancelsBatch() {
         MessageService messageService = mock(MessageService.class);
