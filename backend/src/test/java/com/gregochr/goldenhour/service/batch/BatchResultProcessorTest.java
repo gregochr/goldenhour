@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -37,8 +38,10 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -192,6 +195,139 @@ class BatchResultProcessorTest {
         assertThat(entityCaptor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(entityCaptor.getValue().getSucceededCount()).isEqualTo(1);
         assertThat(entityCaptor.getValue().getErroredCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST increments errored when response has no text content")
+    void processResults_forecastBatch_nullText_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE|Durham UK");
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        // Empty content — extractText returns null
+        when(message.content()).thenReturn(java.util.List.of());
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST increments errored when customId has fewer than 4 parts")
+    void processResults_forecastBatch_malformedCustomId_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+        com.anthropic.models.messages.TextBlock textBlock =
+                mock(com.anthropic.models.messages.TextBlock.class);
+        com.anthropic.models.messages.ContentBlock contentBlock =
+                mock(com.anthropic.models.messages.ContentBlock.class);
+
+        when(response.result()).thenReturn(result);
+        // Only 3 parts — missing locationName
+        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE");
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.content()).thenReturn(java.util.List.of(contentBlock));
+        when(contentBlock.isText()).thenReturn(true);
+        when(contentBlock.asText()).thenReturn(textBlock);
+        when(textBlock.text()).thenReturn("{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST increments errored when response JSON cannot be parsed")
+    void processResults_forecastBatch_parseException_incrementsErrored() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String malformedText = "not valid json at all";
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+        com.anthropic.models.messages.TextBlock textBlock =
+                mock(com.anthropic.models.messages.TextBlock.class);
+        com.anthropic.models.messages.ContentBlock contentBlock =
+                mock(com.anthropic.models.messages.ContentBlock.class);
+
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE|Durham UK");
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.content()).thenReturn(java.util.List.of(contentBlock));
+        when(contentBlock.isText()).thenReturn(true);
+        when(contentBlock.asText()).thenReturn(textBlock);
+        when(textBlock.text()).thenReturn(malformedText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(eq(malformedText), eq(objectMapper)))
+                .thenThrow(new IllegalArgumentException("malformed JSON"));
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
     }
 
     @Test

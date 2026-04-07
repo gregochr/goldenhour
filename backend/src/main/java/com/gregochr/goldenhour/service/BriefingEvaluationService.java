@@ -218,6 +218,20 @@ public class BriefingEvaluationService {
     }
 
     /**
+     * Returns whether a non-empty cached evaluation exists for the given cache key.
+     *
+     * <p>Called by {@code ScheduledBatchEvaluationService} before building a batch request
+     * to avoid submitting work that the SSE path has already completed.
+     *
+     * @param cacheKey the cache key in the format "regionName|date|targetType"
+     * @return true if the cache has at least one result for this key
+     */
+    public boolean hasEvaluation(String cacheKey) {
+        CachedEvaluation cached = cache.get(cacheKey);
+        return cached != null && !cached.results().isEmpty();
+    }
+
+    /**
      * Writes batch-evaluated results directly into the cache for a given region/date/targetType.
      *
      * <p>Called by {@code BatchResultProcessor} after successfully fetching completed batch results

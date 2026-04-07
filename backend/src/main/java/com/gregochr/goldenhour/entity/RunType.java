@@ -33,5 +33,8 @@ public enum RunType {
     BRIEFING_BEST_BET,
 
     /** Aurora location evaluation — Claude-scored aurora photography conditions. */
-    AURORA_EVALUATION
+    AURORA_EVALUATION,
+
+    /** Scheduled Anthropic Batch API evaluation — covers both forecast and aurora batch jobs. */
+    SCHEDULED_BATCH
 }

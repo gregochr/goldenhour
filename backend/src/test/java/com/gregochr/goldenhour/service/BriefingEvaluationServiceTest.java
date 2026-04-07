@@ -622,6 +622,63 @@ class BriefingEvaluationServiceTest {
         }
     }
 
+    // ── Batch cache methods ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("hasEvaluation returns false when cache is empty")
+    void hasEvaluation_returnsFalseWhenNotCached() {
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+    }
+
+    @Test
+    @DisplayName("hasEvaluation returns false when writeFromBatch was called with empty list")
+    void hasEvaluation_returnsFalseWhenEmptyResults() {
+        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of());
+
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+    }
+
+    @Test
+    @DisplayName("hasEvaluation returns true after writeFromBatch with at least one result")
+    void hasEvaluation_returnsTrueAfterWriteFromBatch() {
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions");
+        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
+
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+    }
+
+    @Test
+    @DisplayName("writeFromBatch results are returned by getCachedScores")
+    void writeFromBatch_populatesCacheAccessibleByGetCachedScores() {
+        LocalDate date = LocalDate.of(2026, 4, 7);
+        BriefingEvaluationResult durham =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions");
+        BriefingEvaluationResult sunderland =
+                new BriefingEvaluationResult("Sunderland", 3, 45, 40, "Marginal");
+        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(durham, sunderland));
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores("North East", date, TargetType.SUNRISE);
+        assertThat(scores).hasSize(2);
+        assertThat(scores.get("Durham").rating()).isEqualTo(4);
+        assertThat(scores.get("Durham").fierySkyPotential()).isEqualTo(72);
+        assertThat(scores.get("Sunderland").rating()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("writeFromBatch cache entry is cleared by onBriefingRefreshed")
+    void writeFromBatch_clearedByBriefingRefresh() {
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
+        service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+
+        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
+
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private LocationEntity locationInRegion(String name, String regionName) {

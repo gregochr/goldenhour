@@ -23,11 +23,14 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
@@ -43,7 +46,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Submits forecast and aurora evaluations to the Anthropic Batch API for cost-efficient
@@ -69,7 +74,9 @@ public class ScheduledBatchEvaluationService {
     private final ForecastBatchRepository batchRepository;
     private final LocationService locationService;
     private final BriefingService briefingService;
+    private final BriefingEvaluationService briefingEvaluationService;
     private final ForecastService forecastService;
+    private final ForecastStabilityClassifier stabilityClassifier;
     private final PromptBuilder promptBuilder;
     private final ModelSelectionService modelSelectionService;
     private final NoaaSwpcClient noaaSwpcClient;
@@ -84,27 +91,31 @@ public class ScheduledBatchEvaluationService {
     /**
      * Constructs the batch evaluation service.
      *
-     * @param anthropicClient         raw Anthropic SDK client for batch API access
-     * @param batchRepository         repository for persisting batch records
-     * @param locationService         service for retrieving enabled locations
-     * @param briefingService         service for accessing the cached daily briefing
-     * @param forecastService         service for weather fetch and triage
-     * @param promptBuilder           builds system prompt and user messages
-     * @param modelSelectionService   resolves the active Claude model per run type
-     * @param noaaSwpcClient          NOAA SWPC space weather data client
-     * @param weatherTriageService    aurora weather triage
-     * @param claudeAuroraInterpreter aurora prompt builder and response parser
-     * @param auroraOrchestrator      derives alert level from space weather data
-     * @param locationRepository      location JPA repository for Bortle-filtered candidates
-     * @param auroraProperties        aurora configuration (Bortle thresholds)
-     * @param metOfficeScraper        Met Office space weather narrative
-     * @param dynamicSchedulerService scheduler to register job targets
+     * @param anthropicClient             raw Anthropic SDK client for batch API access
+     * @param batchRepository             repository for persisting batch records
+     * @param locationService             service for retrieving enabled locations
+     * @param briefingService             service for accessing the cached daily briefing
+     * @param briefingEvaluationService   evaluation cache — checked before building requests
+     * @param forecastService             service for weather fetch and triage
+     * @param stabilityClassifier         classifies forecast stability per grid cell
+     * @param promptBuilder               builds system prompt and user messages
+     * @param modelSelectionService       resolves the active Claude model per run type
+     * @param noaaSwpcClient              NOAA SWPC space weather data client
+     * @param weatherTriageService        aurora weather triage
+     * @param claudeAuroraInterpreter     aurora prompt builder and response parser
+     * @param auroraOrchestrator          derives alert level from space weather data
+     * @param locationRepository          location JPA repository for Bortle-filtered candidates
+     * @param auroraProperties            aurora configuration (Bortle thresholds)
+     * @param metOfficeScraper            Met Office space weather narrative
+     * @param dynamicSchedulerService     scheduler to register job targets
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
             LocationService locationService,
             BriefingService briefingService,
+            BriefingEvaluationService briefingEvaluationService,
             ForecastService forecastService,
+            ForecastStabilityClassifier stabilityClassifier,
             PromptBuilder promptBuilder,
             ModelSelectionService modelSelectionService,
             NoaaSwpcClient noaaSwpcClient,
@@ -119,7 +130,9 @@ public class ScheduledBatchEvaluationService {
         this.batchRepository = batchRepository;
         this.locationService = locationService;
         this.briefingService = briefingService;
+        this.briefingEvaluationService = briefingEvaluationService;
         this.forecastService = forecastService;
+        this.stabilityClassifier = stabilityClassifier;
         this.promptBuilder = promptBuilder;
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
@@ -157,8 +170,9 @@ public class ScheduledBatchEvaluationService {
             return;
         }
 
-        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SHORT_TERM);
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
         List<BatchCreateParams.Request> requests = new ArrayList<>();
+        Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         for (BriefingDay day : briefing.days()) {
             LocalDate date = day.date();
@@ -166,6 +180,11 @@ public class ScheduledBatchEvaluationService {
                 TargetType targetType = eventSummary.targetType();
                 for (BriefingRegion region : eventSummary.regions()) {
                     String regionName = region.regionName();
+                    String cacheKey = regionName + "|" + date + "|" + targetType;
+                    if (briefingEvaluationService.hasEvaluation(cacheKey)) {
+                        LOG.debug("Forecast batch: {} already cached, skipping region", cacheKey);
+                        continue;
+                    }
                     for (BriefingSlot slot : region.slots()) {
                         if (slot.verdict() != Verdict.GO && slot.verdict() != Verdict.MARGINAL) {
                             continue;
@@ -183,6 +202,13 @@ public class ScheduledBatchEvaluationService {
                             if (preEval.triaged()) {
                                 LOG.debug("Forecast batch: {} triaged ({}), skipping",
                                         location.getName(), preEval.triageReason());
+                                continue;
+                            }
+                            int daysAhead = preEval.daysAhead();
+                            int maxDays = getStabilityWindowDays(location, preEval, stabilityByCell);
+                            if (daysAhead > maxDays) {
+                                LOG.debug("Forecast batch: {} T+{} skipped — beyond stability window (max={})",
+                                        location.getName(), daysAhead, maxDays);
                                 continue;
                             }
                             BatchCreateParams.Request request =
@@ -321,6 +347,33 @@ public class ScheduledBatchEvaluationService {
                         .addUserMessage(userMessage)
                         .build())
                 .build();
+    }
+
+    /**
+     * Returns the evaluation window in days for the given location, capped at 3.
+     *
+     * <p>Mirrors the logic in {@code ForecastCommandExecutor.applyStabilityFilter()}: each
+     * unique grid cell is classified once via {@link ForecastStabilityClassifier} and the result
+     * cached in {@code stabilityByCell} for the duration of the batch submission run.
+     *
+     * <p>Defaults to 1 if the location has no grid cell or no forecast response is available.
+     *
+     * @param location        the location to evaluate
+     * @param preEval         the pre-evaluation result containing the raw forecast response
+     * @param stabilityByCell per-grid-cell stability cache shared across the current batch run
+     * @return max days ahead to include, between 0 and 3
+     */
+    private int getStabilityWindowDays(LocationEntity location, ForecastPreEvalResult preEval,
+            Map<String, GridCellStabilityResult> stabilityByCell) {
+        if (!location.hasGridCell() || preEval.forecastResponse() == null) {
+            return 1;
+        }
+        String key = location.gridCellKey();
+        GridCellStabilityResult stability = stabilityByCell.computeIfAbsent(key, k ->
+                stabilityClassifier.classify(
+                        key, location.getGridLat(), location.getGridLng(),
+                        preEval.forecastResponse().getHourly()));
+        return stability != null ? Math.min(stability.evaluationWindowDays(), 3) : 1;
     }
 
     private LocationEntity findLocation(String name) {
