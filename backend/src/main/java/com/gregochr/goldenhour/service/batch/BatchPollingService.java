@@ -63,6 +63,7 @@ public class BatchPollingService {
     public void registerJobTarget() {
         dynamicSchedulerService.registerJobTarget(
                 "batch_result_polling", this::pollPendingBatches);
+        LOG.info("Batch poller registered — 60s polling interval");
     }
 
     /**

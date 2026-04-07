@@ -21,13 +21,13 @@ INSERT INTO scheduler_job_config (job_key, display_name, description, schedule_t
 VALUES ('near_term_batch_evaluation',
         'Near-Term Batch Evaluation',
         'Submits forecast evaluations (SHORT_TERM locations) to the Anthropic Batch API for cost-efficient async processing',
-        'CRON', '0 0 3,15 * * *', 'ACTIVE');
+        'CRON', '0 0 3,15 * * *', 'PAUSED');
 
 INSERT INTO scheduler_job_config (job_key, display_name, description, schedule_type, cron_expression, status, config_source)
 VALUES ('aurora_batch_evaluation',
         'Aurora Batch Evaluation',
         'Submits aurora location evaluations to the Anthropic Batch API overnight',
-        'CRON', '0 30 3 * * *', 'ACTIVE', 'aurora.enabled');
+        'CRON', '0 30 3 * * *', 'PAUSED', 'aurora.enabled');
 
 INSERT INTO scheduler_job_config (job_key, display_name, description, schedule_type, fixed_delay_ms, initial_delay_ms, status)
 VALUES ('batch_result_polling',

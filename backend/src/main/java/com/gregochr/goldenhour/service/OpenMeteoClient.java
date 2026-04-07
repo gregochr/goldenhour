@@ -11,9 +11,11 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -84,8 +86,10 @@ public class OpenMeteoClient {
     public OpenMeteoClient(OpenMeteoForecastApi forecastApi, OpenMeteoAirQualityApi airQualityApi,
             ObjectMapper objectMapper) {
         this(forecastApi, airQualityApi, objectMapper,
-                RestClient.builder().baseUrl("https://api.open-meteo.com").build(),
-                RestClient.builder().baseUrl("https://air-quality-api.open-meteo.com").build());
+                RestClient.builder().baseUrl("https://api.open-meteo.com")
+                        .requestFactory(batchRequestFactory()).build(),
+                RestClient.builder().baseUrl("https://air-quality-api.open-meteo.com")
+                        .requestFactory(batchRequestFactory()).build());
     }
 
     /**
@@ -292,6 +296,21 @@ public class OpenMeteoClient {
                 .body(String.class);
 
         return parseArrayResponse(json, OpenMeteoForecastResponse.class);
+    }
+
+    /**
+     * Creates an HTTP request factory with connect and read timeouts for Open-Meteo batch calls.
+     *
+     * <p>Without explicit timeouts the default factory has no read timeout, so a slow or
+     * unresponsive Open-Meteo server hangs the calling thread indefinitely (observed as
+     * 181-second read hangs in production). A 30-second read timeout lets Resilience4j
+     * retry and circuit-breaker react promptly instead.
+     */
+    private static SimpleClientHttpRequestFactory batchRequestFactory() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(Duration.ofSeconds(10));
+        factory.setReadTimeout(Duration.ofSeconds(30));
+        return factory;
     }
 
     /**
