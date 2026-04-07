@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
@@ -10,6 +11,7 @@ const CONFIG_TABS = [
   { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)', tip: 'Extended forecasts — 3 to 5 days out. Weather data is less precise, so a cheaper model is fine.' },
   { key: 'BRIEFING_BEST_BET', label: 'Briefing', tip: 'Claude model for the best-bet photography advisor in the daily briefing.' },
   { key: 'AURORA_EVALUATION', label: 'Aurora', tip: 'Claude model for scoring aurora photography conditions per location.' },
+  { key: 'SCHEDULED_BATCH', label: 'Scheduled Batch', tip: 'Claude model used for overnight Anthropic Batch API runs. Results are ready before your first morning check.', adminOnly: true },
 ];
 
 /** Approximate USD to GBP rate for display purposes. */
@@ -60,6 +62,20 @@ const TAB_DESCRIPTIONS = {
   BRIEFING_BEST_BET: 'Analyses region-level triage data to recommend the best photography opportunity',
   AURORA_EVALUATION: 'Evaluates aurora visibility conditions per location based on Kp forecast, cloud cover, and light pollution rating',
 };
+
+/** Per-model descriptions for the Scheduled Batch tab. */
+const BATCH_MODEL_DESCRIPTIONS = {
+  HAIKU: 'Fast, cost-efficient model for overnight batch runs. Lower quality reasoning on marginal conditions.',
+  SONNET: 'Recommended for scheduled batch runs. Strong reasoning at low cost with batch pricing and prompt caching applied.',
+  OPUS: 'Highest accuracy for batch runs. Best reserved for key seasonal events only.',
+};
+
+/** Static cost rows for the Scheduled Batch cost table (batch API 50% discount + caching). */
+const BATCH_COST_ROWS = [
+  { model: 'HAIKU',  perRequest: '~£0.0001', typicalRun: '~£0.01 – £0.04' },
+  { model: 'SONNET', perRequest: '~£0.0002', typicalRun: '~£0.02 – £0.08' },
+  { model: 'OPUS',   perRequest: '~£0.0004', typicalRun: '~£0.04 – £0.16' },
+];
 
 /**
  * Cost estimate config for non-forecast tabs.
@@ -128,6 +144,7 @@ const CONFLICTS = {
  * and configuring cost optimisation strategies.
  */
 export default function ModelSelectionView() {
+  const { isAdmin } = useAuth();
   const [availableModels, setAvailableModels] = useState([]);
   const [configs, setConfigs] = useState({});
   const [strategies, setStrategies] = useState({});
@@ -246,6 +263,8 @@ export default function ModelSelectionView() {
     );
   }
 
+  const visibleTabs = CONFIG_TABS.filter((t) => !t.adminOnly || isAdmin);
+
   const activeModelForTab = configs[activeTab] || 'HAIKU';
   const tabStrategies = strategies[activeTab] || [];
 
@@ -270,7 +289,7 @@ export default function ModelSelectionView() {
 
       {/* Config type sub-tabs */}
       <div className="flex gap-6 border-b border-plex-border flex-wrap">
-        {CONFIG_TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <span key={tab.key} className="inline-flex items-center gap-1">
             <button
               onClick={() => setActiveTab(tab.key)}
@@ -331,7 +350,11 @@ export default function ModelSelectionView() {
                 )}
               </div>
 
-              <p className="text-sm text-plex-text-secondary mb-3">{TAB_DESCRIPTIONS[activeTab] || info.description}</p>
+              <p className="text-sm text-plex-text-secondary mb-3">
+                {activeTab === 'SCHEDULED_BATCH'
+                  ? BATCH_MODEL_DESCRIPTIONS[model]
+                  : (TAB_DESCRIPTIONS[activeTab] || info.description)}
+              </p>
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
@@ -363,6 +386,102 @@ export default function ModelSelectionView() {
           );
         })}
       </div>
+
+      {/* Scheduled Batch: informational panel */}
+      {activeTab === 'SCHEDULED_BATCH' && (
+        <div className="bg-plex-surface border border-plex-border rounded-lg p-4 text-sm text-plex-text-secondary space-y-3" data-testid="batch-info-panel">
+          <p className="font-medium text-plex-text">How scheduled batch runs work</p>
+          <p>
+            Scheduled runs evaluate all GO and MARGINAL locations overnight using the Anthropic Batch
+            API, so results are ready before your first morning check.
+          </p>
+          <div>
+            <p className="font-medium text-plex-text mb-1">Evaluation window</p>
+            <p>
+              Runs cover T (tonight) through T+3 (three days ahead). Beyond T+3, forecast reliability
+              degrades and the data becomes misleading.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-plex-text mb-2">Why some nights run further ahead than others</p>
+            <p className="mb-2">
+              The weather stability classifier reads pressure tendency, precipitation probability, and
+              WMO weather codes for each grid cell. Based on this it assigns one of three stability levels:
+            </p>
+            <div className="space-y-2 font-mono text-xs">
+              <div className="flex gap-4">
+                <span className="text-plex-gold w-24 flex-shrink-0">SETTLED</span>
+                <span>Clear high pressure pattern, low precipitation risk. Evaluates T through T+3.</span>
+              </div>
+              <div className="flex gap-4">
+                <span className="text-plex-gold w-24 flex-shrink-0">TRANSITIONAL</span>
+                <span>Mixed signals — possible frontal approach or model uncertainty. Evaluates T and T+1 only.</span>
+              </div>
+              <div className="flex gap-4">
+                <span className="text-plex-gold w-24 flex-shrink-0">UNSETTLED</span>
+                <span>Active weather, falling pressure, or high precipitation variance. Evaluates T only.</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p className="font-medium text-plex-text mb-1">Why a run might produce no results</p>
+            <p>
+              If every location is STANDDOWN after triage (solid overcast, no coastal tide alignment) the
+              batch contains zero requests and is not submitted. This is expected — no spend on locations
+              the weather has already ruled out.
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-plex-text mb-1">Results and the JFDI button</p>
+            <p>
+              Batch results populate the same cache as the &ldquo;Run full forecast&rdquo; button. If a batch has
+              already scored a region overnight, opening the drill-down shows results immediately with no
+              additional Claude call. If you hit &ldquo;Run full forecast&rdquo; while a batch is outstanding, the
+              batch is cancelled and a real-time evaluation runs instead.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduled Batch: static cost table */}
+      {activeTab === 'SCHEDULED_BATCH' && (
+        <div className="card border border-plex-border" data-testid="batch-cost-table">
+          <h3 className="font-semibold text-plex-text mb-1">Estimated batch run cost</h3>
+          <p className="text-xs text-plex-text-secondary mb-3">
+            Requests vary by weather stability and triage filtering — typically 50 to 400 per run.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-plex-text-secondary border-b border-plex-border">
+                  <th className="pb-2 pr-4"></th>
+                  <th className="pb-2 pr-4 text-right">Per request</th>
+                  <th className="pb-2 text-right">Typical run</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BATCH_COST_ROWS.map(({ model, perRequest, typicalRun }) => {
+                  const isActive = model === activeModelForTab;
+                  return (
+                    <tr key={model} className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}>
+                      <td className="py-1.5 pr-4 font-medium">
+                        {MODEL_INFO[model].name}
+                        {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right font-mono text-xs">{perRequest}</td>
+                      <td className="py-1.5 text-right font-mono text-xs">{typicalRun}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-plex-text-muted mt-3">
+            Batch API 50% discount and prompt caching (~90% on cached tokens) applied. Actual cost
+            depends on how many locations pass triage and the stability classification for that night.
+          </p>
+        </div>
+      )}
 
       {/* Cost estimate table for the active run type */}
       {(() => {

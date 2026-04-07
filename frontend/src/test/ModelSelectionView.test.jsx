@@ -13,8 +13,13 @@ vi.mock('../api/forecastApi', () => ({
   fetchLocations: vi.fn(),
 }));
 
+vi.mock('../context/AuthContext.jsx', () => ({
+  useAuth: vi.fn(),
+}));
+
 import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi';
 import { fetchLocations } from '../api/forecastApi';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const MOCK_LOCATIONS = [
   { id: 1, name: 'Durham', enabled: true, locationType: ['LANDSCAPE'] },
@@ -31,6 +36,7 @@ const MOCK_DATA = {
     LONG_TERM: 'HAIKU',
     BRIEFING_BEST_BET: 'HAIKU',
     AURORA_EVALUATION: 'HAIKU',
+    SCHEDULED_BATCH: 'SONNET',
   },
   optimisationStrategies: {
     VERY_SHORT_TERM: [
@@ -66,6 +72,7 @@ const MOCK_DATA = {
 describe('ModelSelectionView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAuth.mockReturnValue({ isAdmin: true });
     getAvailableModels.mockResolvedValue(MOCK_DATA);
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
   });
@@ -284,6 +291,147 @@ describe('ModelSelectionView', () => {
 
     await waitFor(() => {
       expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'SONNET');
+    });
+  });
+
+  // ── Scheduled Batch tab ──────────────────────────────────────────────────────
+
+  it('Scheduled Batch tab is visible for ADMIN users', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+    });
+  });
+
+  it('Scheduled Batch tab is NOT visible for non-ADMIN users', async () => {
+    useAuth.mockReturnValue({ isAdmin: false });
+
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('config-tab-SCHEDULED_BATCH')).not.toBeInTheDocument();
+  });
+
+  it('Scheduled Batch tab label shows active model in brackets', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+    });
+
+    // MOCK_DATA.configs.SCHEDULED_BATCH = 'SONNET'
+    expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toHaveTextContent('(Sonnet)');
+  });
+
+  it('Scheduled Batch tab shows three distinct per-model descriptions', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/cost-efficient model for overnight batch runs/)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/Recommended for scheduled batch runs/)).toBeInTheDocument();
+    expect(screen.getByText(/Best reserved for key seasonal events only/)).toBeInTheDocument();
+
+    // Each description appears exactly once — not the same text repeated across all three cards
+    expect(screen.getAllByText(/cost-efficient model for overnight batch runs/)).toHaveLength(1);
+    expect(screen.getAllByText(/Recommended for scheduled batch runs/)).toHaveLength(1);
+  });
+
+  it('Scheduled Batch tab shows informational panel', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('batch-info-panel')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('How scheduled batch runs work')).toBeInTheDocument();
+    expect(screen.getByText('SETTLED')).toBeInTheDocument();
+    expect(screen.getByText('TRANSITIONAL')).toBeInTheDocument();
+    expect(screen.getByText('UNSETTLED')).toBeInTheDocument();
+  });
+
+  it('informational panel is absent on non-batch tabs', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/35 Claude calls per run/)).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('batch-info-panel')).not.toBeInTheDocument();
+  });
+
+  it('Scheduled Batch tab shows batch cost table and no standard cost-estimate-table', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('batch-cost-table')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('cost-estimate-table')).not.toBeInTheDocument();
+    // Spot-check cost ranges are present
+    expect(screen.getByText('~£0.0002')).toBeInTheDocument();
+    expect(screen.getByText('~£0.02 – £0.08')).toBeInTheDocument();
+  });
+
+  it('batch cost table is absent on non-batch tabs', async () => {
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+    });
+
+    // Default tab is VERY_SHORT_TERM
+    expect(screen.queryByTestId('batch-cost-table')).not.toBeInTheDocument();
+  });
+
+  it('model switch on Scheduled Batch tab sends SCHEDULED_BATCH as runType', async () => {
+    setActiveModel.mockResolvedValue({ runType: 'SCHEDULED_BATCH', active: 'HAIKU' });
+
+    render(<ModelSelectionView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('switch-SCHEDULED_BATCH-HAIKU')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('switch-SCHEDULED_BATCH-HAIKU'));
+
+    await waitFor(() => {
+      expect(setActiveModel).toHaveBeenCalledWith('SCHEDULED_BATCH', 'HAIKU');
     });
   });
 });
