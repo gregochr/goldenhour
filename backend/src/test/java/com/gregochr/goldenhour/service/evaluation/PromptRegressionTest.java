@@ -4,11 +4,13 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -110,6 +112,7 @@ class PromptRegressionTest {
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[coptHill_5Mar] " + result.summary());
 
         assertScoresNotNull(result);
         assertTrue(result.rating() <= 2,
@@ -125,11 +128,9 @@ class PromptRegressionTest {
     /**
      * Angel of the North, 2 March 2026, SUNSET ~17:35 UTC — POSITIVE case (spectacular).
      *
-     * <p>Haiku rated this 5 stars with Fiery Sky 82 and Golden Hour 84.
-     * The actual sunset was spectacular. Using 17:00 UTC slot (nearest to 17:35 sunset):
-     * observer point had clear sky (1% low, 0% mid, 0% high), solar horizon had cleared
-     * to 7% low with 100% high cloud canvas, antisolar had 64% low, 71% mid, 100% high
-     * — ideal conditions for catching reflected colour.
+     * <p>Data sourced from production record id 3284. Observer point: 2% low, 0% mid,
+     * 100% high cloud — high-cloud canvas overhead. No directional cone-sampling data
+     * was persisted for this run. The actual sunset was spectacular.
      *
      * <p>Score floors based on the actual observed conditions:
      * <ul>
@@ -143,28 +144,26 @@ class PromptRegressionTest {
         AtmosphericData data = TestAtmosphericData.builder()
                 .locationName("Angel of the North")
                 .solarEventTime(LocalDateTime.of(2026, 3, 2, 17, 35))
-                .lowCloud(1)
+                .lowCloud(2)
                 .midCloud(0)
-                .highCloud(0)
+                .highCloud(100)
                 .visibility(40160)
-                .windSpeed(new BigDecimal("3.30"))
-                .windDirection(236)
-                .humidity(68)
-                .weatherCode(0)
-                .boundaryLayerHeight(785)
-                .shortwaveRadiation(new BigDecimal("80"))
-                .pm25(new BigDecimal("3.3"))
-                .dust(new BigDecimal("0.0"))
-                .aod(new BigDecimal("0.06"))
-                .temperature(10.0)
-                .apparentTemperature(6.9)
+                .windSpeed(new BigDecimal("2.30"))
+                .windDirection(202)
+                .humidity(69)
+                .weatherCode(3)
+                .boundaryLayerHeight(690)
+                .shortwaveRadiation(new BigDecimal("0.00"))
+                .pm25(new BigDecimal("2.90"))
+                .dust(new BigDecimal("0.00"))
+                .aod(new BigDecimal("0.050"))
+                .temperature(9.1)
+                .apparentTemperature(6.4)
                 .precipProbability(0)
-                .directionalCloud(new DirectionalCloudData(
-                        7, 0, 100,      // solar horizon: Low 7%, Mid 0%, High 100%
-                        64, 71, 100, null))  // antisolar: Low 64%, Mid 71%, High 100%
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[angelOfNorth_2Mar] " + result.summary());
 
         assertScoresNotNull(result);
         assertTrue(result.rating() >= 4,
@@ -222,9 +221,17 @@ class PromptRegressionTest {
                 .directionalCloud(new DirectionalCloudData(
                         0, 100, 100,    // solar horizon: Low 0%, Mid 100%, High 100%
                         47, 2, 0, null))   // antisolar: Low 47%, Mid 2%, High 0%
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 3, 10, 7, 7),
+                        new BigDecimal("1.11"),
+                        LocalDateTime.of(2026, 3, 10, 13, 15),
+                        new BigDecimal("-1.22"),
+                        true, null, null, null, null, null, null))
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[stMarys_10Mar] " + result.summary());
 
         assertScoresNotNull(result);
         assertEquals(4, result.rating(),
@@ -301,7 +308,7 @@ class PromptRegressionTest {
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
-
+        System.out.println("[coptHill_11Mar_approach] " + result.summary());
         assertScoresNotNull(result);
         assertTrue(result.rating() <= 2,
                 "Rating should be <= 2 (cloud approach risk = don't go) but was "
@@ -370,6 +377,7 @@ class PromptRegressionTest {
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[coptHill_15Mar_overcast] " + result.summary());
 
         assertScoresNotNull(result);
         assertTrue(result.rating() <= 2,
@@ -430,12 +438,80 @@ class PromptRegressionTest {
                 .build();
 
         SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[coptHill_16Mar_strip] " + result.summary());
 
         assertScoresNotNull(result);
         assertTrue(result.rating() >= 3 && result.rating() < 5,
                 "Rating should be >=3 and <5 (horizon strip + high cloud canvas) but was " + result.rating());
         assertTrue(result.fierySkyPotential() >= 25,
                 "Fiery Sky should be >= 25 (high cloud catching warm light) but was "
+                        + result.fierySkyPotential());
+    }
+
+    /**
+     * St Mary's Lighthouse, 7 April 2026, SUNRISE 05:23 UTC — MISCALIBRATION case (clear sky, no canvas).
+     *
+     * <p>Perfectly clear dawn: 0% low, 0% mid, 0% high cloud at observer point. Directional
+     * cloud samples were unavailable (null — no cone sampling data persisted for this run).
+     * Excellent visibility (18 km), clean air (AOD 0.09, PM2.5 18.5 µg/m³), weather code 0.
+     * High tide closely aligned: high at 05:57 UTC, 34 minutes after sunrise.
+     *
+     * <p>Production forecast (Haiku, generated 6 Apr 20:45 UTC) gave 5★ / Fiery Sky 45 /
+     * Golden Hour 82. The observed outcome was 3★ — a perfectly clear dawn with no mid/high
+     * cloud canvas delivers only clean golden light with no drama. The current prompt
+     * over-scores clear-sky scenarios by treating high visibility and clean air as strong
+     * positives without adequately penalising the absence of a colour canvas.
+     * This test captures the miscalibration.
+     *
+     * <p>Score ceilings:
+     * <ul>
+     *   <li>Rating: max 3 (clean but undramatic — no cloud canvas to catch colour)</li>
+     *   <li>Fiery Sky: max 40 (clear sky ceiling — nothing to scatter and diffuse colour)</li>
+     *   <li>Golden Hour: no assertion yet — printed to stdout for calibration reference</li>
+     * </ul>
+     */
+    @Test
+    void stMarysLighthouse_7Apr2026_sunrise_clearSkyNoCanvas_shouldCapAtThree() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("St. Mary's Lighthouse")
+                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNRISE)
+                .solarEventTime(LocalDateTime.of(2026, 4, 7, 5, 23))
+                .lowCloud(0)
+                .midCloud(0)
+                .highCloud(0)
+                .visibility(18020)
+                .windSpeed(new BigDecimal("3.50"))
+                .windDirection(156)
+                .precipitation(BigDecimal.ZERO)
+                .humidity(80)
+                .weatherCode(0)
+                .boundaryLayerHeight(320)
+                .shortwaveRadiation(new BigDecimal("10.00"))
+                .pm25(new BigDecimal("18.50"))
+                .dust(new BigDecimal("0.00"))
+                .aod(new BigDecimal("0.090"))
+                .temperature(5.6)
+                .apparentTemperature(2.0)
+                .dewPoint(2.4)
+                .precipProbability(0)
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 4, 7, 5, 57, 22),
+                        new BigDecimal("1.42"),
+                        LocalDateTime.of(2026, 4, 7, 12, 10, 11),
+                        new BigDecimal("-1.61"),
+                        null, null, null, null, null, null, null))
+                .build();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[stMarys_7Apr_clearSky] " + result.summary()
+                + " golden=" + result.goldenHourPotential());
+
+        assertScoresNotNull(result);
+        assertTrue(result.rating() <= 3,
+                "Rating should be <= 3 (no cloud canvas = no colour drama) but was " + result.rating());
+        assertTrue(result.fierySkyPotential() <= 40,
+                "Fiery Sky should be <= 40 (clear sky — nothing to scatter colour) but was "
                         + result.fierySkyPotential());
     }
 
