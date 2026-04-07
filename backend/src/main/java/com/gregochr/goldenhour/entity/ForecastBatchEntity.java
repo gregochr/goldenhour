@@ -33,7 +33,9 @@ public class ForecastBatchEntity {
         /** Batch ended with no successes or a fatal error. */
         FAILED,
         /** Batch expired before completion. */
-        EXPIRED
+        EXPIRED,
+        /** Batch cancelled — superseded by a real-time SSE evaluation. */
+        CANCELLED
     }
 
     /**

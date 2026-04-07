@@ -1,6 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.anthropic.client.AnthropicClient;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -12,6 +16,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -47,6 +52,8 @@ public class BriefingEvaluationService {
     private final ForecastService forecastService;
     private final ModelSelectionService modelSelectionService;
     private final JobRunService jobRunService;
+    private final ForecastBatchRepository batchRepository;
+    private final AnthropicClient anthropicClient;
 
     /** Outer key: "regionName|date|targetType", value: cached entry with results + timestamp. */
     private final ConcurrentHashMap<String, CachedEvaluation> cache = new ConcurrentHashMap<>();
@@ -71,17 +78,23 @@ public class BriefingEvaluationService {
      * @param forecastService       service for weather fetch, triage, and Claude evaluation
      * @param modelSelectionService service for resolving the active Claude model
      * @param jobRunService         service for job run tracking
+     * @param batchRepository       repository for looking up and cancelling outstanding batches
+     * @param anthropicClient       raw SDK client for cancelling batch API jobs
      */
     public BriefingEvaluationService(LocationService locationService,
             BriefingService briefingService,
             ForecastService forecastService,
             ModelSelectionService modelSelectionService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            ForecastBatchRepository batchRepository,
+            AnthropicClient anthropicClient) {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.forecastService = forecastService;
         this.modelSelectionService = modelSelectionService;
         this.jobRunService = jobRunService;
+        this.batchRepository = batchRepository;
+        this.anthropicClient = anthropicClient;
     }
 
     /**
@@ -99,15 +112,23 @@ public class BriefingEvaluationService {
             SseEmitter emitter) {
         String cacheKey = regionName + "|" + date + "|" + targetType;
 
+        // Cancel any outstanding FORECAST batches — real-time evaluation takes priority
+        cancelOutstandingForecastBatches();
+
         // Track client disconnect so we stop submitting Claude calls
         AtomicBoolean cancelled = new AtomicBoolean(false);
         emitter.onCompletion(() -> cancelled.set(true));
         emitter.onTimeout(() -> cancelled.set(true));
         emitter.onError(e -> cancelled.set(true));
 
-        // Cache hit — emit stored results rapidly
+        // Determine the evaluable set from the briefing
+        Set<String> evaluableNames = getEvaluableLocationNames(regionName, date, targetType);
+
+        // Full cache hit — all evaluable locations are already scored
         CachedEvaluation cached = cache.get(cacheKey);
-        if (cached != null && !cached.results().isEmpty()) {
+        if (cached != null && !cached.results().isEmpty()
+                && cached.results().keySet().containsAll(evaluableNames)
+                && !evaluableNames.isEmpty()) {
             LOG.info("Briefing evaluation cache hit for {}", cacheKey);
             emitCachedResults(cached, emitter, regionName, date, targetType);
             return;
@@ -119,10 +140,10 @@ public class BriefingEvaluationService {
                 .filter(briefingService::isColourLocation)
                 .toList();
 
-        // Filter to GO/MARGINAL slots from the cached briefing
-        Set<String> evaluableNames = getEvaluableLocationNames(regionName, date, targetType);
+        // Filter to GO/MARGINAL slots from the cached briefing; skip any already in cache
         List<LocationEntity> toEvaluate = regionLocations.stream()
                 .filter(loc -> evaluableNames.contains(loc.getName()))
+                .filter(loc -> cached == null || !cached.results().containsKey(loc.getName()))
                 .toList();
 
         if (toEvaluate.isEmpty()) {
@@ -248,6 +269,38 @@ public class BriefingEvaluationService {
         cache.put(cacheKey, new CachedEvaluation(resultMap, Instant.now()));
         LOG.info("Batch results written to evaluation cache for key: {} ({} results)",
                 cacheKey, results.size());
+    }
+
+    /**
+     * Cancels all outstanding FORECAST batches via the Anthropic Batch API.
+     *
+     * <p>Called at the start of {@link #evaluateRegion} so that a user-initiated real-time
+     * SSE evaluation supersedes any in-flight overnight batch. Batch API cancel is best-effort:
+     * if the batch has already transitioned to {@code ENDED} or the API call fails, the error
+     * is logged and processing continues — it never blocks the real-time path.
+     */
+    private void cancelOutstandingForecastBatches() {
+        List<ForecastBatchEntity> submitted =
+                batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED);
+
+        for (ForecastBatchEntity batch : submitted) {
+            if (batch.getBatchType() != BatchType.FORECAST) {
+                continue;
+            }
+            String batchId = batch.getAnthropicBatchId();
+            try {
+                anthropicClient.messages().batches().cancel(batchId);
+                batch.setStatus(BatchStatus.CANCELLED);
+                batch.setEndedAt(Instant.now());
+                batch.setErrorMessage("Cancelled — superseded by real-time SSE evaluation");
+                batchRepository.save(batch);
+                LOG.info("Cancelled outstanding FORECAST batch {} ahead of real-time evaluation",
+                        batchId);
+            } catch (Exception e) {
+                LOG.warn("Failed to cancel batch {} (may already be complete): {}",
+                        batchId, e.getMessage());
+            }
+        }
     }
 
     /**

@@ -82,6 +82,6 @@ class ForecastBatchEntityTest {
     void batchStatus_enumValues() {
         assertThat(BatchStatus.values()).containsExactlyInAnyOrder(
                 BatchStatus.SUBMITTED, BatchStatus.COMPLETED,
-                BatchStatus.FAILED, BatchStatus.EXPIRED);
+                BatchStatus.FAILED, BatchStatus.EXPIRED, BatchStatus.CANCELLED);
     }
 }
