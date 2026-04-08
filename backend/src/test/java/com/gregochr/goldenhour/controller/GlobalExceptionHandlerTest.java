@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.RegistrationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +18,7 @@ import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -40,6 +43,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private ForecastCommandFactory commandFactory;
+
+    @MockitoBean
+    private RegistrationService registrationService;
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
@@ -99,5 +105,19 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @DisplayName("RegistrationClosedException is mapped to 403 Forbidden")
+    void handleRegistrationClosed_returns403() throws Exception {
+        when(registrationService.register(anyString(), anyString(), anyBoolean()))
+                .thenThrow(new RegistrationClosedException());
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Early access is currently full"));
     }
 }

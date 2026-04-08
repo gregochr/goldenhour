@@ -109,6 +109,55 @@ class RegistrationServiceTest {
     }
 
     @Test
+    @DisplayName("register allows signup when count is one below the cap")
+    void register_oneBelowCap_succeeds() {
+        when(registrationProperties.getMaxUsers()).thenReturn(3);
+        when(registrationProperties.getDefaultRole()).thenReturn("PRO_USER");
+        when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(2L);
+
+        AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
+        when(userService.createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER))
+                .thenReturn(pending);
+        when(jwtService.generateRefreshToken()).thenReturn("raw-token");
+        when(jwtService.hashToken("raw-token")).thenReturn("hashed");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AppUserEntity result = registrationService.register("alice", "alice@example.com", true);
+
+        assertThat(result.getUsername()).isEqualTo("alice");
+        verify(userService).createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER);
+    }
+
+    @Test
+    @DisplayName("register rejects signup when count exceeds the cap")
+    void register_overCap_throws() {
+        when(registrationProperties.getMaxUsers()).thenReturn(3);
+        when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(5L);
+
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
+                .isInstanceOf(RegistrationClosedException.class);
+    }
+
+    @Test
+    @DisplayName("register uses configured default role (e.g. LITE_USER)")
+    void register_usesConfiguredRole() {
+        when(registrationProperties.getMaxUsers()).thenReturn(100);
+        when(registrationProperties.getDefaultRole()).thenReturn("LITE_USER");
+        when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(0L);
+
+        AppUserEntity pending = buildPendingUser(1L, "carol", "carol@example.com");
+        when(userService.createPendingUser("carol", "carol@example.com", true, UserRole.LITE_USER))
+                .thenReturn(pending);
+        when(jwtService.generateRefreshToken()).thenReturn("tok");
+        when(jwtService.hashToken("tok")).thenReturn("hash");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        registrationService.register("carol", "carol@example.com", true);
+
+        verify(userService).createPendingUser("carol", "carol@example.com", true, UserRole.LITE_USER);
+    }
+
+    @Test
     @DisplayName("register propagates exception when username already exists")
     void register_duplicateUsername_throws() {
         stubRegistrationDefaults();

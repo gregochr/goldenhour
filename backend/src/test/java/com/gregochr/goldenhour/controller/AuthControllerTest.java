@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
@@ -23,7 +24,9 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
@@ -620,5 +623,19 @@ class AuthControllerTest {
                         .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Logged out"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register returns 403 when registration cap is reached")
+    void register_capReached_returns403() throws Exception {
+        when(registrationService.register(eq("newuser"), eq("new@example.com"), anyBoolean()))
+                .thenThrow(new RegistrationClosedException());
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Early access is currently full"));
     }
 }
