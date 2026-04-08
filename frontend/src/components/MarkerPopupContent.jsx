@@ -435,7 +435,7 @@ export default function MarkerPopupContent({
           {driveMinutes != null && driveMinutes > 0 && (
             <div style={{ marginBottom: '6px' }} data-testid="drive-time-badge">
               <span style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
-                {formatDriveTime(driveMinutes)}
+                🚗 {formatDriveTime(driveMinutes)}
               </span>
             </div>
           )}
@@ -872,7 +872,7 @@ export default function MarkerPopupContent({
                 )}
                 {hasDriveChip && (
                   <span data-testid="drive-time-badge" style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
-                    {formatDriveTime(driveMinutes)}
+                    🚗 {formatDriveTime(driveMinutes)}
                   </span>
                 )}
               </div>
