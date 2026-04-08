@@ -23,8 +23,11 @@ spring:
     username: noreply@photocast.online
     password: ${MAIL_PASSWORD:}
     properties:
-      mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 anthropic:
   api-key: ${ANTHROPIC_API_KEY:YOUR_ANTHROPIC_API_KEY}
   model: claude-haiku-4-5
