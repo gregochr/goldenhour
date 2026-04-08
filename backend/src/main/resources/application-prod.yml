@@ -21,10 +21,10 @@ spring:
     validate-on-migrate: false
 
   mail:
-    host: smtp.sendgrid.net
+    host: smtp.livemail.co.uk
     port: 587
-    username: apikey
-    password: ${SENDGRID_API_KEY}
+    username: noreply@photocast.online
+    password: ${MAIL_PASSWORD}
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true

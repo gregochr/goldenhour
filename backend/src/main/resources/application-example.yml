@@ -14,10 +14,10 @@ spring:
   flyway:
     enabled: true
   mail:
-    host: smtp.sendgrid.net           # SendGrid SMTP relay
+    host: smtp.livemail.co.uk
     port: 587
-    username: apikey                   # literal string "apikey" for SendGrid
-    password: YOUR_SENDGRID_API_KEY
+    username: noreply@photocast.online
+    password: YOUR_MAIL_PASSWORD
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
