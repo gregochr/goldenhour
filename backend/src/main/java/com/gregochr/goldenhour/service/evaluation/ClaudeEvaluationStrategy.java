@@ -73,22 +73,25 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
     private final AnthropicApiClient anthropicApiClient;
     private final PromptBuilder promptBuilder;
+    private final CoastalPromptBuilder coastalPromptBuilder;
     private final ObjectMapper objectMapper;
     private final EvaluationModel evaluationModel;
 
     /**
      * Constructs a {@code ClaudeEvaluationStrategy}.
      *
-     * @param anthropicApiClient resilient Anthropic API client with retry
-     * @param promptBuilder      builds system prompt, user message, and output schema
-     * @param objectMapper       Jackson mapper for parsing Claude's JSON response
-     * @param evaluationModel    the Claude model to use (HAIKU, SONNET, or OPUS)
+     * @param anthropicApiClient   resilient Anthropic API client with retry
+     * @param promptBuilder        builds system prompt and user message for inland locations
+     * @param coastalPromptBuilder builds system prompt and user message for coastal locations
+     * @param objectMapper         Jackson mapper for parsing Claude's JSON response
+     * @param evaluationModel      the Claude model to use (HAIKU, SONNET, or OPUS)
      */
     public ClaudeEvaluationStrategy(AnthropicApiClient anthropicApiClient,
-            PromptBuilder promptBuilder, ObjectMapper objectMapper,
-            EvaluationModel evaluationModel) {
+            PromptBuilder promptBuilder, CoastalPromptBuilder coastalPromptBuilder,
+            ObjectMapper objectMapper, EvaluationModel evaluationModel) {
         this.anthropicApiClient = anthropicApiClient;
         this.promptBuilder = promptBuilder;
+        this.coastalPromptBuilder = coastalPromptBuilder;
         this.objectMapper = objectMapper;
         this.evaluationModel = evaluationModel;
     }
@@ -120,12 +123,15 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     @Override
     public EvaluationDetail evaluateWithDetails(AtmosphericData data) {
         long startMs = System.currentTimeMillis();
-        String userMessage = data.surge() != null
-                ? promptBuilder.buildUserMessage(data, data.surge(),
-                        data.adjustedRangeMetres(), data.astronomicalRangeMetres())
-                : promptBuilder.buildUserMessage(data);
+        PromptBuilder builder = data.tide() != null
+                ? coastalPromptBuilder : promptBuilder;
 
-        Message response = invokeClaude(userMessage);
+        String userMessage = data.surge() != null
+                ? builder.buildUserMessage(data, data.surge(),
+                        data.adjustedRangeMetres(), data.astronomicalRangeMetres())
+                : builder.buildUserMessage(data);
+
+        Message response = invokeClaude(userMessage, builder);
         TokenUsage tokenUsage = extractTokenUsage(response);
 
         String text = response.content().stream()
@@ -206,19 +212,20 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      * {@link AnthropicApiClient#createMessage}.
      *
      * @param userMessage the pre-built user message to send
+     * @param builder     the prompt builder used for system prompt and output config
      * @return Claude's response message
      */
-    private Message invokeClaude(String userMessage) {
+    private Message invokeClaude(String userMessage, PromptBuilder builder) {
         return anthropicApiClient.createMessage(
                 MessageCreateParams.builder()
                         .model(evaluationModel.getModelId())
                         .maxTokens(MAX_TOKENS)
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
-                                        .text(promptBuilder.getSystemPrompt())
+                                        .text(builder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
-                        .outputConfig(promptBuilder.buildOutputConfig())
+                        .outputConfig(builder.buildOutputConfig())
                         .addUserMessage(userMessage)
                         .build());
     }

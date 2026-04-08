@@ -45,7 +45,8 @@ class HaikuEvaluationStrategyTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         strategy = new ClaudeEvaluationStrategy(
-                anthropicApiClient, new PromptBuilder(), objectMapper, EvaluationModel.HAIKU);
+                anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
+                objectMapper, EvaluationModel.HAIKU);
     }
 
     @Test

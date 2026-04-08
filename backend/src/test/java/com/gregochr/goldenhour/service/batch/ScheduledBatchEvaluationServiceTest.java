@@ -39,6 +39,12 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.StormSurgeBreakdown;
+import com.gregochr.goldenhour.model.TideRiskLevel;
+import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -91,6 +97,8 @@ class ScheduledBatchEvaluationServiceTest {
     @Mock
     private PromptBuilder promptBuilder;
     @Mock
+    private CoastalPromptBuilder coastalPromptBuilder;
+    @Mock
     private ModelSelectionService modelSelectionService;
     @Mock
     private NoaaSwpcClient noaaSwpcClient;
@@ -116,7 +124,7 @@ class ScheduledBatchEvaluationServiceTest {
         service = new ScheduledBatchEvaluationService(
                 anthropicClient, batchRepository, locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
-                promptBuilder, modelSelectionService, noaaSwpcClient,
+                promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
                 locationRepository, auroraProperties, metOfficeScraper, dynamicSchedulerService);
     }
@@ -604,6 +612,148 @@ class ScheduledBatchEvaluationServiceTest {
         service.submitAuroraBatch();
 
         verify(batchService, never()).create(any());
+    }
+
+    // ── Coastal vs Inland Builder Selection ─────────────────────────────────
+
+    @Test
+    @DisplayName("submitForecastBatch uses coastalPromptBuilder when location has tide data")
+    void submitForecastBatch_coastalLocation_usesCoastalPromptBuilder() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH,
+                LocalDateTime.of(2026, 4, 7, 6, 0),
+                new BigDecimal("4.50"),
+                LocalDateTime.of(2026, 4, 7, 12, 15),
+                new BigDecimal("1.20"),
+                true,
+                LocalDateTime.of(2026, 4, 7, 6, 0),
+                null, null, null, null, null);
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.tide()).thenReturn(tide);
+        when(atmosphericData.surge()).thenReturn(null);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(coastalPromptBuilder.buildUserMessage(atmosphericData)).thenReturn("coastal msg");
+        when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_coastal");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        verify(coastalPromptBuilder).buildUserMessage(atmosphericData);
+        verify(coastalPromptBuilder).getSystemPrompt();
+        verifyNoInteractions(promptBuilder);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch uses base promptBuilder when location has no tide data")
+    void submitForecastBatch_inlandLocation_usesBasePromptBuilder() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.tide()).thenReturn(null);
+        when(atmosphericData.surge()).thenReturn(null);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(atmosphericData)).thenReturn("inland msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("inland system");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_inland");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        verify(promptBuilder).buildUserMessage(atmosphericData);
+        verify(promptBuilder).getSystemPrompt();
+        verifyNoInteractions(coastalPromptBuilder);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch uses coastalPromptBuilder surge overload when surge is present")
+    void submitForecastBatch_coastalWithSurge_usesSurgeOverload() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH,
+                LocalDateTime.of(2026, 4, 7, 6, 0),
+                new BigDecimal("4.50"),
+                LocalDateTime.of(2026, 4, 7, 12, 15),
+                new BigDecimal("1.20"),
+                true,
+                LocalDateTime.of(2026, 4, 7, 6, 0),
+                null, null, null, null, null);
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
+                TideRiskLevel.MODERATE, "Moderate surge");
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.tide()).thenReturn(tide);
+        when(atmosphericData.surge()).thenReturn(surge);
+        when(atmosphericData.adjustedRangeMetres()).thenReturn(4.85);
+        when(atmosphericData.astronomicalRangeMetres()).thenReturn(4.50);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(coastalPromptBuilder.buildUserMessage(atmosphericData, surge, 4.85, 4.50))
+                .thenReturn("coastal surge msg");
+        when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_surge");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        verify(coastalPromptBuilder).buildUserMessage(atmosphericData, surge, 4.85, 4.50);
+        verify(coastalPromptBuilder).getSystemPrompt();
+        verifyNoInteractions(promptBuilder);
     }
 
     private DailyBriefingResponse buildBriefing(Verdict verdict) {

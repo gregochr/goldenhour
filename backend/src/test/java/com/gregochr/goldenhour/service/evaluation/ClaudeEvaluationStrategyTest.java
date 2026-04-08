@@ -19,12 +19,19 @@ import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.entity.LunarTideType;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -53,7 +61,8 @@ class ClaudeEvaluationStrategyTest {
     @BeforeEach
     void setUp() {
         strategy = new ClaudeEvaluationStrategy(
-                anthropicApiClient, new PromptBuilder(), new ObjectMapper(), EvaluationModel.SONNET);
+                anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
+                new ObjectMapper(), EvaluationModel.SONNET);
     }
 
     @Test
@@ -565,6 +574,145 @@ class ClaudeEvaluationStrategyTest {
         assertThat(usage.cacheCreationInputTokens()).isZero();
         assertThat(usage.cacheReadInputTokens()).isZero();
         assertThat(usage.inputTokens()).isEqualTo(300);
+    }
+
+    // ── Builder Selection (coastal vs inland) ───────────────────────────────
+
+    @Test
+    @DisplayName("evaluateWithDetails() sends coastal system prompt when data has tide")
+    void evaluateWithDetails_withTide_sendsCoastalSystemPrompt() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("4.50"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.20"),
+                        true,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null,
+                        LunarTideType.SPRING_TIDE, "Full Moon", false, null))
+                .build();
+        String rawJson = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Coastal conditions.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        strategy.evaluateWithDetails(data);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+
+        MessageCreateParams params = captor.getValue();
+        String systemPrompt = params.system().get().asTextBlockParams().get(0).text();
+
+        assertThat(systemPrompt).contains("COASTAL TIDE GUIDANCE:");
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() sends base system prompt (no coastal guidance) when data has no tide")
+    void evaluateWithDetails_withoutTide_sendsBaseSystemPrompt() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String rawJson = "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 55,"
+                + " \"summary\": \"Inland conditions.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        strategy.evaluateWithDetails(data);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+
+        MessageCreateParams params = captor.getValue();
+        String systemPrompt = params.system().get().asTextBlockParams().get(0).text();
+
+        assertThat(systemPrompt).doesNotContain("COASTAL TIDE GUIDANCE:");
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() user message includes tide block for coastal data")
+    void evaluateWithDetails_withTide_userMessageContainsTideBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("4.50"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.20"),
+                        true,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null,
+                        LunarTideType.KING_TIDE, "New Moon", true, null))
+                .build();
+        String rawJson = "{\"rating\": 5, \"fiery_sky\": 85, \"golden_hour\": 90,"
+                + " \"summary\": \"King tide conditions.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
+
+        assertThat(detail.promptSent()).contains("Tide: KING TIDE");
+        assertThat(detail.promptSent()).contains("moon: New Moon");
+        assertThat(detail.promptSent()).contains("perigee: yes");
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() user message omits tide block for inland data")
+    void evaluateWithDetails_withoutTide_userMessageOmitsTideBlock() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String rawJson = "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 55,"
+                + " \"summary\": \"Standard.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
+
+        assertThat(detail.promptSent()).doesNotContain("Tide:");
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() coastal data with surge includes both tide and surge in message")
+    void evaluateWithDetails_coastalWithSurge_includesTideAndSurge() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
+                TideRiskLevel.MODERATE, "Moderate surge");
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        new BigDecimal("4.50"),
+                        LocalDateTime.of(2026, 6, 22, 0, 45),
+                        new BigDecimal("1.20"),
+                        true,
+                        LocalDateTime.of(2026, 6, 21, 18, 30),
+                        null,
+                        LunarTideType.SPRING_TIDE, "Full Moon", false, null))
+                .build()
+                .withSurge(surge, 4.85, 4.50);
+        String rawJson = "{\"rating\": 4, \"fiery_sky\": 72, \"golden_hour\": 68,"
+                + " \"summary\": \"Surge + tide.\"}";
+        Message response = buildMessage(rawJson);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
+
+        assertThat(detail.promptSent())
+                .contains("Tide: SPRING TIDE")
+                .contains("STORM SURGE FORECAST:")
+                .contains("Risk level: MODERATE");
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get().asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).contains("COASTAL TIDE GUIDANCE:");
     }
 
     // --- Helper methods ---

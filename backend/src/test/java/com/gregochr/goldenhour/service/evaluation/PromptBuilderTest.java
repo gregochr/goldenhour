@@ -1,9 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
-import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideState;
-import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -37,6 +35,15 @@ public class PromptBuilderTest {
         String prompt = promptBuilder.getSystemPrompt();
 
         assertThat(prompt).contains("1\u20135").contains("rating");
+    }
+
+    @Test
+    @DisplayName("getSystemPrompt does not contain tide guidance (moved to CoastalPromptBuilder)")
+    void getSystemPrompt_omitsTideGuidance() {
+        String prompt = promptBuilder.getSystemPrompt();
+
+        assertThat(prompt).doesNotContain("COASTAL TIDE GUIDANCE");
+        assertThat(prompt).doesNotContain("tide data may be provided");
     }
 
     @Test
@@ -174,8 +181,18 @@ public class PromptBuilderTest {
     }
 
     @Test
-    @DisplayName("buildUserMessage with tide data includes tide block")
-    void buildUserMessage_withTideData_includesTideBlock() {
+    @DisplayName("buildUserMessage without tide omits tide block")
+    void buildUserMessage_withoutTide_omitsTideBlock() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message).doesNotContain("Tide:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with tide data on base builder still omits tide block")
+    void buildUserMessage_withTideData_baseBuilder_omitsTideBlock() {
         AtmosphericData data = TestAtmosphericData.builder()
                 .tide(new TideSnapshot(
                         TideState.HIGH,
@@ -187,16 +204,6 @@ public class PromptBuilderTest {
                         LocalDateTime.of(2026, 6, 21, 18, 30),
                         null, null, null, null, null))
                 .build();
-
-        String message = promptBuilder.buildUserMessage(data);
-
-        assertThat(message).contains("Tide:");
-    }
-
-    @Test
-    @DisplayName("buildUserMessage without tide omits tide block")
-    void buildUserMessage_withoutTide_omitsTideBlock() {
-        AtmosphericData data = TestAtmosphericData.defaults();
 
         String message = promptBuilder.buildUserMessage(data);
 
@@ -474,85 +481,6 @@ public class PromptBuilderTest {
                 .contains("SUNSET SPECIFIC");
     }
 
-    @Test
-    @DisplayName("buildUserMessage with king tide shows lunar + statistical labels")
-    void buildUserMessage_kingTideWithExtraExtraHigh_showsBothLabels() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .tide(new TideSnapshot(
-                        TideState.HIGH,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        new BigDecimal("6.20"),
-                        LocalDateTime.of(2026, 6, 22, 0, 45),
-                        new BigDecimal("1.20"),
-                        true,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        null,
-                        LunarTideType.KING_TIDE, "New Moon", true,
-                        TideStatisticalSize.EXTRA_EXTRA_HIGH))
-                .build();
-
-        String message = promptBuilder.buildUserMessage(data);
-
-        assertThat(message)
-                .contains("Tide: KING TIDE, Extra Extra High")
-                .contains("range: 6.20m")
-                .contains("moon: New Moon")
-                .contains("perigee: yes")
-                .contains("aligned: yes");
-    }
-
-    @Test
-    @DisplayName("buildUserMessage with spring tide and extra high shows both labels")
-    void buildUserMessage_springTideWithExtraHigh_showsBothLabels() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .tide(new TideSnapshot(
-                        TideState.HIGH,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        new BigDecimal("5.10"),
-                        LocalDateTime.of(2026, 6, 22, 0, 45),
-                        new BigDecimal("1.30"),
-                        false,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        null,
-                        LunarTideType.SPRING_TIDE, "Full Moon", false,
-                        TideStatisticalSize.EXTRA_HIGH))
-                .build();
-
-        String message = promptBuilder.buildUserMessage(data);
-
-        assertThat(message)
-                .contains("Tide: SPRING TIDE, Extra High")
-                .contains("moon: Full Moon")
-                .contains("perigee: no")
-                .contains("aligned: no");
-    }
-
-    @Test
-    @DisplayName("buildUserMessage with regular tide and no statistical size omits size label")
-    void buildUserMessage_regularTide_omitsSizeLabel() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .tide(new TideSnapshot(
-                        TideState.MID,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        new BigDecimal("3.80"),
-                        LocalDateTime.of(2026, 6, 22, 0, 45),
-                        new BigDecimal("1.50"),
-                        true,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        null,
-                        LunarTideType.REGULAR_TIDE, "Waxing Crescent", false,
-                        null))
-                .build();
-
-        String message = promptBuilder.buildUserMessage(data);
-
-        assertThat(message)
-                .contains("Tide: REGULAR TIDE (range:")
-                .doesNotContain("Extra Extra High")
-                .doesNotContain("Extra High")
-                .contains("moon: Waxing Crescent")
-                .contains("perigee: no");
-    }
 
     @Test
     @DisplayName("buildUserMessage with thick mid cloud (>80%) includes annotation")
@@ -748,28 +676,6 @@ public class PromptBuilderTest {
                 .doesNotContain("Adjusted tidal range:");
     }
 
-    @Test
-    @DisplayName("buildUserMessage with null lunar fields falls back to Regular Tide")
-    void buildUserMessage_nullLunarFields_fallsBackToRegularTide() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .tide(new TideSnapshot(
-                        TideState.HIGH,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        new BigDecimal("4.50"),
-                        LocalDateTime.of(2026, 6, 22, 0, 45),
-                        new BigDecimal("1.20"),
-                        true,
-                        LocalDateTime.of(2026, 6, 21, 18, 30),
-                        null, null, null, null, null))
-                .build();
-
-        String message = promptBuilder.buildUserMessage(data);
-
-        assertThat(message)
-                .contains("Tide: Regular Tide (range:")
-                .doesNotContain("moon:")
-                .doesNotContain("perigee:");
-    }
 
     // ── Cloud Inversion Tests ───────────────────────────────────────────────
 

@@ -10,7 +10,6 @@ import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
-import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 
 import java.util.List;
@@ -141,12 +140,6 @@ public class PromptBuilder {
             + "penetration and direct colour on the horizon will be weaker. Reduce fiery_sky by 10-20 "
             + "and cap rating at 3 unless cloud canvas is exceptional. If no orientation is given, "
             + "the location works for both events — score normally.\n\n"
-            + "For coastal locations, tide data may be provided. When available:\n"
-            + "- High tide can expose dramatic rock formations and alter water colour\n"
-            + "- Low tide may reveal sand patterns and new horizon details\n"
-            + "- If the tide aligns with the photographer's preference, factor this favourably\n"
-            + "- If not aligned, briefly mention the tide limitation but don't heavily penalise"
-            + " unless extreme\n\n"
             + "CLOUD INVERSION GUIDANCE:\n"
             + "A cloud inversion occurs when warm air sits above cooler air, creating a stable "
             + "boundary layer. For elevated locations overlooking water (lakes, sea, large "
@@ -289,15 +282,6 @@ public class PromptBuilder {
         return PROMPT_SUFFIX;
     }
 
-    /**
-     * Builds the user message from atmospheric data.
-     *
-     * <p>Includes observer-point weather, optional directional cloud data,
-     * optional Saharan dust context, and optional tide data.
-     *
-     * @param data the atmospheric forecast data
-     * @return formatted user message string
-     */
     /**
      * Builds the user message from atmospheric data with optional storm surge context.
      *
@@ -493,51 +477,6 @@ public class PromptBuilder {
                     potential == InversionPotential.STRONG
                             ? "Dramatic blanket below viewpoint; clear sky above"
                             : "Visible cloud layer below; light touching cloud tops"));
-        }
-
-        // Include tide data if available (coastal location)
-        TideSnapshot tide = data.tide();
-        if (tide != null && tide.tideState() != null) {
-            StringBuilder tideStr = new StringBuilder();
-
-            // Lunar classification (primary)
-            if (tide.lunarTideType() != null) {
-                tideStr.append(tide.lunarTideType().name().replace("_", " "));
-            } else {
-                tideStr.append("Regular Tide");
-            }
-
-            // Statistical size (secondary, only if Extra High or higher)
-            if (tide.statisticalSize() != null) {
-                String sizeLabel = switch (tide.statisticalSize()) {
-                    case EXTRA_EXTRA_HIGH -> ", Extra Extra High";
-                    case EXTRA_HIGH -> ", Extra High";
-                };
-                tideStr.append(sizeLabel);
-            }
-
-            // Range and alignment
-            tideStr.append(String.format(" (range: %.2fm, next high at %s, next low at %s)",
-                    tide.nextHighTideHeightMetres(),
-                    tide.nextHighTideTime(),
-                    tide.nextLowTideTime()));
-
-            // Moon phase and perigee info
-            if (tide.lunarPhase() != null) {
-                tideStr.append(String.format(", moon: %s", tide.lunarPhase()));
-            }
-            if (tide.moonAtPerigee() != null && tide.moonAtPerigee()) {
-                tideStr.append(", perigee: yes");
-            } else if (tide.moonAtPerigee() != null) {
-                tideStr.append(", perigee: no");
-            }
-
-            // Tidal alignment for photography
-            if (tide.tideAligned() != null) {
-                tideStr.append(String.format(", aligned: %s", tide.tideAligned() ? "yes" : "no"));
-            }
-
-            sb.append("\nTide: ").append(tideStr);
         }
 
         sb.append("\n").append(getPromptSuffix());

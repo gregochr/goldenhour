@@ -42,7 +42,8 @@ class OpusEvaluationStrategyTest {
     @BeforeEach
     void setUp() {
         strategy = new ClaudeEvaluationStrategy(
-                anthropicApiClient, new PromptBuilder(), new ObjectMapper(), EvaluationModel.OPUS);
+                anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
+                new ObjectMapper(), EvaluationModel.OPUS);
     }
 
     @Test

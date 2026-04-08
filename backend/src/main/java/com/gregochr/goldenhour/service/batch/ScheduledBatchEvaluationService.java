@@ -36,6 +36,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
@@ -78,6 +79,7 @@ public class ScheduledBatchEvaluationService {
     private final ForecastService forecastService;
     private final ForecastStabilityClassifier stabilityClassifier;
     private final PromptBuilder promptBuilder;
+    private final CoastalPromptBuilder coastalPromptBuilder;
     private final ModelSelectionService modelSelectionService;
     private final NoaaSwpcClient noaaSwpcClient;
     private final WeatherTriageService weatherTriageService;
@@ -98,7 +100,8 @@ public class ScheduledBatchEvaluationService {
      * @param briefingEvaluationService   evaluation cache — checked before building requests
      * @param forecastService             service for weather fetch and triage
      * @param stabilityClassifier         classifies forecast stability per grid cell
-     * @param promptBuilder               builds system prompt and user messages
+     * @param promptBuilder               builds system prompt and user messages for inland locations
+     * @param coastalPromptBuilder        builds system prompt and user messages for coastal locations
      * @param modelSelectionService       resolves the active Claude model per run type
      * @param noaaSwpcClient              NOAA SWPC space weather data client
      * @param weatherTriageService        aurora weather triage
@@ -117,6 +120,7 @@ public class ScheduledBatchEvaluationService {
             ForecastService forecastService,
             ForecastStabilityClassifier stabilityClassifier,
             PromptBuilder promptBuilder,
+            CoastalPromptBuilder coastalPromptBuilder,
             ModelSelectionService modelSelectionService,
             NoaaSwpcClient noaaSwpcClient,
             WeatherTriageService weatherTriageService,
@@ -134,6 +138,7 @@ public class ScheduledBatchEvaluationService {
         this.forecastService = forecastService;
         this.stabilityClassifier = stabilityClassifier;
         this.promptBuilder = promptBuilder;
+        this.coastalPromptBuilder = coastalPromptBuilder;
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
@@ -327,10 +332,13 @@ public class ScheduledBatchEvaluationService {
     private BatchCreateParams.Request buildForecastRequest(String regionName, LocalDate date,
             TargetType targetType, LocationEntity location, AtmosphericData data,
             EvaluationModel model) {
+        PromptBuilder builder = data.tide() != null
+                ? coastalPromptBuilder : promptBuilder;
+
         String userMessage = data.surge() != null
-                ? promptBuilder.buildUserMessage(data, data.surge(),
+                ? builder.buildUserMessage(data, data.surge(),
                         data.adjustedRangeMetres(), data.astronomicalRangeMetres())
-                : promptBuilder.buildUserMessage(data);
+                : builder.buildUserMessage(data);
 
         String customId = regionName + "|" + date + "|" + targetType + "|" + location.getName();
 
@@ -341,7 +349,7 @@ public class ScheduledBatchEvaluationService {
                         .maxTokens(512)
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
-                                        .text(promptBuilder.getSystemPrompt())
+                                        .text(builder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
                         .addUserMessage(userMessage)

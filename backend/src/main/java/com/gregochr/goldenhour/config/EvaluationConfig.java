@@ -4,6 +4,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
@@ -25,7 +26,7 @@ import java.util.Map;
 public class EvaluationConfig {
 
     /**
-     * Shared prompt builder used by all Claude-based strategies.
+     * Shared prompt builder for inland locations (sky only, no tide/surge guidance).
      *
      * @return a prompt builder instance
      */
@@ -35,28 +36,40 @@ public class EvaluationConfig {
     }
 
     /**
+     * Coastal prompt builder for locations with tide data (sky + tide + surge guidance).
+     *
+     * @return a coastal prompt builder instance
+     */
+    @Bean
+    public CoastalPromptBuilder coastalPromptBuilder() {
+        return new CoastalPromptBuilder();
+    }
+
+    /**
      * Maps each {@link EvaluationModel} to its evaluation strategy.
      *
-     * @param anthropicApiClient resilient Anthropic API client
-     * @param promptBuilder      shared prompt builder
-     * @param objectMapper       Jackson mapper
+     * @param anthropicApiClient   resilient Anthropic API client
+     * @param promptBuilder        shared prompt builder for inland locations
+     * @param coastalPromptBuilder coastal prompt builder for tide locations
+     * @param objectMapper         Jackson mapper
      * @return immutable map from model to strategy
      */
     @Bean
     public Map<EvaluationModel, EvaluationStrategy> evaluationStrategies(
             AnthropicApiClient anthropicApiClient,
             PromptBuilder promptBuilder,
+            CoastalPromptBuilder coastalPromptBuilder,
             ObjectMapper objectMapper) {
         return Map.of(
                 EvaluationModel.HAIKU,
                 new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
-                        objectMapper, EvaluationModel.HAIKU),
+                        coastalPromptBuilder, objectMapper, EvaluationModel.HAIKU),
                 EvaluationModel.SONNET,
                 new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
-                        objectMapper, EvaluationModel.SONNET),
+                        coastalPromptBuilder, objectMapper, EvaluationModel.SONNET),
                 EvaluationModel.OPUS,
                 new ClaudeEvaluationStrategy(anthropicApiClient, promptBuilder,
-                        objectMapper, EvaluationModel.OPUS),
+                        coastalPromptBuilder, objectMapper, EvaluationModel.OPUS),
                 EvaluationModel.WILDLIFE,
                 new NoOpEvaluationStrategy());
     }

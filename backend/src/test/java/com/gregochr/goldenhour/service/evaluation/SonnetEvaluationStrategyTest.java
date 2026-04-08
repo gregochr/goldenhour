@@ -45,7 +45,8 @@ class SonnetEvaluationStrategyTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         strategy = new ClaudeEvaluationStrategy(
-                anthropicApiClient, new PromptBuilder(), objectMapper, EvaluationModel.SONNET);
+                anthropicApiClient, new PromptBuilder(), new CoastalPromptBuilder(),
+                objectMapper, EvaluationModel.SONNET);
     }
 
     @Test
