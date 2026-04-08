@@ -793,7 +793,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
 
               return (
                 <Marker
-                  key={loc.name}
+                  key={`${loc.name}-${userDriveTimes[String(loc.id)] ?? 'none'}`}
                   position={[loc.lat, loc.lon]}
                   icon={icon}
                   eventHandlers={{
