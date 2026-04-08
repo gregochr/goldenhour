@@ -321,7 +321,7 @@ public class BriefingService {
             groups.computeIfAbsent(key, k -> new ArrayList<>()).add(loc);
         }
 
-        LOG.info("Briefing weather fetch: {} locations → {} grid cells (1 batch call)",
+        LOG.info("Briefing weather fetch: {} locations → {} grid cells",
                 locations.size(), groups.size());
 
         // Collect one representative coordinate per grid cell group
@@ -338,6 +338,9 @@ public class BriefingService {
             List<OpenMeteoForecastResponse> responses =
                     openMeteoClient.fetchForecastBriefingBatch(coords);
             long durationMs = System.currentTimeMillis() - startMs;
+            long populated = responses.stream().filter(r -> r != null).count();
+            LOG.info("Briefing weather fetch complete: {}/{} forecasts returned",
+                    populated, coords.size());
             jobRunService.logApiCall(jobRun.getId(),
                     com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
                     "GET", "briefing-forecast-batch(" + coords.size() + ")", null,
@@ -347,7 +350,9 @@ public class BriefingService {
                 List<LocationEntity> group = groups.get(groupKeys.get(i));
                 OpenMeteoForecastResponse forecast = responses.get(i);
 
-                captureGridCoordinates(forecast, group);
+                if (forecast != null) {
+                    captureGridCoordinates(forecast, group);
+                }
 
                 for (LocationEntity loc : group) {
                     results.add(new BriefingSlotBuilder.LocationWeather(loc, forecast));

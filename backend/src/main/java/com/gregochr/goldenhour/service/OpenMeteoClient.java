@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -64,10 +65,17 @@ public class OpenMeteoClient {
      * Milliseconds to sleep between successive chunk requests within a single batch call.
      *
      * <p>Chunk HTTP requests bypass the Resilience4j rate limiter (which only wraps the
-     * public batch method). A small inter-chunk pause prevents bursting Open-Meteo with
-     * many back-to-back requests when large cloud pre-fetches are split into many chunks.
+     * public batch method). A 3-second inter-chunk pause leaves headroom within Open-Meteo's
+     * minutely quota even when the batch spans 9+ chunks (~27 s total, well within the 2-hour
+     * briefing cadence).
      */
-    private static final int INTER_CHUNK_DELAY_MS = 80;
+    private static final long INTER_CHUNK_DELAY_MS = 3_000;
+
+    /**
+     * Milliseconds to wait after detecting a 429 rate-limit response before retrying the
+     * next chunk. 61 seconds is just over the Open-Meteo 1-minute rate-limit window.
+     */
+    private static final long RATE_LIMIT_BACKOFF_MS = 61_000;
 
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
@@ -198,14 +206,70 @@ public class OpenMeteoClient {
     /**
      * Fetches full forecast data for multiple points using the briefing circuit breaker.
      *
+     * <p>Unlike {@link #fetchForecastBatch}, this variant isolates each chunk so that a
+     * single failed chunk (e.g. a 429 rate-limit response) does not discard results from
+     * chunks that already succeeded. Failed chunks leave {@code null} entries at the
+     * corresponding positions in the returned list. Callers must guard against {@code null}
+     * entries. If a 429 is detected the method applies a 61-second backoff before the next
+     * chunk to wait out the Open-Meteo minutely rate-limit window.
+     *
      * @param coords list of [lat, lon] pairs
-     * @return list of responses in the same order as the input coordinates
+     * @return list of length {@code coords.size()} — null where a chunk failed
      */
     @Retry(name = "open-meteo-briefing")
     @CircuitBreaker(name = "open-meteo-briefing")
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoForecastResponse> fetchForecastBriefingBatch(List<double[]> coords) {
-        return fetchForecastBatchInternal(coords, FORECAST_PARAMS, forecastRestClient);
+        if (coords.size() <= BATCH_COORD_LIMIT) {
+            return fetchForecastChunk(coords, FORECAST_PARAMS, forecastRestClient);
+        }
+
+        int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
+        int succeededChunks = 0;
+        int failedChunks = 0;
+        boolean hitRateLimit = false;
+
+        // Pre-fill with nulls — failed chunk positions remain null
+        List<OpenMeteoForecastResponse> results =
+                new ArrayList<>(Collections.nCopies(coords.size(), null));
+
+        for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            int chunkIndex = i / BATCH_COORD_LIMIT + 1;
+
+            if (i > 0) {
+                long delay = hitRateLimit ? RATE_LIMIT_BACKOFF_MS : INTER_CHUNK_DELAY_MS;
+                sleepQuietly(delay);
+            }
+
+            int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
+            List<double[]> chunk = coords.subList(i, end);
+            try {
+                List<OpenMeteoForecastResponse> chunkResults =
+                        fetchForecastChunk(chunk, FORECAST_PARAMS, forecastRestClient);
+                for (int j = 0; j < chunkResults.size(); j++) {
+                    results.set(i + j, chunkResults.get(j));
+                }
+                succeededChunks++;
+                hitRateLimit = false;
+            } catch (Exception e) {
+                failedChunks++;
+                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                LOG.warn("Open-Meteo briefing batch chunk {}/{} failed ({} coords): {}",
+                        chunkIndex, totalChunks, chunk.size(), reason);
+                if (reason.contains("429")) {
+                    hitRateLimit = true;
+                    LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
+                            RATE_LIMIT_BACKOFF_MS / 1000);
+                }
+                // Null entries remain for this chunk's positions
+            }
+        }
+
+        long populated = results.stream().filter(r -> r != null).count();
+        LOG.info("Open-Meteo briefing batch: {}/{} chunks succeeded, {}/{} responses populated",
+                succeededChunks, totalChunks, populated, coords.size());
+
+        return results;
     }
 
     /**
@@ -318,7 +382,7 @@ public class OpenMeteoClient {
      * Used to add a small pause between batch chunks so we do not burst Open-Meteo with many
      * back-to-back requests within a single decorated method call.
      */
-    private static void sleepQuietly(int millis) {
+    private static void sleepQuietly(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException ie) {
