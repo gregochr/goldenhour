@@ -779,6 +779,116 @@ class BriefingServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("Partial batch response handling")
+    class PartialBatchResponseTests {
+
+        @Test
+        @DisplayName("Null entry for one location fails that location; the other succeeds")
+        void partialBatch_nullEntryForOneLocation_thatLocationFails() {
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("Durham").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(java.time.LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("Whitby").lat(54.4).lon(-0.6)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(java.time.LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc1);
+            stubSolarTimes(loc2);
+
+            // loc1 gets a valid forecast; loc2's entry is null (its chunk failed)
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(java.util.Arrays.asList(buildForecastResponse(), null));
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            assertThat(cached.failedLocationCount()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("Null entry does not attempt to capture grid coordinates (null-guard)")
+        void partialBatch_nullEntry_doesNotUpdateGridCoordinates() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("NewLoc").lat(55.123).lon(-1.456)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(java.time.LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            // Batch returns null for the one location — simulates its chunk failing
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(java.util.Arrays.asList((OpenMeteoForecastResponse) null));
+
+            briefingService.refreshBriefing(); // must not throw NullPointerException
+
+            assertThat(loc.getGridLat()).isNull();
+            assertThat(loc.getGridLng()).isNull();
+        }
+
+        @Test
+        @DisplayName("Null entry for a shared grid group marks all group members as failed")
+        void partialBatch_nullEntryForSharedGroup_allGroupMembersFail() {
+            // loc1 + loc2 share a grid cell; loc3 is separate
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("Bamburgh Castle").lat(55.609).lon(-1.710)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.6).gridLng(-1.7).enabled(true)
+                    .createdAt(java.time.LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("Bamburgh Dunes").lat(55.611).lon(-1.712)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(55.6).gridLng(-1.7).enabled(true)
+                    .createdAt(java.time.LocalDateTime.now()).build();
+            LocationEntity loc3 = LocationEntity.builder()
+                    .id(3L).name("Durham").lat(54.775).lon(-1.585)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .gridLat(54.8).gridLng(-1.6).enabled(true)
+                    .createdAt(java.time.LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc1);
+            stubSolarTimes(loc2);
+            stubSolarTimes(loc3);
+
+            // 2 groups in the batch; Bamburgh group (position 0) is null, Durham (position 1) succeeds
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(java.util.Arrays.asList(null, buildForecastResponse()));
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            assertThat(cached.failedLocationCount()).isEqualTo(2); // loc1 + loc2
+        }
+
+        private void stubSolarTimes(LocationEntity loc) {
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(java.time.LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(java.time.LocalDateTime.now().withHour(18).withMinute(0));
+        }
+    }
+
     private static LocationEntity location(String name, String regionName) {
         RegionEntity region = regionName != null
                 ? RegionEntity.builder().name(regionName).build() : null;

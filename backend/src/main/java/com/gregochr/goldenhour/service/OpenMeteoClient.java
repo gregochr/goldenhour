@@ -84,6 +84,18 @@ public class OpenMeteoClient {
     private final ObjectMapper objectMapper;
 
     /**
+     * Overridable in unit tests so that chunk-isolation tests do not sleep 3 seconds per chunk.
+     * Production code always reads {@link #INTER_CHUNK_DELAY_MS}.
+     */
+    long interChunkDelayMs = INTER_CHUNK_DELAY_MS;
+
+    /**
+     * Overridable in unit tests so that rate-limit backoff tests do not sleep 61 seconds.
+     * Production code always reads {@link #RATE_LIMIT_BACKOFF_MS}.
+     */
+    long rateLimitBackoffMs = RATE_LIMIT_BACKOFF_MS;
+
+    /**
      * Constructs an {@code OpenMeteoClient}.
      *
      * @param forecastApi   proxy for the Open-Meteo forecast endpoint
@@ -237,7 +249,7 @@ public class OpenMeteoClient {
             int chunkIndex = i / BATCH_COORD_LIMIT + 1;
 
             if (i > 0) {
-                long delay = hitRateLimit ? RATE_LIMIT_BACKOFF_MS : INTER_CHUNK_DELAY_MS;
+                long delay = hitRateLimit ? rateLimitBackoffMs : interChunkDelayMs;
                 sleepQuietly(delay);
             }
 
@@ -259,7 +271,7 @@ public class OpenMeteoClient {
                 if (reason.contains("429")) {
                     hitRateLimit = true;
                     LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
-                            RATE_LIMIT_BACKOFF_MS / 1000);
+                            rateLimitBackoffMs / 1000);
                 }
                 // Null entries remain for this chunk's positions
             }
@@ -289,7 +301,7 @@ public class OpenMeteoClient {
         List<OpenMeteoAirQualityResponse> results = new ArrayList<>();
         for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
             if (i > 0) {
-                sleepQuietly(INTER_CHUNK_DELAY_MS);
+                sleepQuietly(interChunkDelayMs);
             }
             List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
             results.addAll(fetchAirQualityChunk(chunk));
@@ -330,7 +342,7 @@ public class OpenMeteoClient {
         List<OpenMeteoForecastResponse> results = new ArrayList<>();
         for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
             if (i > 0) {
-                sleepQuietly(INTER_CHUNK_DELAY_MS);
+                sleepQuietly(interChunkDelayMs);
             }
             List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
             results.addAll(fetchForecastChunk(chunk, hourlyParams, client));
