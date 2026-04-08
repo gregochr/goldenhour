@@ -239,6 +239,7 @@ function AppInner() {
         <div
           className="bg-red-900/40 border-b border-red-700 py-3"
           data-testid="backend-down-banner"
+          style={{ width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}
         >
           <p className="max-w-4xl mx-auto px-4 text-sm text-red-300 text-center">
             Service is temporarily unavailable. Data shown may be stale.
