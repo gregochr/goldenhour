@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
-import { register, resendVerification, verifyEmail, setPasswordForNewUser } from '../api/authApi.js';
+import { register, resendVerification, verifyEmail, setPasswordForNewUser, submitWaitlist } from '../api/authApi.js';
 import TurnstileWidget from './TurnstileWidget.jsx';
-const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS' };
+const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
 
 /** Checks a single complexity rule and returns a styled list item. */
 function CheckItem({ ok, label }) {
@@ -43,6 +43,8 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
   const [spTurnstileToken, setSpTurnstileToken] = useState('');
   const [spTurnstileResetKey, setSpTurnstileResetKey] = useState(0);
+  const [waitlistEmail, setWaitlistEmail] = useState('');
+  const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -103,9 +105,14 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
       await register(username, email, turnstileToken, marketingOptIn, termsAccepted);
       setStep(STEPS.CHECK_EMAIL);
     } catch (err) {
-      setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
-      setTurnstileToken('');
-      setTurnstileResetKey((k) => k + 1);
+      if (err?.response?.status === 403) {
+        setWaitlistEmail(email);
+        setStep(STEPS.WAITLIST);
+      } else {
+        setError(err?.response?.data?.error ?? 'Registration failed. Please try again.');
+        setTurnstileToken('');
+        setTurnstileResetKey((k) => k + 1);
+      }
     } finally {
       setLoading(false);
     }
@@ -149,6 +156,20 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
       setError(err?.response?.data?.error ?? 'Failed to set password. Please try again.');
       setSpTurnstileToken('');
       setSpTurnstileResetKey((k) => k + 1);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleWaitlistSubmit(event) {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await submitWaitlist(waitlistEmail);
+      setWaitlistSubmitted(true);
+    } catch (err) {
+      setError(err?.response?.data?.error ?? 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -446,6 +467,50 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               {loading ? 'Setting up...' : 'Complete registration'}
             </button>
           </form>
+        )}
+
+        {/* WAITLIST step */}
+        {step === STEPS.WAITLIST && (
+          <div className="card flex flex-col gap-4 text-center" data-testid="waitlist-step">
+            {!waitlistSubmitted ? (
+              <form onSubmit={handleWaitlistSubmit} className="flex flex-col gap-4">
+                <p className="text-sm font-semibold text-plex-text">Early access is full</p>
+                <p className="text-xs text-plex-text-secondary">
+                  We&apos;re currently at capacity. Leave your email and we&apos;ll notify you when a spot opens up.
+                </p>
+                <input
+                  type="email"
+                  data-testid="waitlist-email"
+                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  disabled={loading}
+                  required
+                />
+                {error && (
+                  <p className="text-xs text-red-400" role="alert" data-testid="waitlist-error">{error}</p>
+                )}
+                <button type="submit" className="btn-primary" data-testid="waitlist-submit" disabled={loading}>
+                  {loading ? 'Submitting...' : 'Notify me'}
+                </button>
+              </form>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-plex-text">You&apos;re on the list</p>
+                <p className="text-xs text-plex-text-secondary" data-testid="waitlist-success">
+                  We&apos;ll be in touch when a spot opens up.
+                </p>
+              </>
+            )}
+            <button
+              type="button"
+              className="text-xs text-plex-text-muted hover:text-plex-text"
+              onClick={onBackToLogin}
+            >
+              Back to sign in
+            </button>
+          </div>
         )}
 
         {/* SUCCESS step */}

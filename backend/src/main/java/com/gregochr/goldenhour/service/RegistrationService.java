@@ -1,7 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.RegistrationProperties;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EmailVerificationTokenEntity;
+import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import lombok.RequiredArgsConstructor;
@@ -33,9 +37,11 @@ public class RegistrationService {
     private static final int RATE_LIMIT_WINDOW_MINUTES = 5;
 
     private final UserService userService;
+    private final AppUserRepository userRepository;
     private final EmailVerificationTokenRepository tokenRepository;
     private final JwtService jwtService;
     private final UserEmailService userEmailService;
+    private final RegistrationProperties registrationProperties;
 
     /**
      * Registers a new pending user and sends a verification email.
@@ -44,11 +50,20 @@ public class RegistrationService {
      * @param email               the user's email address
      * @param marketingEmailOptIn whether the user opted in to marketing emails
      * @return the created pending user
-     * @throws IllegalArgumentException if the username or email is already taken
+     * @throws IllegalArgumentException      if the username or email is already taken
+     * @throws RegistrationClosedException   if the early-access cap has been reached
      */
     @Transactional
     public AppUserEntity register(String username, String email, boolean marketingEmailOptIn) {
-        AppUserEntity user = userService.createPendingUser(username, email, marketingEmailOptIn);
+        long nonAdminCount = userRepository.countByRoleNot(UserRole.ADMIN);
+        if (nonAdminCount >= registrationProperties.getMaxUsers()) {
+            LOG.info("Registration cap reached ({}/{}): rejecting username='{}'",
+                    nonAdminCount, registrationProperties.getMaxUsers(), username);
+            throw new RegistrationClosedException();
+        }
+
+        UserRole role = UserRole.valueOf(registrationProperties.getDefaultRole());
+        AppUserEntity user = userService.createPendingUser(username, email, marketingEmailOptIn, role);
 
         String rawToken = jwtService.generateRefreshToken();
         saveVerificationToken(rawToken, user.getId());

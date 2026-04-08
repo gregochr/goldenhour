@@ -61,6 +61,10 @@ app:
   frontend-base-url: http://localhost:5173
 server:
   port: 8082
+photocast:
+  registration:
+    max-users: 100
+
 logging:
   level:
     root: INFO

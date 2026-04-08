@@ -202,12 +202,14 @@ public class UserService implements UserDetailsService {
      * @param username            the desired login name (3–30 chars, alphanumeric/underscore/hyphen)
      * @param email               the user's email address
      * @param marketingEmailOptIn whether the user opted in to marketing emails
+     * @param role                the role to assign to the new user
      * @return the persisted pending {@link AppUserEntity}
      * @throws IllegalArgumentException if the username is taken or email is already registered
      *                                  by an active account
      */
     @Transactional
-    public AppUserEntity createPendingUser(String username, String email, boolean marketingEmailOptIn) {
+    public AppUserEntity createPendingUser(String username, String email, boolean marketingEmailOptIn,
+                                           UserRole role) {
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Username already exists");
         }
@@ -225,7 +227,7 @@ public class UserService implements UserDetailsService {
         AppUserEntity user = AppUserEntity.builder()
                 .username(username)
                 .password("")
-                .role(UserRole.LITE_USER)
+                .role(role)
                 .email(email)
                 .enabled(false)
                 .createdAt(LocalDateTime.now())

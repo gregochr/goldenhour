@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.UserRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
@@ -41,4 +42,14 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
      * @return an {@link Optional} containing the user, or empty if not found
      */
     Optional<AppUserEntity> findByEmail(String email);
+
+    /**
+     * Counts the number of users whose role is not the specified value.
+     *
+     * <p>Used to count non-admin users for the early-access registration cap.
+     *
+     * @param role the role to exclude from the count
+     * @return the number of users with a different role
+     */
+    long countByRoleNot(UserRole role);
 }

@@ -119,6 +119,12 @@ aurora:
     moderate: 4   # max Bortle class for MODERATE alerts
     strong: 5     # max Bortle class for STRONG alerts (relax threshold for bright displays)
 
+photocast:
+  registration:
+    max-users: 3             # early-access cap (excludes admin accounts)
+    default-role: PRO_USER   # role assigned to new self-registered users
+    enabled: true
+
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list
 

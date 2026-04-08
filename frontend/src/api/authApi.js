@@ -112,3 +112,14 @@ export async function setPasswordForNewUser(userId, password, turnstileToken) {
   const response = await axios.post(`${BASE_URL}/set-password`, { userId, password, turnstileToken });
   return response.data;
 }
+
+/**
+ * Submits an email address to the waitlist when early-access registration is full.
+ *
+ * @param {string} email - The email address to add to the waitlist.
+ * @returns {Promise<{message: string}>}
+ */
+export async function submitWaitlist(email) {
+  const response = await axios.post('/api/waitlist', { email });
+  return response.data;
+}

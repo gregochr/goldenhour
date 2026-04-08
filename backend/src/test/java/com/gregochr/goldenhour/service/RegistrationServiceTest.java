@@ -1,8 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.RegistrationProperties;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EmailVerificationTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
@@ -35,6 +38,9 @@ class RegistrationServiceTest {
     private UserService userService;
 
     @Mock
+    private AppUserRepository userRepository;
+
+    @Mock
     private EmailVerificationTokenRepository tokenRepository;
 
     @Mock
@@ -43,14 +49,26 @@ class RegistrationServiceTest {
     @Mock
     private UserEmailService userEmailService;
 
+    @Mock
+    private RegistrationProperties registrationProperties;
+
     @InjectMocks
     private RegistrationService registrationService;
+
+    /** Stubs the registration cap and default role for tests that call {@code register()}. */
+    private void stubRegistrationDefaults() {
+        when(registrationProperties.getMaxUsers()).thenReturn(10);
+        when(registrationProperties.getDefaultRole()).thenReturn("PRO_USER");
+        when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(0L);
+    }
 
     @Test
     @DisplayName("register creates pending user with opt-in, saves token, and sends verification email")
     void register_success() {
+        stubRegistrationDefaults();
         AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
-        when(userService.createPendingUser("alice", "alice@example.com", true)).thenReturn(pending);
+        when(userService.createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER))
+                .thenReturn(pending);
         when(jwtService.generateRefreshToken()).thenReturn("raw-token-uuid");
         when(jwtService.hashToken("raw-token-uuid")).thenReturn("hashed-token");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -58,7 +76,7 @@ class RegistrationServiceTest {
         AppUserEntity result = registrationService.register("alice", "alice@example.com", true);
 
         assertThat(result.getUsername()).isEqualTo("alice");
-        verify(userService).createPendingUser("alice", "alice@example.com", true);
+        verify(userService).createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER);
         verify(tokenRepository).save(any(EmailVerificationTokenEntity.class));
         verify(userEmailService).sendVerificationEmail("alice@example.com", "alice", "raw-token-uuid");
     }
@@ -66,21 +84,35 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("register passes marketing opt-out to createPendingUser")
     void register_optOut_passesMarketingOptInFalse() {
+        stubRegistrationDefaults();
         AppUserEntity pending = buildPendingUser(1L, "bob", "bob@example.com");
-        when(userService.createPendingUser("bob", "bob@example.com", false)).thenReturn(pending);
+        when(userService.createPendingUser("bob", "bob@example.com", false, UserRole.PRO_USER))
+                .thenReturn(pending);
         when(jwtService.generateRefreshToken()).thenReturn("raw-token-uuid");
         when(jwtService.hashToken("raw-token-uuid")).thenReturn("hashed-token");
         when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         registrationService.register("bob", "bob@example.com", false);
 
-        verify(userService).createPendingUser("bob", "bob@example.com", false);
+        verify(userService).createPendingUser("bob", "bob@example.com", false, UserRole.PRO_USER);
+    }
+
+    @Test
+    @DisplayName("register throws RegistrationClosedException when cap is reached")
+    void register_capReached_throws() {
+        when(registrationProperties.getMaxUsers()).thenReturn(3);
+        when(userRepository.countByRoleNot(UserRole.ADMIN)).thenReturn(3L);
+
+        assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
+                .isInstanceOf(RegistrationClosedException.class)
+                .hasMessage("Early access is currently full");
     }
 
     @Test
     @DisplayName("register propagates exception when username already exists")
     void register_duplicateUsername_throws() {
-        when(userService.createPendingUser("alice", "alice@example.com", true))
+        stubRegistrationDefaults();
+        when(userService.createPendingUser("alice", "alice@example.com", true, UserRole.PRO_USER))
                 .thenThrow(new IllegalArgumentException("Username already exists"));
 
         assertThatThrownBy(() -> registrationService.register("alice", "alice@example.com", true))
@@ -91,7 +123,8 @@ class RegistrationServiceTest {
     @Test
     @DisplayName("register propagates exception when email already registered")
     void register_duplicateEmail_throws() {
-        when(userService.createPendingUser("bob", "alice@example.com", true))
+        stubRegistrationDefaults();
+        when(userService.createPendingUser("bob", "alice@example.com", true, UserRole.PRO_USER))
                 .thenThrow(new IllegalArgumentException("Email already registered"));
 
         assertThatThrownBy(() -> registrationService.register("bob", "alice@example.com", true))

@@ -318,7 +318,7 @@ class UserServiceTest {
             when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("newuser", "new@example.com", true);
+            userService.createPendingUser("newuser", "new@example.com", true, UserRole.PRO_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -328,7 +328,7 @@ class UserServiceTest {
             assertThat(captured.getEmail()).isEqualTo("new@example.com");
             assertThat(captured.isEnabled()).isFalse();
             assertThat(captured.isMarketingEmailOptIn()).isTrue();
-            assertThat(captured.getRole()).isEqualTo(UserRole.LITE_USER);
+            assertThat(captured.getRole()).isEqualTo(UserRole.PRO_USER);
         }
 
         @Test
@@ -338,7 +338,7 @@ class UserServiceTest {
             when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("newuser", "new@example.com", true);
+            userService.createPendingUser("newuser", "new@example.com", true, UserRole.PRO_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -352,7 +352,7 @@ class UserServiceTest {
             when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("newuser", "new@example.com", true);
+            userService.createPendingUser("newuser", "new@example.com", true, UserRole.PRO_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -360,13 +360,13 @@ class UserServiceTest {
         }
 
         @Test
-        @DisplayName("sets role to LITE_USER regardless of other state")
-        void setsRole_LITE_USER() {
+        @DisplayName("uses the role passed by the caller")
+        void usesPassedRole() {
             when(userRepository.existsByUsername("newuser")).thenReturn(false);
             when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("newuser", "new@example.com", true);
+            userService.createPendingUser("newuser", "new@example.com", true, UserRole.LITE_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -380,7 +380,7 @@ class UserServiceTest {
             when(userRepository.findByEmail("bob@example.com")).thenReturn(Optional.empty());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("bob", "bob@example.com", false);
+            userService.createPendingUser("bob", "bob@example.com", false, UserRole.PRO_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -395,7 +395,7 @@ class UserServiceTest {
             when(userRepository.findByEmail("new@example.com")).thenReturn(Optional.empty());
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("newuser", "new@example.com", true);
+            userService.createPendingUser("newuser", "new@example.com", true, UserRole.PRO_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -410,7 +410,7 @@ class UserServiceTest {
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             java.time.Instant before = java.time.Instant.now();
-            userService.createPendingUser("newuser", "new@example.com", true);
+            userService.createPendingUser("newuser", "new@example.com", true, UserRole.PRO_USER);
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -425,7 +425,8 @@ class UserServiceTest {
         void duplicateUsername_throws() {
             when(userRepository.existsByUsername("alice")).thenReturn(true);
 
-            assertThatThrownBy(() -> userService.createPendingUser("alice", "alice@example.com", true))
+            assertThatThrownBy(() -> userService.createPendingUser("alice", "alice@example.com", true,
+                    UserRole.PRO_USER))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Username already exists");
         }
@@ -439,7 +440,8 @@ class UserServiceTest {
             active.setPassword("hashed");
             when(userRepository.findByEmail("taken@example.com")).thenReturn(Optional.of(active));
 
-            assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com", true))
+            assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com", true,
+                    UserRole.PRO_USER))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Email already registered");
         }
@@ -454,7 +456,7 @@ class UserServiceTest {
             when(userRepository.findByEmail("reuse@example.com")).thenReturn(Optional.of(abandoned));
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-            userService.createPendingUser("newuser", "reuse@example.com", true);
+            userService.createPendingUser("newuser", "reuse@example.com", true, UserRole.PRO_USER);
 
             verify(userRepository).delete(abandoned);
 

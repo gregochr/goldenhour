@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -43,6 +44,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoSuchElementException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ErrorResponse handleNotFound(NoSuchElementException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link RegistrationClosedException} to HTTP 403 when the early-access cap is reached.
+     *
+     * @param ex the exception
+     * @return an error response body
+     */
+    @ExceptionHandler(RegistrationClosedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ErrorResponse handleRegistrationClosed(RegistrationClosedException ex) {
         return new ErrorResponse(ex.getMessage());
     }
 
