@@ -166,6 +166,9 @@ export default function UserManagementView() {
   // Delete state
   const [deleteError, setDeleteError] = useState('');
 
+  // Expandable detail row state
+  const [expandedUserId, setExpandedUserId] = useState(null);
+
   // Resend verification state
   const [resendLoadingId, setResendLoadingId] = useState(null);
   const [resendError, setResendError] = useState('');
@@ -423,11 +426,14 @@ export default function UserManagementView() {
               <table className="w-full text-sm text-left table-fixed" data-testid="users-table">
                 <thead>
                   <tr className="text-xs text-plex-text-muted border-b border-plex-border">
-                    <SortableHeader label="Username" sortKey="username" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
-                    <SortableHeader label="Email" sortKey="email" className="w-[22%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
+                    <th className="pb-1 font-medium align-top w-[3%]">
+                      <div className="h-[26px]" />
+                    </th>
+                    <SortableHeader label="Username" sortKey="username" className="w-[13%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('username')} onFilter={(v) => sf.setFilter('username', v)} />
+                    <SortableHeader label="Email" sortKey="email" className="w-[21%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('email')} onFilter={(v) => sf.setFilter('email', v)} />
                     <SortableHeader label="Role" sortKey="role" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('role')} onFilter={(v) => sf.setFilter('role', v)} />
                     <SortableHeader label="Created" sortKey="created" className="w-[11%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('created')} onFilter={(v) => sf.setFilter('created', v)} />
-                    <SortableHeader label="Last Active" sortKey="lastActive" className="w-[14%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
+                    <SortableHeader label="Last Active" sortKey="lastActive" className="w-[13%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('lastActive')} onFilter={(v) => sf.setFilter('lastActive', v)} />
                     <SortableHeader label="Status" sortKey="status" className="w-[10%]" currentSortKey={sf.sortKey} currentSortDir={sf.sortDir} onSort={sf.handleSort} filterValue={sf.getFilterValue('status')} onFilter={(v) => sf.setFilter('status', v)} />
                     <th className="pb-1 font-medium align-top w-[19%]">
                       <span className="text-xs text-plex-text-muted whitespace-nowrap">Actions</span>
@@ -437,78 +443,131 @@ export default function UserManagementView() {
                 </thead>
                 <tbody>
                   {pageUsers.map((user) => (
-                    <tr key={user.id} className={`border-b border-plex-surface last:border-0 ${!user.enabled ? 'opacity-50' : ''}`}>
-                      <td className="py-2 text-plex-text truncate" title={user.username}>{user.username}</td>
-                      <td className="py-2 text-plex-text-secondary text-xs truncate" title={user.email || ''}>{user.email || '—'}</td>
-                      <td className="py-2">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          user.role === 'ADMIN'
-                            ? 'bg-plex-gold/20 text-plex-gold'
-                            : 'bg-plex-surface-light text-plex-text-secondary'
-                        }`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="py-2 text-plex-text-muted text-xs">
-                        {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
-                      </td>
-                      <td className="py-2 text-plex-text-muted text-xs">
-                        {user.lastActiveAt ? user.lastActiveAt.slice(0, 16).replace('T', ' ') : 'Never'}
-                      </td>
-                      <td className="py-2">
-                        <button
-                          onClick={() => handleToggleEnabled(user)}
-                          className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
-                            user.enabled
-                              ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
-                              : 'bg-red-900/40 text-red-400 hover:bg-red-900/60'
-                          }`}
-                          data-testid={`toggle-user-enabled-${user.id}`}
-                        >
-                          {user.enabled ? 'Enabled' : 'Disabled'}
-                        </button>
-                      </td>
-                      <td className="py-2">
-                        <div className="flex gap-1">
+                    <React.Fragment key={user.id}>
+                      <tr className={`border-b border-plex-surface last:border-0 ${!user.enabled ? 'opacity-50' : ''}`}>
+                        <td className="py-2 text-center">
                           <button
-                            className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
-                            onClick={() => handleStartEdit(user)}
-                            data-testid={`edit-user-${user.id}`}
+                            type="button"
+                            onClick={() => setExpandedUserId(expandedUserId === user.id ? null : user.id)}
+                            className="text-plex-text-muted hover:text-plex-text cursor-pointer text-xs leading-none"
+                            aria-label={expandedUserId === user.id ? 'Collapse details' : 'Expand details'}
+                            data-testid={`expand-user-${user.id}`}
                           >
-                            Edit
+                            {expandedUserId === user.id ? '▼' : '▶'}
                           </button>
+                        </td>
+                        <td className="py-2 text-plex-text truncate" title={user.username}>{user.username}</td>
+                        <td className="py-2 text-plex-text-secondary text-xs truncate" title={user.email || ''}>{user.email || '—'}</td>
+                        <td className="py-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            user.role === 'ADMIN'
+                              ? 'bg-plex-gold/20 text-plex-gold'
+                              : 'bg-plex-surface-light text-plex-text-secondary'
+                          }`}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="py-2 text-plex-text-muted text-xs">
+                          {user.createdAt ? user.createdAt.slice(0, 10) : '—'}
+                        </td>
+                        <td className="py-2 text-plex-text-muted text-xs">
+                          {user.lastActiveAt ? user.lastActiveAt.slice(0, 16).replace('T', ' ') : 'Never'}
+                        </td>
+                        <td className="py-2">
                           <button
-                            className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={() => handleResetPassword(user)}
-                            disabled={resetPasswordLoadingId === user.id}
-                            data-testid={`reset-password-${user.id}`}
+                            onClick={() => handleToggleEnabled(user)}
+                            className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
+                              user.enabled
+                                ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
+                                : 'bg-red-900/40 text-red-400 hover:bg-red-900/60'
+                            }`}
+                            data-testid={`toggle-user-enabled-${user.id}`}
                           >
-                            {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Reset PW'}
+                            {user.enabled ? 'Enabled' : 'Disabled'}
                           </button>
-                          {!user.enabled && user.email && (
+                        </td>
+                        <td className="py-2">
+                          <div className="flex gap-1">
                             <button
-                              className="text-xs px-2 py-0.5 rounded bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                              onClick={() => handleResendVerification(user)}
-                              disabled={resendLoadingId === user.id}
-                              data-testid={`resend-verify-${user.id}`}
+                              className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
+                              onClick={() => handleStartEdit(user)}
+                              data-testid={`edit-user-${user.id}`}
                             >
-                              {resendLoadingId === user.id ? 'Sending...' : 'Resend Verify'}
+                              Edit
                             </button>
-                          )}
-                          <button
-                            className="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-400 hover:bg-red-900/60 hover:text-red-300"
-                            onClick={() => handleDeleteUser(user)}
-                            data-testid={`delete-user-${user.id}`}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                            <button
+                              className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => handleResetPassword(user)}
+                              disabled={resetPasswordLoadingId === user.id}
+                              data-testid={`reset-password-${user.id}`}
+                            >
+                              {resetPasswordLoadingId === user.id ? 'Resetting...' : 'Reset PW'}
+                            </button>
+                            {!user.enabled && user.email && (
+                              <button
+                                className="text-xs px-2 py-0.5 rounded bg-blue-900/40 text-blue-400 hover:bg-blue-900/60 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                onClick={() => handleResendVerification(user)}
+                                disabled={resendLoadingId === user.id}
+                                data-testid={`resend-verify-${user.id}`}
+                              >
+                                {resendLoadingId === user.id ? 'Sending...' : 'Resend Verify'}
+                              </button>
+                            )}
+                            <button
+                              className="text-xs px-2 py-0.5 rounded bg-red-900/40 text-red-400 hover:bg-red-900/60 hover:text-red-300"
+                              onClick={() => handleDeleteUser(user)}
+                              data-testid={`delete-user-${user.id}`}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandedUserId === user.id && (
+                        <tr className="border-b border-plex-surface" data-testid={`user-detail-${user.id}`}>
+                          <td colSpan={8} className="py-3 px-4 bg-plex-surface-light/50">
+                            <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
+                              <div className="flex gap-x-4">
+                                <span className="text-plex-text-muted font-medium">Legal</span>
+                                <span>
+                                  <span className="text-plex-text-muted">Terms accepted: </span>
+                                  <span data-testid={`terms-accepted-${user.id}`}>
+                                    {user.termsAcceptedAt
+                                      ? new Date(user.termsAcceptedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                                      : <span className="text-plex-text-muted">Not accepted</span>}
+                                  </span>
+                                </span>
+                                <span>
+                                  <span className="text-plex-text-muted">Terms version: </span>
+                                  <span data-testid={`terms-version-${user.id}`}>
+                                    {user.termsVersion || <span className="text-plex-text-muted">&mdash;</span>}
+                                  </span>
+                                </span>
+                              </div>
+                              <div className="flex gap-x-4">
+                                <span className="text-plex-text-muted font-medium">Preferences</span>
+                                <span>
+                                  <span className="text-plex-text-muted">Home postcode: </span>
+                                  <span data-testid={`home-postcode-${user.id}`}>
+                                    {user.homePostcode || <span className="text-plex-text-muted">Not set</span>}
+                                  </span>
+                                </span>
+                                <span>
+                                  <span className="text-plex-text-muted">Marketing emails: </span>
+                                  <span data-testid={`marketing-emails-${user.id}`}>
+                                    {user.marketingEmailOptIn ? 'Yes' : 'No'}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                   {filteredUsers.length === 0 && users.length > 0 && (
                     <tr>
-                      <td colSpan={7} className="py-4 text-center text-xs text-plex-text-muted">
+                      <td colSpan={8} className="py-4 text-center text-xs text-plex-text-muted">
                         No users match the current filters.
                       </td>
                     </tr>
@@ -516,7 +575,7 @@ export default function UserManagementView() {
                   {pageUsers.length > 0 && pageUsers.length < pagination.pageSize && (
                     Array.from({ length: pagination.pageSize - pageUsers.length }, (_, i) => (
                       <tr key={`spacer-${i}`} aria-hidden="true">
-                        <td colSpan={7} className="py-2 text-sm">&nbsp;</td>
+                        <td colSpan={8} className="py-2 text-sm">&nbsp;</td>
                       </tr>
                     ))
                   )}

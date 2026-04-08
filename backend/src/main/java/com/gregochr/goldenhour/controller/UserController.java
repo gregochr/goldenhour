@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -274,6 +275,11 @@ public class UserController {
         summary.put("enabled", user.isEnabled());
         summary.put("createdAt", createdAt != null ? createdAt.toString() : "");
         summary.put("lastActiveAt", lastActiveAt != null ? lastActiveAt.toString() : "");
+        Instant termsAcceptedAt = user.getTermsAcceptedAt();
+        summary.put("termsAcceptedAt", termsAcceptedAt != null ? termsAcceptedAt.toString() : null);
+        summary.put("termsVersion", user.getTermsVersion());
+        summary.put("homePostcode", user.getHomePostcode());
+        summary.put("marketingEmailOptIn", user.isMarketingEmailOptIn());
         return summary;
     }
 }

@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -399,6 +400,39 @@ class UserControllerTest {
     void resendVerification_asLiteUser_returns403() throws Exception {
         mockMvc.perform(post("/api/users/1/resend-verification"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users includes termsAcceptedAt, termsVersion, homePostcode, and marketingEmailOptIn")
+    void getUsers_includesNewDetailFields() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.PRO_USER);
+        user.setTermsAcceptedAt(Instant.parse("2026-04-07T10:00:00Z"));
+        user.setTermsVersion("April 2026");
+        user.setHomePostcode("NE1 7RU");
+        user.setMarketingEmailOptIn(true);
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].termsAcceptedAt").value("2026-04-07T10:00:00Z"))
+                .andExpect(jsonPath("$[0].termsVersion").value("April 2026"))
+                .andExpect(jsonPath("$[0].homePostcode").value("NE1 7RU"))
+                .andExpect(jsonPath("$[0].marketingEmailOptIn").value(true));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users returns null detail fields when not set")
+    void getUsers_nullDetailFields_whenNotSet() throws Exception {
+        when(userService.listAllUsers()).thenReturn(List.of(buildUser(1L, "bob", UserRole.LITE_USER)));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].termsAcceptedAt").doesNotExist())
+                .andExpect(jsonPath("$[0].termsVersion").doesNotExist())
+                .andExpect(jsonPath("$[0].homePostcode").doesNotExist())
+                .andExpect(jsonPath("$[0].marketingEmailOptIn").value(true));
     }
 
     // --- DELETE /api/users/{id} endpoint ---

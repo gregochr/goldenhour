@@ -23,6 +23,10 @@ function makeMockUsers(count) {
     enabled: true,
     createdAt: '2026-01-01T00:00:00',
     lastActiveAt: null,
+    termsAcceptedAt: null,
+    termsVersion: null,
+    homePostcode: null,
+    marketingEmailOptIn: false,
   }));
 }
 
@@ -81,6 +85,75 @@ describe('UserManagementView', () => {
     });
 
     expect(screen.queryByTestId('pagination')).not.toBeInTheDocument();
+  });
+
+  it('expands detail panel showing new fields when chevron clicked', async () => {
+    const users = [{
+      id: 1,
+      username: 'alice',
+      email: 'alice@example.com',
+      role: 'PRO_USER',
+      enabled: true,
+      createdAt: '2026-01-01T00:00:00',
+      lastActiveAt: null,
+      termsAcceptedAt: '2026-04-07T10:00:00Z',
+      termsVersion: 'April 2026',
+      homePostcode: 'NE1 7RU',
+      marketingEmailOptIn: true,
+    }];
+    axios.get.mockResolvedValue({ data: users });
+
+    render(<UserManagementView />);
+
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+
+    // Detail row should not be visible before expanding
+    expect(screen.queryByTestId('user-detail-1')).not.toBeInTheDocument();
+
+    // Click the expand chevron
+    fireEvent.click(screen.getByTestId('expand-user-1'));
+
+    expect(screen.getByTestId('user-detail-1')).toBeInTheDocument();
+    expect(screen.getByTestId('terms-accepted-1')).toHaveTextContent('7 Apr 2026');
+    expect(screen.getByTestId('terms-version-1')).toHaveTextContent('April 2026');
+    expect(screen.getByTestId('home-postcode-1')).toHaveTextContent('NE1 7RU');
+    expect(screen.getByTestId('marketing-emails-1')).toHaveTextContent('Yes');
+
+    // Click again to collapse
+    fireEvent.click(screen.getByTestId('expand-user-1'));
+    expect(screen.queryByTestId('user-detail-1')).not.toBeInTheDocument();
+  });
+
+  it('shows fallback text for null detail fields', async () => {
+    const users = [{
+      id: 1,
+      username: 'bob',
+      email: 'bob@example.com',
+      role: 'LITE_USER',
+      enabled: true,
+      createdAt: '2026-01-01T00:00:00',
+      lastActiveAt: null,
+      termsAcceptedAt: null,
+      termsVersion: null,
+      homePostcode: null,
+      marketingEmailOptIn: false,
+    }];
+    axios.get.mockResolvedValue({ data: users });
+
+    render(<UserManagementView />);
+
+    await waitFor(() => {
+      expect(screen.getByText('bob')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('expand-user-1'));
+
+    expect(screen.getByTestId('terms-accepted-1')).toHaveTextContent('Not accepted');
+    expect(screen.getByTestId('terms-version-1')).toHaveTextContent('—');
+    expect(screen.getByTestId('home-postcode-1')).toHaveTextContent('Not set');
+    expect(screen.getByTestId('marketing-emails-1')).toHaveTextContent('No');
   });
 
   it('shows Add New User form when button clicked', async () => {
