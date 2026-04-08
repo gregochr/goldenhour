@@ -1108,6 +1108,37 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("prefetchWeatherBatch() omits locations with null forecast entry from cache")
+    void prefetchWeatherBatch_nullForecastEntry_omittedFromCache() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        OpenMeteoAirQualityResponse aq1 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+        OpenMeteoAirQualityResponse aq2 = buildAirQualityResponse(
+                List.of("2026-06-21T06:00"), List.of(5.0), List.of(10.0), List.of(0.1));
+
+        List<double[]> coords = List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0});
+        // First coord has a valid forecast; second's chunk failed and was left as null
+        when(openMeteoClient.fetchForecastBatch(
+                org.mockito.ArgumentMatchers.argThat(
+                        (java.util.List<double[]> c) -> c.size() == 2)))
+                .thenReturn(java.util.Arrays.asList(f1, null));
+        when(openMeteoClient.fetchAirQualityBatch(
+                org.mockito.ArgumentMatchers.argThat(
+                        (java.util.List<double[]> c) -> c.size() == 2)))
+                .thenReturn(List.of(aq1, aq2));
+
+        var cache = openMeteoService.prefetchWeatherBatch(coords, null);
+
+        assertThat(cache).hasSize(1);
+        assertThat(cache).containsKey("55.0,-1.5");
+        assertThat(cache).doesNotContainKey("54.0,-2.0");
+        assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
+    }
+
+    @Test
     @DisplayName("getAtmosphericDataFromCache() does not call individual weather APIs")
     void getAtmosphericDataFromCache_doesNotCallApi() {
         OpenMeteoForecastResponse forecast = buildForecastResponse(
@@ -1279,6 +1310,29 @@ class OpenMeteoServiceTest {
                         List.of(new double[]{54.77, -1.58}), null);
 
         assertThat(cache.size()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() omits grid cells whose batch entry is null")
+    void prefetchCloudBatch_nullEntry_omittedFromCache() {
+        OpenMeteoForecastResponse r1 = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(20), List.of(10), List.of(5));
+
+        List<double[]> points = List.of(
+                new double[]{54.77, -1.58},
+                new double[]{55.90, -2.10});
+
+        when(openMeteoClient.fetchCloudOnlyBatch(
+                org.mockito.ArgumentMatchers.argThat(
+                        (java.util.List<double[]> coords) -> coords.size() == 2)))
+                .thenReturn(java.util.Arrays.asList(r1, null));
+
+        com.gregochr.goldenhour.model.CloudPointCache cache =
+                openMeteoService.prefetchCloudBatch(points, null);
+
+        assertThat(cache.size()).isEqualTo(1);
+        assertThat(cache.get(54.77, -1.58)).isSameAs(r1);
+        assertThat(cache.get(55.90, -2.10)).isNull();
     }
 
     // --- fetchDirectionalCloudDataFromCache tests ---

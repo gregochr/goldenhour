@@ -55,6 +55,26 @@ class WeatherTriageServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
+    @DisplayName("null batch entries use defaultCloud — location treated as overcast and rejected")
+    void triage_nullEntryInBatch_treatedAsDefaultCloud() {
+        // One location → 3 northward transect points → batch has exactly 3 coords.
+        // All 3 batch entries are null → defaultCloud (75%) for every transect point
+        // → averagedHourly all 75% → no viable hour → rejected.
+        LocationEntity loc = buildLocation(11L, "Loc A", 55.0, -2.0, 2);
+
+        when(openMeteoClient.fetchCloudOnlyBatch(
+                org.mockito.ArgumentMatchers.argThat(
+                        (java.util.List<double[]> coords) -> coords.size() == 3)))
+                .thenReturn(java.util.Arrays.asList(null, null, null));
+
+        WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+        assertThat(result.rejected()).containsExactly(loc);
+        assertThat(result.viable()).isEmpty();
+        assertThat(result.cloudByLocation().get(loc)).isEqualTo(75);
+    }
+
+    @Test
     @DisplayName("triage rejects location when batch fetch throws exception")
     void triage_httpException_locationRejected() {
         when(openMeteoClient.fetchCloudOnlyBatch(any()))

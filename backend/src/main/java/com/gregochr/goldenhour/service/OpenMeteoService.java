@@ -211,15 +211,24 @@ public class OpenMeteoService {
             List<OpenMeteoAirQualityResponse> airQualities = openMeteoClient.fetchAirQualityBatch(coords);
 
             Map<String, WeatherExtractionResult> cache = new LinkedHashMap<>();
+            int nullCount = 0;
             for (int i = 0; i < coords.size(); i++) {
+                if (forecasts.get(i) == null) {
+                    nullCount++;
+                    continue;
+                }
                 String key = coordKey(coords.get(i)[0], coords.get(i)[1]);
                 cache.put(key, new WeatherExtractionResult(null, forecasts.get(i),
                         airQualities.get(i)));
             }
 
             long durationMs = System.currentTimeMillis() - startMs;
-            LOG.info("Open-Meteo batch prefetch complete: {} locations in {}ms (2 API calls)",
-                    coords.size(), durationMs);
+            LOG.info("Open-Meteo batch prefetch complete: {}/{} locations in {}ms (2 API calls)",
+                    cache.size(), coords.size(), durationMs);
+            if (nullCount > 0) {
+                LOG.warn("Weather batch: {} location(s) missing forecast due to chunk failure",
+                        nullCount);
+            }
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
                         "GET", "batch-forecast(" + coords.size() + ")", null, durationMs,
@@ -373,13 +382,22 @@ public class OpenMeteoService {
                     openMeteoClient.fetchCloudOnlyBatch(coords);
 
             Map<String, OpenMeteoForecastResponse> cacheMap = new LinkedHashMap<>();
+            int nullCount = 0;
             for (int i = 0; i < gridKeys.size(); i++) {
-                cacheMap.put(gridKeys.get(i), responses.get(i));
+                if (responses.get(i) != null) {
+                    cacheMap.put(gridKeys.get(i), responses.get(i));
+                } else {
+                    nullCount++;
+                }
             }
 
             long durationMs = System.currentTimeMillis() - startMs;
-            LOG.info("Cloud batch prefetch complete: {} grid cells in {}ms (1 API call)",
-                    coords.size(), durationMs);
+            LOG.info("Cloud batch prefetch complete: {}/{} grid cells populated in {}ms (1 API call)",
+                    cacheMap.size(), coords.size(), durationMs);
+            if (nullCount > 0) {
+                LOG.warn("Cloud batch: {} grid cell(s) missing due to chunk failure — "
+                        + "affected locations will fall back to cached data", nullCount);
+            }
             if (jobRun != null) {
                 jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
                         "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,

@@ -18,9 +18,11 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
@@ -63,6 +65,9 @@ public class BriefingService {
     private final ApplicationEventPublisher eventPublisher;
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
     private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
+
+    @Autowired(required = false)
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     /**
      * Constructs a {@code BriefingService}.
@@ -165,6 +170,7 @@ public class BriefingService {
      */
     public void refreshBriefing() {
         LOG.info("Daily briefing refresh started");
+        long briefingStart = System.currentTimeMillis();
         JobRunEntity jobRun = jobRunService.startRun(RunType.BRIEFING, false, null);
 
         List<LocationEntity> colourLocations = locationService.findAllEnabled().stream()
@@ -224,6 +230,9 @@ public class BriefingService {
         int total = succeeded + failed;
         boolean aboveThreshold = total == 0 || (succeeded * 100 / total) >= 50;
 
+        long totalMs = System.currentTimeMillis() - briefingStart;
+        String circuit = circuitState();
+
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
@@ -234,8 +243,8 @@ public class BriefingService {
             persistBriefing(response);
             eventPublisher.publishEvent(new BriefingRefreshedEvent(this));
             jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            LOG.info("Briefing complete: {}/{} succeeded, {} failed, stale=false",
-                    succeeded, total, failed);
+            LOG.info("Briefing complete: {}/{} succeeded, {} failed, stale=false, circuit={}, duration={}ms",
+                    succeeded, total, failed, circuit, totalMs);
         } else {
             DailyBriefingResponse lkg = lastKnownGood.get();
             if (lkg != null) {
@@ -245,17 +254,30 @@ public class BriefingService {
                         lkg.bestBetModel());
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
-                        + "serving stale=true (LKG from {})", succeeded, total, failed, lkg.generatedAt());
+                        + "serving stale=true (LKG from {}), circuit={}, duration={}ms",
+                        succeeded, total, failed, lkg.generatedAt(), circuit, totalMs);
             } else {
                 DailyBriefingResponse response = new DailyBriefingResponse(
                         LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                         auroraTonight, auroraTomorrow, false, partialFailure, failed,
                         bestBetAdvisor.getModelDisplayName());
                 cache.set(response);
-                LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, no LKG; using partial",
-                        succeeded, total, failed);
+                LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, "
+                        + "no LKG; using partial, circuit={}, duration={}ms",
+                        succeeded, total, failed, circuit, totalMs);
             }
             jobRunService.completeRun(jobRun, succeeded, failed, dates);
+        }
+    }
+
+    private String circuitState() {
+        if (circuitBreakerRegistry == null) {
+            return "UNKNOWN";
+        }
+        try {
+            return circuitBreakerRegistry.circuitBreaker("open-meteo-briefing").getState().name();
+        } catch (Exception e) {
+            return "UNKNOWN";
         }
     }
 
@@ -339,8 +361,8 @@ public class BriefingService {
                     openMeteoClient.fetchForecastBriefingBatch(coords);
             long durationMs = System.currentTimeMillis() - startMs;
             long populated = responses.stream().filter(r -> r != null).count();
-            LOG.info("Briefing weather fetch complete: {}/{} forecasts returned",
-                    populated, coords.size());
+            LOG.info("Briefing weather fetch complete: {}/{} forecasts returned ({}ms)",
+                    populated, coords.size(), durationMs);
             jobRunService.logApiCall(jobRun.getId(),
                     com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
                     "GET", "briefing-forecast-batch(" + coords.size() + ")", null,

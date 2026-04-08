@@ -94,10 +94,18 @@ public class WeatherTriageService {
         }
         try {
             List<OpenMeteoForecastResponse> responses = openMeteoClient.fetchCloudOnlyBatch(coords);
+            int nullCount = 0;
             for (int i = 0; i < gridKeys.size(); i++) {
-                gridKeyToCloud.put(gridKeys.get(i), extractWindowCloud(responses.get(i)));
+                OpenMeteoForecastResponse r = responses.get(i);
+                if (r != null) {
+                    gridKeyToCloud.put(gridKeys.get(i), extractWindowCloud(r));
+                } else {
+                    gridKeyToCloud.put(gridKeys.get(i), defaultCloud());
+                    nullCount++;
+                }
             }
-            LOG.info("Aurora triage batch fetch: {} grid points in 1 call", coords.size());
+            LOG.info("Aurora triage batch fetch: {} grid points, {} failed (using defaults)",
+                    coords.size(), nullCount);
         } catch (Exception e) {
             LOG.warn("Aurora triage batch fetch failed, using defaults: {}", e.getMessage());
             for (String key : gridKeys) {

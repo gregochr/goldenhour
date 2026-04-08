@@ -155,7 +155,9 @@ public class AstroConditionsService {
                     openMeteoClient.fetchForecastBatch(coords);
             Map<String, OpenMeteoForecastResponse> cache = new HashMap<>();
             for (int i = 0; i < keys.size(); i++) {
-                cache.put(keys.get(i), responses.get(i));
+                if (responses.get(i) != null) {
+                    cache.put(keys.get(i), responses.get(i));
+                }
             }
             return cache;
         } catch (Exception e) {

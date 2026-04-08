@@ -7,10 +7,13 @@ import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.github.resilience4j.retry.annotation.Retry;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -94,6 +97,27 @@ public class OpenMeteoClient {
      * Production code always reads {@link #RATE_LIMIT_BACKOFF_MS}.
      */
     long rateLimitBackoffMs = RATE_LIMIT_BACKOFF_MS;
+
+    @Autowired(required = false)
+    private RateLimiterRegistry rateLimiterRegistry;
+
+    /**
+     * Registers a WARN-level log listener for rate limiter rejections on startup.
+     *
+     * <p>When the {@code open-meteo} rate limiter rejects a call (e.g. because Open-Meteo's
+     * minutely quota has been exhausted), Resilience4j throws {@code RequestNotPermitted}.
+     * Without this listener that event is silent at the call site. This listener surfaces
+     * every rejection so that recurring rate-limit pressure is visible in logs.
+     */
+    @PostConstruct
+    void registerRateLimiterEventLogging() {
+        if (rateLimiterRegistry == null) {
+            return;
+        }
+        rateLimiterRegistry.rateLimiter("open-meteo")
+                .getEventPublisher()
+                .onFailure(event -> LOG.warn("Open-Meteo rate limiter REJECTED a call: {}", event));
+    }
 
     /**
      * Constructs an {@code OpenMeteoClient}.
@@ -192,8 +216,12 @@ public class OpenMeteoClient {
      * a JSON array (for 2+ points) or a single object (for 1 point). This method
      * handles both cases transparently.
      *
+     * <p>For large inputs the request is split into chunks of {@value #BATCH_COORD_LIMIT}.
+     * Failed chunks leave {@code null} entries at their positions in the returned list.
+     * Callers must guard against {@code null} entries.
+     *
      * @param coords list of [lat, lon] pairs
-     * @return list of responses in the same order as the input coordinates
+     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
      */
     @Retry(name = "open-meteo")
     @CircuitBreaker(name = "open-meteo")
@@ -205,8 +233,12 @@ public class OpenMeteoClient {
     /**
      * Fetches full forecast data for multiple points in a single API call.
      *
+     * <p>For large inputs the request is split into chunks of {@value #BATCH_COORD_LIMIT}.
+     * Failed chunks leave {@code null} entries at their positions in the returned list.
+     * Callers must guard against {@code null} entries.
+     *
      * @param coords list of [lat, lon] pairs
-     * @return list of responses in the same order as the input coordinates
+     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
      */
     @Retry(name = "open-meteo")
     @CircuitBreaker(name = "open-meteo")
@@ -331,22 +363,64 @@ public class OpenMeteoClient {
     }
 
     /**
-     * Internal batch forecast fetch — shared by cloud-only, full forecast, and briefing methods.
-     * Transparently chunks into batches of {@value #BATCH_COORD_LIMIT} to avoid HTTP 414 errors.
+     * Internal batch forecast fetch — shared by cloud-only and full forecast batch methods.
+     *
+     * <p>Chunks input into batches of {@value #BATCH_COORD_LIMIT} to avoid HTTP 414 errors.
+     * Each chunk is wrapped in a try-catch so that one failed chunk does not discard the
+     * results of chunks that already succeeded. Failed chunks leave {@code null} entries at
+     * their positions. If a 429 rate-limit response is detected, a {@value #RATE_LIMIT_BACKOFF_MS}
+     * ms backoff is applied before the next chunk. Callers must guard against {@code null} entries.
+     *
+     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
      */
     private List<OpenMeteoForecastResponse> fetchForecastBatchInternal(
             List<double[]> coords, String hourlyParams, RestClient client) {
         if (coords.size() <= BATCH_COORD_LIMIT) {
             return fetchForecastChunk(coords, hourlyParams, client);
         }
-        List<OpenMeteoForecastResponse> results = new ArrayList<>();
+
+        int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
+        int succeededChunks = 0;
+        boolean hitRateLimit = false;
+
+        // Pre-fill with nulls — failed chunk positions remain null
+        List<OpenMeteoForecastResponse> results =
+                new ArrayList<>(Collections.nCopies(coords.size(), null));
+
         for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            int chunkIndex = i / BATCH_COORD_LIMIT + 1;
+
             if (i > 0) {
-                sleepQuietly(interChunkDelayMs);
+                long delay = hitRateLimit ? rateLimitBackoffMs : interChunkDelayMs;
+                sleepQuietly(delay);
             }
-            List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
-            results.addAll(fetchForecastChunk(chunk, hourlyParams, client));
+
+            int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
+            List<double[]> chunk = coords.subList(i, end);
+            try {
+                List<OpenMeteoForecastResponse> chunkResults =
+                        fetchForecastChunk(chunk, hourlyParams, client);
+                for (int j = 0; j < chunkResults.size(); j++) {
+                    results.set(i + j, chunkResults.get(j));
+                }
+                succeededChunks++;
+                hitRateLimit = false;
+            } catch (Exception e) {
+                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                LOG.warn("Open-Meteo batch chunk {}/{} failed ({} coords): {}",
+                        chunkIndex, totalChunks, chunk.size(), reason);
+                if (reason.contains("429")) {
+                    hitRateLimit = true;
+                    LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
+                            rateLimitBackoffMs / 1000);
+                }
+            }
         }
+
+        long populated = results.stream().filter(r -> r != null).count();
+        LOG.info("Open-Meteo batch complete: {}/{} chunks succeeded, {}/{} responses populated",
+                succeededChunks, totalChunks, populated, coords.size());
+
         return results;
     }
 

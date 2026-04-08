@@ -572,6 +572,31 @@ class AstroConditionsServiceTest {
             verify(astroConditionsRepository).findByForecastDateIn(dates);
             verify(astroConditionsRepository).saveAll(any());
         }
+
+        @Test
+        @DisplayName("Null forecast entry in batch — location not in cache and not scored")
+        void nullForecastEntry_locationNotScored() {
+            List<LocalDate> dates = List.of(LocalDate.of(2026, 6, 21));
+            LocationEntity location = buildLocation(1L, "Kielder", 2);
+            when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                    .thenReturn(List.of(location));
+
+            when(solarService.nauticalDuskUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.of(2026, 6, 21, 21, 30));
+            when(solarService.nauticalDawnUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.of(2026, 6, 22, 3, 0));
+
+            // Batch returns a single null entry — simulates a failed chunk for this location
+            when(openMeteoClient.fetchForecastBatch(
+                    org.mockito.ArgumentMatchers.argThat(
+                            (java.util.List<double[]> coords) -> coords.size() == 1)))
+                    .thenReturn(java.util.Arrays.asList((OpenMeteoForecastResponse) null));
+
+            int result = service.evaluateAndPersist(dates);
+
+            // No forecast → location skipped → nothing persisted
+            assertThat(result).isZero();
+        }
     }
 
     // -------------------------------------------------------------------------
