@@ -541,6 +541,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
     + (driveTimeFilter > 0 ? 1 : 0)
     + (darkSkyFilter ? 1 : 0);
 
+  console.log('userDriveTimes:', userDriveTimes);
+  console.log('sample lookup:', userDriveTimes[String(locations[0]?.id)]);
+
   return (
     <div className="flex flex-col gap-4">
       {/* Primary row: event type toggles + Filters disclosure button */}
