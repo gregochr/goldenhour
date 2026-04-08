@@ -541,9 +541,6 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
     + (driveTimeFilter > 0 ? 1 : 0)
     + (darkSkyFilter ? 1 : 0);
 
-  console.log('userDriveTimes:', userDriveTimes);
-  console.log('sample lookup:', userDriveTimes[String(locations[0]?.id)]);
-
   return (
     <div className="flex flex-col gap-4">
       {/* Primary row: event type toggles + Filters disclosure button */}
@@ -807,6 +804,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                     <Popup maxWidth={9999} autoPanPadding={[20, 60]}>
                       <PopupResizer deps={[date, eventType]} />
                       <div key={`${date}-${eventType}`} className="animate-popup-refresh">
+                        {console.log('passing driveMinutes for loc', loc.id, ':', userDriveTimes[String(loc.id)])}
                         <MarkerPopupContent
                           location={loc}
                           forecast={forecast}

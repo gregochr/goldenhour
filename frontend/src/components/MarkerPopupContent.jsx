@@ -260,6 +260,7 @@ export default function MarkerPopupContent({
   onForecastRun,
   driveMinutes = null,
 }) {
+  console.log('MarkerPopupContent driveMinutes:', driveMinutes, 'hasDriveChip:', driveMinutes != null && driveMinutes > 0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [runningForecast, setRunningForecast] = useState(false);
   const [runProgress, setRunProgress] = useState('');
