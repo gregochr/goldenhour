@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
+import axios from 'axios';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
@@ -10,6 +11,7 @@ import BriefingModelTestView from './BriefingModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
 import SchedulerView from './SchedulerView.jsx';
 import TideManagementView from './TideManagementView.jsx';
+import WaitlistManagementView from './WaitlistManagementView.jsx';
 
 const GROUPS = [
   {
@@ -20,6 +22,7 @@ const GROUPS = [
       { value: 'locations', label: 'Locations' },
       { value: 'regions', label: 'Regions' },
       { value: 'tides', label: 'Tides' },
+      { value: 'waitlist', label: 'Waitlist' },
     ],
   },
   {
@@ -61,6 +64,14 @@ export default function ManageView({ onComplete }) {
   const [activeTab, setActiveTabState] = useState(initial.tab);
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
+  const [waitlistCount, setWaitlistCount] = useState(null);
+  const handleWaitlistCount = useCallback((count) => setWaitlistCount(count), []);
+
+  useEffect(() => {
+    axios.get('/api/admin/waitlist')
+      .then((res) => setWaitlistCount(res.data.length))
+      .catch(() => { /* badge stays hidden on failure */ });
+  }, []);
 
   /** Update tab and sync to URL hash. */
   const setActiveTab = (tab) => {
@@ -111,6 +122,14 @@ export default function ManageView({ onComplete }) {
             data-testid={`manage-tab-${tab.value}`}
           >
             {tab.label}
+            {tab.value === 'waitlist' && waitlistCount != null && waitlistCount > 0 && (
+              <span
+                className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-plex-gold/20 text-plex-gold"
+                data-testid="waitlist-count-badge"
+              >
+                {waitlistCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -138,6 +157,13 @@ export default function ManageView({ onComplete }) {
         {activeTab === 'tides' && (
           <div className="card">
             <TideManagementView />
+          </div>
+        )}
+
+        {activeTab === 'waitlist' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Waitlist</p>
+            <WaitlistManagementView onCountChange={handleWaitlistCount} />
           </div>
         )}
 
