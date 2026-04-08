@@ -820,4 +820,48 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
     });
   });
+
+  describe('drive time badge', () => {
+    describe('forecast branch', () => {
+      it('renders drive-time-badge when driveMinutes is a positive number', () => {
+        renderPopup({ role: 'PRO_USER', driveMinutes: 75 });
+        expect(screen.getByTestId('drive-time-badge')).toBeInTheDocument();
+        expect(screen.getByTestId('drive-time-badge')).toHaveTextContent('1 hr 15 mins');
+      });
+
+      it('does not render drive-time-badge when driveMinutes is null', () => {
+        renderPopup({ role: 'PRO_USER', driveMinutes: null });
+        expect(screen.queryByTestId('drive-time-badge')).not.toBeInTheDocument();
+      });
+
+      it('does not render drive-time-badge when driveMinutes is 0', () => {
+        renderPopup({ role: 'PRO_USER', driveMinutes: 0 });
+        expect(screen.queryByTestId('drive-time-badge')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('empty branch (no forecast)', () => {
+      const EMPTY_LOCATION = {
+        name: 'Dunstanburgh',
+        solarEventType: ['SUNSET'],
+        locationType: ['SEASCAPE'],
+        tideType: [],
+        forecastsByDate: new Map(),
+      };
+
+      it('renders drive-time-badge when driveMinutes is positive and forecast is null', () => {
+        render(
+          <MarkerPopupContent
+            {...DEFAULT_PROPS}
+            location={EMPTY_LOCATION}
+            forecast={null}
+            role="PRO_USER"
+            driveMinutes={90}
+          />,
+        );
+        expect(screen.getByTestId('drive-time-badge')).toBeInTheDocument();
+        expect(screen.getByTestId('drive-time-badge')).toHaveTextContent('1 hr 30 mins');
+      });
+    });
+  });
 });

@@ -804,7 +804,6 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
                     <Popup maxWidth={9999} autoPanPadding={[20, 60]}>
                       <PopupResizer deps={[date, eventType]} />
                       <div key={`${date}-${eventType}`} className="animate-popup-refresh">
-                        {console.log('passing driveMinutes for loc', loc.id, ':', userDriveTimes[String(loc.id)])}
                         <MarkerPopupContent
                           location={loc}
                           forecast={forecast}
