@@ -156,6 +156,108 @@ describe('UserManagementView', () => {
     expect(screen.getByTestId('marketing-emails-1')).toHaveTextContent('No');
   });
 
+  it('expanding one user collapses the previously expanded user', async () => {
+    const users = [
+      {
+        id: 1, username: 'alice', email: 'alice@example.com', role: 'ADMIN',
+        enabled: true, createdAt: '2026-01-01T00:00:00', lastActiveAt: null,
+        termsAcceptedAt: '2026-04-07T10:00:00Z', termsVersion: 'April 2026',
+        homePostcode: 'NE1 7RU', marketingEmailOptIn: true,
+      },
+      {
+        id: 2, username: 'bob', email: 'bob@example.com', role: 'LITE_USER',
+        enabled: true, createdAt: '2026-02-01T00:00:00', lastActiveAt: null,
+        termsAcceptedAt: null, termsVersion: null,
+        homePostcode: null, marketingEmailOptIn: false,
+      },
+    ];
+    axios.get.mockResolvedValue({ data: users });
+
+    render(<UserManagementView />);
+
+    await waitFor(() => {
+      expect(screen.getByText('alice')).toBeInTheDocument();
+    });
+
+    // Expand alice
+    fireEvent.click(screen.getByTestId('expand-user-1'));
+    expect(screen.getByTestId('user-detail-1')).toBeInTheDocument();
+
+    // Expand bob — alice should collapse
+    fireEvent.click(screen.getByTestId('expand-user-2'));
+    expect(screen.getByTestId('user-detail-2')).toBeInTheDocument();
+    expect(screen.queryByTestId('user-detail-1')).not.toBeInTheDocument();
+  });
+
+  it('chevron shows correct indicator for expanded and collapsed states', async () => {
+    axios.get.mockResolvedValue({ data: makeMockUsers(2) });
+
+    render(<UserManagementView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('expand-user-1')).toBeInTheDocument();
+    });
+
+    const chevron1 = screen.getByTestId('expand-user-1');
+    const chevron2 = screen.getByTestId('expand-user-2');
+
+    // Both collapsed initially
+    expect(chevron1).toHaveTextContent('▶');
+    expect(chevron2).toHaveTextContent('▶');
+
+    // Expand user 1
+    fireEvent.click(chevron1);
+    expect(chevron1).toHaveTextContent('▼');
+    expect(chevron2).toHaveTextContent('▶');
+
+    // Expand user 2 — user 1 collapses
+    fireEvent.click(chevron2);
+    expect(chevron1).toHaveTextContent('▶');
+    expect(chevron2).toHaveTextContent('▼');
+  });
+
+  it('chevron has correct aria-label for accessibility', async () => {
+    axios.get.mockResolvedValue({ data: makeMockUsers(1) });
+
+    render(<UserManagementView />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('expand-user-1')).toBeInTheDocument();
+    });
+
+    const chevron = screen.getByTestId('expand-user-1');
+    expect(chevron).toHaveAttribute('aria-label', 'Expand details');
+
+    fireEvent.click(chevron);
+    expect(chevron).toHaveAttribute('aria-label', 'Collapse details');
+
+    fireEvent.click(chevron);
+    expect(chevron).toHaveAttribute('aria-label', 'Expand details');
+  });
+
+  it('detail row shows marketing opt-in as No when explicitly false', async () => {
+    const users = [{
+      id: 1, username: 'eve', email: 'eve@example.com', role: 'LITE_USER',
+      enabled: true, createdAt: '2026-01-01T00:00:00', lastActiveAt: null,
+      termsAcceptedAt: '2026-04-01T00:00:00Z', termsVersion: 'April 2026',
+      homePostcode: 'EH1 1YZ', marketingEmailOptIn: false,
+    }];
+    axios.get.mockResolvedValue({ data: users });
+
+    render(<UserManagementView />);
+
+    await waitFor(() => {
+      expect(screen.getByText('eve')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('expand-user-1'));
+
+    // Verify terms are present alongside opt-out
+    expect(screen.getByTestId('terms-accepted-1')).toHaveTextContent('1 Apr 2026');
+    expect(screen.getByTestId('home-postcode-1')).toHaveTextContent('EH1 1YZ');
+    expect(screen.getByTestId('marketing-emails-1')).toHaveTextContent('No');
+  });
+
   it('shows Add New User form when button clicked', async () => {
     axios.get.mockResolvedValue({ data: makeMockUsers(1) });
 

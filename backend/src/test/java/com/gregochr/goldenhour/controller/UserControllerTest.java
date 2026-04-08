@@ -435,6 +435,74 @@ class UserControllerTest {
                 .andExpect(jsonPath("$[0].marketingEmailOptIn").value(true));
     }
 
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users response includes detail fields from toSummary")
+    void createUser_responseIncludesDetailFields() throws Exception {
+        AppUserEntity created = buildUser(3L, "carol", UserRole.PRO_USER);
+        created.setTermsAcceptedAt(Instant.parse("2026-04-08T09:00:00Z"));
+        created.setTermsVersion("April 2026");
+        created.setHomePostcode("SW1A 1AA");
+        created.setMarketingEmailOptIn(false);
+        when(userService.createUser(eq("carol"), eq("secret"), eq(UserRole.PRO_USER), eq("carol@example.com")))
+                .thenReturn(created);
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"carol\",\"password\":\"secret\","
+                                + "\"role\":\"PRO_USER\",\"email\":\"carol@example.com\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.username").value("carol"))
+                .andExpect(jsonPath("$.termsAcceptedAt").value("2026-04-08T09:00:00Z"))
+                .andExpect(jsonPath("$.termsVersion").value("April 2026"))
+                .andExpect(jsonPath("$.homePostcode").value("SW1A 1AA"))
+                .andExpect(jsonPath("$.marketingEmailOptIn").value(false));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users with partial detail fields — terms set but no postcode")
+    void getUsers_partialDetailFields() throws Exception {
+        AppUserEntity user = buildUser(1L, "diana", UserRole.LITE_USER);
+        user.setTermsAcceptedAt(Instant.parse("2026-03-15T12:00:00Z"));
+        user.setTermsVersion("March 2026");
+        // homePostcode deliberately left null
+        user.setMarketingEmailOptIn(false);
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].termsAcceptedAt").value("2026-03-15T12:00:00Z"))
+                .andExpect(jsonPath("$[0].termsVersion").value("March 2026"))
+                .andExpect(jsonPath("$[0].homePostcode").doesNotExist())
+                .andExpect(jsonPath("$[0].marketingEmailOptIn").value(false));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users returns detail fields for multiple users with mixed data")
+    void getUsers_multipleUsersWithMixedDetailFields() throws Exception {
+        AppUserEntity alice = buildUser(1L, "alice", UserRole.ADMIN);
+        alice.setTermsAcceptedAt(Instant.parse("2026-04-01T08:00:00Z"));
+        alice.setTermsVersion("April 2026");
+        alice.setHomePostcode("NE1 7RU");
+        alice.setMarketingEmailOptIn(true);
+
+        AppUserEntity bob = buildUser(2L, "bob", UserRole.LITE_USER);
+        // bob has no terms, no postcode, default marketing opt-in
+
+        when(userService.listAllUsers()).thenReturn(List.of(alice, bob));
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].termsAcceptedAt").value("2026-04-01T08:00:00Z"))
+                .andExpect(jsonPath("$[0].homePostcode").value("NE1 7RU"))
+                .andExpect(jsonPath("$[0].marketingEmailOptIn").value(true))
+                .andExpect(jsonPath("$[1].termsAcceptedAt").doesNotExist())
+                .andExpect(jsonPath("$[1].homePostcode").doesNotExist())
+                .andExpect(jsonPath("$[1].marketingEmailOptIn").value(true));
+    }
+
     // --- DELETE /api/users/{id} endpoint ---
 
     @Test
