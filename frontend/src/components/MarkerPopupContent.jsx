@@ -861,12 +861,12 @@ export default function MarkerPopupContent({
             {hasChips && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '6px' }}>
                 {hasAuroraChip && (
-                  <span style={{ ...POPUP_PILL, background: 'rgba(139,92,246,0.15)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
+                  <span data-testid="aurora-badge" style={{ ...POPUP_PILL, background: 'rgba(139,92,246,0.15)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
                     🌌 Aurora friendly
                   </span>
                 )}
                 {hasBortleChip && (
-                  <span style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
+                  <span data-testid="light-pollution-badge" style={{ ...POPUP_PILL, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: '#9ca3af', border: '1px solid rgba(156,163,175,0.2)' }}>
                     💡 Light pollution: {bortleLabel(location.bortleClass)} (Bortle {location.bortleClass})
                   </span>
                 )}

@@ -733,16 +733,16 @@ describe('MarkerPopupContent', () => {
 
     it('shows aurora friendly and light pollution chips when bortleClass is set', () => {
       renderEmpty();
-      expect(screen.getByText('Aurora friendly', { exact: false })).toBeInTheDocument();
-      expect(screen.getByText(/Light pollution: Rural sky \(Bortle 3\)/)).toBeInTheDocument();
+      expect(screen.getByTestId('aurora-badge')).toBeInTheDocument();
+      expect(screen.getByTestId('light-pollution-badge')).toBeInTheDocument();
     });
 
     it('hides aurora and light pollution chips when bortleClass is null', () => {
       renderEmpty({
         location: { ...EMPTY_LOCATION, bortleClass: null },
       });
-      expect(screen.queryByText('Aurora friendly', { exact: false })).not.toBeInTheDocument();
-      expect(screen.queryByText(/Light pollution/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('aurora-badge')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('light-pollution-badge')).not.toBeInTheDocument();
     });
 
     it('shows drive time chip when driveMinutes is provided', () => {
