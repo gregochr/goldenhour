@@ -48,8 +48,8 @@
     <repositories>
         <repository>
             <id>github</id>
-            <name>GitHub Packages — gregochr/solar-utils</name>
-            <url>https://maven.pkg.github.com/gregochr/solar-utils</url>
+            <name>JitPack</name>
+            <url>https://jitpack.io</url>
         </repository>
     </repositories>
 
@@ -138,7 +138,7 @@
 
         <!-- Solar Utils - extracted from plex-webhooks, install to local Maven repo first -->
         <dependency>
-            <groupId>com.gregochr</groupId>
+            <groupId>com.github.gregochr</groupId>
             <artifactId>solar-utils</artifactId>
             <version>2.1.0</version>
         </dependency>
