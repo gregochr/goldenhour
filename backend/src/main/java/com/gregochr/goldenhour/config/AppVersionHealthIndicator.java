@@ -30,8 +30,6 @@ public class AppVersionHealthIndicator implements HealthIndicator {
 
     @Override
     public Health health() {
-        return Health.up()
-                .withDetail("version", appVersion)
-                .build();
+        return Health.up().withDetail("version", appVersion).build();
     }
 }
