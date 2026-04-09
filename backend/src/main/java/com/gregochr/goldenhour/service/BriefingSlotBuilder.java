@@ -146,7 +146,10 @@ public class BriefingSlotBuilder {
         BriefingVerdictEvaluator.WeatherMetrics clearSkyMetrics =
                 new BriefingVerdictEvaluator.WeatherMetrics(
                         lowCloud, precip, visibility, humidity, midCloud, highCloud, false);
+        Verdict preClearSkyVerdict = verdict;
         verdict = verdictEvaluator.applyClearSkyDemotion(verdict, clearSkyMetrics);
+        logClearAllLayersDiagnostic(loc.getName(), eventType, lowCloud, midCloud, highCloud,
+                preClearSkyVerdict, verdict);
 
         // Demote for solar horizon low cloud
         Integer horizonLowCloud = extractHorizonLowCloud(horizonForecast, idx);
@@ -302,6 +305,39 @@ public class BriefingSlotBuilder {
             return null;
         }
         return cloudLow.get(idx);
+    }
+
+    /**
+     * Diagnostic logging for clear-all-layers demotion check. Temporary — remove once root cause
+     * is identified.
+     */
+    private void logClearAllLayersDiagnostic(String locationName, TargetType eventType,
+            int lowCloud, int midCloud, int highCloud,
+            Verdict before, Verdict after) {
+        int threshold = BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX;
+        if (before != Verdict.GO) {
+            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
+                            + "fired=false verdict={}→{} reason=already_demoted",
+                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
+            return;
+        }
+        if (lowCloud >= threshold) {
+            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
+                            + "fired=false verdict={}→{} reason=low_cloud_above_threshold",
+                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
+        } else if (midCloud >= threshold) {
+            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
+                            + "fired=false verdict={}→{} reason=mid_cloud_above_threshold",
+                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
+        } else if (highCloud >= threshold) {
+            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
+                            + "fired=false verdict={}→{} reason=high_cloud_above_threshold",
+                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
+        } else {
+            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
+                            + "fired=true verdict={}→{}",
+                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
+        }
     }
 
     /**
