@@ -441,6 +441,45 @@ class StatusControllerTest {
             assertThat(response.status()).isEqualTo("UP");
             assertThat(response.degraded()).isEmpty();
         }
+
+        @Test
+        @DisplayName("startedAt reflects JVM start time")
+        void startedAtReflectsJvmStartTime() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            long jvmStartMs = java.lang.management.ManagementFactory.getRuntimeMXBean().getStartTime();
+            assertThat(response.startedAt())
+                    .isEqualTo(java.time.Instant.ofEpochMilli(jvmStartMs));
+        }
+
+        @Test
+        @DisplayName("startedAt is before checkedAt")
+        void startedAtBeforeCheckedAt() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.startedAt()).isBefore(response.checkedAt());
+        }
+
+        @Test
+        @DisplayName("startedAt is consistent across multiple calls")
+        void startedAtConsistentAcrossCalls() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse first = controller.buildStatus(TEST_SESSION);
+            StatusResponse second = controller.buildStatus(TEST_SESSION);
+
+            assertThat(first.startedAt()).isEqualTo(second.startedAt());
+        }
     }
 
     private static Authentication mockAuth(String username, String role) {

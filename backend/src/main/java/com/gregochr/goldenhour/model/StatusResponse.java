@@ -15,6 +15,7 @@ import java.util.Map;
  * @param session    authenticated user info
  * @param checkedAt  server timestamp when this status was assembled
  * @param appVersion application version string (e.g. {@code "v1.2.3"} or {@code "dev"})
+ * @param startedAt  JVM start time (container start)
  */
 public record StatusResponse(
         String status,
@@ -24,7 +25,8 @@ public record StatusResponse(
         BuildInfo build,
         SessionInfo session,
         Instant checkedAt,
-        String appVersion) {
+        String appVersion,
+        Instant startedAt) {
 
     /** Defensive copy. */
     public StatusResponse {

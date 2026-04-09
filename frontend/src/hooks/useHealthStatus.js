@@ -6,13 +6,14 @@ import createEventSource from '../utils/createEventSource.js';
  * Connects to the SSE status stream and pushes health updates into state.
  * EventSource reconnects automatically on error — no manual retry needed.
  *
- * @returns {{ status: string|null, degraded: string[], checkedAt: Date|null, build: object|null, session: object|null, database: object|null, services: object|null, appVersion: string|null }}
+ * @returns {{ status: string|null, degraded: string[], checkedAt: Date|null, build: object|null, session: object|null, database: object|null, services: object|null, appVersion: string|null, startedAt: string|null }}
  */
 export function useHealthStatus() {
   const { token } = useAuth();
   const [health, setHealth] = useState({
     status: null, degraded: [], checkedAt: null,
-    build: null, session: null, database: null, services: null, appVersion: null,
+    build: null, session: null, database: null, services: null,
+    appVersion: null, startedAt: null,
   });
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export function useHealthStatus() {
             database: data.database || null,
             services: data.services || null,
             appVersion: data.appVersion || null,
+            startedAt: data.startedAt || null,
           });
         },
       },
