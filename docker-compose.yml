@@ -23,7 +23,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_TURNSTILE_SITE_KEY: "0x4AAAAAACkZr4aO-Px_Wy6t"
-    image: gregochr/goldenhour-frontend:latest
+    image: ghcr.io/gregochr/goldenhour-frontend:latest
     container_name: goldenhour-frontend
     ports:
       - "80:80"
@@ -37,6 +37,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    image: ghcr.io/gregochr/goldenhour-backend:latest
     container_name: goldenhour-backend
     ports:
       - "8082:8082"
