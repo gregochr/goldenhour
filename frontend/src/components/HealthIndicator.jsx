@@ -31,7 +31,7 @@ function formatDuration(ms) {
  */
 export default function HealthIndicator({
   status, degraded, checkedAt, build, services,
-  database, session,
+  database, session, appVersion,
 }) {
   const [open, setOpen] = useState(false);
   const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
@@ -121,6 +121,9 @@ export default function HealthIndicator({
       >
         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotClass}`} />
         <span className="flex-shrink-0">{label}</span>
+        {appVersion && appVersion !== 'dev' && (
+          <span className="text-xs opacity-50 font-normal flex-shrink-0">{appVersion}</span>
+        )}
       </button>
 
       {open && (
@@ -232,4 +235,5 @@ HealthIndicator.propTypes = {
     role: PropTypes.string,
     loginTime: PropTypes.string,
   }),
+  appVersion: PropTypes.string,
 };

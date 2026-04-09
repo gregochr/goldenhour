@@ -7,13 +7,14 @@ import java.util.Map;
 /**
  * Enriched application status pushed to clients via SSE.
  *
- * @param status    overall status: {@code "UP"}, {@code "DOWN"}, or {@code "DEGRADED"}
- * @param degraded  soft-fail component names (e.g. {@code ["mail"]}) that caused DEGRADED
- * @param database  database health
- * @param services  external service name to status (e.g. {@code "anthropic" -> "UP"})
- * @param build     build/git metadata
- * @param session   authenticated user info
- * @param checkedAt server timestamp when this status was assembled
+ * @param status     overall status: {@code "UP"}, {@code "DOWN"}, or {@code "DEGRADED"}
+ * @param degraded   soft-fail component names (e.g. {@code ["mail"]}) that caused DEGRADED
+ * @param database   database health
+ * @param services   external service name to status (e.g. {@code "anthropic" -> "UP"})
+ * @param build      build/git metadata
+ * @param session    authenticated user info
+ * @param checkedAt  server timestamp when this status was assembled
+ * @param appVersion application version string (e.g. {@code "v1.2.3"} or {@code "dev"})
  */
 public record StatusResponse(
         String status,
@@ -22,7 +23,8 @@ public record StatusResponse(
         Map<String, ComponentStatus> services,
         BuildInfo build,
         SessionInfo session,
-        Instant checkedAt) {
+        Instant checkedAt,
+        String appVersion) {
 
     /** Defensive copy. */
     public StatusResponse {

@@ -75,7 +75,7 @@ function AppInner() {
   const {
     status: healthStatus, degraded: healthDegraded, checkedAt: healthCheckedAt,
     build: healthBuild, services: healthServices, database: healthDatabase,
-    session: healthSession,
+    session: healthSession, appVersion: healthAppVersion,
   } = useHealthStatus();
   const { lastCompletedRun } = useRunNotifications(!!token);
   const [showRunBanner, setShowRunBanner] = useState(false);
@@ -178,7 +178,7 @@ function AppInner() {
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
-            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} database={healthDatabase} session={healthSession} />}
+            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} database={healthDatabase} session={healthSession} appVersion={healthAppVersion} />}
             <div className="flex items-center gap-2">
               <button
                 className="text-plex-text-muted hover:text-plex-text transition-colors"

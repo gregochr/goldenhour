@@ -59,8 +59,9 @@ public class StatusController {
     /**
      * Components to ignore when determining overall status.
      * Rate limiters report UNKNOWN when no calls have been made yet, which is normal.
+     * appVersion is purely informational and always UP.
      */
-    private static final Set<String> IGNORED_COMPONENTS = Set.of("rateLimiters");
+    private static final Set<String> IGNORED_COMPONENTS = Set.of("rateLimiters", "appVersion");
 
     /** Health indicator component names that represent external service probes. */
     private static final Set<String> PROBE_COMPONENTS = Set.of("openMeteo", "tideCheck", "claudeApi");
@@ -178,8 +179,9 @@ public class StatusController {
 
         String overall = hardDown ? "DOWN" : !degraded.isEmpty() ? "DEGRADED" : "UP";
 
+        String appVersion = extractAppVersion(components.get("appVersion"));
         return new StatusResponse(overall, List.copyOf(degraded), database,
-                services, buildInfo(), session, Instant.now());
+                services, buildInfo(), session, Instant.now(), appVersion);
     }
 
     private Map<String, ComponentStatus> extractServices(Map<String, HealthDescriptor> components) {
@@ -211,6 +213,16 @@ public class StatusController {
             }
         }
         return new ComponentStatus(descriptor.getStatus().getCode(), detail, latencyMs);
+    }
+
+    private String extractAppVersion(HealthDescriptor descriptor) {
+        if (descriptor instanceof IndicatedHealthDescriptor indicated) {
+            Map<String, Object> details = indicated.getDetails();
+            if (details != null && details.containsKey("version")) {
+                return String.valueOf(details.get("version"));
+            }
+        }
+        return null;
     }
 
     private BuildInfo buildInfo() {
