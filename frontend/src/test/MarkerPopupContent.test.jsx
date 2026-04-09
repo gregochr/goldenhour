@@ -747,7 +747,7 @@ describe('MarkerPopupContent', () => {
 
     it('shows drive time chip when driveMinutes is provided', () => {
       renderEmpty({ driveMinutes: 95 });
-      expect(screen.getByText('1 hr 35 mins')).toBeInTheDocument();
+      expect(screen.getByTestId('drive-time-badge')).toHaveTextContent('1 hr 35 mins');
     });
 
     it('hides drive time chip when driveMinutes is null', () => {
