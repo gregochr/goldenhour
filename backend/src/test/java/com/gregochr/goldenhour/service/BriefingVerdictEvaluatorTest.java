@@ -254,12 +254,12 @@ class BriefingVerdictEvaluatorTest {
     // ── Region rollup ──
 
     @Nested
-    @DisplayName("Region verdict rollup")
+    @DisplayName("Region verdict rollup — excludes STANDDOWNs")
     class RollupTests {
 
         @Test
-        @DisplayName("GO when majority of slots are GO")
-        void rollup_majorityGo() {
+        @DisplayName("GO when any viable slot is GO (STANDDOWNs excluded)")
+        void rollup_goWithStanddowns() {
             List<BriefingSlot> slots = List.of(
                     slot("A", Verdict.GO),
                     slot("B", Verdict.GO),
@@ -268,23 +268,23 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
-        @DisplayName("STANDDOWN when majority of slots are STANDDOWN")
-        void rollup_majorityStanddown() {
+        @DisplayName("GO when 1 GO + 2 STANDDOWN (STANDDOWNs no longer dominate)")
+        void rollup_singleGoAmongStanddowns() {
             List<BriefingSlot> slots = List.of(
                     slot("A", Verdict.STANDDOWN),
                     slot("B", Verdict.STANDDOWN),
                     slot("C", Verdict.GO));
-            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.STANDDOWN);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.GO);
         }
 
         @Test
-        @DisplayName("MARGINAL when mixed")
-        void rollup_mixed() {
+        @DisplayName("GO when 1 GO + 1 MARGINAL + 1 STANDDOWN (best viable is GO)")
+        void rollup_goWhenMixed() {
             List<BriefingSlot> slots = List.of(
                     slot("A", Verdict.GO),
                     slot("B", Verdict.MARGINAL),
                     slot("C", Verdict.STANDDOWN));
-            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.GO);
         }
 
         @Test
@@ -300,6 +300,130 @@ class BriefingVerdictEvaluatorTest {
                     slot("A", Verdict.MARGINAL),
                     slot("B", Verdict.MARGINAL));
             assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("GO when 1 GO + 8 STANDDOWN (the key scenario)")
+        void rollup_oneGoAmongManyStanddowns() {
+            List<BriefingSlot> slots = List.of(
+                    slot("A", Verdict.GO),
+                    slot("B", Verdict.STANDDOWN),
+                    slot("C", Verdict.STANDDOWN),
+                    slot("D", Verdict.STANDDOWN),
+                    slot("E", Verdict.STANDDOWN),
+                    slot("F", Verdict.STANDDOWN),
+                    slot("G", Verdict.STANDDOWN),
+                    slot("H", Verdict.STANDDOWN),
+                    slot("I", Verdict.STANDDOWN));
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("MARGINAL when 3 MARGINAL + 5 STANDDOWN")
+        void rollup_marginalAmongStanddowns() {
+            List<BriefingSlot> slots = List.of(
+                    slot("A", Verdict.MARGINAL),
+                    slot("B", Verdict.MARGINAL),
+                    slot("C", Verdict.MARGINAL),
+                    slot("D", Verdict.STANDDOWN),
+                    slot("E", Verdict.STANDDOWN),
+                    slot("F", Verdict.STANDDOWN),
+                    slot("G", Verdict.STANDDOWN),
+                    slot("H", Verdict.STANDDOWN));
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("STANDDOWN when all slots are STANDDOWN")
+        void rollup_allStanddown() {
+            List<BriefingSlot> slots = List.of(
+                    slot("A", Verdict.STANDDOWN),
+                    slot("B", Verdict.STANDDOWN),
+                    slot("C", Verdict.STANDDOWN),
+                    slot("D", Verdict.STANDDOWN),
+                    slot("E", Verdict.STANDDOWN),
+                    slot("F", Verdict.STANDDOWN),
+                    slot("G", Verdict.STANDDOWN));
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.STANDDOWN);
+        }
+    }
+
+    // ── Standdown reason derivation ──
+
+    @Nested
+    @DisplayName("Standdown reason derivation")
+    class StanddownReasonTests {
+
+        @Test
+        @DisplayName("Heavy cloud when low cloud > 80%")
+        void heavyCloud() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            85, BigDecimal.ZERO, 15000, 70, null, false),
+                    false)).isEqualTo("Heavy cloud");
+        }
+
+        @Test
+        @DisplayName("Overcast when mid-cloud >= 80%")
+        void overcast() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            30, BigDecimal.ZERO, 15000, 70, 85, false),
+                    false)).isEqualTo("Overcast");
+        }
+
+        @Test
+        @DisplayName("Rain when precip > 2mm")
+        void rain() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            30, new BigDecimal("3.0"), 15000, 70, null, false),
+                    false)).isEqualTo("Rain");
+        }
+
+        @Test
+        @DisplayName("Poor visibility when below 5000m")
+        void poorVisibility() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            30, BigDecimal.ZERO, 3000, 70, null, false),
+                    false)).isEqualTo("Poor visibility");
+        }
+
+        @Test
+        @DisplayName("Building cloud when trend detected")
+        void buildingCloud() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            30, BigDecimal.ZERO, 15000, 70, null, true),
+                    false)).isEqualTo("Building cloud");
+        }
+
+        @Test
+        @DisplayName("Tide mismatch when tides not aligned")
+        void tideMismatch() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            30, BigDecimal.ZERO, 15000, 70, null, false),
+                    true)).isEqualTo("Tide mismatch");
+        }
+
+        @Test
+        @DisplayName("Fallback to 'Poor conditions' when no specific reason")
+        void fallback() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            30, BigDecimal.ZERO, 15000, 70, null, false),
+                    false)).isEqualTo("Poor conditions");
+        }
+
+        @Test
+        @DisplayName("Priority: heavy cloud takes precedence over rain")
+        void priority_cloudOverRain() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            85, new BigDecimal("5.0"), 3000, 70, 90, true),
+                    true)).isEqualTo("Heavy cloud");
         }
     }
 
@@ -319,7 +443,7 @@ class BriefingVerdictEvaluatorTest {
                     new BriefingSlot.TideInfo("HIGH", true,
                             LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
                             true, false, null, null, null),
-                    List.of());
+                    List.of(), null);
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Extra Extra High at 1 coastal spot");
         }
@@ -333,7 +457,7 @@ class BriefingVerdictEvaluatorTest {
                             8.0, null, null, BigDecimal.ONE),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, false, true,
                             null, null, null),
-                    List.of());
+                    List.of(), null);
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Extra High at 1 coastal spot");
         }
@@ -347,7 +471,7 @@ class BriefingVerdictEvaluatorTest {
                             8.0, null, null, BigDecimal.ONE),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, false, false,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
-                    List.of());
+                    List.of(), null);
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("Spring Tide at 1 coastal spot");
         }
@@ -361,7 +485,7 @@ class BriefingVerdictEvaluatorTest {
                             8.0, null, null, BigDecimal.ONE),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
-                    List.of());
+                    List.of(), null);
             assertThat(evaluator.buildTideHighlights(List.of(s)))
                     .containsExactly("King Tide, Extra Extra High at 1 coastal spot");
         }
@@ -548,6 +672,6 @@ class BriefingVerdictEvaluatorTest {
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE),
-                BriefingSlot.TideInfo.NONE, List.of());
+                BriefingSlot.TideInfo.NONE, List.of(), null);
     }
 }

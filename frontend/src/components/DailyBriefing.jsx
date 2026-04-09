@@ -723,6 +723,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [openCardKeys, setOpenCardKeys] = useState(new Set()); // "date-regionName"
   const [qualityTier, setQualityTier] = useLocalStorageState('plannerQualityTier', 2);
+  const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
   const intervalRef = useRef(null);
 
   // Evaluation state: keyed by "regionName|date|targetType|locationName"
@@ -1117,14 +1118,29 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         <BestBetPlaceholder />
       ) : null}
 
-      {/* ── Quality threshold slider (desktop + mobile) ── */}
+      {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
       {dayDates.length > 0 && (
-        <QualitySlider
-          value={qualityTier}
-          onChange={setQualityTier}
-          showing={sliderCounts.showing}
-          total={sliderCounts.total}
-        />
+        <div className="flex items-end justify-between gap-4 mb-1">
+          <div className="flex-1">
+            <QualitySlider
+              value={qualityTier}
+              onChange={setQualityTier}
+              showing={sliderCounts.showing}
+              total={sliderCounts.total}
+            />
+          </div>
+          <label className="hidden sm:flex items-center gap-1.5 cursor-pointer shrink-0 pb-1"
+            style={{ fontSize: '13px' }}>
+            <input
+              type="checkbox"
+              checked={showAllLocations}
+              onChange={(e) => setShowAllLocations(e.target.checked)}
+              className="accent-plex-gold"
+              data-testid="show-all-locations-toggle"
+            />
+            <span className="text-plex-text-muted">Show all locations</span>
+          </label>
+        </div>
       )}
 
       {/* ── Mobile section (sm:hidden) ── */}
@@ -1324,6 +1340,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         auroraTonight={briefing.auroraTonight || null}
         auroraTomorrow={briefing.auroraTomorrow || null}
         activeModelName={activeModelName}
+        showAllLocations={showAllLocations}
       />
     </div>
   );

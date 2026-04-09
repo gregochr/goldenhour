@@ -26,6 +26,10 @@
   --color-sunset-500: #a855f7;
   --color-sunset-600: #9333ea;
   --color-sunset-700: #7e22ce;
+
+  --color-verdict-go: #16a34a;
+  --color-verdict-marginal: #d97706;
+  --color-verdict-standdown: #b91c1c;
 }
 
 @layer base {

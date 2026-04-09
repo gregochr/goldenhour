@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import HeatmapGrid from '../components/HeatmapGrid.jsx';
 
 vi.mock('../hooks/useConfirmDialog.js', () => ({
@@ -50,7 +50,7 @@ function buildBriefingDays(dates, regionName, locationNames) {
   }));
 }
 
-function renderGrid({ events, briefingDays, auroraTonight, auroraTomorrow } = {}) {
+function renderGrid({ events, briefingDays, auroraTonight, auroraTomorrow, showAllLocations } = {}) {
   const regionName = 'North East';
   const locNames = ['Bamburgh', 'Kielder'];
   const days = briefingDays || buildBriefingDays([DATE_1, DATE_2], regionName, locNames);
@@ -74,6 +74,7 @@ function renderGrid({ events, briefingDays, auroraTonight, auroraTomorrow } = {}
       astroScoresByDate={{}}
       auroraTonight={auroraTonight || null}
       auroraTomorrow={auroraTomorrow || null}
+      showAllLocations={showAllLocations || false}
     />,
   );
 }
@@ -366,5 +367,154 @@ describe('HeatmapGrid — no astro column in heatmap', () => {
     const grid = screen.getByTestId('briefing-heatmap');
     const sunsetHeaders = grid.querySelectorAll('[title="Sunset"]');
     expect(sunsetHeaders).toHaveLength(2);
+  });
+});
+
+/**
+ * Builds briefing days with a specific mix of verdicts per slot.
+ * Each entry in slotVerdicts becomes a slot in the region.
+ */
+function buildMixedBriefingDays(date, regionName, slotVerdicts) {
+  return [{
+    date,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName,
+        verdict: slotVerdicts.includes('GO') ? 'GO' : slotVerdicts.includes('MARGINAL') ? 'MARGINAL' : 'STANDDOWN',
+        summary: 'Test summary',
+        slots: slotVerdicts.map((verdict, i) => ({
+          locationName: `Loc${i}`,
+          verdict,
+          solarEventTime: `${date}T19:30:00`,
+          lowCloudPercent: verdict === 'STANDDOWN' ? 90 : 20,
+          standdownReason: verdict === 'STANDDOWN' ? 'Heavy cloud' : null,
+          flags: verdict === 'STANDDOWN' ? ['Sun blocked'] : [],
+        })),
+      }],
+    }],
+  }];
+}
+
+describe('HeatmapGrid — verdict gradient bar', () => {
+  it('gradient reflects 2 GO + 1 STANDDOWN as ~67% green segment', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'GO', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const gradient = screen.queryByTestId('verdict-gradient');
+    expect(gradient).toBeTruthy();
+    // 2/3 GO = 66.67%, 0% MARGINAL, 1/3 STANDDOWN = 33.33%
+    const bg = gradient.style.background;
+    expect(bg).toContain('66.6');
+    expect(bg).toContain('var(--color-verdict-go)');
+    expect(bg).toContain('var(--color-verdict-standdown)');
+  });
+
+  it('all-GO region has 100% green gradient', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const gradient = screen.queryAllByTestId('verdict-gradient')[0];
+    expect(gradient).toBeTruthy();
+    const bg = gradient.style.background;
+    // 100% GO → green covers full width
+    expect(bg).toContain('100%');
+    expect(bg).toContain('var(--color-verdict-go)');
+  });
+});
+
+describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
+  it('STANDDOWN slots hidden by default when drill-down is expanded', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: false,
+    });
+
+    // Click the cell to open drill-down
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.click(cell);
+
+    // Expand the event row inside drill-down
+    const eventRow = screen.getByTestId('drill-down-event-row');
+    fireEvent.click(eventRow);
+
+    // GO slot visible, STANDDOWN slots not rendered
+    const slots = screen.queryAllByTestId('briefing-slot');
+    expect(slots).toHaveLength(1);
+    expect(screen.queryAllByTestId('standdown-slot')).toHaveLength(0);
+    expect(screen.queryByTestId('standdown-divider')).toBeNull();
+  });
+
+  it('STANDDOWN slots visible with reason when showAllLocations is true', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: true,
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.click(cell);
+
+    const eventRow = screen.getByTestId('drill-down-event-row');
+    fireEvent.click(eventRow);
+
+    // 1 GO slot + 2 STANDDOWN slots
+    expect(screen.queryAllByTestId('briefing-slot')).toHaveLength(1);
+    const standdownSlots = screen.queryAllByTestId('standdown-slot');
+    expect(standdownSlots).toHaveLength(2);
+
+    // Divider text present
+    expect(screen.getByTestId('standdown-divider').textContent).toBe('Poor conditions');
+
+    // Standdown reason text shown on the STANDDOWN slots
+    expect(standdownSlots[0].textContent).toContain('Heavy cloud');
+  });
+
+  it('fully-STANDDOWN region cell is disabled when toggle is off', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: false,
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.disabled).toBe(true);
+  });
+
+  it('fully-STANDDOWN region becomes clickable and shows slots when showAllLocations is true', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: true,
+    });
+
+    // Cell is now enabled because showAllLocations overrides the STANDDOWN disable
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.disabled).toBe(false);
+
+    // Click cell to open drill-down
+    fireEvent.click(cell);
+    expect(screen.getByTestId('drill-down-panel')).toBeTruthy();
+
+    // Expand the event row
+    const eventRow = screen.getByTestId('drill-down-event-row');
+    fireEvent.click(eventRow);
+
+    // Both STANDDOWN slots visible with their reason
+    const standdownSlots = screen.queryAllByTestId('standdown-slot');
+    expect(standdownSlots).toHaveLength(2);
+    expect(standdownSlots[0].textContent).toContain('Heavy cloud');
+
+    // No hint — the STANDDOWN slots themselves are the content
+    expect(screen.queryByTestId('standdown-hint')).toBeNull();
   });
 });

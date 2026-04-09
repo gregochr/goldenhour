@@ -190,8 +190,24 @@ function ratingColour(rating) {
   return 'bg-red-700/70 text-red-100';
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
-  if (visible.length === 0) return null;
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
+  const standdownSlots = showAllLocations
+    ? (slots || []).filter((s) => s.verdict === 'STANDDOWN')
+    : [];
+
+  const hasHiddenStanddowns = !showAllLocations && (slots || []).some((s) => s.verdict === 'STANDDOWN');
+
+  if (visible.length === 0 && standdownSlots.length === 0) {
+    if (hasHiddenStanddowns) {
+      return (
+        <div className="ml-4 mt-1 text-plex-text-muted italic" style={{ fontSize: '12px' }}
+          data-testid="standdown-hint">
+          No viable locations for this event. Toggle &ldquo;Show all locations&rdquo; to see why.
+        </div>
+      );
+    }
+    return null;
+  }
 
   // Re-sort by Claude score only after evaluation completes (the "reveal" moment).
   // During streaming, keep triage order so rows don't jump around.
@@ -250,13 +266,51 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
           </div>
         );
       })}
+
+      {standdownSlots.length > 0 && (
+        <>
+          <div className="flex items-center gap-2 mt-2 mb-1">
+            <div className="flex-1 h-px bg-plex-border/30" />
+            <span className="text-plex-text-muted" style={{ fontSize: '11px' }}
+              data-testid="standdown-divider">Poor conditions</span>
+            <div className="flex-1 h-px bg-plex-border/30" />
+          </div>
+          {standdownSlots.map((slot) => {
+            const drive = formatDriveDuration(driveMap.get(slot.locationName));
+            const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+            return (
+              <div
+                key={slot.locationName}
+                className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 mt-1 opacity-50"
+                data-testid="standdown-slot"
+              >
+                <span className="inline-block px-2 py-0.5 rounded text-[12px] font-bold bg-red-900/40 text-red-300/70">
+                  Poor
+                </span>
+                <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
+                  {typeIcon && <span>{typeIcon} </span>}
+                  {slot.locationName}
+                </span>
+                <span className="text-plex-text-muted" style={{ fontSize: '12px' }}>
+                  {slot.standdownReason || slot.flags?.[0] || 'Poor conditions'}
+                </span>
+                {drive && (
+                  <span className="text-plex-text-secondary" style={{ fontSize: '12px' }}>
+                    {drive}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName, showAllLocations = false }) {
   const day = briefingDays.find((d) => d.date === date);
   const [expandedType, setExpandedType] = useState(null);
   const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
@@ -319,7 +373,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
       <div className="space-y-0.5">
         {events.map(({ es, region, past }) => {
-          const tappable = !past && region.verdict !== 'STANDDOWN';
+          const tappable = !past && (region.verdict !== 'STANDDOWN' || showAllLocations);
           const eventKey = es.targetType;
           const isExpanded = expandedType === eventKey;
           const eventTime = formatTime(
@@ -384,6 +438,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   scores={slotScores}
                   evaluationComplete={progressMatch?.status === 'complete' || (!progressMatch && slotScores.size > 0)}
                   isPro={canRunEvaluation}
+                  showAllLocations={showAllLocations}
                 />
               )}
             </div>
@@ -471,7 +526,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
 // ── Sub-column cell ───────────────────────────────────────────────────────────
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), evaluationTimestamps = new Map() }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), evaluationTimestamps = new Map(), showAllLocations = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Empty cell — region doesn't appear in this event type
   if (!cellData) {
@@ -533,20 +588,24 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   const visibilityClass = visible ? 'heatmap-cell-visible' : 'heatmap-cell-hidden';
 
+  const standdownClickable = isStanddown && showAllLocations;
+  const cellDisabled = (isStanddown && !showAllLocations) || !visible || past;
+  const cellClickable = !cellDisabled;
+
   return (
     <button
       data-testid="heatmap-cell"
-      disabled={isStanddown || !visible || past}
+      disabled={cellDisabled}
       aria-hidden={!visible}
       className={`relative rounded border text-left p-1.5 transition-all ${visibilityClass}
         ${tierBg[cellTier] || ''}
-        ${isStanddown ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
+        ${(isStanddown && !standdownClickable) ? 'cursor-default' : 'cursor-pointer hover:scale-[1.01]'}
         ${isActive ? 'ring-1 ring-white/25' : ''}`}
       style={{
-        pointerEvents: (!visible || isStanddown || past) ? 'none' : undefined,
+        pointerEvents: cellClickable ? undefined : 'none',
         opacity: isStanddown ? (visible ? 0.55 : 0.04) : undefined,
       }}
-      onClick={(!visible || isStanddown || past) ? undefined : () => onToggle(date, regionName, targetType)}
+      onClick={cellClickable ? () => onToggle(date, regionName, targetType) : undefined}
     >
       <div className={`font-medium ${verdictTextColour}`} style={{ fontSize: '11px' }}>
         {verdictLabel}
@@ -621,6 +680,27 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
           {region.summary.slice(0, 30)}
         </div>
       )}
+
+      {/* Verdict distribution bar */}
+      {(() => {
+        const allSlots = region?.slots || [];
+        const total = allSlots.length;
+        if (total === 0) return null;
+        const goCount = allSlots.filter((s) => s.verdict === 'GO').length;
+        const marginalCount = allSlots.filter((s) => s.verdict === 'MARGINAL').length;
+        const goPct = (goCount / total) * 100;
+        const marginalPct = (marginalCount / total) * 100;
+        return (
+          <div
+            className="absolute bottom-0 left-0 right-0 rounded-b"
+            style={{
+              height: '4px',
+              background: `linear-gradient(to right, var(--color-verdict-go) 0% ${goPct}%, var(--color-verdict-marginal) ${goPct}% ${goPct + marginalPct}%, var(--color-verdict-standdown) ${goPct + marginalPct}% 100%)`,
+            }}
+            data-testid="verdict-gradient"
+          />
+        );
+      })()}
     </button>
   );
 }
@@ -735,6 +815,7 @@ export default function HeatmapGrid({
   auroraTonight = null,
   auroraTomorrow = null,
   activeModelName = null,
+  showAllLocations = false,
 }) {
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
 
@@ -1077,6 +1158,7 @@ export default function HeatmapGrid({
                   onToggle={toggleDrillDown}
                   evaluationScores={evaluationScores}
                   evaluationTimestamps={evaluationTimestamps}
+                  showAllLocations={showAllLocations}
                 />
               );
             })}
@@ -1112,6 +1194,7 @@ export default function HeatmapGrid({
                 onStopEvaluation={onStopEvaluation}
                 canRunEvaluation={canRunEvaluation}
                 activeModelName={activeModelName}
+                showAllLocations={showAllLocations}
               />
             )}
           </React.Fragment>
@@ -1182,4 +1265,5 @@ HeatmapGrid.propTypes = {
     })),
   }),
   activeModelName: PropTypes.string,
+  showAllLocations: PropTypes.bool,
 };
