@@ -397,7 +397,7 @@ function buildMixedBriefingDays(date, regionName, slotVerdicts) {
 }
 
 describe('HeatmapGrid — verdict gradient bar', () => {
-  it('gradient reflects 2 GO + 1 STANDDOWN as ~67% green segment', () => {
+  it('gradient reflects 2 GO + 1 STANDDOWN as ~33% red then ~67% green', () => {
     const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'GO', 'STANDDOWN']);
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
@@ -406,11 +406,11 @@ describe('HeatmapGrid — verdict gradient bar', () => {
 
     const gradient = screen.queryByTestId('verdict-gradient');
     expect(gradient).toBeTruthy();
-    // 2/3 GO = 66.67%, 0% MARGINAL, 1/3 STANDDOWN = 33.33%
+    // 1/3 STANDDOWN = 33.33% (left), 0% MARGINAL, 2/3 GO (right)
     const bg = gradient.style.background;
-    expect(bg).toContain('66.6');
-    expect(bg).toContain('var(--color-verdict-go)');
+    expect(bg).toContain('33.3');
     expect(bg).toContain('var(--color-verdict-standdown)');
+    expect(bg).toContain('var(--color-verdict-go)');
   });
 
   it('all-GO region has 100% green gradient', () => {

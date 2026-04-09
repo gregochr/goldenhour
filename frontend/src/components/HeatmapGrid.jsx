@@ -686,16 +686,16 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         const allSlots = region?.slots || [];
         const total = allSlots.length;
         if (total === 0) return null;
-        const goCount = allSlots.filter((s) => s.verdict === 'GO').length;
         const marginalCount = allSlots.filter((s) => s.verdict === 'MARGINAL').length;
-        const goPct = (goCount / total) * 100;
+        const standdownCount = allSlots.filter((s) => s.verdict === 'STANDDOWN').length;
+        const standdownPct = (standdownCount / total) * 100;
         const marginalPct = (marginalCount / total) * 100;
         return (
           <div
             className="absolute bottom-0 left-0 right-0 rounded-b"
             style={{
               height: '4px',
-              background: `linear-gradient(to right, var(--color-verdict-go) 0% ${goPct}%, var(--color-verdict-marginal) ${goPct}% ${goPct + marginalPct}%, var(--color-verdict-standdown) ${goPct + marginalPct}% 100%)`,
+              background: `linear-gradient(to right, var(--color-verdict-standdown) 0% ${standdownPct}%, var(--color-verdict-marginal) ${standdownPct}% ${standdownPct + marginalPct}%, var(--color-verdict-go) ${standdownPct + marginalPct}% 100%)`,
             }}
             data-testid="verdict-gradient"
           />
