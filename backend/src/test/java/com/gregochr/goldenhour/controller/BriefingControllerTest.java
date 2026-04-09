@@ -196,7 +196,7 @@ class BriefingControllerTest {
                 new BriefingSlot.TideInfo("HIGH", true,
                         LocalDateTime.of(2026, 3, 25, 19, 0), new BigDecimal("1.5"),
                         false, false, null, null, null),
-                List.of("Tide aligned"));
+                List.of("Tide aligned"), null);
 
         BriefingRegion region = new BriefingRegion("Lake District",
                 Verdict.GO, "Clear at 1 of 1 location",

@@ -51,6 +51,50 @@ public class BriefingVerdictEvaluator {
     static final int BUILDING_TREND_MIN_PEAK = 40;
 
     /**
+     * Ordered reasons for STANDDOWN verdicts, checked in priority order.
+     * The first matching reason is used as the primary standdown reason.
+     * This ordering can be tweaked independently of the verdict logic.
+     */
+    public enum StanddownReason {
+
+        /** Low cloud exceeds {@link #CLOUD_STANDDOWN}. */
+        HEAVY_CLOUD("Heavy cloud"),
+
+        /** Mid-level cloud exceeds {@link #MID_CLOUD_STANDDOWN}. */
+        OVERCAST("Overcast"),
+
+        /** Precipitation exceeds {@link #PRECIP_STANDDOWN}. */
+        RAIN("Rain"),
+
+        /** Visibility below {@link #VISIBILITY_STANDDOWN}. */
+        POOR_VISIBILITY("Poor visibility"),
+
+        /** Cloud building into the event (trend detected). */
+        BUILDING_CLOUD("Building cloud"),
+
+        /** Coastal tide not aligned with location preference. */
+        TIDE_MISMATCH("Tide mismatch"),
+
+        /** Fallback when no specific reason is identified. */
+        POOR_CONDITIONS("Poor conditions");
+
+        private final String label;
+
+        StanddownReason(String label) {
+            this.label = label;
+        }
+
+        /**
+         * Human-readable label for API responses and UI display.
+         *
+         * @return the display label
+         */
+        public String label() {
+            return label;
+        }
+    }
+
+    /**
      * Core weather metrics used for verdict determination and flag generation.
      *
      * @param lowCloud      low cloud cover percentage
@@ -214,25 +258,58 @@ public class BriefingVerdictEvaluator {
     }
 
     /**
-     * Rolls up individual slot verdicts to a region-level verdict using majority vote.
+     * Derives the primary reason for a STANDDOWN verdict from weather metrics and tide state.
+     *
+     * <p>Checks are evaluated in {@link StanddownReason} priority order so the most
+     * visually impactful condition is reported first.
+     *
+     * @param weather         the core weather metrics
+     * @param tidesNotAligned true if the coastal tide demotion was applied
+     * @return human-readable reason label
+     */
+    public String deriveStanddownReason(WeatherMetrics weather, boolean tidesNotAligned) {
+        if (weather.lowCloud() > CLOUD_STANDDOWN) {
+            return StanddownReason.HEAVY_CLOUD.label();
+        }
+        if (weather.midCloud() != null && weather.midCloud() >= MID_CLOUD_STANDDOWN) {
+            return StanddownReason.OVERCAST.label();
+        }
+        if (weather.precip().compareTo(PRECIP_STANDDOWN) > 0) {
+            return StanddownReason.RAIN.label();
+        }
+        if (weather.visibility() < VISIBILITY_STANDDOWN) {
+            return StanddownReason.POOR_VISIBILITY.label();
+        }
+        if (weather.buildingTrend()) {
+            return StanddownReason.BUILDING_CLOUD.label();
+        }
+        if (tidesNotAligned) {
+            return StanddownReason.TIDE_MISMATCH.label();
+        }
+        return StanddownReason.POOR_CONDITIONS.label();
+    }
+
+    /**
+     * Rolls up individual slot verdicts to a region-level verdict, excluding STANDDOWN slots.
+     *
+     * <p>STANDDOWN locations are filtered out so that a region with even one viable
+     * (GO or MARGINAL) location surfaces that opportunity instead of being buried by
+     * a majority of poor-condition locations.
      *
      * @param slots the location slots
-     * @return GO if majority GO, STANDDOWN if majority STANDDOWN, MARGINAL otherwise
+     * @return GO if any viable slot is GO, MARGINAL if viable but none GO, STANDDOWN if all are
      */
     public Verdict rollUpVerdict(List<BriefingSlot> slots) {
         if (slots.isEmpty()) {
             return Verdict.MARGINAL;
         }
-        long goCount = slots.stream().filter(s -> s.verdict() == Verdict.GO).count();
-        long standdownCount = slots.stream().filter(s -> s.verdict() == Verdict.STANDDOWN).count();
-
-        if (goCount > slots.size() / 2) {
-            return Verdict.GO;
-        }
-        if (standdownCount > slots.size() / 2) {
+        List<BriefingSlot> viable = slots.stream()
+                .filter(s -> s.verdict() != Verdict.STANDDOWN).toList();
+        if (viable.isEmpty()) {
             return Verdict.STANDDOWN;
         }
-        return Verdict.MARGINAL;
+        boolean hasGo = viable.stream().anyMatch(s -> s.verdict() == Verdict.GO);
+        return hasGo ? Verdict.GO : Verdict.MARGINAL;
     }
 
     /**

@@ -939,7 +939,7 @@ class BriefingEvaluationServiceTest {
                 verdict,
                 new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null),
                 new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
-                List.of());
+                List.of(), null);
     }
 
     private void stubBriefing(List<BriefingSlot> slots) {

@@ -217,6 +217,6 @@ class BriefingHeadlineGeneratorTest {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE),
-                BriefingSlot.TideInfo.NONE, List.of());
+                BriefingSlot.TideInfo.NONE, List.of(), null);
     }
 }

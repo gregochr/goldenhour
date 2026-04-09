@@ -1820,4 +1820,18 @@ describe('DailyBriefing', () => {
       expect(rows).toHaveLength(6);
     });
   });
+
+  describe('Show all locations toggle', () => {
+    it('renders toggle checkbox on desktop', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const toggle = screen.queryByTestId('show-all-locations-toggle');
+      expect(toggle).toBeTruthy();
+      expect(toggle.type).toBe('checkbox');
+    });
+  });
 });

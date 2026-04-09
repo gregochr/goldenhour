@@ -266,10 +266,10 @@ class ScheduledBatchEvaluationServiceTest {
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
         BriefingSlot northEastSlot = new BriefingSlot("Durham UK",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingSlot yorkshireSlot = new BriefingSlot("Flamborough Head",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion northEastRegion = new BriefingRegion(
                 "North East", Verdict.GO, "Summary", List.of(), List.of(northEastSlot),
                 null, null, null, null);
@@ -761,7 +761,7 @@ class ScheduledBatchEvaluationServiceTest {
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
         BriefingSlot slot = new BriefingSlot("Durham UK",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
-                verdict, weather, BriefingSlot.TideInfo.NONE, List.of());
+                verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot),
                 null, null, null, null);
@@ -777,10 +777,10 @@ class ScheduledBatchEvaluationServiceTest {
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
         BriefingSlot slot1 = new BriefingSlot("Durham UK",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
-                verdict, weather, BriefingSlot.TideInfo.NONE, List.of());
+                verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingSlot slot2 = new BriefingSlot("Sunderland",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
-                verdict, weather, BriefingSlot.TideInfo.NONE, List.of());
+                verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot1, slot2),
                 null, null, null, null);

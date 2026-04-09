@@ -263,6 +263,6 @@ class BestBetAuroraPromptRegressionTest {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(10, BigDecimal.ZERO, 20000, 65,
                         12.0, 10.0, null, new BigDecimal("3.0")),
-                BriefingSlot.TideInfo.NONE, List.of());
+                BriefingSlot.TideInfo.NONE, List.of(), null);
     }
 }

@@ -145,6 +145,10 @@ public class BriefingSlotBuilder {
                 tideResult.lunarTideType(), tidesNotAligned);
         List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext);
 
+        String standdownReason = verdict == Verdict.STANDDOWN
+                ? verdictEvaluator.deriveStanddownReason(weatherMetrics, tidesNotAligned)
+                : null;
+
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
         BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
@@ -154,7 +158,8 @@ public class BriefingSlotBuilder {
                 tideResult.lunarTideType(), tideResult.lunarPhase(),
                 tideResult.moonAtPerigee());
 
-        return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags);
+        return new BriefingSlot(loc.getName(), solarTime, verdict, weather, tideInfo, flags,
+                standdownReason);
     }
 
     /**

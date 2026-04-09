@@ -11,12 +11,13 @@ import java.util.List;
 /**
  * One location x one solar event assessment in the daily briefing.
  *
- * @param locationName   human-readable location name
- * @param solarEventTime UTC time of the sunrise or sunset
- * @param verdict        GO, MARGINAL, or STANDDOWN
- * @param weather        weather conditions at the observer point
- * @param tide           tide data for coastal locations (all nulls/false for inland)
- * @param flags          human-readable flag strings (e.g. "Sun blocked", "King tide")
+ * @param locationName    human-readable location name
+ * @param solarEventTime  UTC time of the sunrise or sunset
+ * @param verdict         GO, MARGINAL, or STANDDOWN
+ * @param weather         weather conditions at the observer point
+ * @param tide            tide data for coastal locations (all nulls/false for inland)
+ * @param flags           human-readable flag strings (e.g. "Sun blocked", "King tide")
+ * @param standdownReason primary reason for STANDDOWN verdict, null for GO/MARGINAL
  */
 public record BriefingSlot(
         String locationName,
@@ -24,7 +25,8 @@ public record BriefingSlot(
         Verdict verdict,
         @JsonUnwrapped WeatherConditions weather,
         @JsonUnwrapped TideInfo tide,
-        List<String> flags) {
+        List<String> flags,
+        String standdownReason) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
