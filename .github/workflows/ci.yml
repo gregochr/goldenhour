@@ -11,7 +11,7 @@ jobs:
   # ── Backend ──────────────────────────────────────────────────────────────────
   backend:
     name: Backend — Build, Test & Coverage
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
@@ -22,17 +22,6 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: GITHUB_TOKEN
-
-      # Install vendored solar-utils into the CI Maven cache (avoids GitHub Packages auth)
-      - name: Install vendored solar-utils
-        run: |
-          mvn install:install-file \
-            -Dfile=backend/.m2/repository/com/gregochr/solar-utils/2.1.0/solar-utils-2.1.0.jar \
-            -DpomFile=backend/.m2/repository/com/gregochr/solar-utils/2.1.0/solar-utils-2.1.0.pom \
-            -DgroupId=com.gregochr -DartifactId=solar-utils -Dversion=2.1.0 -Dpackaging=jar
 
       # Tests use H2 in-memory (src/test/resources/application.yml) — no external DB needed.
       # mvn verify also runs JaCoCo and enforces the 80% line coverage minimum.
@@ -46,7 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false
+          cd backend && ./mvnw org.owasp:dependency-check-maven:12.1.1:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false
 
       - name: Upload JaCoCo coverage report
         if: always()
@@ -65,7 +54,7 @@ jobs:
   # ── Frontend ─────────────────────────────────────────────────────────────────
   frontend:
     name: Frontend — Lint, Test & Build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
       - uses: actions/checkout@v4
