@@ -889,6 +889,43 @@ class BriefingServiceTest {
         }
     }
 
+    // ── Horizon grid key ──
+
+    @Nested
+    @DisplayName("Horizon grid key rounding")
+    class HorizonGridKeyTests {
+
+        @Test
+        @DisplayName("Snaps to nearest 0.25° — 55.609 rounds to 55.50")
+        void snapsLat() {
+            assertThat(BriefingService.horizonGridKey(new double[]{55.609, -1.710}))
+                    .isEqualTo("55.50,-1.75");
+        }
+
+        @Test
+        @DisplayName("Exact quarter-degree stays unchanged")
+        void exactQuarterDegree() {
+            assertThat(BriefingService.horizonGridKey(new double[]{55.25, -1.50}))
+                    .isEqualTo("55.25,-1.50");
+        }
+
+        @Test
+        @DisplayName("Nearby locations with < 0.125° difference share the same grid key")
+        void nearbyLocationsShareKey() {
+            String key1 = BriefingService.horizonGridKey(new double[]{55.01, -1.51});
+            String key2 = BriefingService.horizonGridKey(new double[]{55.05, -1.55});
+            assertThat(key1).isEqualTo(key2);
+        }
+
+        @Test
+        @DisplayName("Distant locations have different grid keys")
+        void distantLocationsDifferentKeys() {
+            String key1 = BriefingService.horizonGridKey(new double[]{55.0, -1.5});
+            String key2 = BriefingService.horizonGridKey(new double[]{54.0, -2.0});
+            assertThat(key1).isNotEqualTo(key2);
+        }
+    }
+
     private static LocationEntity location(String name, String regionName) {
         RegionEntity region = regionName != null
                 ? RegionEntity.builder().name(regionName).build() : null;

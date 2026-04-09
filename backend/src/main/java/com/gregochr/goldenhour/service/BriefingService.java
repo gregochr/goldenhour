@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
+import com.gregochr.goldenhour.util.GeoUtils;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -31,6 +32,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +65,15 @@ public class BriefingService {
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
     private final ApplicationEventPublisher eventPublisher;
+    /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
+    private static final double HORIZON_OFFSET_METRES = 113_000.0;
+
+    /** Sunrise bearing (due east). */
+    private static final double SUNRISE_BEARING = 90.0;
+
+    /** Sunset bearing (due west). */
+    private static final double SUNSET_BEARING = 270.0;
+
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
     private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
 
@@ -195,6 +206,9 @@ public class BriefingService {
         List<BriefingSlotBuilder.LocationWeather> locationWeathers =
                 fetchWeatherSequential(colourLocations, jobRun);
 
+        // Fetch horizon cloud data (one batch call for all unique horizon grid cells)
+        HorizonCloudData horizonData = fetchHorizonCloud(colourLocations, jobRun);
+
         // Build slots for each location × date × event type (filtered by solar event preference)
         List<BriefingSlot> allSlots = new ArrayList<>();
         for (BriefingSlotBuilder.LocationWeather lw : locationWeathers) {
@@ -208,7 +222,10 @@ public class BriefingService {
                     if (!lw.location().supportsTargetType(eventType)) {
                         continue;
                     }
-                    BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType);
+                    OpenMeteoForecastResponse horizonForecast =
+                            horizonData.getForLocation(lw.location().getId(), eventType);
+                    BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType,
+                            horizonForecast);
                     if (slot != null) {
                         allSlots.add(slot);
                     }
@@ -422,6 +439,111 @@ public class BriefingService {
             } catch (Exception e) {
                 LOG.warn("Failed to persist grid coordinates: {}", e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Fetches cloud-only data at the solar horizon point for each location+event combination.
+     *
+     * <p>Computes horizon points at 113 km east (sunrise) and west (sunset) for each location,
+     * de-duplicates by Open-Meteo grid cell (nearest 0.25°), then makes a single batch fetch
+     * for all unique grid cells. With ~50 locations × 2 events → ~100 raw points → typically
+     * 30–40 unique grid cells after de-duplication.
+     *
+     * @param locations the colour locations to compute horizon points for
+     * @param jobRun    the job run for API call tracking
+     * @return horizon cloud data lookup
+     */
+    private HorizonCloudData fetchHorizonCloud(List<LocationEntity> locations,
+            JobRunEntity jobRun) {
+
+        // Collect phase: compute horizon points and de-duplicate by grid key
+        Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
+        Map<Long, Map<TargetType, String>> locationKeys = new HashMap<>();
+
+        for (LocationEntity loc : locations) {
+            Map<TargetType, String> eventKeys = new HashMap<>();
+
+            double[] sunrisePoint = GeoUtils.offsetPoint(
+                    loc.getLat(), loc.getLon(), SUNRISE_BEARING, HORIZON_OFFSET_METRES);
+            String sunriseKey = horizonGridKey(sunrisePoint);
+            uniqueCoords.putIfAbsent(sunriseKey, sunrisePoint);
+            eventKeys.put(TargetType.SUNRISE, sunriseKey);
+
+            double[] sunsetPoint = GeoUtils.offsetPoint(
+                    loc.getLat(), loc.getLon(), SUNSET_BEARING, HORIZON_OFFSET_METRES);
+            String sunsetKey = horizonGridKey(sunsetPoint);
+            uniqueCoords.putIfAbsent(sunsetKey, sunsetPoint);
+            eventKeys.put(TargetType.SUNSET, sunsetKey);
+
+            locationKeys.put(loc.getId(), eventKeys);
+        }
+
+        // Single batch fetch for all unique horizon grid cells
+        List<String> keys = new ArrayList<>(uniqueCoords.keySet());
+        List<double[]> coords = keys.stream().map(uniqueCoords::get).toList();
+
+        Map<String, OpenMeteoForecastResponse> responseMap = new HashMap<>();
+        long startMs = System.currentTimeMillis();
+        try {
+            List<OpenMeteoForecastResponse> responses =
+                    openMeteoClient.fetchCloudOnlyBatch(coords);
+            long durationMs = System.currentTimeMillis() - startMs;
+            long populated = responses.stream().filter(r -> r != null).count();
+            LOG.info("Horizon cloud fetch: {}/{} grid cells returned ({}ms)",
+                    populated, coords.size(), durationMs);
+            jobRunService.logApiCall(jobRun.getId(),
+                    com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
+                    "GET", "horizon-cloud-batch(" + coords.size() + ")", null,
+                    durationMs, 200, null, true, null);
+            for (int i = 0; i < keys.size(); i++) {
+                responseMap.put(keys.get(i), responses.get(i));
+            }
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.warn("Horizon cloud batch fetch failed — continuing without horizon data: {}",
+                    e.getMessage());
+            jobRunService.logApiCall(jobRun.getId(),
+                    com.gregochr.goldenhour.entity.ServiceName.OPEN_METEO_FORECAST,
+                    "GET", "horizon-cloud-batch(" + coords.size() + ")", null,
+                    durationMs, null, null, false, e.getMessage());
+        }
+
+        return new HorizonCloudData(locationKeys, responseMap);
+    }
+
+    /**
+     * Rounds a coordinate to the nearest Open-Meteo grid cell (0.25° resolution).
+     *
+     * @param point [lat, lon] in decimal degrees
+     * @return grid cell key string
+     */
+    static String horizonGridKey(double[] point) {
+        return String.format("%.2f,%.2f",
+                Math.round(point[0] * 4) / 4.0,
+                Math.round(point[1] * 4) / 4.0);
+    }
+
+    /**
+     * Lookup container for horizon cloud forecast data, keyed by location ID and event type.
+     */
+    record HorizonCloudData(Map<Long, Map<TargetType, String>> locationKeys,
+            Map<String, OpenMeteoForecastResponse> responseMap) {
+
+        /**
+         * Returns the horizon forecast for a given location and event type.
+         *
+         * @param locationId the location ID
+         * @param eventType  SUNRISE or SUNSET
+         * @return the horizon forecast response, or null if unavailable
+         */
+        OpenMeteoForecastResponse getForLocation(Long locationId, TargetType eventType) {
+            Map<TargetType, String> keys = locationKeys.get(locationId);
+            if (keys == null) {
+                return null;
+            }
+            String key = keys.get(eventType);
+            return key != null ? responseMap.get(key) : null;
         }
     }
 }

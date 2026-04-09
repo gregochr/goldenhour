@@ -222,7 +222,7 @@ class BriefingVerdictEvaluatorTest {
         @DisplayName("Grey ceiling flag for mid-cloud >= 80%")
         void greyCeilingFlag() {
             assertThat(evaluator.buildFlags(
-                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, 85, false),
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, 85, null, false),
                     NO_TIDE)).contains("Grey ceiling");
         }
 
@@ -230,7 +230,7 @@ class BriefingVerdictEvaluatorTest {
         @DisplayName("Heavy mid-cloud flag for mid-cloud 60-79%")
         void heavyMidCloudFlag() {
             assertThat(evaluator.buildFlags(
-                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, 65, false),
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, 65, null, false),
                     NO_TIDE)).contains("Heavy mid-cloud");
         }
 
@@ -238,7 +238,7 @@ class BriefingVerdictEvaluatorTest {
         @DisplayName("Cloud building flag when trend detected")
         void cloudBuildingFlag() {
             assertThat(evaluator.buildFlags(
-                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, null, true),
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, null, null, true),
                     NO_TIDE)).contains("Cloud building");
         }
 
@@ -246,8 +246,138 @@ class BriefingVerdictEvaluatorTest {
         @DisplayName("No mid-cloud flag when null")
         void noFlagWhenMidCloudNull() {
             assertThat(evaluator.buildFlags(
-                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, null, false),
+                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70, null, null, false),
                     NO_TIDE)).isEmpty();
+        }
+    }
+
+    // ── Clear-sky demotion ──
+
+    @Nested
+    @DisplayName("Clear-sky (no canvas) demotion")
+    class ClearSkyTests {
+
+        @Test
+        @DisplayName("All layers < 15% demotes GO to MARGINAL")
+        void clearAllLayers_goToMarginal() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("High cloud >= 15% — cirrus canvas present, no demotion")
+        void highCloudCanvas_noDemotion() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 8, 25, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Mid cloud >= 15% — mid canvas present, no demotion")
+        void midCloudCanvas_noDemotion() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 20, 10, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Already MARGINAL stays MARGINAL")
+        void alreadyMarginal_noChange() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.MARGINAL, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Already STANDDOWN stays STANDDOWN")
+        void alreadyStanddown_noChange() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.STANDDOWN, metrics))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("Null mid and high treated as 0 — demotion applies")
+        void nullMidHigh_treatedAsZero() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, null, null, false);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Clear all layers flag present when all < 15%")
+        void clearAllLayersFlag() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            var noTide = new BriefingVerdictEvaluator.TideContext(
+                    null, false, false, false, null, false);
+            assertThat(evaluator.buildFlags(metrics, noTide))
+                    .contains("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("StanddownReason.CLEAR_SKY label derivable")
+        void clearSkyReasonLabel() {
+            var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
+                    5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
+            assertThat(evaluator.deriveStanddownReason(metrics, false))
+                    .isEqualTo("Clear sky — no canvas");
+        }
+    }
+
+    // ── Horizon cloud demotion ──
+
+    @Nested
+    @DisplayName("Solar horizon low-cloud demotion")
+    class HorizonCloudTests {
+
+        @Test
+        @DisplayName("Horizon >= 70% demotes GO to STANDDOWN")
+        void horizon70_goToStanddown() {
+            assertThat(evaluator.applyHorizonCloudDemotion(Verdict.GO, 80))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("Horizon >= 40% demotes GO to MARGINAL")
+        void horizon40_goToMarginal() {
+            assertThat(evaluator.applyHorizonCloudDemotion(Verdict.GO, 50))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Horizon 25% — no demotion")
+        void horizon25_noDemotion() {
+            assertThat(evaluator.applyHorizonCloudDemotion(Verdict.GO, 25))
+                    .isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Horizon >= 70%, already STANDDOWN — no change")
+        void horizon70_alreadyStanddown() {
+            assertThat(evaluator.applyHorizonCloudDemotion(Verdict.STANDDOWN, 80))
+                    .isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("Horizon >= 40%, already MARGINAL — no change")
+        void horizon40_alreadyMarginal() {
+            assertThat(evaluator.applyHorizonCloudDemotion(Verdict.MARGINAL, 50))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Horizon >= 70% demotes MARGINAL to STANDDOWN")
+        void horizon70_marginalToStanddown() {
+            assertThat(evaluator.applyHorizonCloudDemotion(Verdict.MARGINAL, 75))
+                    .isEqualTo(Verdict.STANDDOWN);
         }
     }
 
@@ -359,7 +489,7 @@ class BriefingVerdictEvaluatorTest {
         void heavyCloud() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            85, BigDecimal.ZERO, 15000, 70, null, false),
+                            85, BigDecimal.ZERO, 15000, 70, null, null, false),
                     false)).isEqualTo("Heavy cloud");
         }
 
@@ -368,7 +498,7 @@ class BriefingVerdictEvaluatorTest {
         void overcast() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, 85, false),
+                            30, BigDecimal.ZERO, 15000, 70, 85, null, false),
                     false)).isEqualTo("Overcast");
         }
 
@@ -377,7 +507,7 @@ class BriefingVerdictEvaluatorTest {
         void rain() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, new BigDecimal("3.0"), 15000, 70, null, false),
+                            30, new BigDecimal("3.0"), 15000, 70, null, null, false),
                     false)).isEqualTo("Rain");
         }
 
@@ -386,7 +516,7 @@ class BriefingVerdictEvaluatorTest {
         void poorVisibility() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 3000, 70, null, false),
+                            30, BigDecimal.ZERO, 3000, 70, null, null, false),
                     false)).isEqualTo("Poor visibility");
         }
 
@@ -395,7 +525,7 @@ class BriefingVerdictEvaluatorTest {
         void buildingCloud() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, null, true),
+                            30, BigDecimal.ZERO, 15000, 70, null, null, true),
                     false)).isEqualTo("Building cloud");
         }
 
@@ -404,7 +534,7 @@ class BriefingVerdictEvaluatorTest {
         void tideMismatch() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, null, false),
+                            30, BigDecimal.ZERO, 15000, 70, 50, 50, false),
                     true)).isEqualTo("Tide mismatch");
         }
 
@@ -413,7 +543,7 @@ class BriefingVerdictEvaluatorTest {
         void fallback() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            30, BigDecimal.ZERO, 15000, 70, null, false),
+                            30, BigDecimal.ZERO, 15000, 70, 50, 50, false),
                     false)).isEqualTo("Poor conditions");
         }
 
@@ -422,7 +552,7 @@ class BriefingVerdictEvaluatorTest {
         void priority_cloudOverRain() {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
-                            85, new BigDecimal("5.0"), 3000, 70, 90, true),
+                            85, new BigDecimal("5.0"), 3000, 70, 90, null, true),
                     true)).isEqualTo("Heavy cloud");
         }
     }
@@ -523,10 +653,11 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
-        @DisplayName("No flags when all clear")
+        @DisplayName("No flags when conditions are good with some cloud canvas")
         void noFlags() {
             assertThat(evaluator.buildFlags(
-                    new BriefingVerdictEvaluator.WeatherMetrics(20, BigDecimal.ZERO, 15000, 70),
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            20, BigDecimal.ZERO, 15000, 70, 30, 25, false),
                     NO_TIDE)).isEmpty();
         }
 

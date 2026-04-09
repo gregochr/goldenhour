@@ -72,6 +72,21 @@ public class BriefingSlotBuilder {
      * @return the briefing slot, or null if the solar event time cannot be determined
      */
     public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType) {
+        return buildSlot(lw, date, eventType, null);
+    }
+
+    /**
+     * Builds a briefing slot for a location at a specific date and event type,
+     * optionally incorporating solar horizon cloud data.
+     *
+     * @param lw              the location and its fetched forecast data
+     * @param date            the target date
+     * @param eventType       SUNRISE or SUNSET
+     * @param horizonForecast cloud-only forecast at the solar horizon point (nullable)
+     * @return the briefing slot, or null if the solar event time cannot be determined
+     */
+    public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
+            OpenMeteoForecastResponse horizonForecast) {
         LocationEntity loc = lw.location();
         OpenMeteoForecastResponse forecast = lw.forecast();
 
@@ -94,6 +109,8 @@ public class BriefingSlotBuilder {
         int lowCloud = h.getCloudCoverLow().get(idx);
         int midCloud = (h.getCloudCoverMid() != null && idx < h.getCloudCoverMid().size())
                 ? h.getCloudCoverMid().get(idx) : 0;
+        int highCloud = (h.getCloudCoverHigh() != null && idx < h.getCloudCoverHigh().size())
+                ? h.getCloudCoverHigh().get(idx) : 0;
         BigDecimal precip = BigDecimal.valueOf(h.getPrecipitation().get(idx))
                 .setScale(DECIMAL_SCALE, RoundingMode.HALF_UP);
         int visibility = h.getVisibility().get(idx).intValue();
@@ -125,6 +142,18 @@ public class BriefingSlotBuilder {
         verdict = verdictEvaluator.applyCloudTrendDemotion(verdict, lowCloudTrend);
         buildingDetected = buildingDetected && verdict == Verdict.MARGINAL;
 
+        // Demote for clear all layers (GO → MARGINAL only)
+        BriefingVerdictEvaluator.WeatherMetrics clearSkyMetrics =
+                new BriefingVerdictEvaluator.WeatherMetrics(
+                        lowCloud, precip, visibility, humidity, midCloud, highCloud, false);
+        verdict = verdictEvaluator.applyClearSkyDemotion(verdict, clearSkyMetrics);
+
+        // Demote for solar horizon low cloud
+        Integer horizonLowCloud = extractHorizonLowCloud(horizonForecast, idx);
+        if (horizonLowCloud != null) {
+            verdict = verdictEvaluator.applyHorizonCloudDemotion(verdict, horizonLowCloud);
+        }
+
         // Coastal tide demotion: if coastal, tide data is present, but tide is not aligned
         // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
         // leave the weather-only verdict intact so missing data does not penalise the location.
@@ -138,7 +167,8 @@ public class BriefingSlotBuilder {
         // Build flags
         BriefingVerdictEvaluator.WeatherMetrics weatherMetrics =
                 new BriefingVerdictEvaluator.WeatherMetrics(
-                        lowCloud, precip, visibility, humidity, midCloud, buildingDetected);
+                        lowCloud, precip, visibility, humidity, midCloud, highCloud,
+                        buildingDetected);
         BriefingVerdictEvaluator.TideContext tideContext = new BriefingVerdictEvaluator.TideContext(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.isKingTide(), tideResult.isSpringTide(),
@@ -254,6 +284,24 @@ public class BriefingSlotBuilder {
         }
         int start = Math.max(0, idx - 2);
         return cloudLow.subList(start, idx + 1);
+    }
+
+    /**
+     * Extracts low cloud cover at a given hour index from a horizon forecast response.
+     *
+     * @param horizonForecast the cloud-only horizon forecast (nullable)
+     * @param idx             the hourly index to extract
+     * @return low cloud percentage, or null if unavailable
+     */
+    static Integer extractHorizonLowCloud(OpenMeteoForecastResponse horizonForecast, int idx) {
+        if (horizonForecast == null || horizonForecast.getHourly() == null) {
+            return null;
+        }
+        List<Integer> cloudLow = horizonForecast.getHourly().getCloudCoverLow();
+        if (cloudLow == null || idx >= cloudLow.size()) {
+            return null;
+        }
+        return cloudLow.get(idx);
     }
 
     /**

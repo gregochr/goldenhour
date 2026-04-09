@@ -50,6 +50,15 @@ public class BriefingVerdictEvaluator {
     /** Minimum peak low cloud in the 3-hour window to trigger a BUILDING demotion. */
     static final int BUILDING_TREND_MIN_PEAK = 40;
 
+    /** Maximum cloud percentage at any layer for the clear-all-layers demotion. */
+    static final int CLEAR_ALL_LAYERS_MAX = 15;
+
+    /** Horizon low cloud percentage at or above which conditions are STANDDOWN (sun blocked). */
+    static final int HORIZON_CLOUD_STANDDOWN = 70;
+
+    /** Horizon low cloud percentage at or above which GO is demoted to MARGINAL. */
+    static final int HORIZON_CLOUD_MARGINAL = 40;
+
     /**
      * Ordered reasons for STANDDOWN verdicts, checked in priority order.
      * The first matching reason is used as the primary standdown reason.
@@ -74,6 +83,12 @@ public class BriefingVerdictEvaluator {
 
         /** Coastal tide not aligned with location preference. */
         TIDE_MISMATCH("Tide mismatch"),
+
+        /** All cloud layers below threshold — no canvas for colour. */
+        CLEAR_SKY("Clear sky — no canvas"),
+
+        /** Thick low cloud at the solar horizon blocks the sun. */
+        SUN_BLOCKED_HORIZON("Sun blocked at horizon"),
 
         /** Fallback when no specific reason is identified. */
         POOR_CONDITIONS("Poor conditions");
@@ -102,13 +117,14 @@ public class BriefingVerdictEvaluator {
      * @param visibility    visibility in metres
      * @param humidity      relative humidity percentage
      * @param midCloud      mid-level cloud cover percentage (nullable if unavailable)
+     * @param highCloud     high-level cloud cover percentage (nullable if unavailable)
      * @param buildingTrend true if a BUILDING cloud trend was detected
      */
     public record WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity,
-            Integer midCloud, boolean buildingTrend) {
+            Integer midCloud, Integer highCloud, boolean buildingTrend) {
 
         /**
-         * Convenience constructor without mid-cloud or trend data.
+         * Convenience constructor without mid-cloud, high-cloud, or trend data.
          *
          * @param lowCloud   low cloud cover percentage
          * @param precip     precipitation in mm
@@ -116,7 +132,7 @@ public class BriefingVerdictEvaluator {
          * @param humidity   relative humidity percentage
          */
         public WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity) {
-            this(lowCloud, precip, visibility, humidity, null, false);
+            this(lowCloud, precip, visibility, humidity, null, null, false);
         }
     }
 
@@ -210,6 +226,53 @@ public class BriefingVerdictEvaluator {
     }
 
     /**
+     * Demotes a GO verdict to MARGINAL when all three cloud layers are below the
+     * {@link #CLEAR_ALL_LAYERS_MAX} threshold, indicating a cloudless sky with no canvas
+     * for colour.
+     *
+     * <p>Null mid/high cloud values are treated as 0 (clear). Only demotes GO → MARGINAL;
+     * does not affect MARGINAL or STANDDOWN verdicts.
+     *
+     * @param verdict the current verdict
+     * @param weather the weather metrics including all three cloud layers
+     * @return the (possibly demoted) verdict
+     */
+    public Verdict applyClearSkyDemotion(Verdict verdict, WeatherMetrics weather) {
+        if (verdict != Verdict.GO) {
+            return verdict;
+        }
+        int low = weather.lowCloud();
+        int mid = weather.midCloud() != null ? weather.midCloud() : 0;
+        int high = weather.highCloud() != null ? weather.highCloud() : 0;
+        if (low < CLEAR_ALL_LAYERS_MAX && mid < CLEAR_ALL_LAYERS_MAX
+                && high < CLEAR_ALL_LAYERS_MAX) {
+            return Verdict.MARGINAL;
+        }
+        return verdict;
+    }
+
+    /**
+     * Demotes the verdict based on low cloud at the solar horizon (~113 km offset).
+     *
+     * <p>Thick low cloud sitting on the horizon blocks the sun regardless of overhead
+     * conditions. At &ge; 70% the sun is blocked (STANDDOWN). At &ge; 40% for a GO verdict
+     * the result is unreliable (MARGINAL).
+     *
+     * @param verdict         the current verdict
+     * @param horizonLowCloud low cloud percentage at the solar horizon point
+     * @return the (possibly demoted) verdict
+     */
+    public Verdict applyHorizonCloudDemotion(Verdict verdict, int horizonLowCloud) {
+        if (horizonLowCloud >= HORIZON_CLOUD_STANDDOWN) {
+            return Verdict.STANDDOWN;
+        }
+        if (horizonLowCloud >= HORIZON_CLOUD_MARGINAL && verdict == Verdict.GO) {
+            return Verdict.MARGINAL;
+        }
+        return verdict;
+    }
+
+    /**
      * Builds human-readable flag strings for a slot.
      *
      * @param weather the core weather metrics
@@ -243,6 +306,12 @@ public class BriefingVerdictEvaluator {
         }
         if (weather.buildingTrend()) {
             flags.add("Cloud building");
+        }
+        int effectiveMid = weather.midCloud() != null ? weather.midCloud() : 0;
+        int effectiveHigh = weather.highCloud() != null ? weather.highCloud() : 0;
+        if (weather.lowCloud() < CLEAR_ALL_LAYERS_MAX && effectiveMid < CLEAR_ALL_LAYERS_MAX
+                && effectiveHigh < CLEAR_ALL_LAYERS_MAX) {
+            flags.add("Clear all layers");
         }
         String combinedLabel = combinedTideLabel(tide);
         if (combinedLabel != null) {
@@ -285,6 +354,12 @@ public class BriefingVerdictEvaluator {
         }
         if (tidesNotAligned) {
             return StanddownReason.TIDE_MISMATCH.label();
+        }
+        int midVal = weather.midCloud() != null ? weather.midCloud() : 0;
+        int highVal = weather.highCloud() != null ? weather.highCloud() : 0;
+        if (weather.lowCloud() < CLEAR_ALL_LAYERS_MAX && midVal < CLEAR_ALL_LAYERS_MAX
+                && highVal < CLEAR_ALL_LAYERS_MAX) {
+            return StanddownReason.CLEAR_SKY.label();
         }
         return StanddownReason.POOR_CONDITIONS.label();
     }
