@@ -855,7 +855,7 @@ describe('MarkerPopupContent', () => {
             {...DEFAULT_PROPS}
             location={EMPTY_LOCATION}
             forecast={null}
-            role="PRO_USER"
+            role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
             driveMinutes={90}
           />,
         );
