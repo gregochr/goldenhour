@@ -14,6 +14,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import org.mockito.ArgumentCaptor;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -33,9 +36,11 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    private JobRunEntity stubJobRun;
+
     @BeforeEach
     void setUp() {
-        JobRunEntity stubJobRun = new JobRunEntity();
+        stubJobRun = new JobRunEntity();
         stubJobRun.setId(42L);
         when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
                 .thenReturn(stubJobRun);
@@ -130,8 +135,10 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/aurora/admin/enrich-bortle"))
                 .andExpect(status().isAccepted());
 
+        ArgumentCaptor<JobRunEntity> jobRunCaptor = ArgumentCaptor.forClass(JobRunEntity.class);
         verify(enrichmentService, org.mockito.Mockito.timeout(2000))
-                .enrichAll(eq("valid-key"), any(JobRunEntity.class));
+                .enrichAll(eq("valid-key"), jobRunCaptor.capture());
+        assertThat(jobRunCaptor.getValue().getId()).isEqualTo(42L);
     }
 
     @Test
@@ -151,7 +158,8 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk());
 
         verify(stateCache).activateSimulation(
-                eq(AlertLevel.STRONG), any(AuroraStateCache.SimulatedNoaaData.class));
+                eq(AlertLevel.STRONG),
+                eq(new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3")));
     }
 
     // -------------------------------------------------------------------------
@@ -209,7 +217,9 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.level").value("STRONG"))
                 .andExpect(jsonPath("$.eligibleLocations").value(1));
 
-        verify(stateCache).activateSimulation(any(AlertLevel.class), any(AuroraStateCache.SimulatedNoaaData.class));
+        verify(stateCache).activateSimulation(
+                eq(AlertLevel.STRONG),
+                eq(new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3")));
     }
 
     // -------------------------------------------------------------------------

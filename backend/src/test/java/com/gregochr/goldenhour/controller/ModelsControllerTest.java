@@ -172,6 +172,18 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("PUT /api/models/active with invalid runType returns 400")
+    void setActiveModel_invalidRunType_badRequest() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"NOT_A_RUN_TYPE\",\"model\":\"HAIKU\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("PUT /api/models/active switches BRIEFING_BEST_BET to SONNET")
     void setActiveModel_switchesBriefingBestBetToSonnet() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
