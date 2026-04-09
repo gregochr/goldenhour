@@ -148,6 +148,21 @@ describe('HealthIndicator', () => {
     expect(panel.textContent).toContain('openMeteo');
   });
 
+  it('shows appVersion in pill when set to a real version string', () => {
+    render(<HealthIndicator status="UP" degraded={[]} appVersion="v1.2.3" />);
+    expect(screen.getByTestId('health-indicator').textContent).toContain('v1.2.3');
+  });
+
+  it('does not show appVersion in pill when value is dev', () => {
+    render(<HealthIndicator status="UP" degraded={[]} appVersion="dev" />);
+    expect(screen.getByTestId('health-indicator').textContent).not.toContain('dev');
+  });
+
+  it('does not show appVersion in pill when prop is absent', () => {
+    render(<HealthIndicator status="UP" degraded={[]} />);
+    expect(screen.getByTestId('health-indicator').textContent).toBe('UP');
+  });
+
   it('shows DOWN status for a failed service', () => {
     render(
       <HealthIndicator

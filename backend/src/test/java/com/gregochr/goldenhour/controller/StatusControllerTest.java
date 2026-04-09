@@ -401,6 +401,46 @@ class StatusControllerTest {
 
             assertThat(response.checkedAt()).isNotNull();
         }
+
+        @Test
+        @DisplayName("appVersion detail is extracted from appVersion health component")
+        void appVersionExtractedFromComponent() {
+            HealthDescriptor appVersionHealth = indicatedWithVersion("v2.3.1");
+            HealthDescriptor root = compositeOf(Map.of("appVersion", appVersionHealth));
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.appVersion()).isEqualTo("v2.3.1");
+        }
+
+        @Test
+        @DisplayName("appVersion is null when appVersion component is absent")
+        void appVersionNullWhenComponentAbsent() {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.appVersion()).isNull();
+        }
+
+        @Test
+        @DisplayName("appVersion component does not affect overall UP status")
+        void appVersionComponentDoesNotAffectOverallStatus() {
+            HealthDescriptor dbHealth = indicated(Status.UP, null);
+            HealthDescriptor appVersionHealth = indicatedWithVersion("v2.3.1");
+            HealthDescriptor root = compositeOf(Map.of("db", dbHealth, "appVersion", appVersionHealth));
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            StatusResponse response = controller.buildStatus(TEST_SESSION);
+
+            assertThat(response.status()).isEqualTo("UP");
+            assertThat(response.degraded()).isEmpty();
+        }
     }
 
     private static Authentication mockAuth(String username, String role) {
@@ -439,6 +479,16 @@ class StatusControllerTest {
         } else {
             lenient().when(descriptor.getDetails()).thenReturn(Map.of());
         }
+        return descriptor;
+    }
+
+    /**
+     * Creates an {@link IndicatedHealthDescriptor} mock with a {@code version} detail.
+     */
+    private static HealthDescriptor indicatedWithVersion(String version) {
+        IndicatedHealthDescriptor descriptor = mock(IndicatedHealthDescriptor.class);
+        lenient().when(descriptor.getStatus()).thenReturn(Status.UP);
+        lenient().when(descriptor.getDetails()).thenReturn(Map.of("version", version));
         return descriptor;
     }
 
