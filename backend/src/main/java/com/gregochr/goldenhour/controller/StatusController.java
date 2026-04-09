@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -178,8 +179,10 @@ public class StatusController {
 
         String overall = hardDown ? "DOWN" : !degraded.isEmpty() ? "DEGRADED" : "UP";
 
+        Instant startedAt = Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean().getStartTime());
+
         return new StatusResponse(overall, List.copyOf(degraded), database,
-                services, buildInfo(), session, Instant.now());
+                services, buildInfo(), session, Instant.now(), startedAt);
     }
 
     private Map<String, ComponentStatus> extractServices(Map<String, HealthDescriptor> components) {

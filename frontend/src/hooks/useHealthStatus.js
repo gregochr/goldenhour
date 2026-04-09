@@ -13,6 +13,7 @@ export function useHealthStatus() {
   const [health, setHealth] = useState({
     status: null, degraded: [], checkedAt: null,
     build: null, session: null, database: null, services: null,
+    startedAt: null,
   });
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function useHealthStatus() {
             session: data.session || null,
             database: data.database || null,
             services: data.services || null,
+            startedAt: data.startedAt || null,
           });
         },
       },

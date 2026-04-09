@@ -14,6 +14,7 @@ import java.util.Map;
  * @param build     build/git metadata
  * @param session   authenticated user info
  * @param checkedAt server timestamp when this status was assembled
+ * @param startedAt JVM start time (container start)
  */
 public record StatusResponse(
         String status,
@@ -22,7 +23,8 @@ public record StatusResponse(
         Map<String, ComponentStatus> services,
         BuildInfo build,
         SessionInfo session,
-        Instant checkedAt) {
+        Instant checkedAt,
+        Instant startedAt) {
 
     /** Defensive copy. */
     public StatusResponse {

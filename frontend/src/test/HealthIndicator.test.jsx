@@ -109,6 +109,27 @@ describe('HealthIndicator', () => {
     expect(sessionSection.textContent).toContain('2h 15m ago');
   });
 
+  it('shows backend started time when startedAt is provided', () => {
+    render(
+      <HealthIndicator
+        status="UP" degraded={[]} checkedAt={new Date('2026-04-09T14:32:00')}
+        startedAt="2026-04-09T14:32:00Z"
+      />,
+    );
+    fireEvent.click(screen.getByTestId('health-indicator'));
+    const startedAt = screen.getByTestId('health-started-at');
+    expect(startedAt.textContent).toContain('Backend started');
+    expect(startedAt.textContent).toMatch(/09.*Apr/);
+  });
+
+  it('does not show backend started row when startedAt is null', () => {
+    render(
+      <HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-04-09T14:32:00')} />,
+    );
+    fireEvent.click(screen.getByTestId('health-indicator'));
+    expect(screen.queryByTestId('health-started-at')).not.toBeInTheDocument();
+  });
+
   it('shows last checked time in panel', () => {
     render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-30T14:32:05')} />);
     fireEvent.click(screen.getByTestId('health-indicator'));

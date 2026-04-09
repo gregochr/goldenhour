@@ -31,7 +31,7 @@ function formatDuration(ms) {
  */
 export default function HealthIndicator({
   status, degraded, checkedAt, build, services,
-  database, session,
+  database, session, startedAt,
 }) {
   const [open, setOpen] = useState(false);
   const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
@@ -106,6 +106,11 @@ export default function HealthIndicator({
     ? formatDuration(Date.now() - new Date(session.loginTime).getTime())
     : null;
 
+  const startedAtStr = startedAt
+    ? new Date(startedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+      + ' ' + new Date(startedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : null;
+
   const serviceEntries = services ? Object.entries(services) : [];
 
   return (
@@ -138,6 +143,13 @@ export default function HealthIndicator({
               <span className="ml-auto text-plex-text-muted font-normal">{degraded.join(', ')}</span>
             )}
           </div>
+
+          {/* Backend start time */}
+          {startedAtStr && (
+            <div className="px-3 py-2 border-b border-plex-border text-plex-text-muted" data-testid="health-started-at">
+              Backend started {startedAtStr}
+            </div>
+          )}
 
           {/* Database */}
           {database && (
@@ -232,4 +244,5 @@ HealthIndicator.propTypes = {
     role: PropTypes.string,
     loginTime: PropTypes.string,
   }),
+  startedAt: PropTypes.string,
 };
