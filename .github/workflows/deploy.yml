@@ -36,6 +36,7 @@ jobs:
           context: .
           file: backend/Dockerfile
           push: true
+          no-cache: true
           build-args: |
             APP_VERSION=${{ steps.tag.outputs.VERSION }}
           tags: |
@@ -48,6 +49,7 @@ jobs:
           context: ./frontend
           file: frontend/Dockerfile
           push: true
+          no-cache: true
           build-args: |
             VITE_TURNSTILE_SITE_KEY=0x4AAAAAACkZr4aO-Px_Wy6t
           tags: |
