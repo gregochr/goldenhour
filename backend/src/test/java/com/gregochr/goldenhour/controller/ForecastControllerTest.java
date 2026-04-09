@@ -3,28 +3,16 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunProgress;
-import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
-import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.JobRunService;
-import com.gregochr.goldenhour.service.LocationService;
-import com.gregochr.goldenhour.service.RunProgressTracker;
-import com.gregochr.goldenhour.service.ScheduledForecastService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -54,39 +42,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Loads the full application context with test configuration and mocks only
  * the direct service dependencies.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class ForecastControllerTest {
+class ForecastControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private ForecastEvaluationRepository forecastEvaluationRepository;
-
-    @MockitoBean
-    private ForecastService forecastService;
-
-    @MockitoBean
-    private ForecastCommandFactory commandFactory;
-
-    @MockitoBean
-    private ForecastCommandExecutor commandExecutor;
-
-    @MockitoBean
-    private LocationService locationService;
-
-    @MockitoBean
-    private ScheduledForecastService scheduledForecastService;
-
-    @MockitoBean
-    private ForecastDtoMapper dtoMapper;
-
-    @MockitoBean
-    private JobRunService jobRunService;
-
-    @MockitoBean
-    private RunProgressTracker progressTracker;
 
     private static final LocationEntity DURHAM = LocationEntity.builder()
             .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();

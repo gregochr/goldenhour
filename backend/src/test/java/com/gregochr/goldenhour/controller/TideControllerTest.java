@@ -4,14 +4,9 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.model.TideStats;
-import com.gregochr.goldenhour.service.LocationService;
-import com.gregochr.goldenhour.service.TideService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -34,18 +29,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Loads the full application context and mocks only {@link LocationService}
  * and {@link TideService}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class TideControllerTest {
+class TideControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private LocationService locationService;
-
-    @MockitoBean
-    private TideService tideService;
 
     @Test
     @WithMockUser

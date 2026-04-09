@@ -1,14 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.WaitlistEmailEntity;
-import com.gregochr.goldenhour.repository.WaitlistEmailRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
@@ -24,15 +20,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link WaitlistAdminController}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class WaitlistAdminControllerTest {
+class WaitlistAdminControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private WaitlistEmailRepository waitlistEmailRepository;
 
     @Test
     @WithMockUser(roles = "ADMIN")

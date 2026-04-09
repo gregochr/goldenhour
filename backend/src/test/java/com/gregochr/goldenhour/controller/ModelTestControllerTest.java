@@ -5,13 +5,9 @@ import com.gregochr.goldenhour.entity.ModelTestResultEntity;
 import com.gregochr.goldenhour.entity.ModelTestRunEntity;
 import com.gregochr.goldenhour.entity.RerunType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.service.ModelTestService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,15 +25,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link ModelTestController}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class ModelTestControllerTest {
+class ModelTestControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private ModelTestService modelTestService;
 
     @Test
     @DisplayName("POST /api/model-test/run requires ADMIN role")

@@ -3,15 +3,11 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.model.AuroraForecastPreview;
 import com.gregochr.goldenhour.model.AuroraForecastResultDto;
 import com.gregochr.goldenhour.model.AuroraForecastRunResponse;
-import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
@@ -27,15 +23,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link AuroraForecastController} role-based access and endpoint behaviour.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class AuroraForecastControllerTest {
+class AuroraForecastControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private AuroraForecastRunService forecastRunService;
 
     // -------------------------------------------------------------------------
     // Role-based access control

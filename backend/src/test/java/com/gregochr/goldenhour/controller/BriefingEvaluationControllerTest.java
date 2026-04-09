@@ -2,13 +2,9 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -24,15 +20,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link BriefingEvaluationController}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class BriefingEvaluationControllerTest {
+class BriefingEvaluationControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private BriefingEvaluationService evaluationService;
 
     @Test
     @DisplayName("SSE endpoint returns text/event-stream content type")

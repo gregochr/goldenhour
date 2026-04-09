@@ -1,15 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
-import com.gregochr.goldenhour.service.ForecastCommandFactory;
-import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.RegistrationService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClientResponseException;
@@ -31,21 +26,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Verifies that well-known exception types are translated to the correct HTTP status
  * codes and carry a structured {@code error} field in the response body.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class GlobalExceptionHandlerTest {
+class GlobalExceptionHandlerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
-    @MockitoBean
-    private ForecastService forecastService;
-
-    @MockitoBean
-    private ForecastCommandFactory commandFactory;
-
-    @MockitoBean
-    private RegistrationService registrationService;
+    @BeforeEach
+    void setUp() {
+        when(turnstileService.verify(any())).thenReturn(true);
+    }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})

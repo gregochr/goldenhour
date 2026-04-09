@@ -1,14 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.WaitlistEmailEntity;
-import com.gregochr.goldenhour.repository.WaitlistEmailRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.argThat;
@@ -22,15 +18,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link WaitlistController}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class WaitlistControllerTest {
+class WaitlistControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private WaitlistEmailRepository waitlistEmailRepository;
 
     @Test
     @DisplayName("POST /api/waitlist saves email and returns 200")

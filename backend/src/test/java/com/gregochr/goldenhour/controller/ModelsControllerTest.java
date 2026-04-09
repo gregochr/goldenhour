@@ -6,14 +6,9 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.JwtService;
-import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
@@ -35,21 +30,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Tests for {@link ModelsController} — validates per-run-type model selection
  * and optimisation strategy endpoints.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class ModelsControllerTest {
+class ModelsControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private JwtService jwtService;
-
-    @MockitoBean
-    private ModelSelectionService modelSelectionService;
-
-    @MockitoBean
-    private OptimisationStrategyService optimisationStrategyService;
 
     private Map<RunType, EvaluationModel> buildDefaultConfigs() {
         Map<RunType, EvaluationModel> configs = new EnumMap<>(RunType.class);

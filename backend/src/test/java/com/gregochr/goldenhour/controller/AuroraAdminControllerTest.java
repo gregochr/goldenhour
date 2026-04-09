@@ -4,18 +4,12 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
-import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -34,27 +28,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link AuroraAdminController} access control and endpoint behaviour.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class AuroraAdminControllerTest {
+class AuroraAdminControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private BortleEnrichmentService enrichmentService;
-
-    @MockitoBean
-    private AuroraProperties auroraProperties;
-
-    @MockitoBean
-    private AuroraStateCache stateCache;
-
-    @MockitoBean
-    private JobRunService jobRunService;
-
-    @MockitoBean
-    private LocationRepository locationRepository;
 
     @BeforeEach
     void setUp() {

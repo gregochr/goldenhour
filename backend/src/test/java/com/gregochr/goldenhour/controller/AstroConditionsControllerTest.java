@@ -2,14 +2,10 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AstroConditionsEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.repository.AstroConditionsRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
@@ -24,15 +20,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link AstroConditionsController} endpoint behaviour and role-based access.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class AstroConditionsControllerTest {
+class AstroConditionsControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private AstroConditionsRepository astroConditionsRepository;
 
     // -------------------------------------------------------------------------
     // GET /api/astro/conditions — data tests
