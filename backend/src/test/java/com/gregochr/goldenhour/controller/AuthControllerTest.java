@@ -4,18 +4,11 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
-import com.gregochr.goldenhour.repository.AppUserRepository;
-import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.service.JwtService;
-import com.gregochr.goldenhour.service.RegistrationService;
-import com.gregochr.goldenhour.service.TurnstileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,9 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link AuthController}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class AuthControllerTest {
+class AuthControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -51,18 +42,6 @@ class AuthControllerTest {
 
     @Autowired
     private JwtService jwtService;
-
-    @MockitoBean
-    private AppUserRepository userRepository;
-
-    @MockitoBean
-    private RefreshTokenRepository refreshTokenRepository;
-
-    @MockitoBean
-    private RegistrationService registrationService;
-
-    @MockitoBean
-    private TurnstileService turnstileService;
 
     private AppUserEntity adminUser;
 

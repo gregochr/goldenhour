@@ -3,13 +3,9 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.service.OutcomeService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -40,15 +36,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Loads the full application context with test configuration and mocks only
  * the {@link OutcomeService} dependency.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class OutcomeControllerTest {
+class OutcomeControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private OutcomeService outcomeService;
 
     @Test
     @WithMockUser

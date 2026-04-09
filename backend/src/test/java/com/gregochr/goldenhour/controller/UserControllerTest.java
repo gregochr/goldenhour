@@ -3,15 +3,9 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.PasswordResetResult;
-import com.gregochr.goldenhour.service.RegistrationService;
-import com.gregochr.goldenhour.service.UserService;
-import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,21 +31,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Integration tests for {@link UserController}.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class UserControllerTest {
+class UserControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @MockitoBean
-    private UserService userService;
-
-    @MockitoBean
-    private UserEmailService userEmailService;
-
-    @MockitoBean
-    private RegistrationService registrationService;
 
     @Test
     @WithMockUser(roles = "ADMIN")
