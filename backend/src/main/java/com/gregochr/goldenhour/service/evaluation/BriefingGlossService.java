@@ -50,12 +50,19 @@ public class BriefingGlossService {
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast assistant. Given weather and tide data for a \
-            region at a solar event, write a single plain-English sentence of 10 words or \
-            fewer explaining the key reason for the verdict. No quotes, no punctuation \
-            other than what the sentence needs. Be specific about cloud conditions. \
+            region at a solar event, write a single plain-English phrase explaining the \
+            key reason for the verdict. Be specific about cloud conditions.
+            STRICT LIMIT: 8 words maximum. Count every word. If your line exceeds \
+            8 words, rewrite it shorter. Never exceed 8 words under any circumstances.
+            CRITICAL RULE: If clearAllLayers is true, the gloss MUST be cautionary — \
+            clear skies mean no cloud canvas to catch colour. Never describe \
+            clear-all-layers conditions as good, promising, or colourful. Use phrases \
+            like "Clear sky — no canvas for colour", "Cloudless — flat light expected", \
+            "Clear all layers — limited colour potential".
+            No quotes, no punctuation other than what the phrase needs. \
             Examples: "High cirrus canvas — good colour potential", \
-            "Clear all layers — flat light, nothing to catch colour", \
-            "Mid-level cloud building — risk of blanket by event time".""";
+            "Thick low cloud — sky blocked", \
+            "Mid-level cloud building — blanket risk".""";
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;

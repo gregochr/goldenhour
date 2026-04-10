@@ -245,7 +245,8 @@ class BriefingGlossServiceTest {
         String systemPrompt = captor.getValue().system().get()
                 .asTextBlockParams().get(0).text();
         assertThat(systemPrompt).contains("photography forecast assistant");
-        assertThat(systemPrompt).contains("10 words or fewer");
+        assertThat(systemPrompt).contains("8 words maximum");
+        assertThat(systemPrompt).contains("clearAllLayers is true");
     }
 
     // ── Hierarchy reassembly (immutable records) ─────────────────────────────
@@ -357,6 +358,93 @@ class BriefingGlossServiceTest {
         assertThat(json).contains("\"goCount\":0");
     }
 
+    // ── clearAllLayers flag ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("buildUserMessage sets clearAllLayers:true when slot has 'Clear all layers' flag")
+    void buildUserMessage_clearAllLayers_trueWhenFlagPresent() {
+        BriefingRegion clearRegion = regionWithFlags("Northumberland", Verdict.MARGINAL,
+                List.of("Clear all layers"));
+        BriefingDay day = dayWith(clearRegion);
+        BriefingEventSummary es = day.eventSummaries().getFirst();
+        BriefingGlossService.GlossWorkItem item =
+                new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, clearRegion);
+
+        String json = glossService.buildUserMessage(item);
+
+        assertThat(json).contains("\"clearAllLayers\":true");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage sets clearAllLayers:false when no flag present")
+    void buildUserMessage_clearAllLayers_falseWhenNoFlag() {
+        BriefingRegion goRegion = region("Northumberland", Verdict.GO);
+        BriefingDay day = dayWith(goRegion);
+        BriefingEventSummary es = day.eventSummaries().getFirst();
+        BriefingGlossService.GlossWorkItem item =
+                new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, goRegion);
+
+        String json = glossService.buildUserMessage(item);
+
+        assertThat(json).contains("\"clearAllLayers\":false");
+    }
+
+    @Test
+    @DisplayName("Clear-all-layers region sends clearAllLayers:true in user message to Claude")
+    void clearAllLayersRegion_userMessageSentToClaude() {
+        Message response = mockResponse("Clear sky — no canvas");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        BriefingRegion clearRegion = regionWithFlags("Northumberland", Verdict.MARGINAL,
+                List.of("Clear all layers"));
+        List<BriefingDay> days = List.of(dayWith(clearRegion));
+        glossService.generateGlosses(days, 1L);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String userMessage = captor.getValue().messages().getFirst()
+                .content().asString();
+        assertThat(userMessage).contains("\"clearAllLayers\":true");
+        assertThat(userMessage).contains("\"verdict\":\"MARGINAL\"");
+    }
+
+    @Test
+    @DisplayName("System prompt contains clearAllLayers cautionary rule")
+    void systemPrompt_containsClearAllLayersCautionaryRule() {
+        Message response = mockResponse("Canvas potential");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        glossService.generateGlosses(days, 1L);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).contains("clearAllLayers is true");
+        assertThat(systemPrompt).contains("MUST be cautionary");
+        assertThat(systemPrompt).contains("no cloud canvas");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage sets buildingTrend:true when slot has 'Cloud building' flag")
+    void buildUserMessage_buildingTrend_trueWhenFlagPresent() {
+        BriefingRegion buildingRegion = regionWithFlags("Lake District", Verdict.GO,
+                List.of("Cloud building"));
+        BriefingDay day = dayWith(buildingRegion);
+        BriefingEventSummary es = day.eventSummaries().getFirst();
+        BriefingGlossService.GlossWorkItem item =
+                new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, buildingRegion);
+
+        String json = glossService.buildUserMessage(item);
+
+        assertThat(json).contains("\"buildingTrend\":true");
+    }
+
     // ── Utility ──────────────────────────────────────────────────────────────
 
     @Test
@@ -377,11 +465,16 @@ class BriefingGlossServiceTest {
     }
 
     private static BriefingRegion region(String name, Verdict verdict) {
+        return regionWithFlags(name, verdict, List.of());
+    }
+
+    private static BriefingRegion regionWithFlags(String name, Verdict verdict,
+            List<String> flags) {
         BriefingSlot slot = new BriefingSlot(
                 "Location1", LocalDateTime.of(2026, 4, 10, 18, 30), verdict,
                 new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
                         10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, flags, null);
         return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(slot),
                 10.0, 8.0, 3.5, 0, null);
     }
