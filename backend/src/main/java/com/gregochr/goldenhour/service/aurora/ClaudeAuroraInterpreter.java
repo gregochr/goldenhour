@@ -20,10 +20,13 @@ import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -100,9 +103,16 @@ public class ClaudeAuroraInterpreter {
             Be concise and factual. Do not invent or hallucinate data not provided.
             """;
 
+    /** Durham, UK — representative UK reference latitude for lunar calculations. */
+    private static final double DURHAM_LAT = 54.776;
+
+    /** Durham longitude. */
+    private static final double DURHAM_LON = -1.575;
+
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
     private final ModelSelectionService modelSelectionService;
+    private final LunarCalculator lunarCalculator;
 
     /**
      * Constructs the interpreter.
@@ -110,13 +120,16 @@ public class ClaudeAuroraInterpreter {
      * @param anthropicApiClient    resilient Anthropic API client
      * @param objectMapper          Jackson mapper for parsing Claude's JSON response
      * @param modelSelectionService service for resolving the active Claude model
+     * @param lunarCalculator       lunar position calculator for moon data
      */
     public ClaudeAuroraInterpreter(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper,
-            ModelSelectionService modelSelectionService) {
+            ModelSelectionService modelSelectionService,
+            LunarCalculator lunarCalculator) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.modelSelectionService = modelSelectionService;
+        this.lunarCalculator = lunarCalculator;
     }
 
     /**
@@ -292,6 +305,18 @@ public class ClaudeAuroraInterpreter {
             sb.append("MET OFFICE SPACE WEATHER FORECAST:\n").append(metOfficeText).append("\n\n");
         }
 
+        // Lunar conditions
+        LunarPosition moon = computeMoon(tonightWindow);
+        if (moon != null) {
+            sb.append("LUNAR CONDITIONS:\n");
+            sb.append(String.format("  Phase: %s%n", moon.phase().name()));
+            sb.append(String.format("  Illumination: %.0f%%%n", moon.illuminationPercent()));
+            sb.append(String.format("  Altitude: %.0f° (%s)%n",
+                    moon.altitude(),
+                    moon.isAboveHorizon() ? "above horizon" : "below horizon"));
+            sb.append("\n");
+        }
+
         // Location list
         sb.append("LOCATIONS TO SCORE (").append(locations.size()).append(" locations):\n");
         for (int i = 0; i < locations.size(); i++) {
@@ -306,6 +331,29 @@ public class ClaudeAuroraInterpreter {
                 .append(" objects in the same order.");
 
         return sb.toString();
+    }
+
+    /**
+     * Computes lunar position at the midpoint of tonight's dark window.
+     *
+     * @param tonightWindow tonight's dark period, or {@code null} for real-time
+     * @return lunar position, or {@code null} on error
+     */
+    private LunarPosition computeMoon(TonightWindow tonightWindow) {
+        try {
+            ZonedDateTime targetTime;
+            if (tonightWindow != null) {
+                long midpointMinutes = Duration.between(
+                        tonightWindow.dusk(), tonightWindow.dawn()).toMinutes() / 2;
+                targetTime = tonightWindow.dusk().plusMinutes(midpointMinutes);
+            } else {
+                targetTime = ZonedDateTime.now(ZoneOffset.UTC);
+            }
+            return lunarCalculator.calculate(targetTime, DURHAM_LAT, DURHAM_LON);
+        } catch (Exception e) {
+            LOG.debug("Lunar calculation failed: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

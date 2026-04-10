@@ -12,12 +12,18 @@ import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.evaluation.AuroraGlossService;
+import com.gregochr.solarutils.LunarCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import com.gregochr.goldenhour.model.SolarWindReading;
+import com.gregochr.solarutils.LunarPhase;
+import com.gregochr.solarutils.LunarPosition;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -30,7 +36,11 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,12 +62,22 @@ class BriefingAuroraSummaryBuilderTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private LunarCalculator lunarCalculator;
+
+    @Mock
+    private AuroraGlossService auroraGlossService;
+
     private BriefingAuroraSummaryBuilder builder;
 
     @BeforeEach
     void setUp() {
+        // By default, gloss service passes through regions unchanged
+        lenient().when(auroraGlossService.enrichGlosses(anyList(), any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         builder = new BriefingAuroraSummaryBuilder(
-                auroraStateCache, noaaSwpcClient, weatherEnricher, locationRepository);
+                auroraStateCache, noaaSwpcClient, weatherEnricher, locationRepository,
+                lunarCalculator, auroraGlossService);
     }
 
     @Test
@@ -476,6 +496,170 @@ class BriefingAuroraSummaryBuilderTest {
         AuroraTonightSummary summary = builder.buildAuroraTonight();
 
         assertThat(summary.regions().get(0).bestBortleClass()).isEqualTo(2);
+    }
+
+    // ── Moon phase in tonight summary ──
+
+    @Test
+    @DisplayName("buildAuroraTonight populates moon phase, illumination, and above-horizon fields")
+    void tonightSummary_includesMoonData() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        40, 3.5, 4.2, 2)));
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        25.0, 180.0, 0.73, LunarPhase.WAXING_GIBBOUS, 384400));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.moonPhase()).isEqualTo("WAXING_GIBBOUS");
+        assertThat(summary.moonIlluminationPct()).isEqualTo(73.0);
+        assertThat(summary.moonAboveHorizon()).isTrue();
+    }
+
+    @Test
+    @DisplayName("buildAuroraTonight has null moon fields when lunar calculator fails")
+    void tonightSummary_lunarCalcFails_nullMoonFields() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of());
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("Ephemeris error"));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.moonPhase()).isNull();
+        assertThat(summary.moonIlluminationPct()).isNull();
+        assertThat(summary.moonAboveHorizon()).isNull();
+    }
+
+    // ── Solar wind in tonight summary ──
+
+    @Test
+    @DisplayName("buildAuroraTonight populates solar wind speed from NOAA cached data")
+    void tonightSummary_includesSolarWindSpeed() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of());
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedSolarWind()).thenReturn(List.of(
+                new SolarWindReading(now.minusMinutes(10), -4.0, 450.0, 5.0),
+                new SolarWindReading(now, -6.0, 520.0, 8.0)));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        // Should use the last reading's speed
+        assertThat(summary.solarWindSpeedKmPerSec()).isEqualTo(520.0);
+    }
+
+    @Test
+    @DisplayName("buildAuroraTonight has null solar wind when NOAA cache is empty")
+    void tonightSummary_noSolarWindCache_null() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of());
+        when(noaaSwpcClient.getCachedSolarWind()).thenReturn(null);
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.solarWindSpeedKmPerSec()).isNull();
+    }
+
+    // ── Gloss service interaction ──
+
+    @Test
+    @DisplayName("buildAuroraTonight calls gloss service with correct alert level and kp")
+    void tonightSummary_callsGlossServiceWithCorrectArgs() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.STRONG, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(7.5);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        30, 3.5, 4.2, 0)));
+
+        builder.buildAuroraTonight();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraRegionSummary>> regionsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(auroraGlossService).enrichGlosses(
+                regionsCaptor.capture(), any(), eq(AlertLevel.STRONG), eq(7.5));
+
+        assertThat(regionsCaptor.getValue()).hasSize(1);
+        assertThat(regionsCaptor.getValue().get(0).regionName()).isEqualTo("Northumberland");
+    }
+
+    @Test
+    @DisplayName("buildAuroraTonight still returns summary when gloss service throws")
+    void tonightSummary_glossServiceFails_summaryStillReturned() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        30, 3.5, 4.2, 0)));
+        when(auroraGlossService.enrichGlosses(anyList(), any(), any(), any()))
+                .thenThrow(new RuntimeException("Gloss service down"));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        // The summary should still be returned — gloss failure must not break the briefing
+        assertThat(summary).isNotNull();
+        assertThat(summary.alertLevel()).isEqualTo(AlertLevel.MODERATE);
+        assertThat(summary.regions()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("buildAuroraTomorrow does not call gloss service (no active alert data)")
+    void tomorrowSummary_noGlossCall() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        LocationEntity loc = location(2L, "Kielder", "Northumberland");
+        loc.setBortleClass(3);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of(loc));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(2L, new AuroraWeatherEnricher.AuroraWeather(
+                        30, 1.0, 3.0, 0)));
+
+        builder.buildAuroraTomorrow();
+
+        verify(auroraGlossService, never()).enrichGlosses(anyList(), any(), any(), any());
     }
 
     private static LocationEntity location(Long id, String name, String regionName) {

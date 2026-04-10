@@ -9,9 +9,13 @@ import com.gregochr.goldenhour.model.AuroraRegionSummary;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.KpForecast;
+import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.evaluation.AuroraGlossService;
 import com.gregochr.goldenhour.util.RegionGroupingUtils;
+import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -44,10 +48,18 @@ public class BriefingAuroraSummaryBuilder {
     /** Cache duration for tomorrow's weather enrichment (30 minutes). */
     private static final long TOMORROW_CACHE_TTL_MS = 30 * 60 * 1000L;
 
+    /** Durham, UK — representative UK reference latitude for lunar calculations. */
+    private static final double DURHAM_LAT = 54.776;
+
+    /** Durham longitude. */
+    private static final double DURHAM_LON = -1.575;
+
     private final AuroraStateCache auroraStateCache;
     private final NoaaSwpcClient noaaSwpcClient;
     private final AuroraWeatherEnricher weatherEnricher;
     private final LocationRepository locationRepository;
+    private final LunarCalculator lunarCalculator;
+    private final AuroraGlossService auroraGlossService;
 
     private volatile Map<Long, AuroraWeatherEnricher.AuroraWeather> tonightWeatherCache;
     private volatile long tonightWeatherCacheTimestamp;
@@ -59,18 +71,24 @@ public class BriefingAuroraSummaryBuilder {
      * Constructs a {@code BriefingAuroraSummaryBuilder}.
      *
      * @param auroraStateCache   aurora FSM cache for tonight's active-alert data
-     * @param noaaSwpcClient     NOAA SWPC client for tomorrow's Kp forecast
+     * @param noaaSwpcClient     NOAA SWPC client for tomorrow's Kp forecast and solar wind
      * @param weatherEnricher    fetches weather from Open-Meteo for aurora locations
      * @param locationRepository repository for finding Bortle-eligible locations
+     * @param lunarCalculator    lunar position calculator for moon phase/illumination
+     * @param auroraGlossService aurora gloss generation service
      */
     public BriefingAuroraSummaryBuilder(AuroraStateCache auroraStateCache,
             NoaaSwpcClient noaaSwpcClient,
             AuroraWeatherEnricher weatherEnricher,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            LunarCalculator lunarCalculator,
+            AuroraGlossService auroraGlossService) {
         this.auroraStateCache = auroraStateCache;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherEnricher = weatherEnricher;
         this.locationRepository = locationRepository;
+        this.lunarCalculator = lunarCalculator;
+        this.auroraGlossService = auroraGlossService;
     }
 
     /**
@@ -122,7 +140,28 @@ public class BriefingAuroraSummaryBuilder {
                     .mapToInt(AuroraRegionSummary::clearLocationCount)
                     .sum();
 
-            return new AuroraTonightSummary(alertLevel, kp, clearCount, regions);
+            // Solar wind speed from NOAA cache
+            Double solarWindSpeed = extractLatestSolarWindSpeed();
+
+            // Moon at midpoint of tonight's dark window
+            LunarPosition moon = computeTonightMoon();
+
+            // Enrich GO regions with Claude-generated glosses
+            if (allowFetch) {
+                try {
+                    regions = auroraGlossService.enrichGlosses(
+                            regions, moon, alertLevel, kp);
+                } catch (Exception e) {
+                    LOG.warn("Aurora gloss enrichment failed — continuing without glosses: {}",
+                            e.getMessage());
+                }
+            }
+
+            return new AuroraTonightSummary(alertLevel, kp, clearCount, regions,
+                    solarWindSpeed,
+                    moon != null ? moon.phase().name() : null,
+                    moon != null ? moon.illuminationPercent() : null,
+                    moon != null ? moon.isAboveHorizon() : null);
         } catch (Exception e) {
             LOG.warn("Tonight aurora summary build failed: {}", e.getMessage());
             return null;
@@ -181,6 +220,41 @@ public class BriefingAuroraSummaryBuilder {
                     AlertLevel.fromKp(peakKp).name(), regions);
         } catch (Exception e) {
             LOG.debug("Could not fetch tomorrow Kp forecast for briefing: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Extracts the latest solar wind speed from NOAA cached data.
+     *
+     * @return solar wind speed in km/s, or {@code null} if unavailable
+     */
+    private Double extractLatestSolarWindSpeed() {
+        List<SolarWindReading> readings = noaaSwpcClient.getCachedSolarWind();
+        if (readings == null || readings.isEmpty()) {
+            return null;
+        }
+        double speed = readings.get(readings.size() - 1).speedKmPerSec();
+        return speed > 0 ? speed : null;
+    }
+
+    /**
+     * Computes lunar position at the midpoint of tonight's dark window.
+     * Uses midnight UTC as a reasonable approximation when the exact dusk/dawn
+     * times are not available.
+     *
+     * @return lunar position at the midpoint, or {@code null} on error
+     */
+    private LunarPosition computeTonightMoon() {
+        try {
+            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
+            // Approximate tonight's dark window midpoint: midnight UTC tonight
+            ZonedDateTime midnight = utcNow.getHour() >= 6
+                    ? utcNow.toLocalDate().plusDays(1).atStartOfDay(ZoneOffset.UTC)
+                    : utcNow.toLocalDate().atStartOfDay(ZoneOffset.UTC);
+            return lunarCalculator.calculate(midnight, DURHAM_LAT, DURHAM_LON);
+        } catch (Exception e) {
+            LOG.debug("Lunar calculation failed: {}", e.getMessage());
             return null;
         }
     }
@@ -314,7 +388,8 @@ public class BriefingAuroraSummaryBuilder {
                 bestBortle, slots,
                 averageDouble(slots, AuroraLocationSlot::temperatureCelsius),
                 averageDouble(slots, AuroraLocationSlot::windSpeedMs),
-                mostCommon(slots, AuroraLocationSlot::weatherCode));
+                mostCommon(slots, AuroraLocationSlot::weatherCode),
+                null);
     }
 
     /**
@@ -347,7 +422,8 @@ public class BriefingAuroraSummaryBuilder {
                 bestBortle, slots,
                 averageDouble(slots, AuroraLocationSlot::temperatureCelsius),
                 averageDouble(slots, AuroraLocationSlot::windSpeedMs),
-                mostCommon(slots, AuroraLocationSlot::weatherCode));
+                mostCommon(slots, AuroraLocationSlot::weatherCode),
+                null);
     }
 
     /**

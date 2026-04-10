@@ -614,7 +614,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
       {!isStanddown && region && (
         <>
           {region.gloss ? (
-            <div className="text-plex-text-secondary italic mt-0.5 line-clamp-2"
+            <div className="text-plex-text-secondary italic mt-0.5"
               style={{ fontSize: '10px' }}>
               {region.gloss}
             </div>
@@ -642,7 +642,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
               {alignedCount > 0 && !tideLabel && (
                 <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium"
                   style={{ fontSize: '9px' }}>
-                  {alignedCount} aligned
+                  {alignedCount} {alignedCount === 1 ? 'tide aligned' : 'tides aligned'}
                 </span>
               )}
             </div>
@@ -719,6 +719,12 @@ const AURORA_LEVEL_COLOUR = {
 };
 
 const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
+
+const MOON_EMOJI = {
+  NEW_MOON: '\u{1F311}', WAXING_CRESCENT: '\u{1F312}', FIRST_QUARTER: '\u{1F313}',
+  WAXING_GIBBOUS: '\u{1F314}', FULL_MOON: '\u{1F315}', WANING_GIBBOUS: '\u{1F316}',
+  LAST_QUARTER: '\u{1F317}', WANING_CRESCENT: '\u{1F318}',
+};
 
 // ── AuroraDrillDown ──────────────────────────────────────────────────────────
 
@@ -1080,7 +1086,7 @@ export default function HeatmapGrid({
                           {weatherCodeToIcon(tomorrowRegion.regionWeatherCode)}
                           {' '}{Math.round(tomorrowRegion.regionTemperatureCelsius)}°C
                           {tomorrowRegion.regionWindSpeedMs != null
-                            && ` · ${msToMph(tomorrowRegion.regionWindSpeedMs)}mph`}
+                            && ` · ${msToMph(tomorrowRegion.regionWindSpeedMs)}mph wind`}
                         </div>
                       )}
                     </button>
@@ -1113,7 +1119,12 @@ export default function HeatmapGrid({
                       </div>
                       {isGo && auroraRegion && (
                         <>
-                          {auroraRegion.totalDarkSkyLocations > 0 && (
+                          {auroraRegion.gloss ? (
+                            <div className="text-plex-text-secondary italic mt-0.5"
+                              style={{ fontSize: '10px' }}>
+                              {auroraRegion.gloss}
+                            </div>
+                          ) : auroraRegion.totalDarkSkyLocations > 0 && (
                             <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
                               {Math.round(auroraRegion.clearLocationCount / auroraRegion.totalDarkSkyLocations * 100)}% clear
                             </div>
@@ -1128,12 +1139,25 @@ export default function HeatmapGrid({
                             style={{ fontSize: '9px' }}>
                             {AURORA_LEVEL_LABEL[auroraTonight.alertLevel] || auroraTonight.alertLevel}
                           </div>
+                          {auroraTonight.moonPhase && (
+                            <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
+                              {MOON_EMOJI[auroraTonight.moonPhase] || ''} {Math.round(auroraTonight.moonIlluminationPct)}%
+                              {auroraTonight.moonAboveHorizon === false && ' (set)'}
+                              {auroraTonight.moonAboveHorizon && auroraTonight.moonIlluminationPct > 60
+                                && <span className="text-amber-400 ml-1">bright</span>}
+                            </div>
+                          )}
+                          {auroraTonight.solarWindSpeedKmPerSec != null && (
+                            <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
+                              {Math.round(auroraTonight.solarWindSpeedKmPerSec)} km/s solar wind
+                            </div>
+                          )}
                           {auroraRegion.regionTemperatureCelsius != null && (
                             <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
                               {weatherCodeToIcon(auroraRegion.regionWeatherCode)}
                               {' '}{Math.round(auroraRegion.regionTemperatureCelsius)}°C
                               {auroraRegion.regionWindSpeedMs != null
-                                && ` · ${msToMph(auroraRegion.regionWindSpeedMs)}mph`}
+                                && ` · ${msToMph(auroraRegion.regionWindSpeedMs)}mph wind`}
                             </div>
                           )}
                         </>

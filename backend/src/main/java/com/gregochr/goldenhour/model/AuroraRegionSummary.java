@@ -16,6 +16,7 @@ import java.util.List;
  * @param regionTemperatureCelsius  average temperature across locations in °C, or {@code null}
  * @param regionWindSpeedMs         average wind speed across locations in m/s, or {@code null}
  * @param regionWeatherCode         representative WMO weather code for the region, or {@code null}
+ * @param gloss                     Claude-generated one-line explanation, or {@code null}
  */
 public record AuroraRegionSummary(
         String regionName,
@@ -26,7 +27,8 @@ public record AuroraRegionSummary(
         List<AuroraLocationSlot> locations,
         Double regionTemperatureCelsius,
         Double regionWindSpeedMs,
-        Integer regionWeatherCode) {
+        Integer regionWeatherCode,
+        String gloss) {
 
     /** Defensive compact constructor — prevents exposure of mutable list. */
     public AuroraRegionSummary {

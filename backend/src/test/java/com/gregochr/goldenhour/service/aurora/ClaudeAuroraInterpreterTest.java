@@ -16,6 +16,9 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
+import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.LunarPhase;
+import com.gregochr.solarutils.LunarPosition;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,6 +31,7 @@ import com.anthropic.models.messages.MessageCreateParams;
 import org.mockito.ArgumentCaptor;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -55,14 +59,22 @@ class ClaudeAuroraInterpreterTest {
     @Mock
     private ModelSelectionService modelSelectionService;
 
+    @Mock
+    private LunarCalculator lunarCalculator;
+
     private ClaudeAuroraInterpreter interpreter;
 
     @BeforeEach
     void setUp() {
         lenient().when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
                 .thenReturn(EvaluationModel.HAIKU);
+        lenient().when(lunarCalculator.calculate(any(ZonedDateTime.class),
+                anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        35.0, 180.0, 0.45, LunarPhase.FIRST_QUARTER, 384400));
         interpreter = new ClaudeAuroraInterpreter(
-                anthropicApiClient, new ObjectMapper(), modelSelectionService);
+                anthropicApiClient, new ObjectMapper(), modelSelectionService,
+                lunarCalculator);
     }
 
     // -------------------------------------------------------------------------
@@ -182,6 +194,85 @@ class ClaudeAuroraInterpreterTest {
                 Map.of(loc, 40), data, null, TriggerType.REALTIME, null);
 
         assertThat(msg).doesNotContain("TONIGHT'S DARK WINDOW");
+    }
+
+    // -------------------------------------------------------------------------
+    // buildUserMessage — lunar conditions
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("buildUserMessage includes LUNAR CONDITIONS block with phase, illumination, altitude")
+    void buildUserMessage_includesLunarConditions() {
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+
+        assertThat(msg).contains("LUNAR CONDITIONS:");
+        assertThat(msg).contains("Phase: FIRST_QUARTER");
+        assertThat(msg).contains("Illumination: 45%");
+        assertThat(msg).contains("Altitude: 35°");
+        assertThat(msg).contains("above horizon");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage shows 'below horizon' when moon altitude is negative")
+    void buildUserMessage_moonBelowHorizon() {
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        -12.0, 270.0, 0.80, LunarPhase.WAXING_GIBBOUS, 384400));
+        LocationEntity loc = buildLocation(1L, "Kielder", 55.2, -2.6, 2);
+        SpaceWeatherData data = minimalSpaceWeather(5.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+
+        assertThat(msg).contains("LUNAR CONDITIONS:");
+        assertThat(msg).contains("Phase: WAXING_GIBBOUS");
+        assertThat(msg).contains("Illumination: 80%");
+        assertThat(msg).contains("below horizon");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage omits LUNAR CONDITIONS when calculator fails")
+    void buildUserMessage_lunarCalcFails_omitsBlock() {
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("Ephemeris error"));
+        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 40), data, null, TriggerType.REALTIME, null);
+
+        assertThat(msg).doesNotContain("LUNAR CONDITIONS");
+        // The rest of the message should still be built correctly
+        assertThat(msg).contains("MODERATE");
+        assertThat(msg).contains("Test");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage computes moon at midpoint of tonight window when provided")
+    void buildUserMessage_usesTonightWindowMidpoint() {
+        ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 20, 0, 0, 0, ZoneOffset.UTC);
+        ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 4, 0, 0, 0, ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(dusk, dawn);
+
+        ArgumentCaptor<ZonedDateTime> timeCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
+        when(lunarCalculator.calculate(timeCaptor.capture(), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        20.0, 180.0, 0.50, LunarPhase.FIRST_QUARTER, 384400));
+
+        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(5.0);
+
+        interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+
+        // Midpoint of 20:00 → 04:00 is midnight
+        ZonedDateTime capturedTime = timeCaptor.getValue();
+        assertThat(capturedTime.getHour()).isZero();
+        assertThat(capturedTime.getDayOfMonth()).isEqualTo(11);
     }
 
     // -------------------------------------------------------------------------

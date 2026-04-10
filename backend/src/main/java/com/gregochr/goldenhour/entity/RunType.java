@@ -38,6 +38,9 @@ public enum RunType {
     /** Aurora location evaluation — Claude-scored aurora photography conditions. */
     AURORA_EVALUATION,
 
+    /** Aurora region gloss — per-region Claude-generated one-line commentary. */
+    AURORA_GLOSS,
+
     /** Scheduled Anthropic Batch API evaluation — covers both forecast and aurora batch jobs. */
     SCHEDULED_BATCH
 }

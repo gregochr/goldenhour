@@ -206,6 +206,17 @@ public class NoaaSwpcClient {
     }
 
     /**
+     * Returns the cached solar wind readings without making an HTTP call.
+     * Returns {@code null} if no cached data is available.
+     *
+     * @return cached solar wind readings (oldest first), or null
+     */
+    public List<SolarWindReading> getCachedSolarWind() {
+        CachedResult<List<SolarWindReading>> cache = cachedSolarWind;
+        return cache != null ? cache.data() : null;
+    }
+
+    /**
      * Returns the OVATION aurora probability nowcast at UK latitude (~55°N), cached for 5 minutes.
      *
      * <p>The OVATION grid (~900 KB) covers the full globe at 1° resolution. This method
