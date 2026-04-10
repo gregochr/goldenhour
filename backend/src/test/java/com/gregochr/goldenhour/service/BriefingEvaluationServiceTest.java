@@ -937,7 +937,7 @@ class BriefingEvaluationServiceTest {
         return new BriefingSlot(locationName,
                 LocalDateTime.of(2026, 3, 30, 18, 30),
                 verdict,
-                new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null),
+                new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null, 0, 0),
                 new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
                 List.of(), null);
     }
@@ -962,7 +962,7 @@ class BriefingEvaluationServiceTest {
     private void stubBriefingForRegionDateTarget(String regionName, LocalDate date,
             TargetType target, List<BriefingSlot> slots) {
         BriefingRegion region = new BriefingRegion(regionName, Verdict.GO, "Clear skies",
-                List.of(), slots, 8.0, 6.0, null, null);
+                List.of(), slots, 8.0, 6.0, null, null, null);
         BriefingEventSummary es = new BriefingEventSummary(
                 target, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(es));

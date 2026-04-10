@@ -613,7 +613,12 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
       {!isStanddown && region && (
         <>
-          {clearPct != null && (
+          {region.gloss ? (
+            <div className="text-plex-text-secondary italic mt-0.5 line-clamp-2"
+              style={{ fontSize: '10px' }}>
+              {region.gloss}
+            </div>
+          ) : clearPct != null && (
             <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
               {clearPct}% clear
             </div>

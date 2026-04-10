@@ -149,6 +149,6 @@ public class BriefingHierarchyBuilder {
                 Double.isNaN(rawTemp) ? null : rawTemp,
                 Double.isNaN(rawApparent) ? null : rawApparent,
                 Double.isNaN(rawWind) ? null : rawWind,
-                medianWeatherCode);
+                medianWeatherCode, null);
     }
 }

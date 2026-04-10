@@ -273,13 +273,13 @@ class BriefingBestBetAdvisorTest {
             BriefingSlot kingSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("1.9"), true, false, null, null, null),
                     List.of("King tide"), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of("King tide at Bamburgh"),
-                    List.of(kingSlot), 7.0, 5.0, 1.5, 1);
+                    List.of(kingSlot), 7.0, 5.0, 1.5, 1, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -300,14 +300,14 @@ class BriefingBestBetAdvisorTest {
             BriefingSlot lunarKingSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("6.2"), true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
                     List.of("King tide"), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(lunarKingSlot), 7.0, 5.0, 1.5, 1);
+                    List.of(lunarKingSlot), 7.0, 5.0, 1.5, 1, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -329,14 +329,14 @@ class BriefingBestBetAdvisorTest {
             BriefingSlot springSlot = new BriefingSlot(
                     "Dunstanburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
-                            9.0, null, null, BigDecimal.ONE),
+                            9.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("5.1"), false, true,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
                     List.of(), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(springSlot), 7.0, 5.0, 1.5, 1);
+                    List.of(springSlot), 7.0, 5.0, 1.5, 1, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -360,7 +360,7 @@ class BriefingBestBetAdvisorTest {
             BriefingSlot extraExtraHighSlot = new BriefingSlot(
                     "Bamburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("6.5"), true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
@@ -369,14 +369,14 @@ class BriefingBestBetAdvisorTest {
             BriefingSlot extraHighSlot = new BriefingSlot(
                     "Dunstanburgh", null, Verdict.GO,
                     new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
-                            9.0, null, null, BigDecimal.ONE),
+                            9.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("5.3"), false, true,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
                     List.of(), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(extraExtraHighSlot, extraHighSlot), 7.0, 5.0, 1.5, 1);
+                    List.of(extraExtraHighSlot, extraHighSlot), 7.0, 5.0, 1.5, 1, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -941,7 +941,7 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, null));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     private static BriefingRegion regionWithTime(String name, Verdict verdict,
@@ -957,13 +957,13 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, time));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null);
+                null, null, null, null, null);
     }
 
     private static BriefingSlot slot(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                        8.0, null, null, BigDecimal.ONE),
+                        8.0, null, null, BigDecimal.ONE, 0, 0),
                 BriefingSlot.TideInfo.NONE, List.of(), null);
     }
 }

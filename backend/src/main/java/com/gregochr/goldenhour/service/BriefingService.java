@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
+import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import com.gregochr.goldenhour.util.GeoUtils;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import jakarta.annotation.PostConstruct;
@@ -61,6 +62,7 @@ public class BriefingService {
     private final ObjectMapper objectMapper;
     private final BriefingHeadlineGenerator headlineGenerator;
     private final BriefingBestBetAdvisor bestBetAdvisor;
+    private final BriefingGlossService glossService;
     private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
@@ -91,6 +93,7 @@ public class BriefingService {
      * @param objectMapper            Jackson mapper for JSON serialization
      * @param headlineGenerator       generator for the briefing headline
      * @param bestBetAdvisor          Claude Haiku advisor producing ranked best-bet picks
+     * @param glossService            Claude gloss service for per-region commentary
      * @param auroraSummaryBuilder    builder for aurora tonight/tomorrow summaries
      * @param hierarchyBuilder        builder for the day/event/region hierarchy
      * @param slotBuilder             builder for individual briefing slots
@@ -102,6 +105,7 @@ public class BriefingService {
             LocationRepository locationRepository,
             ObjectMapper objectMapper,
             BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
+            BriefingGlossService glossService,
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
             BriefingHierarchyBuilder hierarchyBuilder,
             BriefingSlotBuilder slotBuilder,
@@ -114,6 +118,7 @@ public class BriefingService {
         this.objectMapper = objectMapper;
         this.headlineGenerator = headlineGenerator;
         this.bestBetAdvisor = bestBetAdvisor;
+        this.glossService = glossService;
         this.auroraSummaryBuilder = auroraSummaryBuilder;
         this.hierarchyBuilder = hierarchyBuilder;
         this.slotBuilder = slotBuilder;
@@ -235,6 +240,11 @@ public class BriefingService {
 
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);
+
+        // Enrich GO/MARGINAL regions with Claude-generated one-line gloss
+        if (succeeded > 0) {
+            days = glossService.generateGlosses(days, jobRun.getId());
+        }
 
         String headline = headlineGenerator.generateHeadline(days);
         List<BestBet> bestBets = succeeded > 0

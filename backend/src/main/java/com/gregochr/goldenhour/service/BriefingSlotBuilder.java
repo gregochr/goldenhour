@@ -183,7 +183,8 @@ public class BriefingSlotBuilder {
                 : null;
 
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
-                lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
+                lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
+                midCloud, highCloud);
         BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.nearestHighTime(), tideResult.nearestHighHeight(),

@@ -43,6 +43,8 @@ public record BriefingSlot(
      * @param apparentTemperatureCelsius  feels-like temperature in degrees Celsius
      * @param weatherCode                 WMO weather code, or null if unavailable
      * @param windSpeedMs                 wind speed in m/s
+     * @param midCloudPercent             mid-level cloud cover (%)
+     * @param highCloudPercent            high-level cloud cover (%)
      */
     public record WeatherConditions(
             int lowCloudPercent,
@@ -52,7 +54,9 @@ public record BriefingSlot(
             Double temperatureCelsius,
             Double apparentTemperatureCelsius,
             Integer weatherCode,
-            BigDecimal windSpeedMs) {
+            BigDecimal windSpeedMs,
+            int midCloudPercent,
+            int highCloudPercent) {
     }
 
     /**

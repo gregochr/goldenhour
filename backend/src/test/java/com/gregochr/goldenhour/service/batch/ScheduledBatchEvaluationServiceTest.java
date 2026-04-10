@@ -263,7 +263,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         // Briefing with two regions: North East (cached) and Yorkshire (not cached)
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
-                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot northEastSlot = new BriefingSlot("Durham UK",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
                 Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
@@ -272,10 +272,10 @@ class ScheduledBatchEvaluationServiceTest {
                 Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion northEastRegion = new BriefingRegion(
                 "North East", Verdict.GO, "Summary", List.of(), List.of(northEastSlot),
-                null, null, null, null);
+                null, null, null, null, null);
         BriefingRegion yorkshireRegion = new BriefingRegion(
                 "Yorkshire", Verdict.GO, "Summary", List.of(), List.of(yorkshireSlot),
-                null, null, null, null);
+                null, null, null, null, null);
         BriefingEventSummary es = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(northEastRegion, yorkshireRegion), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(es));
@@ -758,13 +758,13 @@ class ScheduledBatchEvaluationServiceTest {
 
     private DailyBriefingResponse buildBriefing(Verdict verdict) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
-                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot slot = new BriefingSlot("Durham UK",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot),
-                null, null, null, null);
+                null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));
@@ -774,7 +774,7 @@ class ScheduledBatchEvaluationServiceTest {
 
     private DailyBriefingResponse buildBriefingTwoSlots(Verdict verdict) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
-                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5));
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot slot1 = new BriefingSlot("Durham UK",
                 LocalDateTime.of(2026, 4, 7, 5, 30),
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
@@ -783,7 +783,7 @@ class ScheduledBatchEvaluationServiceTest {
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot1, slot2),
-                null, null, null, null);
+                null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));

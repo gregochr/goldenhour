@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
+import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.DisplayName;
@@ -64,6 +65,8 @@ class BriefingServiceTest {
     @Mock
     private BriefingBestBetAdvisor bestBetAdvisor;
     @Mock
+    private BriefingGlossService glossService;
+    @Mock
     private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -77,6 +80,11 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(java.util.List.of());
+        // Gloss service: pass-through by default (return input days unchanged)
+        org.mockito.Mockito.lenient().when(glossService.generateGlosses(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(inv -> inv.getArgument(0));
         // Default batch mock: return a forecast response for each coordinate in the batch
         org.mockito.Mockito.lenient().when(openMeteoClient.fetchForecastBriefingBatch(
                 org.mockito.ArgumentMatchers.anyList()))
@@ -93,7 +101,7 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher);
@@ -401,7 +409,7 @@ class BriefingServiceTest {
         BriefingService freshService = new BriefingService(
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository, mapper,
-                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher);
@@ -430,7 +438,7 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher);
@@ -452,7 +460,7 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
-                new BriefingHeadlineGenerator(), bestBetAdvisor,
+                new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher);

@@ -147,6 +147,8 @@ class ModelSelectionServiceTest {
                 .thenReturn(Optional.empty()); // defaults to HAIKU
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
                 .thenReturn(Optional.empty()); // defaults to HAIKU
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS))
+                .thenReturn(Optional.empty()); // defaults to HAIKU
         when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
                         .runType(RunType.AURORA_EVALUATION)
@@ -154,11 +156,12 @@ class ModelSelectionServiceTest {
 
         Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
-        assertThat(configs).hasSize(5);
+        assertThat(configs).hasSize(6);
         assertThat(configs.get(RunType.VERY_SHORT_TERM)).isEqualTo(EvaluationModel.OPUS);
         assertThat(configs.get(RunType.SHORT_TERM)).isEqualTo(EvaluationModel.SONNET);
         assertThat(configs.get(RunType.LONG_TERM)).isEqualTo(EvaluationModel.HAIKU);
         assertThat(configs.get(RunType.BRIEFING_BEST_BET)).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(configs.get(RunType.BRIEFING_GLOSS)).isEqualTo(EvaluationModel.HAIKU);
         assertThat(configs.get(RunType.AURORA_EVALUATION)).isEqualTo(EvaluationModel.SONNET);
     }
 

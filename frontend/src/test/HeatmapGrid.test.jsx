@@ -349,6 +349,87 @@ describe('HeatmapGrid — verdict labels', () => {
   });
 });
 
+describe('HeatmapGrid — region gloss', () => {
+  it('renders gloss text instead of clear% when gloss is present', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          gloss: 'High cirrus canvas — good colour potential',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    expect(cells[0].textContent).toContain('High cirrus canvas');
+    expect(cells[0].textContent).not.toContain('% clear');
+  });
+
+  it('falls back to clear% when gloss is null', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          gloss: null,
+          slots: [
+            { locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00`, lowCloudPercent: 20 },
+            { locationName: 'Kielder', verdict: 'STANDDOWN', solarEventTime: `${date}T19:30:00`, lowCloudPercent: 80 },
+          ],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    expect(cells[0].textContent).not.toContain('High cirrus');
+    // Should show clear% (exact value depends on computation)
+  });
+
+  it('gloss text is italic', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'MARGINAL',
+          summary: 'Mixed',
+          gloss: 'Clear all layers — flat light',
+          slots: [{ locationName: 'Bamburgh', verdict: 'MARGINAL', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    const glossDiv = cells[0].querySelector('.italic');
+    expect(glossDiv).toBeTruthy();
+    expect(glossDiv.textContent).toContain('Clear all layers');
+  });
+});
+
 describe('HeatmapGrid — no astro column in heatmap', () => {
   it('does not render astro moon sub-columns', () => {
     renderGrid();

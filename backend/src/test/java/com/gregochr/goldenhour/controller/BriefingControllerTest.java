@@ -179,7 +179,7 @@ class BriefingControllerTest extends AbstractControllerTest {
         BriefingSlot slot = new BriefingSlot("Keswick",
                 LocalDateTime.of(2026, 3, 25, 18, 30), Verdict.GO,
                 new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
-                        10.5, 8.0, 1, new BigDecimal("3.2")),
+                        10.5, 8.0, 1, new BigDecimal("3.2"), 0, 0),
                 new BriefingSlot.TideInfo("HIGH", true,
                         LocalDateTime.of(2026, 3, 25, 19, 0), new BigDecimal("1.5"),
                         false, false, null, null, null),
@@ -187,7 +187,7 @@ class BriefingControllerTest extends AbstractControllerTest {
 
         BriefingRegion region = new BriefingRegion("Lake District",
                 Verdict.GO, "Clear at 1 of 1 location",
-                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1);
+                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null);
 
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());

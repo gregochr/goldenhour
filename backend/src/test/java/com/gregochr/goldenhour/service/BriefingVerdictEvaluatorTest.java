@@ -569,7 +569,7 @@ class BriefingVerdictEvaluatorTest {
             BriefingSlot s = new BriefingSlot("Bamburgh",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true,
                             LocalDateTime.of(2026, 3, 25, 6, 15), new BigDecimal("1.85"),
                             true, false, null, null, null),
@@ -584,7 +584,7 @@ class BriefingVerdictEvaluatorTest {
             BriefingSlot s = new BriefingSlot("Seahouses",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, false, true,
                             null, null, null),
                     List.of(), null);
@@ -598,7 +598,7 @@ class BriefingVerdictEvaluatorTest {
             BriefingSlot s = new BriefingSlot("Bamburgh",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, false, false,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
                     List.of(), null);
@@ -612,7 +612,7 @@ class BriefingVerdictEvaluatorTest {
             BriefingSlot s = new BriefingSlot("Bamburgh",
                     LocalDateTime.of(2026, 3, 25, 5, 47), Verdict.GO,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                            8.0, null, null, BigDecimal.ONE),
+                            8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, null, true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
                     List.of(), null);
@@ -802,7 +802,7 @@ class BriefingVerdictEvaluatorTest {
         return new BriefingSlot(name,
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
-                        8.0, null, null, BigDecimal.ONE),
+                        8.0, null, null, BigDecimal.ONE, 0, 0),
                 BriefingSlot.TideInfo.NONE, List.of(), null);
     }
 }

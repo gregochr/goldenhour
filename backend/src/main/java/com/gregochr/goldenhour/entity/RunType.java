@@ -32,6 +32,9 @@ public enum RunType {
     /** Briefing best-bet advisor — Claude-generated photography recommendations. */
     BRIEFING_BEST_BET,
 
+    /** Briefing region gloss — per-region Claude-generated one-line commentary. */
+    BRIEFING_GLOSS,
+
     /** Aurora location evaluation — Claude-scored aurora photography conditions. */
     AURORA_EVALUATION,
 

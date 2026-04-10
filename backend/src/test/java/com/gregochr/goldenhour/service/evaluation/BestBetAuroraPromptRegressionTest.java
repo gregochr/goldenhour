@@ -89,7 +89,7 @@ class BestBetAuroraPromptRegressionTest {
                 tomorrow.atTime(19, 45));
         BriefingRegion goRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, "All clear, excellent conditions",
-                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1);
+                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null);
         BriefingDay day = new BriefingDay(tomorrow, List.of(
                 new BriefingEventSummary(TargetType.SUNSET,
                         List.of(goRegion), List.of())));
@@ -151,7 +151,7 @@ class BestBetAuroraPromptRegressionTest {
                 today.atTime(19, 30));
         BriefingRegion goRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, "Clear skies, perfect conditions",
-                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1);
+                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null);
         BriefingDay day = new BriefingDay(today, List.of(
                 new BriefingEventSummary(TargetType.SUNSET,
                         List.of(goRegion), List.of())));
@@ -198,7 +198,7 @@ class BestBetAuroraPromptRegressionTest {
                 tomorrow.atTime(19, 45));
         BriefingRegion goRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, "All clear, excellent conditions",
-                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1);
+                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null);
         BriefingDay day = new BriefingDay(tomorrow, List.of(
                 new BriefingEventSummary(TargetType.SUNSET,
                         List.of(goRegion), List.of())));
@@ -262,7 +262,7 @@ class BestBetAuroraPromptRegressionTest {
     private static BriefingSlot slot(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(10, BigDecimal.ZERO, 20000, 65,
-                        12.0, 10.0, null, new BigDecimal("3.0")),
+                        12.0, 10.0, null, new BigDecimal("3.0"), 0, 0),
                 BriefingSlot.TideInfo.NONE, List.of(), null);
     }
 }

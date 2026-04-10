@@ -114,7 +114,7 @@ public class ForecastCommandFactory {
                     .datesUntil(today.plusDays(FORECAST_HORIZON_DAYS + 1))
                     .toList();
             case WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING,
-                    BRIEFING_BEST_BET, AURORA_EVALUATION, SCHEDULED_BATCH ->
+                    BRIEFING_BEST_BET, BRIEFING_GLOSS, AURORA_EVALUATION, SCHEDULED_BATCH ->
                     IntStream.rangeClosed(0, FORECAST_HORIZON_DAYS)
                     .mapToObj(today::plusDays)
                     .toList();
@@ -131,7 +131,7 @@ public class ForecastCommandFactory {
         return switch (runType) {
             case VERY_SHORT_TERM, SHORT_TERM, LONG_TERM -> resolveModelStrategy(runType);
             case WEATHER -> strategies.get(EvaluationModel.WILDLIFE);
-            case TIDE, LIGHT_POLLUTION, BRIEFING, BRIEFING_BEST_BET,
+            case TIDE, LIGHT_POLLUTION, BRIEFING, BRIEFING_BEST_BET, BRIEFING_GLOSS,
                     AURORA_EVALUATION, SCHEDULED_BATCH -> null;
         };
     }
