@@ -89,7 +89,7 @@ class BestBetAuroraPromptRegressionTest {
                 tomorrow.atTime(19, 45));
         BriefingRegion goRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, "All clear, excellent conditions",
-                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null);
+                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null, null);
         BriefingDay day = new BriefingDay(tomorrow, List.of(
                 new BriefingEventSummary(TargetType.SUNSET,
                         List.of(goRegion), List.of())));
@@ -151,7 +151,7 @@ class BestBetAuroraPromptRegressionTest {
                 today.atTime(19, 30));
         BriefingRegion goRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, "Clear skies, perfect conditions",
-                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null);
+                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null, null);
         BriefingDay day = new BriefingDay(today, List.of(
                 new BriefingEventSummary(TargetType.SUNSET,
                         List.of(goRegion), List.of())));
@@ -198,7 +198,7 @@ class BestBetAuroraPromptRegressionTest {
                 tomorrow.atTime(19, 45));
         BriefingRegion goRegion = new BriefingRegion(
                 "Northumberland", Verdict.GO, "All clear, excellent conditions",
-                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null);
+                List.of(), List.of(goSlot), 5.0, 3.0, 1.0, 1, null, null);
         BriefingDay day = new BriefingDay(tomorrow, List.of(
                 new BriefingEventSummary(TargetType.SUNSET,
                         List.of(goRegion), List.of())));

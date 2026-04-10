@@ -445,7 +445,7 @@ describe('HeatmapGrid — region gloss', () => {
           regionName: 'North East',
           verdict: 'GO',
           summary: 'Clear skies',
-          gloss: 'High cirrus canvas — good colour potential',
+          glossHeadline: 'High cirrus canvas — good colour potential',
           slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
         }],
       }],
@@ -470,7 +470,7 @@ describe('HeatmapGrid — region gloss', () => {
           regionName: 'North East',
           verdict: 'GO',
           summary: 'Clear skies',
-          gloss: null,
+          glossHeadline: null,
           slots: [
             { locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00`, lowCloudPercent: 20 },
             { locationName: 'Kielder', verdict: 'STANDDOWN', solarEventTime: `${date}T19:30:00`, lowCloudPercent: 80 },
@@ -498,7 +498,7 @@ describe('HeatmapGrid — region gloss', () => {
           regionName: 'North East',
           verdict: 'MARGINAL',
           summary: 'Mixed',
-          gloss: 'Clear all layers — flat light',
+          glossHeadline: 'Clear all layers — flat light',
           slots: [{ locationName: 'Bamburgh', verdict: 'MARGINAL', solarEventTime: `${date}T19:30:00` }],
         }],
       }],
@@ -683,5 +683,335 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
 
     // No hint — the STANDDOWN slots themselves are the content
     expect(screen.queryByTestId('standdown-hint')).toBeNull();
+  });
+});
+
+describe('HeatmapGrid — glossDetail InfoTip', () => {
+  it('renders InfoTip trigger when glossDetail is present', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: 'High cloud at 40% provides excellent colour canvas.',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const trigger = screen.queryByTestId('infotip-trigger');
+    expect(trigger).toBeTruthy();
+  });
+
+  it('does not render InfoTip when glossDetail is null', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: null,
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const trigger = screen.queryByTestId('infotip-trigger');
+    expect(trigger).toBeNull();
+  });
+
+  it('InfoTip shows glossDetail text when clicked', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: 'Excellent colour potential with 40% high cloud.',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const trigger = screen.getByTestId('infotip-trigger');
+    fireEvent.click(trigger);
+
+    const popover = screen.getByTestId('infotip-popover');
+    expect(popover.textContent).toContain('Excellent colour potential');
+  });
+});
+
+describe('HeatmapGrid — aurora alert level labels', () => {
+  it('tonight cell shows "Moderate aurora" for MODERATE level', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 30 }],
+        regionTemperatureCelsius: 4.5,
+        regionWindSpeedMs: 3.1,
+        regionWeatherCode: 2,
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells[0].textContent).toContain('Moderate aurora');
+  });
+
+  it('tomorrow cell shows "Minor aurora" for MINOR level', () => {
+    const auroraTomorrow = {
+      peakKp: 4.0,
+      label: 'Worth watching',
+      alertLevel: 'MINOR',
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([DATE_1], 'North East', ['Bamburgh']),
+      auroraTomorrow,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells[0].textContent).toContain('Minor aurora');
+  });
+
+  it('QUIET level does not append "aurora"', () => {
+    const auroraTomorrow = {
+      peakKp: 2.0,
+      label: 'Quiet',
+      alertLevel: 'QUIET',
+    };
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([DATE_1], 'North East', ['Bamburgh']),
+      auroraTomorrow,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells[0].textContent).toContain('QUIET');
+    expect(cells[0].textContent).not.toContain('QUIET aurora');
+  });
+});
+
+describe('HeatmapGrid — aurora cell glossHeadline', () => {
+  it('tonight aurora cell renders glossHeadline when present', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        glossHeadline: 'Clear dark sky — excellent',
+        glossDetail: 'Bortle 3 site clear with low wind.',
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 10 }],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells[0].textContent).toContain('Clear dark sky — excellent');
+    // Should not show % clear when gloss is present
+    expect(cells[0].textContent).not.toContain('% clear');
+  });
+
+  it('tonight aurora cell falls back to % clear when glossHeadline is null', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 2,
+        bestBortleClass: 3,
+        glossHeadline: null,
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 10 }],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells[0].textContent).toContain('50% clear');
+  });
+
+  it('tonight aurora cell shows InfoTip when glossDetail is present', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        glossHeadline: 'Clear dark sky',
+        glossDetail: 'Bortle 3 with excellent conditions.',
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 10 }],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const trigger = screen.queryByTestId('infotip-trigger');
+    expect(trigger).toBeTruthy();
+  });
+});
+
+describe('HeatmapGrid — glossDetail in drill-down', () => {
+  it('briefing drill-down shows glossDetail when event row expanded', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: 'Thin high cloud at 40% provides colour canvas. Horizon clear.',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    // Open drill-down
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.click(cell);
+
+    // Expand the event row
+    const eventRow = screen.getByTestId('drill-down-event-row');
+    fireEvent.click(eventRow);
+
+    // glossDetail should appear between event row and locations
+    expect(screen.getByText('Thin high cloud at 40% provides colour canvas. Horizon clear.')).toBeTruthy();
+  });
+
+  it('briefing drill-down omits glossDetail when null', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: null,
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    // Open drill-down and expand event
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.click(cell);
+    const eventRow = screen.getByTestId('drill-down-event-row');
+    fireEvent.click(eventRow);
+
+    // Should not have any glossDetail text — the drill-down panel should exist but without detail
+    const drillDown = screen.getByTestId('drill-down-panel');
+    expect(drillDown.textContent).not.toContain('provides colour canvas');
+  });
+
+  it('aurora drill-down shows glossDetail after header', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        glossHeadline: 'Clear dark sky',
+        glossDetail: 'Bortle 3 site with low wind and clear conditions tonight.',
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 10 }],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    // Open aurora drill-down
+    const cell = screen.queryAllByTestId('aurora-heatmap-cell')[0];
+    fireEvent.click(cell);
+
+    const drillDown = screen.getByTestId('aurora-drill-down');
+    expect(drillDown.textContent).toContain('Bortle 3 site with low wind and clear conditions tonight.');
   });
 });

@@ -187,7 +187,7 @@ class BriefingControllerTest extends AbstractControllerTest {
 
         BriefingRegion region = new BriefingRegion("Lake District",
                 Verdict.GO, "Clear at 1 of 1 location",
-                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null);
+                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null, null);
 
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());

@@ -14,7 +14,8 @@ import java.util.List;
  * @param regionApparentTemperatureCelsius feels-like temperature for the region in °C (nullable)
  * @param regionWindSpeedMs            representative wind speed in m/s (nullable)
  * @param regionWeatherCode            WMO weather code for the region (nullable)
- * @param gloss                        Claude-generated one-line commentary (nullable, GO/MARGINAL only)
+ * @param glossHeadline               Claude-generated short headline (~7 words, nullable, GO/MARGINAL only)
+ * @param glossDetail                 Claude-generated 2-3 sentence explanation (nullable, GO/MARGINAL only)
  */
 public record BriefingRegion(
         String regionName,
@@ -26,7 +27,8 @@ public record BriefingRegion(
         Double regionApparentTemperatureCelsius,
         Double regionWindSpeedMs,
         Integer regionWeatherCode,
-        String gloss) {
+        String glossHeadline,
+        String glossDetail) {
 
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);

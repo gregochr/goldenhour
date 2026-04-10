@@ -962,7 +962,7 @@ class BriefingEvaluationServiceTest {
     private void stubBriefingForRegionDateTarget(String regionName, LocalDate date,
             TargetType target, List<BriefingSlot> slots) {
         BriefingRegion region = new BriefingRegion(regionName, Verdict.GO, "Clear skies",
-                List.of(), slots, 8.0, 6.0, null, null, null);
+                List.of(), slots, 8.0, 6.0, null, null, null, null);
         BriefingEventSummary es = new BriefingEventSummary(
                 target, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(es));

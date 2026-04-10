@@ -401,7 +401,7 @@ public class BriefingAuroraSummaryBuilder {
                 averageDouble(slots, AuroraLocationSlot::temperatureCelsius),
                 averageDouble(slots, AuroraLocationSlot::windSpeedMs),
                 mostCommon(slots, AuroraLocationSlot::weatherCode),
-                null);
+                null, null);
     }
 
     /**
@@ -435,7 +435,7 @@ public class BriefingAuroraSummaryBuilder {
                 averageDouble(slots, AuroraLocationSlot::temperatureCelsius),
                 averageDouble(slots, AuroraLocationSlot::windSpeedMs),
                 mostCommon(slots, AuroraLocationSlot::weatherCode),
-                null);
+                null, null);
     }
 
     /**

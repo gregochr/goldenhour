@@ -5,6 +5,7 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -42,27 +43,28 @@ public class BriefingGlossService {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingGlossService.class);
 
-    /** Maximum response tokens — a 10-word gloss needs far fewer. */
-    private static final int MAX_TOKENS = 64;
+    /** Maximum response tokens — headline + detail JSON needs more than a single phrase. */
+    private static final int MAX_TOKENS = 256;
 
     /** Maximum concurrent Haiku calls. */
     private static final int MAX_CONCURRENCY = 10;
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast assistant. Given weather and tide data for a \
-            region at a solar event, write a single plain-English phrase explaining the \
-            key reason for the verdict. Be specific about cloud conditions.
-            STRICT LIMIT: 8 words maximum. Count every word. If your line exceeds \
-            8 words, rewrite it shorter. Never exceed 8 words under any circumstances.
-            CRITICAL RULE: If clearAllLayers is true, the gloss MUST be cautionary — \
-            clear skies mean no cloud canvas to catch colour. Never describe \
-            clear-all-layers conditions as good, promising, or colourful. Use phrases \
-            like "Clear sky — no canvas for colour", "Cloudless — flat light expected", \
-            "Clear all layers — limited colour potential".
-            No quotes, no punctuation other than what the phrase needs. \
-            Examples: "High cirrus canvas — good colour potential", \
-            "Thick low cloud — sky blocked", \
-            "Mid-level cloud building — blanket risk".""";
+            region at a solar event, respond with a JSON object containing two fields:
+            {"headline": "...", "detail": "..."}
+            HEADLINE: A 7-word-max plain-English phrase — the key reason for the verdict. \
+            Be specific about cloud conditions. Count every word. Never exceed 7 words.
+            DETAIL: 2-3 sentences expanding on the headline. Mention specific cloud layers, \
+            percentages, trends, and any tide/coastal factors. Keep it factual and concise.
+            CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
+            cautionary — clear skies mean no cloud canvas to catch colour. Never describe \
+            clear-all-layers conditions as good, promising, or colourful.
+            Return ONLY the JSON object, no markdown fences, no extra text.
+            Example: {"headline": "High cirrus canvas — colour potential", \
+            "detail": "40% high cloud provides a canvas for colour at sunset. \
+            Low cloud is minimal at 15%, keeping the horizon clear. \
+            No tide alignment but conditions favour warm tones."}""";
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
@@ -195,7 +197,7 @@ public class BriefingGlossService {
                     .findFirst()
                     .orElse("");
 
-            item.gloss = raw.strip();
+            parseGlossResponse(item, raw.strip());
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-gloss", null,
                     durationMs, 200, raw, true, null, model);
@@ -271,20 +273,40 @@ public class BriefingGlossService {
     }
 
     /**
+     * Parses a JSON gloss response into headline + detail. Falls back to truncating
+     * the raw text as headline if JSON parsing fails.
+     */
+    private void parseGlossResponse(GlossWorkItem item, String raw) {
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            if (node.has("headline")) {
+                item.glossHeadline = truncateToWords(node.get("headline").asText(), 7);
+            }
+            if (node.has("detail")) {
+                item.glossDetail = node.get("detail").asText();
+            }
+        } catch (Exception e) {
+            LOG.debug("Gloss JSON parse failed, falling back to truncation: {}", e.getMessage());
+            item.glossHeadline = truncateToWords(raw, 7);
+        }
+    }
+
+    /**
      * Reassembles the hierarchy with gloss-enriched regions (records are immutable).
      */
     private List<BriefingDay> reassemble(List<BriefingDay> days, List<GlossWorkItem> workItems) {
         // Index glosses by (dayIdx, eventIdx, regionIdx)
-        String[][][] glossIndex = new String[days.size()][][];
+        GlossWorkItem[][][] glossIndex = new GlossWorkItem[days.size()][][];
         for (int di = 0; di < days.size(); di++) {
             BriefingDay day = days.get(di);
-            glossIndex[di] = new String[day.eventSummaries().size()][];
+            glossIndex[di] = new GlossWorkItem[day.eventSummaries().size()][];
             for (int ei = 0; ei < day.eventSummaries().size(); ei++) {
-                glossIndex[di][ei] = new String[day.eventSummaries().get(ei).regions().size()];
+                glossIndex[di][ei] =
+                        new GlossWorkItem[day.eventSummaries().get(ei).regions().size()];
             }
         }
         for (GlossWorkItem item : workItems) {
-            glossIndex[item.dayIdx][item.eventIdx][item.regionIdx] = item.gloss;
+            glossIndex[item.dayIdx][item.eventIdx][item.regionIdx] = item;
         }
 
         List<BriefingDay> enriched = new ArrayList<>();
@@ -296,12 +318,14 @@ public class BriefingGlossService {
                 List<BriefingRegion> newRegions = new ArrayList<>();
                 for (int ri = 0; ri < es.regions().size(); ri++) {
                     BriefingRegion r = es.regions().get(ri);
-                    String gloss = glossIndex[di][ei][ri];
+                    GlossWorkItem item = glossIndex[di][ei][ri];
+                    String headline = item != null ? item.glossHeadline : null;
+                    String detail = item != null ? item.glossDetail : null;
                     newRegions.add(new BriefingRegion(
                             r.regionName(), r.verdict(), r.summary(), r.tideHighlights(),
                             r.slots(), r.regionTemperatureCelsius(),
                             r.regionApparentTemperatureCelsius(), r.regionWindSpeedMs(),
-                            r.regionWeatherCode(), gloss));
+                            r.regionWeatherCode(), headline, detail));
                 }
                 newEvents.add(new BriefingEventSummary(es.targetType(), newRegions, es.unregioned()));
             }
@@ -321,6 +345,24 @@ public class BriefingGlossService {
     }
 
     /**
+     * Truncates the given text to at most {@code maxWords} words.
+     *
+     * @param text     the text to truncate
+     * @param maxWords maximum number of words
+     * @return truncated text, or the original if already within the limit
+     */
+    static String truncateToWords(String text, int maxWords) {
+        if (text == null || text.isBlank()) {
+            return text;
+        }
+        String[] words = text.strip().split("\\s+");
+        if (words.length <= maxWords) {
+            return text.strip();
+        }
+        return String.join(" ", java.util.Arrays.copyOf(words, maxWords));
+    }
+
+    /**
      * Mutable work item linking a region to its position in the hierarchy and its result.
      */
     static class GlossWorkItem {
@@ -330,7 +372,8 @@ public class BriefingGlossService {
         final BriefingDay day;
         final BriefingEventSummary eventSummary;
         final BriefingRegion region;
-        volatile String gloss;
+        volatile String glossHeadline;
+        volatile String glossDetail;
 
         GlossWorkItem(int dayIdx, int eventIdx, int regionIdx,
                 BriefingDay day, BriefingEventSummary eventSummary, BriefingRegion region) {

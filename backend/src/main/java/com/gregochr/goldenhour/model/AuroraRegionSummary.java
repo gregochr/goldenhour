@@ -16,7 +16,8 @@ import java.util.List;
  * @param regionTemperatureCelsius  average temperature across locations in °C, or {@code null}
  * @param regionWindSpeedMs         average wind speed across locations in m/s, or {@code null}
  * @param regionWeatherCode         representative WMO weather code for the region, or {@code null}
- * @param gloss                     Claude-generated one-line explanation, or {@code null}
+ * @param glossHeadline              Claude-generated short headline (~7 words, nullable)
+ * @param glossDetail                Claude-generated 2-3 sentence explanation (nullable)
  */
 public record AuroraRegionSummary(
         String regionName,
@@ -28,7 +29,8 @@ public record AuroraRegionSummary(
         Double regionTemperatureCelsius,
         Double regionWindSpeedMs,
         Integer regionWeatherCode,
-        String gloss) {
+        String glossHeadline,
+        String glossDetail) {
 
     /** Defensive compact constructor — prevents exposure of mutable list. */
     public AuroraRegionSummary {

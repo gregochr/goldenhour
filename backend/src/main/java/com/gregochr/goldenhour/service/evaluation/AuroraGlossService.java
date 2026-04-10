@@ -5,6 +5,7 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -38,27 +39,31 @@ public class AuroraGlossService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuroraGlossService.class);
 
-    /** Maximum response tokens — an 8-word gloss needs far fewer. */
-    private static final int MAX_TOKENS = 64;
+    /** Maximum response tokens — headline + detail JSON needs more than a single phrase. */
+    private static final int MAX_TOKENS = 256;
 
     /** Maximum concurrent Haiku calls. */
     private static final int MAX_CONCURRENCY = 10;
 
     static final String SYSTEM_PROMPT = """
             You are an aurora photography forecast assistant. Given space weather and \
-            location data for an aurora-eligible region, write a single plain-English \
-            phrase explaining the key factor for aurora viewing conditions.
-            STRICT LIMIT: 8 words maximum. Count every word. If your line exceeds \
-            8 words, rewrite it shorter. Never exceed 8 words under any circumstances.
-            CRITICAL RULE: If windowQuality is MOONLIT_ALL_WINDOW and moonIlluminationPct > 60, \
-            the gloss MUST be cautionary about moonlight. If windowQuality is \
-            DARK_THEN_MOONLIT, mention the moonRiseTime (e.g. "Clear dark sky — moon \
-            rises 23:05"). If windowQuality is MOONLIT_THEN_DARK, mention when dark \
-            skies begin.
-            No quotes, no punctuation other than what the phrase needs. \
-            Examples: "Strong Kp — excellent aurora potential", \
-            "Clear skies at dark Bortle 2 site", \
-            "Overcast — aurora obscured by cloud".""";
+            location data for an aurora-eligible region, respond with a JSON object \
+            containing two fields:
+            {"headline": "...", "detail": "..."}
+            HEADLINE: A 7-word-max plain-English phrase — the key factor for aurora \
+            viewing conditions. Count every word. Never exceed 7 words.
+            DETAIL: 2-3 sentences expanding on the headline. Mention Kp level, cloud \
+            conditions, Bortle class, and any moon transition timing. Keep it factual.
+            CRITICAL RULE: If windowQuality is MOONLIT_ALL_WINDOW and \
+            moonIlluminationPct > 60, BOTH headline and detail MUST be cautionary \
+            about moonlight. If windowQuality is DARK_THEN_MOONLIT, mention the \
+            moonRiseTime in the detail. If windowQuality is MOONLIT_THEN_DARK, \
+            mention when dark skies begin.
+            Return ONLY the JSON object, no markdown fences, no extra text.
+            Example: {"headline": "Strong Kp — excellent aurora potential", \
+            "detail": "Kp 6.3 with clear skies at Bortle 2 locations. \
+            Moon below horizon all window — ideal dark-sky conditions. \
+            Solar wind speed elevated at 580 km/s."}""";
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
@@ -181,7 +186,7 @@ public class AuroraGlossService {
                     .findFirst()
                     .orElse("");
 
-            item.gloss = raw.strip();
+            parseGlossResponse(item, raw.strip());
         } catch (Exception e) {
             LOG.warn("Aurora gloss failed for {}: {}", item.region.regionName(), e.getMessage());
         }
@@ -225,23 +230,47 @@ public class AuroraGlossService {
     }
 
     /**
+     * Parses a JSON gloss response into headline + detail. Falls back to truncating
+     * the raw text as headline if JSON parsing fails.
+     */
+    private void parseGlossResponse(GlossWorkItem item, String raw) {
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            if (node.has("headline")) {
+                item.glossHeadline = BriefingGlossService.truncateToWords(
+                        node.get("headline").asText(), 7);
+            }
+            if (node.has("detail")) {
+                item.glossDetail = node.get("detail").asText();
+            }
+        } catch (Exception e) {
+            LOG.debug("Aurora gloss JSON parse failed, falling back to truncation: {}",
+                    e.getMessage());
+            item.glossHeadline = BriefingGlossService.truncateToWords(raw, 7);
+        }
+    }
+
+    /**
      * Reassembles regions with gloss-enriched entries (records are immutable).
      */
     private List<AuroraRegionSummary> reassemble(List<AuroraRegionSummary> regions,
             List<GlossWorkItem> workItems) {
-        String[] glossIndex = new String[regions.size()];
+        GlossWorkItem[] glossIndex = new GlossWorkItem[regions.size()];
         for (GlossWorkItem item : workItems) {
-            glossIndex[item.regionIdx] = item.gloss;
+            glossIndex[item.regionIdx] = item;
         }
 
         List<AuroraRegionSummary> enriched = new ArrayList<>();
         for (int i = 0; i < regions.size(); i++) {
             AuroraRegionSummary r = regions.get(i);
+            GlossWorkItem item = glossIndex[i];
+            String headline = item != null ? item.glossHeadline : null;
+            String detail = item != null ? item.glossDetail : null;
             enriched.add(new AuroraRegionSummary(
                     r.regionName(), r.verdict(), r.clearLocationCount(),
                     r.totalDarkSkyLocations(), r.bestBortleClass(), r.locations(),
                     r.regionTemperatureCelsius(), r.regionWindSpeedMs(),
-                    r.regionWeatherCode(), glossIndex[i]));
+                    r.regionWeatherCode(), headline, detail));
         }
         return enriched;
     }
@@ -252,7 +281,8 @@ public class AuroraGlossService {
     static class GlossWorkItem {
         final int regionIdx;
         final AuroraRegionSummary region;
-        volatile String gloss;
+        volatile String glossHeadline;
+        volatile String glossDetail;
 
         GlossWorkItem(int regionIdx, AuroraRegionSummary region) {
             this.regionIdx = regionIdx;

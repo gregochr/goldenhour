@@ -272,10 +272,10 @@ class ScheduledBatchEvaluationServiceTest {
                 Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion northEastRegion = new BriefingRegion(
                 "North East", Verdict.GO, "Summary", List.of(), List.of(northEastSlot),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         BriefingRegion yorkshireRegion = new BriefingRegion(
                 "Yorkshire", Verdict.GO, "Summary", List.of(), List.of(yorkshireSlot),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         BriefingEventSummary es = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(northEastRegion, yorkshireRegion), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(es));
@@ -764,7 +764,7 @@ class ScheduledBatchEvaluationServiceTest {
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));
@@ -783,7 +783,7 @@ class ScheduledBatchEvaluationServiceTest {
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot1, slot2),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));

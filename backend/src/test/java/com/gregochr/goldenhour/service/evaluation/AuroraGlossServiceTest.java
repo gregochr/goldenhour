@@ -59,7 +59,8 @@ class AuroraGlossServiceTest {
     void goRegion_glossPopulated() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        mockClaudeResponse("Strong Kp — excellent conditions");
+        mockClaudeResponse("{\"headline\": \"Strong Kp — excellent conditions\","
+                + " \"detail\": \"Kp 5.0 with clear skies.\"}");
 
         List<AuroraRegionSummary> regions = List.of(goRegion("Northumberland"));
         MoonTransitionData moon = new MoonTransitionData(LunarPhase.FIRST_QUARTER,
@@ -69,7 +70,8 @@ class AuroraGlossServiceTest {
                 regions, moon, AlertLevel.MODERATE, 5.0);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).gloss()).isEqualTo("Strong Kp — excellent conditions");
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Strong Kp — excellent conditions");
+        assertThat(result.get(0).glossDetail()).isEqualTo("Kp 5.0 with clear skies.");
         // Region data should be preserved through the gloss enrichment
         assertThat(result.get(0).regionName()).isEqualTo("Northumberland");
         assertThat(result.get(0).verdict()).isEqualTo("GO");
@@ -90,7 +92,8 @@ class AuroraGlossServiceTest {
                 regions, null, AlertLevel.MODERATE, 5.0);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).gloss()).isNull();
+        assertThat(result.get(0).glossHeadline()).isNull();
+        assertThat(result.get(0).glossDetail()).isNull();
         verify(anthropicApiClient, never()).createMessage(any(MessageCreateParams.class));
     }
 
@@ -101,7 +104,8 @@ class AuroraGlossServiceTest {
     void mixedRegions_onlyGoGlossed() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        mockClaudeResponse("Clear dark sky — Bortle 2");
+        mockClaudeResponse("{\"headline\": \"Clear dark sky — Bortle 2\","
+                + " \"detail\": \"Dark site clear.\"}");
 
         List<AuroraRegionSummary> regions = List.of(
                 goRegion("Northumberland"),
@@ -111,10 +115,17 @@ class AuroraGlossServiceTest {
                 regions, null, AlertLevel.MODERATE, 5.0);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).gloss()).isEqualTo("Clear dark sky — Bortle 2");
-        assertThat(result.get(1).gloss()).isNull();
-        // Exactly one call — only the GO region should trigger a Claude call
-        verify(anthropicApiClient, times(1)).createMessage(any(MessageCreateParams.class));
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Clear dark sky — Bortle 2");
+        assertThat(result.get(1).glossHeadline()).isNull();
+        assertThat(result.get(1).glossDetail()).isNull();
+
+        // Only the GO region should trigger a Claude call — verify the sent message
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient, times(1)).createMessage(captor.capture());
+        String userMsg = captor.getValue().messages().getFirst().content().asString();
+        assertThat(userMsg).contains("\"regionName\":\"Northumberland\"");
+        assertThat(userMsg).doesNotContain("Lake District");
     }
 
     // ── Multiple GO regions each get separate calls ──
@@ -124,7 +135,8 @@ class AuroraGlossServiceTest {
     void multipleGoRegions_eachGetsSeparateCall() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        mockClaudeResponse("Strong aurora potential");
+        mockClaudeResponse("{\"headline\": \"Strong aurora potential\","
+                + " \"detail\": \"Conditions are good.\"}");
 
         List<AuroraRegionSummary> regions = List.of(
                 goRegion("Northumberland"),
@@ -134,9 +146,17 @@ class AuroraGlossServiceTest {
                 regions, null, AlertLevel.MODERATE, 5.0);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).gloss()).isEqualTo("Strong aurora potential");
-        assertThat(result.get(1).gloss()).isEqualTo("Strong aurora potential");
-        verify(anthropicApiClient, times(2)).createMessage(any(MessageCreateParams.class));
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Strong aurora potential");
+        assertThat(result.get(1).glossHeadline()).isEqualTo("Strong aurora potential");
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient, times(2)).createMessage(captor.capture());
+        List<String> userMessages = captor.getAllValues().stream()
+                .map(p -> p.messages().getFirst().content().asString())
+                .toList();
+        assertThat(userMessages).allSatisfy(msg ->
+                assertThat(msg).contains("\"regionName\""));
     }
 
     // ── Region ordering is preserved ──
@@ -146,7 +166,8 @@ class AuroraGlossServiceTest {
     void regionOrdering_preserved() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        mockClaudeResponse("Active Kp tonight");
+        mockClaudeResponse("{\"headline\": \"Active Kp tonight\","
+                + " \"detail\": \"Good conditions.\"}");
 
         List<AuroraRegionSummary> regions = List.of(
                 goRegion("Northumberland"),
@@ -158,11 +179,12 @@ class AuroraGlossServiceTest {
 
         assertThat(result).hasSize(3);
         assertThat(result.get(0).regionName()).isEqualTo("Northumberland");
-        assertThat(result.get(0).gloss()).isEqualTo("Active Kp tonight");
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Active Kp tonight");
         assertThat(result.get(1).regionName()).isEqualTo("Lake District");
-        assertThat(result.get(1).gloss()).isNull();
+        assertThat(result.get(1).glossHeadline()).isNull();
         assertThat(result.get(2).regionName()).isEqualTo("Scottish Borders");
-        assertThat(result.get(2).gloss()).isEqualTo("Active Kp tonight");
+        assertThat(result.get(2).glossHeadline()).isEqualTo("Active Kp tonight");
+        assertThat(result.get(2).glossDetail()).isEqualTo("Good conditions.");
     }
 
     // ── Empty regions ──
@@ -193,7 +215,7 @@ class AuroraGlossServiceTest {
                 regions, null, AlertLevel.MODERATE, 5.0);
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).gloss()).isNull();
+        assertThat(result.get(0).glossHeadline()).isNull();
         // Region data must survive the failure
         assertThat(result.get(0).regionName()).isEqualTo("Northumberland");
         assertThat(result.get(0).verdict()).isEqualTo("GO");
@@ -206,7 +228,7 @@ class AuroraGlossServiceTest {
     void apiCall_usesConfiguredModel() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.SONNET);
-        mockClaudeResponse("Great conditions");
+        mockClaudeResponse("{\"headline\": \"Great conditions\", \"detail\": \"Details.\"}");
 
         glossService.enrichGlosses(
                 List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
@@ -225,7 +247,7 @@ class AuroraGlossServiceTest {
     void userMessage_containsRegionData() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        mockClaudeResponse("Great conditions");
+        mockClaudeResponse("{\"headline\": \"Great conditions\", \"detail\": \"Details.\"}");
 
         List<AuroraRegionSummary> regions = List.of(goRegion("Northumberland"));
         MoonTransitionData moon = new MoonTransitionData(LunarPhase.WAXING_GIBBOUS,
@@ -257,7 +279,7 @@ class AuroraGlossServiceTest {
     void systemPrompt_containsMoonlightRule() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        mockClaudeResponse("Bright moon — aurora washed out");
+        mockClaudeResponse("{\"headline\": \"Bright moon\", \"detail\": \"Washed out.\"}");
 
         glossService.enrichGlosses(
                 List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
@@ -268,9 +290,9 @@ class AuroraGlossServiceTest {
 
         String systemPrompt = captor.getValue().system().get().asTextBlockParams()
                 .getFirst().text();
-        assertThat(systemPrompt).contains("windowQuality is MOONLIT_ALL_WINDOW");
+        assertThat(systemPrompt).contains("MOONLIT_ALL_WINDOW");
         assertThat(systemPrompt).contains("moonIlluminationPct > 60");
-        assertThat(systemPrompt).contains("MUST be cautionary about moonlight");
+        assertThat(systemPrompt).contains("MUST be cautionary");
     }
 
     // ── buildUserMessage ──
@@ -343,7 +365,7 @@ class AuroraGlossServiceTest {
                 "TestLocation", null, true, 30, 5.0, 3.0, 0);
         AuroraRegionSummary region = new AuroraRegionSummary(
                 "Northumberland", "GO", 1, 1, null, List.of(slot),
-                5.0, 3.0, 0, null);
+                5.0, 3.0, 0, null, null);
 
         String json = glossService.buildUserMessage(
                 region, null, AlertLevel.MODERATE, 5.0);
@@ -361,6 +383,77 @@ class AuroraGlossServiceTest {
 
         assertThat(json).doesNotContain("\"kp\"");
         assertThat(json).contains("\"alertLevel\":\"MODERATE\"");
+    }
+
+    // ── System prompt format ──
+
+    @Test
+    @DisplayName("System prompt instructs Claude to return JSON with headline and detail fields")
+    void systemPrompt_requestsJsonFormat() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("{\"headline\": \"Test\", \"detail\": \"Test detail.\"}");
+
+        glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get().asTextBlockParams()
+                .getFirst().text();
+        assertThat(systemPrompt).contains("\"headline\"");
+        assertThat(systemPrompt).contains("\"detail\"");
+        assertThat(systemPrompt).containsIgnoringCase("JSON");
+    }
+
+    @Test
+    @DisplayName("GO glossDetail survives enrichment while STANDDOWN glossDetail stays null")
+    void mixedRegions_glossDetailSurvivesEnrichment() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("{\"headline\": \"Clear sky\","
+                + " \"detail\": \"Bortle 3 site with excellent dark skies.\"}");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland"), standdownRegion("Lake District")),
+                null, AlertLevel.MODERATE, 5.0);
+
+        assertThat(result.get(0).glossDetail())
+                .isEqualTo("Bortle 3 site with excellent dark skies.");
+        assertThat(result.get(1).glossDetail()).isNull();
+    }
+
+    // ── JSON parsing and fallback ──
+
+    @Test
+    @DisplayName("Valid JSON response populates both headline and detail")
+    void validJson_parsesHeadlineAndDetail() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("{\"headline\": \"Clear dark sky tonight\","
+                + " \"detail\": \"Kp 5.5 moderate. Bortle 3 site clear.\"}");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.5);
+
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Clear dark sky tonight");
+        assertThat(result.get(0).glossDetail()).isEqualTo("Kp 5.5 moderate. Bortle 3 site clear.");
+    }
+
+    @Test
+    @DisplayName("Invalid JSON falls back to truncated headline, null detail")
+    void invalidJson_fallsBackToTruncatedHeadline() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("Strong Kp with excellent dark sky aurora viewing conditions tonight");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
+
+        assertThat(result.get(0).glossHeadline())
+                .isEqualTo("Strong Kp with excellent dark sky aurora");
+        assertThat(result.get(0).glossDetail()).isNull();
     }
 
     // ── Helpers ──
@@ -382,7 +475,7 @@ class AuroraGlossServiceTest {
                 "TestLocation", 3, true, 30, 5.0, 3.0, 0);
         return new AuroraRegionSummary(
                 name, "GO", 1, 1, 3, List.of(slot),
-                5.0, 3.0, 0, null);
+                5.0, 3.0, 0, null, null);
     }
 
     private static AuroraRegionSummary standdownRegion(String name) {
@@ -390,6 +483,6 @@ class AuroraGlossServiceTest {
                 "CloudyLocation", 4, false, 90, 8.0, 5.0, 61);
         return new AuroraRegionSummary(
                 name, "STANDDOWN", 0, 1, 4, List.of(slot),
-                8.0, 5.0, 61, null);
+                8.0, 5.0, 61, null, null);
     }
 }

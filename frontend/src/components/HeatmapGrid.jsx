@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import { formatEventTimeUk, bortleLabel } from '../utils/conversions.js';
+import InfoTip from './InfoTip.jsx';
 import ProPill from './shared/ProPill.jsx';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
@@ -430,6 +431,11 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                 )}
               </div>
 
+              {isExpanded && region.glossDetail && (
+                <div className="text-plex-text-secondary px-2 py-1" style={{ fontSize: '13px' }}>
+                  {region.glossDetail}
+                </div>
+              )}
               {isExpanded && (
                 <LocationSlotList
                   slots={region.slots}
@@ -613,10 +619,11 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
       {!isStanddown && region && (
         <>
-          {region.gloss ? (
-            <div className="text-plex-text-secondary italic mt-0.5"
+          {region.glossHeadline ? (
+            <div className="text-plex-text-secondary italic mt-0.5 flex items-center gap-0.5"
               style={{ fontSize: '10px' }}>
-              {region.gloss}
+              <span>{region.glossHeadline}</span>
+              {region.glossDetail && <InfoTip text={region.glossDetail} position="below" />}
             </div>
           ) : clearPct != null && (
             <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
@@ -720,6 +727,12 @@ const AURORA_LEVEL_COLOUR = {
 
 const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
 
+/** Appends "aurora" to non-QUIET alert labels for context. */
+const formatAlertLevel = (level) => {
+  const label = AURORA_LEVEL_LABEL[level] || level;
+  return level && level !== 'QUIET' && AURORA_LEVEL_LABEL[level] ? `${label} aurora` : label;
+};
+
 const MOON_EMOJI = {
   NEW_MOON: '\u{1F311}', WAXING_CRESCENT: '\u{1F312}', FIRST_QUARTER: '\u{1F313}',
   WAXING_GIBBOUS: '\u{1F314}', FULL_MOON: '\u{1F315}', WANING_GIBBOUS: '\u{1F316}',
@@ -749,13 +762,19 @@ function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, 
           🌌 {regionName} — Aurora {isTonight ? 'tonight' : 'tomorrow'}
           <span className={`ml-1.5 font-bold ${AURORA_LEVEL_COLOUR[alertLevel] || ''}`}
             style={{ fontSize: '12px' }}>
-            {AURORA_LEVEL_LABEL[alertLevel] || alertLevel}
+            {formatAlertLevel(alertLevel)}
             {kpValue != null && ` (Kp ${kpValue.toFixed(1)})`}
           </span>
         </span>
         <button onClick={onClose} className="text-plex-text-muted hover:text-plex-text px-1 text-sm"
           aria-label="Close drill-down">✕</button>
       </div>
+
+      {auroraRegion?.glossDetail && (
+        <div className="text-plex-text-secondary px-2 py-1 mb-1" style={{ fontSize: '13px' }}>
+          {auroraRegion.glossDetail}
+        </div>
+      )}
 
       {locations.length === 0 ? (
         <p className="text-plex-text-muted italic" style={{ fontSize: '12px' }}>No dark-sky locations in this region</p>
@@ -1065,7 +1084,7 @@ export default function HeatmapGrid({
                       onClick={(!visible || isTmrwStanddown) ? undefined
                         : () => toggleDrillDown(date, regionName, 'AURORA')}>
                       <div className={`font-medium ${levelColour}`} style={{ fontSize: '11px' }}>
-                        {AURORA_LEVEL_LABEL[auroraTomorrow.alertLevel] || auroraTomorrow.alertLevel}
+                        {formatAlertLevel(auroraTomorrow.alertLevel)}
                       </div>
                       <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
                         Kp {auroraTomorrow.peakKp.toFixed(1)} forecast
@@ -1119,10 +1138,13 @@ export default function HeatmapGrid({
                       </div>
                       {isGo && auroraRegion && (
                         <>
-                          {auroraRegion.gloss ? (
-                            <div className="text-plex-text-secondary italic mt-0.5"
+                          {auroraRegion.glossHeadline ? (
+                            <div className="text-plex-text-secondary italic mt-0.5 flex items-center gap-0.5"
                               style={{ fontSize: '10px' }}>
-                              {auroraRegion.gloss}
+                              <span>{auroraRegion.glossHeadline}</span>
+                              {auroraRegion.glossDetail && (
+                                <InfoTip text={auroraRegion.glossDetail} position="below" />
+                              )}
                             </div>
                           ) : auroraRegion.totalDarkSkyLocations > 0 && (
                             <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
@@ -1137,7 +1159,7 @@ export default function HeatmapGrid({
                           )}
                           <div className={`font-medium mt-0.5 ${AURORA_LEVEL_COLOUR[auroraTonight.alertLevel] || ''}`}
                             style={{ fontSize: '9px' }}>
-                            {AURORA_LEVEL_LABEL[auroraTonight.alertLevel] || auroraTonight.alertLevel}
+                            {formatAlertLevel(auroraTonight.alertLevel)}
                           </div>
                           {auroraTonight.moonPhase && (
                             <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>

@@ -68,31 +68,37 @@ class BriefingGlossServiceTest {
     // ── Core behaviour: gloss populated per verdict ──────────────────────────
 
     @Test
-    @DisplayName("GO region gets Haiku-generated gloss")
+    @DisplayName("GO region gets Haiku-generated gloss from JSON response")
     void goRegion_glossPopulated() {
-        Message response = mockResponse("High cirrus canvas — good colour potential");
+        Message response = mockResponse(
+                "{\"headline\": \"High cirrus — good colour potential\","
+                        + " \"detail\": \"40% high cloud provides canvas.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
 
         List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
-        assertThat(enriched.getFirst().eventSummaries().getFirst().regions().getFirst().gloss())
-                .isEqualTo("High cirrus canvas — good colour potential");
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("High cirrus — good colour potential");
+        assertThat(r.glossDetail()).isEqualTo("40% high cloud provides canvas.");
     }
 
     @Test
-    @DisplayName("MARGINAL region gets Haiku-generated gloss")
+    @DisplayName("MARGINAL region gets Haiku-generated gloss from JSON response")
     void marginalRegion_glossPopulated() {
-        Message response = mockResponse("Clear all layers — flat light, nothing to catch colour");
+        Message response = mockResponse(
+                "{\"headline\": \"Clear all layers — flat light\","
+                        + " \"detail\": \"No cloud canvas to catch colour.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
 
         List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.MARGINAL)));
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
-        assertThat(enriched.getFirst().eventSummaries().getFirst().regions().getFirst().gloss())
-                .isEqualTo("Clear all layers — flat light, nothing to catch colour");
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("Clear all layers — flat light");
+        assertThat(r.glossDetail()).isEqualTo("No cloud canvas to catch colour.");
     }
 
     @Test
@@ -101,15 +107,18 @@ class BriefingGlossServiceTest {
         List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.STANDDOWN)));
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
-        assertThat(enriched.getFirst().eventSummaries().getFirst().regions().getFirst().gloss())
-                .isNull();
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isNull();
+        assertThat(r.glossDetail()).isNull();
         verify(anthropicApiClient, never()).createMessage(any());
     }
 
     @Test
     @DisplayName("Mixed verdicts: GO gets gloss, STANDDOWN stays null in same event")
     void mixedVerdicts_goGlossedStanddownNull() {
-        Message response = mockResponse("High cloud canvas with clear horizon");
+        Message response = mockResponse(
+                "{\"headline\": \"High cloud with clear horizon\","
+                        + " \"detail\": \"Horizon clear for colour.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
 
@@ -120,9 +129,16 @@ class BriefingGlossServiceTest {
 
         List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
                 .getFirst().regions();
-        assertThat(regions.get(0).gloss()).isEqualTo("High cloud canvas with clear horizon");
-        assertThat(regions.get(1).gloss()).isNull();
-        verify(anthropicApiClient, times(1)).createMessage(any(MessageCreateParams.class));
+        assertThat(regions.get(0).glossHeadline()).isEqualTo("High cloud with clear horizon");
+        assertThat(regions.get(1).glossHeadline()).isNull();
+        assertThat(regions.get(1).glossDetail()).isNull();
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient, times(1)).createMessage(captor.capture());
+        String userMsg = captor.getValue().messages().getFirst().content().asString();
+        assertThat(userMsg).contains("\"region\":\"Northumberland\"");
+        assertThat(userMsg).doesNotContain("Lake District");
     }
 
     // ── Error handling ───────────────────────────────────────────────────────
@@ -143,8 +159,8 @@ class BriefingGlossServiceTest {
         List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
                 .getFirst().regions();
         // One succeeded, one failed — order may vary due to parallel execution
-        long withGloss = regions.stream().filter(r -> r.gloss() != null).count();
-        long withoutGloss = regions.stream().filter(r -> r.gloss() == null).count();
+        long withGloss = regions.stream().filter(r -> r.glossHeadline() != null).count();
+        long withoutGloss = regions.stream().filter(r -> r.glossHeadline() == null).count();
         assertThat(withGloss).isEqualTo(1);
         assertThat(withoutGloss).isEqualTo(1);
     }
@@ -226,7 +242,7 @@ class BriefingGlossServiceTest {
         verify(anthropicApiClient).createMessage(captor.capture());
         MessageCreateParams params = captor.getValue();
         assertThat(params.model().toString()).isEqualTo(EvaluationModel.SONNET.getModelId());
-        assertThat(params.maxTokens()).isEqualTo(64);
+        assertThat(params.maxTokens()).isEqualTo(256);
     }
 
     @Test
@@ -245,7 +261,7 @@ class BriefingGlossServiceTest {
         String systemPrompt = captor.getValue().system().get()
                 .asTextBlockParams().get(0).text();
         assertThat(systemPrompt).contains("photography forecast assistant");
-        assertThat(systemPrompt).contains("8 words maximum");
+        assertThat(systemPrompt).contains("7-word-max");
         assertThat(systemPrompt).contains("clearAllLayers is true");
     }
 
@@ -254,7 +270,8 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Enriched region preserves all original fields alongside gloss")
     void reassembly_preservesOriginalFields() {
-        Message response = mockResponse("High cloud canvas");
+        Message response = mockResponse(
+                "{\"headline\": \"High cloud canvas\", \"detail\": \"Detailed explanation.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
 
@@ -272,13 +289,15 @@ class BriefingGlossServiceTest {
         assertThat(enrichedRegion.regionWindSpeedMs()).isEqualTo(3.5);
         assertThat(enrichedRegion.regionWeatherCode()).isEqualTo(0);
         assertThat(enrichedRegion.slots()).hasSize(1);
-        assertThat(enrichedRegion.gloss()).isEqualTo("High cloud canvas");
+        assertThat(enrichedRegion.glossHeadline()).isEqualTo("High cloud canvas");
+        assertThat(enrichedRegion.glossDetail()).isEqualTo("Detailed explanation.");
     }
 
     @Test
     @DisplayName("Multiple days and events all enriched correctly")
     void multiDayMultiEvent_allEnriched() {
-        Message response = mockResponse("Good colour potential");
+        Message response = mockResponse(
+                "{\"headline\": \"Good colour potential\", \"detail\": \"Details.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
 
@@ -294,11 +313,21 @@ class BriefingGlossServiceTest {
         List<BriefingDay> enriched = glossService.generateGlosses(List.of(day1, day2), 1L);
 
         assertThat(enriched).hasSize(2);
-        assertThat(enriched.get(0).eventSummaries().getFirst().regions().getFirst().gloss())
+        assertThat(enriched.get(0).eventSummaries().getFirst().regions().getFirst().glossHeadline())
                 .isEqualTo("Good colour potential");
-        assertThat(enriched.get(1).eventSummaries().getFirst().regions().getFirst().gloss())
+        assertThat(enriched.get(1).eventSummaries().getFirst().regions().getFirst().glossHeadline())
                 .isEqualTo("Good colour potential");
-        verify(anthropicApiClient, times(2)).createMessage(any(MessageCreateParams.class));
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient, times(2)).createMessage(captor.capture());
+        List<String> userMessages = captor.getAllValues().stream()
+                .map(p -> p.messages().getFirst().content().asString())
+                .toList();
+        assertThat(userMessages).anySatisfy(msg ->
+                assertThat(msg).contains("\"region\":\"Northumberland\""));
+        assertThat(userMessages).anySatisfy(msg ->
+                assertThat(msg).contains("\"region\":\"Lake District\""));
     }
 
     @Test
@@ -445,6 +474,113 @@ class BriefingGlossServiceTest {
         assertThat(json).contains("\"buildingTrend\":true");
     }
 
+    @Test
+    @DisplayName("System prompt instructs Claude to return JSON with headline and detail fields")
+    void systemPrompt_requestsJsonFormat() {
+        Message response = mockResponse(
+                "{\"headline\": \"Test\", \"detail\": \"Test detail.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        glossService.generateGlosses(days, 1L);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).contains("\"headline\"");
+        assertThat(systemPrompt).contains("\"detail\"");
+        assertThat(systemPrompt).containsIgnoringCase("JSON");
+    }
+
+    @Test
+    @DisplayName("GO glossDetail survives reassembly while STANDDOWN glossDetail stays null")
+    void mixedVerdicts_glossDetailSurvivesReassembly() {
+        Message response = mockResponse(
+                "{\"headline\": \"Clear horizon\","
+                        + " \"detail\": \"Low cloud minimal, mid clear.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        BriefingRegion goRegion = region("Northumberland", Verdict.GO);
+        BriefingRegion standdownRegion = region("Lake District", Verdict.STANDDOWN);
+        List<BriefingDay> days = List.of(dayWith(goRegion, standdownRegion));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
+                .getFirst().regions();
+        assertThat(regions.get(0).glossDetail()).isEqualTo("Low cloud minimal, mid clear.");
+        assertThat(regions.get(1).glossDetail()).isNull();
+    }
+
+    // ── JSON parsing and fallback ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("Valid JSON response parses headline and detail")
+    void validJson_parsesHeadlineAndDetail() {
+        Message response = mockResponse(
+                "{\"headline\": \"Cirrus canvas — good colour\","
+                        + " \"detail\": \"High cloud at 40% provides canvas. "
+                        + "Low cloud minimal. Tide aligned at 2 spots.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("Cirrus canvas — good colour");
+        assertThat(r.glossDetail()).startsWith("High cloud at 40%");
+    }
+
+    @Test
+    @DisplayName("Invalid JSON falls back to truncated headline, null detail")
+    void invalidJson_fallsBackToTruncatedHeadline() {
+        Message response = mockResponse(
+                "High cirrus canvas providing excellent colour potential today");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("High cirrus canvas providing excellent colour potential");
+        assertThat(r.glossDetail()).isNull();
+    }
+
+    @Test
+    @DisplayName("Headline exceeding 7 words is truncated")
+    void longHeadline_truncatedToSevenWords() {
+        Message response = mockResponse(
+                "{\"headline\": \"One two three four five six seven eight nine\","
+                        + " \"detail\": \"Detail text.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("One two three four five six seven");
+        assertThat(r.glossDetail()).isEqualTo("Detail text.");
+    }
+
+    // ── truncateToWords ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("truncateToWords basic cases")
+    void truncateToWords_basicCases() {
+        assertThat(BriefingGlossService.truncateToWords("one two three", 2))
+                .isEqualTo("one two");
+        assertThat(BriefingGlossService.truncateToWords("short", 5))
+                .isEqualTo("short");
+        assertThat(BriefingGlossService.truncateToWords(null, 5)).isNull();
+        assertThat(BriefingGlossService.truncateToWords("  ", 5)).isEqualTo("  ");
+    }
+
     // ── Utility ──────────────────────────────────────────────────────────────
 
     @Test
@@ -476,7 +612,7 @@ class BriefingGlossServiceTest {
                         10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
                 BriefingSlot.TideInfo.NONE, flags, null);
         return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(slot),
-                10.0, 8.0, 3.5, 0, null);
+                10.0, 8.0, 3.5, 0, null, null);
     }
 
     private static Message mockResponse(String text) {

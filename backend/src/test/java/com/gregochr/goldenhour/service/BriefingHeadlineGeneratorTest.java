@@ -41,10 +41,10 @@ class BriefingHeadlineGeneratorTest {
 
             BriefingRegion todayRegion = new BriefingRegion("Northumberland",
                     Verdict.GO, "Clear", List.of(),
-                    List.of(slotAt("Bamburgh", Verdict.GO, pastTime)), null, null, null, null, null);
+                    List.of(slotAt("Bamburgh", Verdict.GO, pastTime)), null, null, null, null, null, null);
             BriefingRegion tomorrowRegion = new BriefingRegion("Lake District",
                     Verdict.GO, "Clear", List.of(),
-                    List.of(slotAt("Keswick", Verdict.GO, futureTime)), null, null, null, null, null);
+                    List.of(slotAt("Keswick", Verdict.GO, futureTime)), null, null, null, null, null, null);
 
             BriefingDay todayDay = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(todayRegion), List.of())));
@@ -65,7 +65,7 @@ class BriefingHeadlineGeneratorTest {
 
             BriefingRegion region = new BriefingRegion("Northumberland",
                     Verdict.GO, "Clear", List.of(),
-                    List.of(slotAt("Bamburgh", Verdict.GO, futureTime)), null, null, null, null, null);
+                    List.of(slotAt("Bamburgh", Verdict.GO, futureTime)), null, null, null, null, null, null);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
 
@@ -81,9 +81,9 @@ class BriefingHeadlineGeneratorTest {
         void singleGoRegion() {
             LocalDate today = LocalDate.now(ZoneOffset.UTC);
             BriefingRegion region = new BriefingRegion("Lake District",
-                    Verdict.GO, "Clear skies", List.of(), List.of(), null, null, null, null, null);
+                    Verdict.GO, "Clear skies", List.of(), List.of(), null, null, null, null, null, null);
             BriefingRegion standdown = new BriefingRegion("Northumberland",
-                    Verdict.STANDDOWN, "Rain", List.of(), List.of(), null, null, null, null, null);
+                    Verdict.STANDDOWN, "Rain", List.of(), List.of(), null, null, null, null, null, null);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region, standdown), List.of())));
@@ -100,9 +100,9 @@ class BriefingHeadlineGeneratorTest {
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
                             new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null),
+                                    null, null, null, null, null, null),
                             new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null)
+                                    null, null, null, null, null, null)
                     ), List.of())));
 
             String headline = generator.generateHeadline(List.of(day));
@@ -118,11 +118,11 @@ class BriefingHeadlineGeneratorTest {
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
                             new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null),
+                                    null, null, null, null, null, null),
                             new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null),
+                                    null, null, null, null, null, null),
                             new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null)
+                                    null, null, null, null, null, null)
                     ), List.of())));
 
             String headline = generator.generateHeadline(List.of(day));
@@ -160,16 +160,16 @@ class BriefingHeadlineGeneratorTest {
             BriefingDay todayDay = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             new BriefingRegion("Tyne and Wear", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null)
+                                    null, null, null, null, null, null)
                     ), List.of())));
             BriefingDay tomorrowDay = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
                             new BriefingRegion("Northumberland", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null),
+                                    null, null, null, null, null, null),
                             new BriefingRegion("Lake District", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null),
+                                    null, null, null, null, null, null),
                             new BriefingRegion("Yorkshire Dales", Verdict.GO, "Clear", List.of(), List.of(),
-                                    null, null, null, null, null)
+                                    null, null, null, null, null, null)
                     ), List.of())));
 
             String headline = generator.generateHeadline(List.of(todayDay, tomorrowDay));
@@ -183,7 +183,7 @@ class BriefingHeadlineGeneratorTest {
         void marginalOnlyHeadline() {
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             BriefingRegion region = new BriefingRegion("Northumberland",
-                    Verdict.MARGINAL, "Patchy cloud", List.of(), List.of(), null, null, null, null, null);
+                    Verdict.MARGINAL, "Patchy cloud", List.of(), List.of(), null, null, null, null, null, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
 
@@ -196,7 +196,7 @@ class BriefingHeadlineGeneratorTest {
         @DisplayName("Standdown headline when no good conditions anywhere")
         void standdownHeadline() {
             BriefingRegion region = new BriefingRegion("Northumberland",
-                    Verdict.STANDDOWN, "Rain everywhere", List.of(), List.of(), null, null, null, null, null);
+                    Verdict.STANDDOWN, "Rain everywhere", List.of(), List.of(), null, null, null, null, null, null);
             LocalDate today = LocalDate.now(ZoneOffset.UTC);
             BriefingDay day = new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())));
@@ -210,7 +210,7 @@ class BriefingHeadlineGeneratorTest {
 
     private static BriefingRegion region(String name, Verdict verdict) {
         return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private static BriefingSlot slotAt(String name, Verdict verdict, LocalDateTime time) {

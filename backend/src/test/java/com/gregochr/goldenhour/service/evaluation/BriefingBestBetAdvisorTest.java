@@ -279,7 +279,7 @@ class BriefingBestBetAdvisorTest {
                     List.of("King tide"), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of("King tide at Bamburgh"),
-                    List.of(kingSlot), 7.0, 5.0, 1.5, 1, null);
+                    List.of(kingSlot), 7.0, 5.0, 1.5, 1, null, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -307,7 +307,7 @@ class BriefingBestBetAdvisorTest {
                     List.of("King tide"), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(lunarKingSlot), 7.0, 5.0, 1.5, 1, null);
+                    List.of(lunarKingSlot), 7.0, 5.0, 1.5, 1, null, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -336,7 +336,7 @@ class BriefingBestBetAdvisorTest {
                     List.of(), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(springSlot), 7.0, 5.0, 1.5, 1, null);
+                    List.of(springSlot), 7.0, 5.0, 1.5, 1, null, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -376,7 +376,7 @@ class BriefingBestBetAdvisorTest {
                     List.of(), null);
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
-                    List.of(extraExtraHighSlot, extraHighSlot), 7.0, 5.0, 1.5, 1, null);
+                    List.of(extraExtraHighSlot, extraHighSlot), 7.0, 5.0, 1.5, 1, null, null);
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())
             ));
@@ -941,7 +941,7 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, null));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private static BriefingRegion regionWithTime(String name, Verdict verdict,
@@ -957,7 +957,7 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, time));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private static BriefingSlot slot(String name, Verdict verdict, LocalDateTime time) {
