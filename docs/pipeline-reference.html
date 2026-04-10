@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhotoCast Pipeline Reference</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d0d0d;
+    --surface:   #141414;
+    --border:    #2a2a2a;
+    --gold:      #c9a84c;
+    --gold-dim:  rgba(201,168,76,0.18);
+    --text:      #e8e8e8;
+    --muted:     #888;
+    --code-bg:   #1a1a1a;
+    --stripe:    #1a1a1a;
+
+    --go-bg:     #2d5a3d; --go-fg:     #4ade80;
+    --marg-bg:   #4a3800; --marg-fg:   #f59e0b;
+    --stand-bg:  rgba(180,50,50,0.2); --stand-fg: #f87171;
+
+    --radius:    6px;
+    --max-w:     960px;
+  }
+
+  html { font-size: 15px; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+    line-height: 1.65;
+    padding: 2rem 1.25rem 6rem;
+  }
+
+  /* ── Layout ───────────────────────────────────────── */
+  .container { max-width: var(--max-w); margin: 0 auto; }
+
+  /* ── Typography ───────────────────────────────────── */
+  h1 {
+    font-size: 1.6rem;
+    color: var(--gold);
+    letter-spacing: 0.04em;
+    margin-bottom: 0.25rem;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin-bottom: 2.5rem;
+  }
+
+  h2 { font-size: 1.15rem; color: var(--text); margin: 0; }
+  h3 { font-size: 0.95rem; color: var(--gold); margin: 1.2rem 0 0.5rem; }
+  h4 { font-size: 0.85rem; color: var(--text); margin: 1rem 0 0.4rem; }
+
+  p, li { font-size: 0.85rem; color: var(--text); }
+  p + p { margin-top: 0.6rem; }
+  ul, ol { padding-left: 1.4rem; margin: 0.5rem 0; }
+  li { margin-bottom: 0.25rem; }
+
+  a { color: var(--gold); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  strong { color: var(--text); font-weight: 600; }
+  em { color: var(--muted); font-style: normal; }
+
+  code {
+    font-family: inherit;
+    background: var(--code-bg);
+    color: var(--gold);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    font-size: 0.82rem;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.8rem 1rem;
+    overflow-x: auto;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    margin: 0.6rem 0;
+    color: var(--text);
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2rem 0;
+  }
+
+  /* ── Section Cards ────────────────────────────────── */
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1rem 1.15rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+  .section-header:hover { background: rgba(201,168,76,0.04); }
+
+  .section-num {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--gold);
+    opacity: 0.35;
+    line-height: 1;
+    min-width: 1.6rem;
+    text-align: right;
+    flex-shrink: 0;
+    padding-top: 0.1rem;
+  }
+
+  .section-title-block { flex: 1; min-width: 0; }
+
+  .section-summary {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 0.3rem;
+    line-height: 1.5;
+  }
+
+  .chevron {
+    font-size: 0.75rem;
+    color: var(--muted);
+    transition: transform 0.25s ease;
+    flex-shrink: 0;
+    padding-top: 0.35rem;
+  }
+  .section.open .chevron { transform: rotate(90deg); }
+
+  .section-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.35s ease;
+  }
+  .section.open .section-body { max-height: none; }
+
+  .section-content {
+    padding: 0 1.15rem 1.15rem 3.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Sub-sections ─────────────────────────────────── */
+  .subsection {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 0.8rem 0;
+    overflow: hidden;
+  }
+  .subsection-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.9rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+  .subsection-header:hover { background: rgba(201,168,76,0.04); }
+  .subsection-header h3 { margin: 0; flex: 1; }
+
+  .subsection-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.35s ease;
+  }
+  .subsection.open .subsection-body { max-height: none; }
+  .subsection.open .chevron { transform: rotate(90deg); }
+
+  .subsection-content {
+    padding: 0 0.9rem 0.9rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Tables ───────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.6rem 0;
+    font-size: 0.78rem;
+  }
+  th {
+    text-align: left;
+    padding: 0.45rem 0.6rem;
+    color: var(--gold);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: var(--stripe); }
+  tr:nth-child(odd) td  { background: var(--surface); }
+
+  /* ── Badges ───────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    padding: 0.1em 0.5em;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+  .badge-go       { background: var(--go-bg);    color: var(--go-fg); }
+  .badge-marginal { background: var(--marg-bg);  color: var(--marg-fg); }
+  .badge-standdown{ background: var(--stand-bg); color: var(--stand-fg); }
+  .badge-gold     { background: var(--gold-dim); color: var(--gold); }
+  .badge-muted    { background: #222; color: var(--muted); }
+  .badge-yes      { background: var(--go-bg);    color: var(--go-fg); }
+  .badge-no       { background: #222;            color: var(--muted); }
+
+  /* ── Flow diagrams ────────────────────────────────── */
+  .flow {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.8rem 1rem;
+    overflow-x: auto;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    white-space: pre;
+    color: var(--muted);
+    margin: 0.6rem 0;
+  }
+  .flow .hl { color: var(--gold); }
+  .flow .go { color: var(--go-fg); }
+  .flow .warn { color: var(--marg-fg); }
+  .flow .err { color: var(--stand-fg); }
+
+  /* ── Responsive ───────────────────────────────────── */
+  @media (max-width: 700px) {
+    html { font-size: 14px; }
+    .section-content { padding-left: 1.15rem; }
+    .section-num { display: none; }
+    table { font-size: 0.72rem; }
+    th, td { padding: 0.35rem 0.4rem; }
+  }
+
+  /* ── Utility ──────────────────────────────────────── */
+  .mt-1 { margin-top: 0.6rem; }
+  .mb-1 { margin-bottom: 0.6rem; }
+  .dim  { color: var(--muted); }
+  .nowrap { white-space: nowrap; }
+  .small { font-size: 0.75rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>PhotoCast Pipeline Reference</h1>
+<p class="subtitle">Internal developer reference &mdash; Last updated: 2026-04-10</p>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 1. OVERVIEW                                         -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section open" data-key="s1">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">1</span>
+    <div class="section-title-block">
+      <h2>Overview</h2>
+      <p class="section-summary">End-to-end pipeline: Open-Meteo weather + aerosol data &rarr; weather triage (zero-cost pre-flight) &rarr; Claude evaluation (colour scoring per location) &rarr; H2/PostgreSQL persistence &rarr; role-gated API. Parallel aurora pipeline polls NOAA SWPC every 5 min, triages by cloud, and scores viable dark-sky locations via a single Claude call. Eight scheduled jobs orchestrated by a DB-backed dynamic scheduler.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+      <p>PhotoCast is a photographer's forecast system. Its core value proposition: for each configured location, it fetches weather, aerosol, tidal, and solar geometry data, assembles a rich atmospheric snapshot, and asks Claude to score the sunrise/sunset colour potential on two axes (Fiery Sky 0&ndash;100, Golden Hour 0&ndash;100) plus a 1&ndash;5 star rating.</p>
+      <p>The system operates on three tiers of Claude usage:</p>
+      <ul>
+        <li><strong>Daily Briefing</strong> &mdash; zero-Claude-cost weather triage producing GO/MARGINAL/STANDDOWN verdicts per location, plus a single Haiku call for "best bet" recommendations.</li>
+        <li><strong>Per-Location Forecast</strong> &mdash; full Claude evaluation (Haiku/Sonnet/Opus configurable per run type) with directional cloud sampling, cloud approach risk, storm surge, and inversion scoring.</li>
+        <li><strong>Aurora Photography</strong> &mdash; NOAA SWPC polling with state-machine alert management, weather triage, and a single Claude call to score all viable dark-sky locations.</li>
+      </ul>
+      <p>All Claude calls route through a single <code>AnthropicApiClient</code> bean with Resilience4j <code>@Retry</code> + <code>@CircuitBreaker</code>. Token usage and costs are tracked per API call in the <code>api_call_log</code> table.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 2. WEATHER TRIAGE                                   -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s2">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">2</span>
+    <div class="section-title-block">
+      <h2>Weather Triage</h2>
+      <p class="section-summary">Two independent triage systems: <code>BriefingVerdictEvaluator</code> for the daily briefing (granular multi-metric checks) and <code>WeatherTriageEvaluator</code> for forecast runs (fast 3-check gate before Claude). Both produce verdicts that can skip expensive Claude calls. Cost: zero (Open-Meteo only).</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+
+      <!-- 2a: Briefing Triage -->
+      <div class="subsection" data-key="s2a">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>2a. Briefing Verdict Evaluator</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>Used by <code>BriefingSlotBuilder</code> to assign a <span class="badge badge-go">GO</span> / <span class="badge badge-marginal">MARGINAL</span> / <span class="badge badge-standdown">STANDDOWN</span> verdict to each location &times; solar-event slot in the daily briefing.</p>
+
+            <h4>Open-Meteo Fields Fetched</h4>
+            <p><strong>Main forecast batch</strong> (per location):</p>
+            <pre><code>cloud_cover_low, cloud_cover_mid, cloud_cover_high, visibility,
+wind_speed_10m, wind_direction_10m, precipitation, weather_code,
+relative_humidity_2m, surface_pressure, shortwave_radiation,
+boundary_layer_height, temperature_2m, apparent_temperature,
+precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pre>
+            <p><strong>Horizon cloud-only batch</strong> (113 km east for sunrise, west for sunset):</p>
+            <pre><code>cloud_cover_low, cloud_cover_mid, cloud_cover_high</code></pre>
+
+            <h4>Verdict Determination Cascade</h4>
+            <p>Each check can only <strong>demote</strong> the verdict (never promote). Applied in this exact order:</p>
+            <table>
+              <tr><th>#</th><th>Check</th><th>Threshold</th><th>Effect</th></tr>
+              <tr><td>1</td><td>Base verdict</td><td colspan="2"><em>See table below</em></td></tr>
+              <tr><td>2</td><td>Mid-cloud demotion</td><td>&ge;80% &rarr; STANDDOWN; &ge;60% &rarr; MARGINAL</td><td>Can only demote</td></tr>
+              <tr><td>3</td><td>Building cloud trend</td><td>Peak &ge;40% AND event &gt; earliest</td><td>GO &rarr; MARGINAL only</td></tr>
+              <tr><td>4</td><td>Clear-all-layers</td><td>Low &lt;15% AND Mid &lt;15% AND High &lt;15%</td><td>GO &rarr; MARGINAL only</td></tr>
+              <tr><td>5</td><td>Horizon low cloud</td><td>&ge;70% &rarr; STANDDOWN; &ge;40% &rarr; MARGINAL</td><td>Can only demote</td></tr>
+              <tr><td>6</td><td>Coastal tide</td><td>Tide not aligned</td><td>Override &rarr; STANDDOWN</td></tr>
+            </table>
+
+            <h4>Base Verdict Thresholds</h4>
+            <table>
+              <tr><th>Metric</th><th><span class="badge badge-standdown">STANDDOWN</span></th><th><span class="badge badge-marginal">MARGINAL</span></th><th><span class="badge badge-go">GO</span></th></tr>
+              <tr><td>Low cloud</td><td>&gt;80%</td><td>&gt;50%</td><td>&le;50%</td></tr>
+              <tr><td>Precipitation</td><td>&gt;2.0 mm</td><td>&gt;0.5 mm</td><td>&le;0.5 mm</td></tr>
+              <tr><td>Visibility</td><td>&lt;5,000 m</td><td>&lt;10,000 m</td><td>&ge;10,000 m</td></tr>
+              <tr><td>Humidity</td><td>&mdash;</td><td>&gt;90%</td><td>&le;90%</td></tr>
+            </table>
+
+            <h4>Standdown Reason Priority Order</h4>
+            <p>When verdict is STANDDOWN, the <strong>first match</strong> becomes the reason:</p>
+            <ol>
+              <li><code>HEAVY_CLOUD</code> &mdash; lowCloud &gt;80%</li>
+              <li><code>OVERCAST</code> &mdash; midCloud &ge;80%</li>
+              <li><code>RAIN</code> &mdash; precip &gt;2.0 mm</li>
+              <li><code>POOR_VISIBILITY</code> &mdash; visibility &lt;5,000 m</li>
+              <li><code>BUILDING_CLOUD</code> &mdash; building trend detected</li>
+              <li><code>TIDE_MISMATCH</code> &mdash; coastal tide not aligned</li>
+              <li><code>CLEAR_SKY</code> &mdash; all layers &lt;15% (no canvas)</li>
+              <li><code>SUN_BLOCKED_HORIZON</code> &mdash; horizon demotion</li>
+              <li><code>POOR_CONDITIONS</code> &mdash; fallback</li>
+            </ol>
+
+            <h4>Region Rollup</h4>
+            <p>For a region, the verdict is rolled up by <strong>excluding STANDDOWN slots</strong>: if all viable slots are GO &rarr; <span class="badge badge-go">GO</span>; some viable but none GO &rarr; <span class="badge badge-marginal">MARGINAL</span>; all STANDDOWN &rarr; <span class="badge badge-standdown">STANDDOWN</span>.</p>
+
+            <h4>Data Flow</h4>
+            <div class="flow"><span class="hl">BriefingService.refreshBriefing()</span>
+  &darr;
+  Load enabled colour locations
+  &darr;
+  <span class="hl">OpenMeteoClient.fetchForecastBriefingBatch()</span> &rarr; main weather
+  <span class="hl">OpenMeteoClient.fetchCloudOnlyBatch()</span>         &rarr; horizon cloud (113 km)
+  &darr;
+  Per location &times; date &times; event:
+    <span class="hl">BriefingSlotBuilder.buildSlot()</span>
+      &rarr; determineVerdict() &rarr; apply demotions &rarr; buildFlags()
+      &rarr; <span class="go">GO</span> / <span class="warn">MARGINAL</span> / <span class="err">STANDDOWN</span>
+  &darr;
+  Group into BriefingDay &rarr; BriefingEventSummary &rarr; BriefingRegion
+  &darr;
+  <span class="hl">BriefingBestBetAdvisor.advise()</span> &rarr; Claude picks (single Haiku call)
+  &darr;
+  Cache in AtomicReference + daily_briefing_cache DB table
+  &darr;
+  <span class="hl">GET /api/briefing</span> &rarr; DailyBriefingResponse</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2b: Forecast Run Triage -->
+      <div class="subsection" data-key="s2b">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>2b. Forecast Run Weather Triage</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p><code>WeatherTriageEvaluator</code> is a fast heuristic gate in the per-location forecast pipeline. It runs <strong>before</strong> any Claude call and checks three conditions. If any match, the location gets a canned rating=1 entity and Claude is skipped.</p>
+            <table>
+              <tr><th>Check</th><th>Threshold</th><th>Reason</th></tr>
+              <tr><td>Solar low cloud</td><td>&gt;80%</td><td>Sun blocked at horizon</td></tr>
+              <tr><td>Precipitation</td><td>&gt;2.0 mm</td><td>Active rain</td></tr>
+              <tr><td>Visibility</td><td>&lt;5,000 m</td><td>Poor visibility</td></tr>
+            </table>
+            <p>Additionally, if <code>TIDE_ALIGNMENT</code> optimisation is enabled for SEASCAPE locations, a tide-misalignment check can also trigger a canned skip.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2c: Aurora Triage -->
+      <div class="subsection" data-key="s2c">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>2c. Aurora Weather Triage</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p><code>WeatherTriageService</code> is aurora-specific. Uses a 3-point <strong>northward transect</strong> (50/100/150 km north) to check cloud cover at each location.</p>
+            <table>
+              <tr><th>Parameter</th><th>Value</th></tr>
+              <tr><td>Overcast threshold</td><td>75% total cloud (low + mid + high, capped at 100)</td></tr>
+              <tr><td>Lookahead window</td><td>Current hour + next 6 hours (7 slots)</td></tr>
+              <tr><td>Viability rule</td><td><strong>Intentionally lenient:</strong> ANY single hour &lt;75% passes</td></tr>
+              <tr><td>Grid deduplication</td><td>0.1&deg; resolution (Open-Meteo grid)</td></tr>
+              <tr><td>Failure default</td><td>75% cloud (conservative &mdash; assume overcast)</td></tr>
+            </table>
+            <p>Rejected locations get auto-assigned 1-star with no Claude call.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 3. CLAUDE CALLS                                     -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s3">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">3</span>
+    <div class="section-title-block">
+      <h2>Claude Calls</h2>
+      <p class="section-summary">4 distinct Claude call types in the system. All route through <code>AnthropicApiClient</code> with Resilience4j <code>@Retry</code> (529/content-filter) + <code>@CircuitBreaker</code>. Models configurable per RunType via Admin UI. System prompt caching via <code>CacheControlEphemeral</code> on forecast evaluations.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+
+      <table class="mb-1">
+        <tr><th>Call</th><th>Service</th><th>Default Model</th><th>Max Tokens</th><th>Trigger</th><th>Batch API?</th></tr>
+        <tr><td>Forecast Colour</td><td><code>ClaudeEvaluationStrategy</code></td><td>Per RunType</td><td>512</td><td>Scheduled / On-demand</td><td><span class="badge badge-yes">Yes</span></td></tr>
+        <tr><td>Briefing Best-Bet</td><td><code>BriefingBestBetAdvisor</code></td><td>Haiku</td><td>1024</td><td>After briefing refresh</td><td><span class="badge badge-no">No</span></td></tr>
+        <tr><td>Aurora Scoring</td><td><code>ClaudeAuroraInterpreter</code></td><td>Haiku</td><td>1024</td><td>Aurora alert / Batch</td><td><span class="badge badge-yes">Yes</span></td></tr>
+        <tr><td>Briefing Model Compare</td><td><code>BriefingBestBetAdvisor</code></td><td>All three</td><td>1024</td><td>Admin manual</td><td><span class="badge badge-no">No</span></td></tr>
+      </table>
+
+      <!-- 3.1 Briefing Best Bet -->
+      <div class="subsection" data-key="s3-1">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>3.1 Briefing Best-Bet Advisor</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>Identifies 2 best photographic opportunities from the briefing rollup. Single call after briefing triage completes.</p>
+
+            <h4>Service &amp; Method</h4>
+            <p><code>BriefingBestBetAdvisor.advise(List&lt;BriefingDay&gt;, Long jobRunId, Map&lt;String,Integer&gt; driveMap)</code></p>
+
+            <h4>System Prompt Summary</h4>
+            <p>Role: "photography forecast advisor for PhotoCast". Identify 2 picks: (1) best overall across all regions/events, (2) best alternative on a different day/event/region. Evaluation factors: GO regions with most clear locations rank highest, tide alignment as strong differentiator, lunar types (King &gt; Spring &gt; Regular), statistical sizes, storm surge as force multiplier, aurora integration, comfort, drive times, day-of-week preference. Sooner events preferred if quality equal.</p>
+
+            <h4>User Message Structure</h4>
+            <ul>
+              <li>Current UTC time</li>
+              <li>Event-based JSON rollup (next 6 solar events max):
+                <ul>
+                  <li>Event ID, date, day name, event time</li>
+                  <li>Per-region verdict, go/marginal/standdown counts</li>
+                  <li>Temperature, apparent temperature, wind speed, weather code</li>
+                  <li>Tide counts: lunarKingTideCount, lunarSpringTideCount, extraExtraHighCount, extraHighCount, tideAlignedCount</li>
+                  <li>Coastal/inland location counts</li>
+                  <li>Storm surge boost flag</li>
+                </ul>
+              </li>
+              <li>Optional: Aurora event (alert level, Kp, dark sky / clear location counts)</li>
+              <li>Forecast window, valid events, valid regions</li>
+            </ul>
+
+            <h4>Output Schema</h4>
+            <pre><code>{
+  "picks": [
+    {
+      "rank": 1,
+      "headline": "max 15 words, punchy",
+      "detail": "2 sentences max, 40 words max",
+      "event": "&lt;eventId from validEvents&gt;",
+      "region": "&lt;region name from validRegions&gt;",
+      "confidence": "high|medium|low"
+    }
+  ]
+}</code></pre>
+
+            <h4>Fallback</h4>
+            <p>On parse failure: returns mechanical headline derived from best GO region. Validates picks against validEvents, validRegions, validDayNames; invalid picks are dropped and survivors re-ranked.</p>
+
+            <h4>Access Control</h4>
+            <p>Triggered internally by <code>BriefingService</code> &mdash; results visible to all authenticated users via <code>GET /api/briefing</code>. Model comparison endpoint is ADMIN-only.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3.2 Forecast Colour Evaluation -->
+      <div class="subsection" data-key="s3-2">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>3.2 Per-Location Forecast Colour Evaluation</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>The primary Claude call. Evaluates sunrise/sunset colour potential at a single location with full atmospheric context.</p>
+
+            <h4>Service &amp; Method</h4>
+            <p><code>ClaudeEvaluationStrategy.evaluateWithDetails(AtmosphericData data)</code></p>
+            <p>Wrapped with <code>MetricsLoggingDecorator</code> for timing, logging, and metrics.</p>
+
+            <h4>Model Selection</h4>
+            <table>
+              <tr><th>RunType</th><th>Default Model</th></tr>
+              <tr><td>VERY_SHORT_TERM</td><td>Haiku</td></tr>
+              <tr><td>SHORT_TERM</td><td>Sonnet</td></tr>
+              <tr><td>LONG_TERM</td><td>Opus</td></tr>
+              <tr><td>SCHEDULED_BATCH</td><td>Haiku</td></tr>
+              <tr><td>WEATHER (Wildlife)</td><td>No Claude call</td></tr>
+            </table>
+
+            <h4>Prompt Builder Selection</h4>
+            <p><code>CoastalPromptBuilder</code> (extends <code>PromptBuilder</code>) is used when tide data is present; otherwise the base <code>PromptBuilder</code>.</p>
+
+            <h4>System Prompt Summary (202+ lines)</h4>
+            <p>Role: "expert landscape photography advisor for sunrise/sunset evaluation". Key sections:</p>
+            <ul>
+              <li>Rating scale 1&ndash;5 (skip to spectacular)</li>
+              <li>Fiery Sky 0&ndash;100 (dramatic reds/oranges), Golden Hour 0&ndash;100 (light quality)</li>
+              <li>AOD + PM2.5 aerosol guidance (mineral dust vs smoke proxy)</li>
+              <li>Directional cloud sampling interpretation (113 km solar/antisolar horizons)</li>
+              <li>Strip vs blanket detection (226 km far-field)</li>
+              <li>Cloud approach risk interpretation (temporal trend + upwind)</li>
+              <li>Mist/visibility guidance with temp-dew gap</li>
+              <li>Location orientation (sunrise/sunset optimised)</li>
+              <li>Cloud inversion scoring (7&ndash;10 scale, water-overlooking locations only)</li>
+              <li>Dual-tier scoring (enhanced directional vs basic observer-point)</li>
+              <li><strong>Coastal extension:</strong> Tide boost rules (King/Spring/Regular), storm surge, tidal range, alignment</li>
+            </ul>
+
+            <h4>User Message Fields</h4>
+            <table>
+              <tr><th>Category</th><th>Fields</th></tr>
+              <tr><td>Identity</td><td>Location name, target type, solar event time</td></tr>
+              <tr><td>Observer cloud</td><td>Low/mid/high percentages</td></tr>
+              <tr><td>Weather</td><td>Visibility, wind speed/direction, precipitation, humidity, precipitation probability, weather code (WMO), dew point, temp-dew gap</td></tr>
+              <tr><td>Aerosol</td><td>PM2.5, dust, AOD, boundary layer height, shortwave radiation</td></tr>
+              <tr><td>Directional cloud</td><td>Solar low/mid/high (113 km), antisolar low/mid/high (113 km), far-solar low (226 km)</td></tr>
+              <tr><td>Cloud approach</td><td>Solar trend (T-3h to T, building flag), upwind sample (distance, current vs event low cloud)</td></tr>
+              <tr><td>Mist trend</td><td>T-3h to T+2h visibility + temp-dew gaps</td></tr>
+              <tr><td>Saharan dust</td><td>Context block when AOD &gt;0.3 or dust &gt;50 &micro;g/m&sup3;</td></tr>
+              <tr><td>Inversion</td><td>Score 7+/10, contributing factors</td></tr>
+              <tr><td>Orientation</td><td>"sunrise-optimised" or "sunset-optimised"</td></tr>
+              <tr><td>Tide (coastal)</td><td>Lunar type, statistical size, tidal range, next high/low, lunar phase, perigee, alignment</td></tr>
+              <tr><td>Storm surge</td><td>Pressure/wind surge components, risk level, adjusted range</td></tr>
+            </table>
+
+            <h4>Output Schema</h4>
+            <pre><code>{
+  "rating": integer 1-5,              // optional (Haiku only)
+  "fiery_sky": integer 0-100,         // enhanced (directional)
+  "golden_hour": integer 0-100,       // enhanced (directional)
+  "summary": string,                  // enhanced explanation
+  "basic_fiery_sky": integer 0-100,   // optional (LITE tier)
+  "basic_golden_hour": integer 0-100, // optional (LITE tier)
+  "basic_summary": string,            // optional (LITE tier)
+  "inversion_score": integer 0-10,    // optional
+  "inversion_potential": "NONE|MODERATE|STRONG"  // optional
+}</code></pre>
+            <p>Uses structured JSON output via <code>OutputConfig</code> with JSON schema. Regex fallback on parse failure handles unescaped quotes in summary.</p>
+
+            <h4>API Call Configuration</h4>
+            <pre><code>MessageCreateParams.builder()
+    .model(evaluationModel.getModelId())
+    .maxTokens(512)
+    .systemOfTextBlockParams(...)    // CacheControlEphemeral
+    .outputConfig(jsonSchema)
+    .addUserMessage(userMessage)
+    .build()</code></pre>
+
+            <h4>JFDI (On-Demand) vs Scheduled Batch</h4>
+            <table>
+              <tr><th>Path</th><th>Trigger</th><th>API</th><th>Cost</th></tr>
+              <tr><td>JFDI</td><td><code>POST /api/forecast/run</code> (ADMIN)</td><td>Synchronous Messages API</td><td>Full price</td></tr>
+              <tr><td>SSE Drill-Down</td><td>User clicks region in briefing UI</td><td>Synchronous Messages API (SSE streaming to client)</td><td>Full price</td></tr>
+              <tr><td>Scheduled Batch</td><td><code>near_term_batch_evaluation</code> job</td><td>Anthropic Batch API</td><td>~50% discount</td></tr>
+            </table>
+
+            <h4>Persistence</h4>
+            <p>All results saved as <code>ForecastEvaluationEntity</code> with ~68 columns covering all atmospheric data, evaluation scores, directional cloud, cloud approach, tide, surge, and inversion data.</p>
+
+            <h4>Role-Based Response</h4>
+            <p><code>ForecastDtoMapper</code> selects scores at API response time: LITE users get <code>basic_*</code> scores (observer-point only), PRO/ADMIN get enhanced (directional) scores. The <code>basic_*</code> columns never appear in the API response.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3.3 Aurora Evaluation -->
+      <div class="subsection" data-key="s3-3">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>3.3 Aurora Photography Evaluation</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>Single Claude call scoring all viable dark-sky locations for aurora photography potential.</p>
+
+            <h4>Service &amp; Method</h4>
+            <p><code>ClaudeAuroraInterpreter.interpret(AlertLevel, List&lt;LocationEntity&gt;, Map&lt;LocationEntity,Integer&gt; cloudByLocation, SpaceWeatherData, String metOfficeText, TriggerType, TonightWindow)</code></p>
+
+            <h4>Model</h4>
+            <p>Active model for <code>RunType.AURORA_EVALUATION</code> (default: Haiku 4.5). Max tokens: 1024.</p>
+
+            <h4>System Prompt Summary</h4>
+            <p>Role: "expert aurora photography advisor". Score each location 1&ndash;5 stars. Scoring guidance:</p>
+            <table>
+              <tr><th>Factor</th><th>Modifier</th></tr>
+              <tr><td>STRONG Kp 7+</td><td>Base 4 stars</td></tr>
+              <tr><td>MODERATE Kp 5&ndash;6</td><td>Base 3 stars</td></tr>
+              <tr><td>Bz &le;&minus;10 nT</td><td>+0.5</td></tr>
+              <tr><td>Bz positive</td><td>&minus;0.5</td></tr>
+              <tr><td>OVATION &gt;50% at 55&deg;N</td><td>+0.5</td></tr>
+              <tr><td>Cloud &lt;30%</td><td>+1</td></tr>
+              <tr><td>Cloud 60&ndash;80%</td><td>&minus;1</td></tr>
+              <tr><td>Cloud &gt;80%</td><td>&minus;1.5</td></tr>
+              <tr><td>Moon below horizon / &lt;20% lit</td><td>+0.5</td></tr>
+              <tr><td>Severe moonlight</td><td>&minus;1</td></tr>
+              <tr><td>Bortle 1&ndash;2</td><td>+0.5</td></tr>
+              <tr><td>Bortle 5+</td><td>&minus;0.5</td></tr>
+            </table>
+            <p>Tone varies by <code>TriggerType</code>: <code>forecast_lookahead</code> uses planning language; <code>realtime</code> uses urgent language.</p>
+
+            <h4>User Message Fields</h4>
+            <ul>
+              <li>Trigger type, current UTC time, tonight's dark window</li>
+              <li>Current alert level + description</li>
+              <li>Kp trend (last 5 readings), Kp forecast (next 24h)</li>
+              <li>OVATION probability at 55&deg;N</li>
+              <li>Solar wind Bz (last 15 min)</li>
+              <li>Active NOAA alerts (truncated to 200 chars)</li>
+              <li>Met Office space weather narrative (if available)</li>
+              <li>Location list: name, latitude, Bortle class, cloud cover %</li>
+            </ul>
+
+            <h4>Output Schema</h4>
+            <pre><code>[
+  {
+    "name": "Location Name",
+    "stars": 1-5,
+    "summary": "max 120 chars",
+    "detail": "3-5 bullet points with check/cross/dash icons"
+  }
+]</code></pre>
+
+            <h4>Fallback Behaviour</h4>
+            <p>Name-based matching (case-insensitive), falls back to array index. Missing locations get 1-star fallback. Full parse failure: all locations get 1-star.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 4. FORECAST EVALUATION PIPELINE                     -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s4">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">4</span>
+    <div class="section-title-block">
+      <h2>Forecast Evaluation Pipeline</h2>
+      <p class="section-summary">Command pattern: <code>ForecastCommand</code> &rarr; <code>ForecastCommandFactory</code> &rarr; <code>ForecastCommandExecutor</code>. Three-phase pipeline: batch pre-fetch (2 API calls instead of 2N) &rarr; triage (parallel, filters ~80% of unsuitable conditions) &rarr; sentinel sampling &rarr; stability filter &rarr; full Claude evaluation (parallel, bulkhead=8).</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+
+      <!-- Data Assembly -->
+      <div class="subsection" data-key="s4a">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Data Assembly Chain</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p><code>ForecastDataAugmentor</code> enriches raw Open-Meteo data with location-specific signals in this order:</p>
+            <div class="flow"><span class="hl">OpenMeteoService.getAtmosphericDataWithResponse()</span>
+  &darr; Base AtmosphericData (cloud, weather, aerosol, comfort)
+<span class="hl">augmentWithDirectionalCloud()</span>
+  &darr; 5-point sampling: solar/antisolar horizons (113 km) + far-solar (226 km)
+<span class="hl">augmentWithCloudApproach()</span>
+  &darr; SolarCloudTrend (T-3h to T) + UpwindCloudSample (wind vector projection)
+<span class="hl">augmentWithTideData()</span>
+  &darr; TideSnapshot from DB + alignment check + lunar classification + statistical size
+<span class="hl">augmentWithLocationOrientation()</span>
+  &darr; "sunrise-optimised" / "sunset-optimised" hint
+<span class="hl">augmentWithStormSurge()</span>
+  &darr; Inverse barometer + wind setup at high-tide time (not solar event time)
+<span class="hl">augmentWithInversionScore()</span>
+  &darr; 0-10 score (gate: elevation &ge;300m AND overlooks_water)
+  &darr;
+<span class="go">Complete AtmosphericData &rarr; Claude evaluation</span></div>
+
+            <h4>AtmosphericData Record (15 fields)</h4>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>Nullable</th></tr>
+              <tr><td>locationName</td><td>String</td><td>No</td></tr>
+              <tr><td>solarEventTime</td><td>LocalDateTime</td><td>No</td></tr>
+              <tr><td>targetType</td><td>SUNRISE / SUNSET</td><td>No</td></tr>
+              <tr><td>cloud</td><td>CloudData (low/mid/high %)</td><td>No</td></tr>
+              <tr><td>weather</td><td>WeatherData</td><td>No</td></tr>
+              <tr><td>aerosol</td><td>AerosolData (PM2.5, dust, AOD)</td><td>No</td></tr>
+              <tr><td>comfort</td><td>ComfortData (temp, apparent, precip prob)</td><td>No</td></tr>
+              <tr><td>directionalCloud</td><td>DirectionalCloudData</td><td>Yes</td></tr>
+              <tr><td>tide</td><td>TideSnapshot</td><td>Yes (inland)</td></tr>
+              <tr><td>cloudApproach</td><td>CloudApproachData</td><td>Yes</td></tr>
+              <tr><td>mistTrend</td><td>MistTrend</td><td>Yes</td></tr>
+              <tr><td>locationOrientation</td><td>String</td><td>Yes</td></tr>
+              <tr><td>surge</td><td>StormSurgeBreakdown</td><td>Yes</td></tr>
+              <tr><td>adjustedRangeMetres</td><td>Double</td><td>Yes</td></tr>
+              <tr><td>inversionScore</td><td>Double (0&ndash;10)</td><td>Yes</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Three-Phase Pipeline -->
+      <div class="subsection" data-key="s4b">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Three-Phase Execution Pipeline</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <div class="flow"><span class="hl">BATCH PRE-FETCH</span> (2 API calls, not 2N)
+  prefetchWeather()      &rarr; 1 call per unique coord (deduped)
+  prefetchCloudPoints()  &rarr; all directional + upwind points in 1 call
+                         &darr;
+<span class="hl">PHASE 1: TRIAGE</span> (parallel)
+  Per task: fetchWeatherAndTriage()
+    &rarr; Load pre-fetched weather
+    &rarr; Run augmentor chain
+    &rarr; WeatherTriageEvaluator: low cloud &gt;80% | precip &gt;2mm | vis &lt;5km
+    &rarr; TideAlignmentEvaluator (SEASCAPE + TIDE_ALIGNMENT)
+    &rarr; <span class="err">Triaged</span> &rarr; canned entity (rating=1), skip Claude
+    &rarr; <span class="go">Survivors</span> &rarr; Phase 2
+                         &darr;
+<span class="hl">PHASE 2: SENTINEL SAMPLING</span> (if enabled)
+  Per region:
+    Select 2-3 geographic sentinels
+    Evaluate sentinels (full Claude)
+    If all sentinels &le; threshold &rarr; canned skip for rest of region
+    <span class="go">Survivors</span> &rarr; Phase 3
+                         &darr;
+<span class="warn">STABILITY FILTER</span> (unless manually triggered)
+  Per grid cell: STABLE / TRANSITIONAL / UNSTABLE
+  Filter tasks beyond stability window
+                         &darr;
+<span class="hl">PHASE 3: FULL EVALUATION</span> (parallel, bulkhead: 8 concurrent)
+  Per task: evaluateAndPersist()
+    &rarr; ClaudeEvaluationStrategy.evaluateWithDetails()
+    &rarr; buildEntity() &rarr; save &rarr; notify
+                         &darr;
+<span class="go">COMPLETE</span> &rarr; JobRunEntity.status = COMPLETED</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Optimisation Strategies -->
+      <div class="subsection" data-key="s4c">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Optimisation Strategies</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>Applied during task filtering (before phases). Checked by <code>OptimisationSkipEvaluator</code> in this order (short-circuits on match):</p>
+            <table>
+              <tr><th>#</th><th>Strategy</th><th>Behaviour</th></tr>
+              <tr><td>1</td><td><code>EVALUATE_ALL</code></td><td>Never skip (overrides all)</td></tr>
+              <tr><td>2</td><td><code>FORCE_IMMINENT</code></td><td>Don't skip if target is today</td></tr>
+              <tr><td>3</td><td><code>FORCE_STALE</code></td><td>Don't skip if last eval before today</td></tr>
+              <tr><td>4</td><td><code>SKIP_EXISTING</code></td><td>Skip if any eval exists for slot</td></tr>
+              <tr><td>5</td><td><code>SKIP_LOW_RATED</code></td><td>Skip if prior rating &lt; param (default 3)</td></tr>
+              <tr><td>6</td><td><code>NEXT_EVENT_ONLY</code></td><td>Skip if closer solar event exists</td></tr>
+              <tr><td>7</td><td><code>SENTINEL_SAMPLING</code></td><td>Region-grouped sentinel evaluation (Phase 2)</td></tr>
+              <tr><td>8</td><td><code>TIDE_ALIGNMENT</code></td><td>Skip SEASCAPE locations with misaligned tide</td></tr>
+            </table>
+            <p>Strategies are toggleable per run type via Admin UI. Mutual exclusion validation prevents conflicting combinations.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inversion & Surge -->
+      <div class="subsection" data-key="s4d">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Inversion Scoring &amp; Storm Surge</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4>Inversion Score (0&ndash;10)</h4>
+            <p>Gate: elevation &ge;300m AND overlooks_water = true. Calculated by <code>InversionScoreCalculator</code>:</p>
+            <table>
+              <tr><th>Factor</th><th>Points</th><th>Logic</th></tr>
+              <tr><td>Temp&ndash;dew gap</td><td>0&ndash;4</td><td>&le;1&deg;C=4, &le;2&deg;C=3, &le;4&deg;C=2, &le;6&deg;C=1</td></tr>
+              <tr><td>Wind speed</td><td>0&ndash;3</td><td>&le;1.5 m/s=3, &le;3=2, &le;5=1</td></tr>
+              <tr><td>Humidity</td><td>0&ndash;2</td><td>&ge;90%=2, &ge;80%=1.5, &ge;70%=1</td></tr>
+              <tr><td>Low cloud</td><td>0&ndash;1</td><td>20&ndash;60%=1, &gt;60%=0.5</td></tr>
+            </table>
+
+            <h4>Storm Surge Model</h4>
+            <p>Calculated at <strong>high tide time</strong> (not solar event time) by <code>StormSurgeService</code>:</p>
+            <ul>
+              <li><strong>Inverse barometer:</strong> 0.01 m &times; (1013.25 &minus; actual_hPa)</li>
+              <li><strong>Wind setup:</strong> Bulk aerodynamic formula with 0.5 calibration factor and shore-normal projection</li>
+              <li><strong>Risk levels:</strong> &lt;0.05m = INSIGNIFICANT (suppressed), 0.05&ndash;0.15m = LOW, 0.15&ndash;0.30m = MODERATE, 0.30&ndash;0.50m = HIGH, &ge;0.50m = EXTREME</li>
+            </ul>
+            <p class="dim">Upper-bound estimate. No wave setup modelled. Calibration logging enabled for empirical tuning.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 5. AURORA PIPELINE                                  -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s5">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">5</span>
+    <div class="section-title-block">
+      <h2>Aurora Pipeline</h2>
+      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. Dual-path: forecast lookahead (any time) + real-time (night only). State machine (IDLE&harr;ACTIVE) with escalation/de-escalation. Single Claude Haiku call for all viable locations. Conservative: Kp latitude hard caps, dual-signal alert logic, lenient cloud triage.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+
+      <!-- Data Sources -->
+      <div class="subsection" data-key="s5a">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>NOAA SWPC Data Sources</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <table>
+              <tr><th>Endpoint</th><th>Data</th><th>Cache TTL</th><th>Failure Behaviour</th></tr>
+              <tr><td><code>noaa-planetary-k-index.json</code></td><td>Recent Kp readings (3-hourly)</td><td>15 min</td><td>Retain cache</td></tr>
+              <tr><td><code>noaa-planetary-k-index-forecast.json</code></td><td>3-day Kp forecast</td><td>15 min</td><td>Retain cache</td></tr>
+              <tr><td><code>ovation_aurora_latest.json</code></td><td>Aurora probability grid (~900 KB)</td><td>5 min</td><td>Retain cache</td></tr>
+              <tr><td><code>solar-wind/mag-1-day.json</code></td><td>Magnetic field Bz (1-min)</td><td>1 min</td><td>Retain cache</td></tr>
+              <tr><td><code>solar-wind/plasma-1-day.json</code></td><td>Speed, density (1-min)</td><td>1 min</td><td>Retain cache</td></tr>
+              <tr><td><code>alerts.json</code></td><td>Active G-scale watches/warnings</td><td>5 min</td><td>Retain cache</td></tr>
+            </table>
+            <p><strong>Met Office Space Weather:</strong> Scraped hourly via <code>MetOfficeSpaceWeatherScraper</code> (Jsoup). Extracts narrative text, truncated to 2000 chars. Retained on failure. Passed to Claude as qualitative context.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- State Machine -->
+      <div class="subsection" data-key="s5b">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>AuroraStateCache FSM</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <div class="flow"><span class="hl">IDLE</span> ────────────────────────────────────────────────────────
+  │                                                              │
+  │ Incoming &ge; MODERATE                                       │
+  ↓                                                              │
+<span class="warn">ACTIVE</span> ──&rarr; Higher severity ──&rarr; <span class="go">NOTIFY</span> (re-score, stay ACTIVE)   │
+  │                                                              │
+  │ Same level or lower (but &ge; MODERATE) ──&rarr; SUPPRESS      │
+  │ (no action, stay ACTIVE)                                     │
+  │                                                              │
+  │ Incoming &lt; MODERATE                                        │
+  └──────────────────── <span class="err">CLEAR</span> ──────────────────────────────&rarr; IDLE</div>
+            <table>
+              <tr><th>Current</th><th>Incoming</th><th>Action</th><th>New State</th></tr>
+              <tr><td>IDLE</td><td>QUIET / MINOR</td><td>NONE</td><td>IDLE</td></tr>
+              <tr><td>IDLE</td><td>MODERATE / STRONG</td><td><strong>NOTIFY</strong></td><td>ACTIVE</td></tr>
+              <tr><td>ACTIVE</td><td>Higher severity</td><td><strong>NOTIFY</strong> (escalation)</td><td>ACTIVE</td></tr>
+              <tr><td>ACTIVE</td><td>Same / lower (&ge; MODERATE)</td><td>SUPPRESS</td><td>ACTIVE</td></tr>
+              <tr><td>ACTIVE</td><td>QUIET / MINOR</td><td>CLEAR</td><td>IDLE</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alert Derivation -->
+      <div class="subsection" data-key="s5c">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Alert Level Derivation</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p><code>AuroraOrchestrator.deriveAlertLevel()</code> uses dual-signal logic:</p>
+            <pre><code>effectiveKp = max(currentKp, maxForecastKp_6h_ahead)
+
+if effectiveKp >= 7.0 -> STRONG
+if effectiveKp >= 5.0 OR ovation% >= 20% -> MODERATE
+if effectiveKp >= 4.0 -> MINOR
+else -> QUIET</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Conservative Approach -->
+      <div class="subsection" data-key="s5d">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Conservative Approach &mdash; All Safeguards</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4>Kp Latitude Hard Caps</h4>
+            <p>Applied to the aurora viewline. OVATION can pull the line <strong>north</strong> of the cap (real data overrides), but <strong>cannot push it south</strong> (prevents unrealistic claims).</p>
+            <table>
+              <tr><th>Kp</th><th>Cap Latitude</th><th>Region</th></tr>
+              <tr><td>&lt;4</td><td>60&deg;N</td><td>Far northern Scotland</td></tr>
+              <tr><td>4</td><td>58&deg;N</td><td>Northern Scotland</td></tr>
+              <tr><td>5</td><td>56&deg;N</td><td>Central Scotland</td></tr>
+              <tr><td>6</td><td>54&deg;N</td><td>Northern England</td></tr>
+              <tr><td>7</td><td>52&deg;N</td><td>Midlands</td></tr>
+              <tr><td>8</td><td>50&deg;N</td><td>Southern England</td></tr>
+              <tr><td>9</td><td>48&deg;N</td><td>Entire UK</td></tr>
+              <tr><td>&ge;10</td><td>0&deg;N</td><td>No cap</td></tr>
+            </table>
+
+            <h4>Other Conservatism</h4>
+            <table>
+              <tr><th>Safeguard</th><th>Detail</th></tr>
+              <tr><td>Viewline probability threshold</td><td>10% (raised from 5% which was too optimistic)</td></tr>
+              <tr><td>OVATION target latitude</td><td>55&deg;N (realistic UK latitude)</td></tr>
+              <tr><td>Cloud overcast threshold</td><td>75% total cloud</td></tr>
+              <tr><td>Dual-signal alert trigger</td><td>Both Kp AND OVATION considered; avoids single-point false alarms</td></tr>
+              <tr><td>Dual-signal de-escalation</td><td>Both signals must drop to clear (prevents alert flapping)</td></tr>
+              <tr><td>Daylight gate</td><td>Real-time path skipped during daytime (saves tokens)</td></tr>
+              <tr><td>Nautical twilight buffer</td><td>&plusmn;35 min approximation for &minus;12&deg; sun elevation</td></tr>
+              <tr><td>Bortle filtering</td><td>MODERATE: &le;4, STRONG: &le;5 (excludes light-polluted sites)</td></tr>
+              <tr><td>NOAA fail-open cache</td><td>Retains previous cached value on API failure</td></tr>
+              <tr><td>Cloud failure default</td><td>75% (assume overcast) on Open-Meteo failure</td></tr>
+              <tr><td>Parse failure fallback</td><td>All locations get 1-star if Claude response unparseable</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dual Polling Paths -->
+      <div class="subsection" data-key="s5e">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Dual Polling Paths</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <table>
+              <tr><th>Path</th><th>Runs When</th><th>Data Source</th><th>Triggers Claude?</th><th>Tone</th></tr>
+              <tr><td>Forecast Lookahead</td><td>Any time (day or night)</td><td>NOAA 3-day Kp forecast for tonight's dark window</td><td>Yes (on NOTIFY)</td><td>Planning: "forecast tonight", "plan your evening"</td></tr>
+              <tr><td>Real-Time</td><td>After nautical twilight only</td><td>Live Kp, OVATION, Bz, alerts</td><td>Yes (on NOTIFY)</td><td>Urgent: "happening now", "get out there"</td></tr>
+            </table>
+            <p>Both paths feed the same FSM. A daytime forecast NOTIFY suppresses an evening real-time NOTIFY at the same level, but escalation (higher severity) triggers a second NOTIFY correctly.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banner & UI -->
+      <div class="subsection" data-key="s5f">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Frontend: Banner, Bz Display, Viewline</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p><strong>AuroraBanner:</strong> Full-width alert banner when level is MODERATE or STRONG. Shows Kp reading with trigger type, Bz status (green check if &lt;&minus;1 nT coupling, warning if positive), detection timestamp, location count. Pulses gently when Bz is favourable. Dismissible per session; re-appears on escalation. Hidden for LITE users (403 &rarr; null status).</p>
+            <p><strong>AuroraViewlineOverlay:</strong> Leaflet polygon (semi-transparent green from 72&deg;N to boundary) + dashed polyline at southernmost visible latitude. Non-interactive overlay with tooltip summary.</p>
+            <p><strong>Access Control:</strong> <code>/api/aurora/status</code>, <code>/api/aurora/viewline</code>, <code>/api/aurora/locations</code> require Bearer token (PRO_USER + ADMIN). Admin endpoints at <code>/api/aurora/admin/*</code> require ADMIN role.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 6. SCHEDULED JOBS                                   -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s6">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">6</span>
+    <div class="section-title-block">
+      <h2>Scheduled Jobs</h2>
+      <p class="section-summary">8 jobs managed by <code>DynamicSchedulerService</code> (DB-backed, replaces all <code>@Scheduled</code>). 5 always-active + 2 batch opt-in + 1 batch poller. Only 3 jobs trigger Claude calls. Admin UI at Manage &rarr; Operations &rarr; Scheduler.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+
+      <table>
+        <tr><th>Job</th><th>Schedule</th><th>Type</th><th>Default Status</th><th>Claude?</th><th>Cost Source</th></tr>
+        <tr>
+          <td><code>tide_refresh</code></td>
+          <td><code>0 0 2 * * MON</code></td>
+          <td>CRON</td>
+          <td><span class="badge badge-go">ACTIVE</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td>WorldTides API</td>
+        </tr>
+        <tr>
+          <td><code>daily_briefing</code></td>
+          <td><code>0 0 4,14,22 * * *</code></td>
+          <td>CRON</td>
+          <td><span class="badge badge-go">ACTIVE</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td>Open-Meteo (free)</td>
+        </tr>
+        <tr>
+          <td><code>aurora_polling</code></td>
+          <td>5 min fixed-delay</td>
+          <td>FIXED_DELAY</td>
+          <td><span class="badge badge-go">ACTIVE</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td>Anthropic Haiku (only on NOTIFY)</td>
+        </tr>
+        <tr>
+          <td><code>met_office_scrape</code></td>
+          <td>60 min fixed-delay</td>
+          <td>FIXED_DELAY</td>
+          <td><span class="badge badge-go">ACTIVE</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td>Jsoup scrape (free)</td>
+        </tr>
+        <tr>
+          <td><code>run_progress_cleanup</code></td>
+          <td>5 min fixed-delay</td>
+          <td>FIXED_DELAY</td>
+          <td><span class="badge badge-go">ACTIVE</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td>None (local map cleanup)</td>
+        </tr>
+        <tr>
+          <td><code>near_term_batch_evaluation</code></td>
+          <td><code>0 0 3,15 * * *</code></td>
+          <td>CRON</td>
+          <td><span class="badge badge-marginal">PAUSED</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td>Anthropic Batch (~50% discount)</td>
+        </tr>
+        <tr>
+          <td><code>aurora_batch_evaluation</code></td>
+          <td><code>0 30 3 * * *</code></td>
+          <td>CRON</td>
+          <td><span class="badge badge-marginal">PAUSED</span></td>
+          <td><span class="badge badge-yes">Yes</span></td>
+          <td>Anthropic Batch (~50% discount)</td>
+        </tr>
+        <tr>
+          <td><code>batch_result_polling</code></td>
+          <td>60 sec fixed-delay</td>
+          <td>FIXED_DELAY</td>
+          <td><span class="badge badge-go">ACTIVE</span></td>
+          <td><span class="badge badge-no">No</span></td>
+          <td>None (polls Batch API status)</td>
+        </tr>
+      </table>
+
+      <div class="subsection" data-key="s6a">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>DynamicSchedulerService Architecture</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4>Startup Flow</h4>
+            <ol>
+              <li>Each owning service calls <code>registerJobTarget(jobKey, Runnable)</code> during <code>@PostConstruct</code></li>
+              <li><code>ApplicationReadyEvent</code> fires &rarr; <code>initSchedules()</code></li>
+              <li>Loads all rows from <code>scheduler_job_config</code></li>
+              <li>Checks <code>aurora.enabled</code> &mdash; sets aurora jobs to <code>DISABLED_BY_CONFIG</code> if false</li>
+              <li>For each ACTIVE job, wires runnable to <code>ThreadPoolTaskScheduler</code> (pool=5)</li>
+            </ol>
+
+            <h4>Admin Operations</h4>
+            <table>
+              <tr><th>Endpoint</th><th>Action</th></tr>
+              <tr><td><code>GET /api/admin/scheduler/jobs</code></td><td>List all jobs with status, next fire time, last run</td></tr>
+              <tr><td><code>PUT .../jobs/{key}/schedule</code></td><td>Update cron/fixed-delay; reschedule if ACTIVE</td></tr>
+              <tr><td><code>POST .../jobs/{key}/pause</code></td><td>Pause job (rejects if DISABLED_BY_CONFIG)</td></tr>
+              <tr><td><code>POST .../jobs/{key}/resume</code></td><td>Resume job (rejects if DISABLED_BY_CONFIG)</td></tr>
+              <tr><td><code>POST .../jobs/{key}/trigger</code></td><td>Run immediately on scheduler thread pool</td></tr>
+            </table>
+
+            <h4>DISABLED_BY_CONFIG</h4>
+            <p>Three aurora jobs (<code>aurora_polling</code>, <code>met_office_scrape</code>, <code>aurora_batch_evaluation</code>) auto-disable when <code>aurora.enabled=false</code>. UI shows grey status pill with config source. All pause/resume/trigger operations reject with <code>IllegalStateException</code>.</p>
+
+            <h4>Validation</h4>
+            <ul>
+              <li>Cron expressions validated via <code>CronExpression.parse()</code></li>
+              <li>Fixed delay minimum: 10,000 ms (10 seconds)</li>
+              <li>Concurrency: <code>ReentrantLock</code> protects all scheduling operations</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 7. CACHING                                          -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s7">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">7</span>
+    <div class="section-title-block">
+      <h2>Caching</h2>
+      <p class="section-summary">All caching is manual &mdash; no Spring <code>@Cacheable</code>. 17 caches across 10 classes: <code>AtomicReference</code> for singleton snapshots, <code>ConcurrentHashMap</code> for keyed lookups, <code>volatile CachedResult&lt;T&gt;</code> for TTL-gated NOAA data. Fail-open pattern throughout: retain previous value on fetch failure.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+
+      <!-- Summary table -->
+      <table>
+        <tr><th>Cache</th><th>Class</th><th>Type</th><th>Key</th><th>TTL / Invalidation</th><th>Stale Consequence</th></tr>
+        <tr><td>Daily Briefing</td><td><code>BriefingService</code></td><td>AtomicReference</td><td>&mdash;</td><td>Scheduled refresh (3x/day)</td><td>Stale regional verdicts &amp; best-bet picks</td></tr>
+        <tr><td>Briefing Last-Known-Good</td><td><code>BriefingService</code></td><td>AtomicReference</td><td>&mdash;</td><td>Only on successful refresh (&gt;50% locations)</td><td>Serves previous good result with <code>stale=true</code></td></tr>
+        <tr><td>Briefing Evaluations</td><td><code>BriefingEvaluationService</code></td><td>ConcurrentHashMap</td><td><code>region|date|type</code></td><td>Cleared on <code>BriefingRefreshedEvent</code></td><td>Stale per-location scores until briefing refreshes</td></tr>
+        <tr><td>Stability Summary</td><td><code>ForecastCommandExecutor</code></td><td>AtomicReference</td><td>&mdash;</td><td>Overwritten each triage run</td><td>Stale grid-cell stability classifications</td></tr>
+        <tr><td>Cloud Points</td><td><code>CloudPointCache</code></td><td>Immutable Map</td><td><code>gridKey(lat,lon)</code></td><td>Discarded after each forecast run</td><td>Cloud data ages through run (~30 min max)</td></tr>
+        <tr><td>Active Runs</td><td><code>RunProgressTracker</code></td><td>ConcurrentHashMap</td><td><code>jobRunId</code></td><td>30 min cleanup job</td><td>Memory leak if cleanup fails</td></tr>
+        <tr><td>SSE Emitters</td><td><code>RunProgressTracker</code></td><td>ConcurrentHashMap</td><td><code>jobRunId</code></td><td>Auto-removal on disconnect</td><td>Brief dead-emitter accumulation</td></tr>
+        <tr><td>Aurora FSM State</td><td><code>AuroraStateCache</code></td><td>volatile fields</td><td>&mdash;</td><td>State machine transitions</td><td>REST clients see stale alert level</td></tr>
+        <tr><td>Aurora Scored Locations</td><td><code>AuroraStateCache</code></td><td>volatile List</td><td>&mdash;</td><td>Replaced on NOTIFY</td><td>Stale star ratings until next alert cycle</td></tr>
+        <tr><td>Kp Readings</td><td><code>NoaaSwpcClient</code></td><td>volatile CachedResult</td><td>&mdash;</td><td>15 min TTL</td><td>Alert system uses 15-min-old Kp</td></tr>
+        <tr><td>Kp Forecast</td><td><code>NoaaSwpcClient</code></td><td>volatile CachedResult</td><td>&mdash;</td><td>15 min TTL</td><td>Forecast lookahead 15 min old</td></tr>
+        <tr><td>OVATION Grid</td><td><code>NoaaSwpcClient</code></td><td>volatile CachedResult</td><td>&mdash;</td><td>5 min TTL</td><td>Viewline boundary 5 min old</td></tr>
+        <tr><td>Solar Wind Bz</td><td><code>NoaaSwpcClient</code></td><td>volatile CachedResult</td><td>&mdash;</td><td>1 min TTL</td><td>Minimal (1-min satellite cadence)</td></tr>
+        <tr><td>NOAA Alerts</td><td><code>NoaaSwpcClient</code></td><td>volatile CachedResult</td><td>&mdash;</td><td>5 min TTL</td><td>G-scale alert list 5 min old</td></tr>
+        <tr><td>Met Office Text</td><td><code>MetOfficeSpaceWeatherScraper</code></td><td>volatile String</td><td>&mdash;</td><td>60 min (configurable)</td><td>Aurora prompt gets 1h-old qualitative context</td></tr>
+        <tr><td>Tonight Aurora Weather</td><td><code>BriefingAuroraSummaryBuilder</code></td><td>volatile Map</td><td>&mdash;</td><td>5 min TTL</td><td>Tonight's aurora cloud summary 5 min old</td></tr>
+        <tr><td>Tomorrow Aurora Weather</td><td><code>BriefingAuroraSummaryBuilder</code></td><td>volatile Map</td><td>&mdash;</td><td>30 min TTL</td><td>Tomorrow's aurora forecast 30 min old</td></tr>
+        <tr><td>Open-Meteo Health</td><td><code>OpenMeteoHealthIndicator</code></td><td>volatile Health</td><td>&mdash;</td><td>5 min TTL</td><td>Health dashboard shows stale probe result</td></tr>
+      </table>
+
+      <!-- BriefingService -->
+      <div class="subsection" data-key="s7a">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>BriefingService &mdash; Daily Briefing Cache</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4><code>cache</code> &mdash; <code>AtomicReference&lt;DailyBriefingResponse&gt;</code></h4>
+            <table>
+              <tr><th>Aspect</th><th>Detail</th></tr>
+              <tr><td>Populated by</td><td><code>refreshBriefing()</code> &mdash; fetches live weather for all enabled colour locations, builds verdicts, calls <code>BriefingBestBetAdvisor</code></td></tr>
+              <tr><td>Read by</td><td><code>getCachedBriefing()</code> &rarr; <code>GET /api/briefing</code> (overlays live aurora state before returning)</td></tr>
+              <tr><td>Invalidated by</td><td>Overwritten on each successful refresh. On startup, <code>loadPersistedBriefing()</code> loads from <code>daily_briefing_cache</code> DB table (single-row, id=1)</td></tr>
+              <tr><td>Stale consequence</td><td>Frontend displays outdated regional verdicts and best-bet recommendations until next scheduled refresh</td></tr>
+            </table>
+
+            <h4><code>lastKnownGood</code> &mdash; <code>AtomicReference&lt;DailyBriefingResponse&gt;</code></h4>
+            <table>
+              <tr><th>Aspect</th><th>Detail</th></tr>
+              <tr><td>Populated by</td><td>Same refresh path, but only updated when &gt;50% of locations succeed</td></tr>
+              <tr><td>Read by</td><td>Fallback when a refresh fails or falls below threshold</td></tr>
+              <tr><td>Invalidated by</td><td>Only replaced by a newer successful refresh</td></tr>
+              <tr><td>Stale consequence</td><td>Guaranteed graceful degradation &mdash; serves previous good result with <code>stale=true</code> flag. Prevents blank UI during API outages</td></tr>
+            </table>
+            <p>DB persistence: single-row upsert to <code>daily_briefing_cache</code> (id=1) as JSON payload. Survives restarts.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- BriefingEvaluationService -->
+      <div class="subsection" data-key="s7b">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>BriefingEvaluationService &mdash; Regional Evaluation Cache</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4><code>cache</code> &mdash; <code>ConcurrentHashMap&lt;String, CachedEvaluation&gt;</code></h4>
+            <table>
+              <tr><th>Aspect</th><th>Detail</th></tr>
+              <tr><td>Key format</td><td><code>regionName|date|targetType</code> (e.g. <code>"Scotland|2026-04-10|SUNRISE"</code>)</td></tr>
+              <tr><td>Value</td><td><code>CachedEvaluation</code>: inner <code>ConcurrentHashMap&lt;String, BriefingEvaluationResult&gt;</code> (keyed by locationName) + <code>evaluatedAt</code> timestamp</td></tr>
+              <tr><td>Populated by</td><td><code>evaluateRegion()</code> (SSE drill-down: stores per-location scores as Claude returns them) and <code>writeFromBatch()</code> (overnight Batch API results)</td></tr>
+              <tr><td>Read by</td><td><code>getCachedScores()</code>, <code>getCachedEvaluatedAt()</code>, cache-hit logic in <code>evaluateRegion()</code> (emits cached results instantly, skipping Claude)</td></tr>
+              <tr><td>Invalidated by</td><td><code>clearCache()</code> fired on <code>BriefingRefreshedEvent</code> &mdash; entire map purged when briefing refreshes</td></tr>
+              <tr><td>Stale consequence</td><td>No TTL &mdash; depends entirely on the <code>BriefingRefreshedEvent</code>. If the event fails to publish, stale scores persist indefinitely</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- NoaaSwpcClient -->
+      <div class="subsection" data-key="s7c">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>NoaaSwpcClient &mdash; Per-Endpoint NOAA Caches</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>Each endpoint has a <code>volatile CachedResult&lt;T&gt;</code> field wrapping the data + <code>fetchedAt</code> timestamp. Freshness is checked before each fetch; stale entries trigger a re-fetch. <strong>Fail-open:</strong> on API failure, the previous cached value is retained (or empty collection on first failure).</p>
+            <table>
+              <tr><th>Field</th><th>Data Type</th><th>TTL</th><th>Populated By</th><th>Fail Behaviour</th></tr>
+              <tr><td><code>cachedKp</code></td><td><code>List&lt;KpReading&gt;</code></td><td>15 min</td><td><code>fetchKp()</code></td><td>Retain previous; empty list on first fail</td></tr>
+              <tr><td><code>cachedKpForecast</code></td><td><code>List&lt;KpForecast&gt;</code></td><td>15 min</td><td><code>fetchKpForecast()</code></td><td>Retain previous; empty list on first fail</td></tr>
+              <tr><td><code>cachedOvation</code></td><td><code>OvationReading</code></td><td>5 min</td><td><code>fetchOvation()</code></td><td>Retain previous; null on first fail</td></tr>
+              <tr><td><code>cachedSolarWind</code></td><td><code>List&lt;SolarWindReading&gt;</code></td><td>1 min</td><td><code>fetchSolarWind()</code></td><td>Retain previous; empty list on first fail</td></tr>
+              <tr><td><code>cachedAlerts</code></td><td><code>List&lt;SpaceWeatherAlert&gt;</code></td><td>5 min</td><td><code>fetchAlerts()</code></td><td>Retain previous; empty list on first fail</td></tr>
+            </table>
+            <p class="dim">No recency hard-limit &mdash; if NOAA is down for hours, old data continues driving aurora alerts. Only TTL-based freshness checks gate re-fetch attempts.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- AuroraStateCache -->
+      <div class="subsection" data-key="s7d">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>AuroraStateCache &mdash; FSM Volatile State</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>All fields are <code>volatile</code> for concurrent reads from REST endpoints while the single polling-job writer thread updates state.</p>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>Updated On</th><th>Read By</th></tr>
+              <tr><td><code>state</code></td><td><code>State</code> (IDLE / ACTIVE)</td><td>FSM transitions in <code>evaluate()</code></td><td><code>isActive()</code>, status endpoint</td></tr>
+              <tr><td><code>currentLevel</code></td><td><code>AlertLevel</code></td><td>NOTIFY / escalation</td><td>Status endpoint, <code>BriefingAuroraSummaryBuilder</code></td></tr>
+              <tr><td><code>cachedScores</code></td><td><code>List&lt;AuroraForecastScore&gt;</code></td><td><code>updateScores()</code> after NOTIFY</td><td>Aurora locations endpoint, briefing builder</td></tr>
+              <tr><td><code>lastTriggerType</code></td><td><code>TriggerType</code></td><td><code>updateTrigger()</code></td><td>Status endpoint (forecast vs realtime label)</td></tr>
+              <tr><td><code>lastTriggerKp</code></td><td><code>Double</code></td><td><code>updateTrigger()</code></td><td>Status endpoint, banner Kp display</td></tr>
+              <tr><td><code>darkSkyLocationCount</code></td><td><code>int</code></td><td><code>updateLocationCounts()</code></td><td>Status endpoint, banner count</td></tr>
+              <tr><td><code>clearLocationCount</code></td><td><code>Integer</code> (nullable)</td><td><code>updateLocationCounts()</code></td><td>Status endpoint, banner count</td></tr>
+              <tr><td><code>activeSince</code></td><td><code>Instant</code></td><td>NOTIFY / escalation</td><td>Status endpoint (detection timestamp)</td></tr>
+              <tr><td><code>simulated</code></td><td><code>boolean</code></td><td><code>activateSimulation()</code></td><td>Status endpoint (SIMULATED badge)</td></tr>
+              <tr><td><code>simulatedData</code></td><td><code>SimulatedNoaaData</code></td><td><code>activateSimulation()</code></td><td>Status endpoint (fake Kp/OVATION/Bz)</td></tr>
+            </table>
+            <p>All state cleared on <code>CLEAR</code> action (incoming &lt; MODERATE) or admin <code>/api/aurora/admin/reset</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- MetOffice + Aurora Weather -->
+      <div class="subsection" data-key="s7e">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Other Volatile Caches</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4><code>MetOfficeSpaceWeatherScraper</code></h4>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>TTL</th><th>Read By</th><th>Stale Consequence</th></tr>
+              <tr><td><code>cachedForecastText</code></td><td><code>volatile String</code></td><td>60 min (configurable)</td><td><code>getForecastText()</code> &rarr; aurora Claude prompt</td><td>Aurora scoring prompt gets 1-hour-old qualitative context</td></tr>
+              <tr><td><code>lastScrapedAt</code></td><td><code>volatile ZonedDateTime</code></td><td>&mdash;</td><td>Freshness check</td><td>N/A (metadata only)</td></tr>
+            </table>
+            <p>Fail-open: on Jsoup scrape failure, previous <code>cachedForecastText</code> is retained.</p>
+
+            <h4><code>BriefingAuroraSummaryBuilder</code></h4>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>TTL</th><th>Read By</th><th>Stale Consequence</th></tr>
+              <tr><td><code>tonightWeatherCache</code></td><td><code>volatile Map&lt;Long, AuroraWeather&gt;</code></td><td>5 min</td><td><code>buildAuroraTonight()</code></td><td>Tonight's aurora cloud summary up to 5 min old</td></tr>
+              <tr><td><code>tomorrowWeatherCache</code></td><td><code>volatile Map&lt;Long, AuroraWeather&gt;</code></td><td>30 min</td><td><code>buildAuroraTomorrow()</code></td><td>Tomorrow's forecast summary up to 30 min old</td></tr>
+            </table>
+
+            <h4><code>OpenMeteoHealthIndicator</code></h4>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>TTL</th><th>Read By</th><th>Stale Consequence</th></tr>
+              <tr><td><code>cachedHealth</code></td><td><code>volatile Health</code></td><td>5 min</td><td>Spring Boot actuator health endpoint</td><td>Admin health dashboard shows 5-min-old probe result</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- CloudPointCache + others -->
+      <div class="subsection" data-key="s7f">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>Structural Caches (Non-TTL)</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <h4><code>CloudPointCache</code> &mdash; Immutable Value Object</h4>
+            <table>
+              <tr><th>Aspect</th><th>Detail</th></tr>
+              <tr><td>Type</td><td>Immutable <code>Map&lt;String, OpenMeteoForecastResponse&gt;</code> (<code>Map.copyOf()</code>)</td></tr>
+              <tr><td>Key format</td><td><code>gridKey(lat, lon)</code> = <code>Math.round(lat / 0.1) + "_" + Math.round(lon / 0.1)</code> (Open-Meteo 0.1&deg; grid)</td></tr>
+              <tr><td>Populated by</td><td>Created fresh in <code>ForecastCommandExecutor.triagePhase()</code> &mdash; one upfront batch API call fetches all cloud points for all locations, deduplicated by grid cell</td></tr>
+              <tr><td>Read by</td><td><code>ForecastDataAugmentor</code> during directional cloud + cloud approach augmentation</td></tr>
+              <tr><td>Invalidated by</td><td>Garbage collected after forecast run completes (scoped to a single run)</td></tr>
+              <tr><td>Stale consequence</td><td>Cloud data from triage phase ages through full evaluation (~30 min max). Intentional: bounds API cost and ensures per-run consistency</td></tr>
+            </table>
+
+            <h4><code>ForecastCommandExecutor</code> &mdash; <code>latestStabilitySummary</code></h4>
+            <table>
+              <tr><th>Aspect</th><th>Detail</th></tr>
+              <tr><td>Type</td><td><code>AtomicReference&lt;StabilitySummaryResponse&gt;</code></td></tr>
+              <tr><td>Populated by</td><td><code>triagePhase()</code> after each forecast run's triage completes</td></tr>
+              <tr><td>Read by</td><td><code>StabilityController</code> &rarr; <code>getLatestStabilitySummary()</code></td></tr>
+              <tr><td>Invalidated by</td><td>Overwritten on next triage run</td></tr>
+              <tr><td>Stale consequence</td><td>Stability endpoint shows outdated grid-cell classifications (STABLE / TRANSITIONAL / UNSTABLE)</td></tr>
+            </table>
+
+            <h4><code>RunProgressTracker</code></h4>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>Key</th><th>Invalidation</th></tr>
+              <tr><td><code>activeRuns</code></td><td><code>ConcurrentHashMap&lt;Long, RunProgress&gt;</code></td><td><code>jobRunId</code></td><td><code>cleanupStaleEntries()</code> removes entries &gt;30 min old</td></tr>
+              <tr><td><code>runEmitters</code></td><td><code>ConcurrentHashMap&lt;Long, CopyOnWriteArrayList&lt;SseEmitter&gt;&gt;</code></td><td><code>jobRunId</code></td><td>Auto-removal on completion/timeout/error callbacks</td></tr>
+              <tr><td><code>notificationEmitters</code></td><td><code>CopyOnWriteArrayList&lt;SseEmitter&gt;</code></td><td>&mdash;</td><td>Auto-removal on completion/timeout/error callbacks</td></tr>
+            </table>
+
+            <h4><code>DynamicSchedulerService</code></h4>
+            <table>
+              <tr><th>Field</th><th>Type</th><th>Key</th><th>Notes</th></tr>
+              <tr><td><code>jobTargets</code></td><td><code>ConcurrentHashMap&lt;String, Runnable&gt;</code></td><td><code>jobKey</code></td><td>Static registrations via <code>@PostConstruct</code>. Never invalidated.</td></tr>
+              <tr><td><code>scheduledFutures</code></td><td><code>ConcurrentHashMap&lt;String, ScheduledFuture&lt;?&gt;&gt;</code></td><td><code>jobKey</code></td><td>Overwritten on reschedule; cancelled before replacement. Lock-protected.</td></tr>
+            </table>
+
+            <h4><code>ExchangeRateService</code></h4>
+            <p>Not an in-memory cache &mdash; uses <code>exchange_rate</code> DB table with <code>rateDate</code> primary key. On miss, fetches from Frankfurter API (ECB data) and persists. Fallback: most recent DB rate on API failure. Exchange rates can be up to 24h old; low impact since rates change gradually.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 8. DATA SOURCES                                     -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s8ds">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">8</span>
+    <div class="section-title-block">
+      <h2>Data Sources</h2>
+      <p class="section-summary">7 external data sources. Open-Meteo and NOAA SWPC are free. WorldTides, Anthropic, and lightpollutionmap.info are paid.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+      <table>
+        <tr><th>Source</th><th>Provides</th><th>Cadence</th><th>Cost</th></tr>
+        <tr><td>Open-Meteo Forecast</td><td>Cloud (3 layers), visibility, wind, precip, humidity, temp, dew point, pressure, radiation, weather code</td><td>Per evaluation + briefing refresh (3x/day)</td><td><span class="badge badge-go">Free</span></td></tr>
+        <tr><td>Open-Meteo Air Quality</td><td>PM2.5, dust, AOD, boundary layer height</td><td>Per evaluation</td><td><span class="badge badge-go">Free</span></td></tr>
+        <tr><td>WorldTides</td><td>Tide extremes (14-day windows), heights, times</td><td>Weekly (Monday 02:00 UTC)</td><td><span class="badge badge-marginal">Paid</span></td></tr>
+        <tr><td>NOAA SWPC</td><td>Kp index, forecast, OVATION grid, solar wind Bz/plasma, G-scale alerts</td><td>5-min polling (6 endpoints)</td><td><span class="badge badge-go">Free</span></td></tr>
+        <tr><td>Met Office Space Weather</td><td>Human-readable forecast narrative (Jsoup scrape)</td><td>Hourly</td><td><span class="badge badge-go">Free</span></td></tr>
+        <tr><td>lightpollutionmap.info</td><td>Sky brightness (SQM/Bortle class)</td><td>On-demand (admin enrichment)</td><td><span class="badge badge-marginal">Paid</span> (1000/day quota)</td></tr>
+        <tr><td>Anthropic Claude</td><td>Colour evaluation scores, aurora scores, best-bet picks</td><td>Per evaluation / alert / briefing</td><td><span class="badge badge-standdown">Paid</span> (token-based)</td></tr>
+      </table>
+
+      <h4>Open-Meteo Batch Configuration</h4>
+      <ul>
+        <li>Chunk size: 20 coordinates per request</li>
+        <li>Inter-chunk delay: 3 seconds</li>
+        <li>Rate-limit backoff: 61 seconds</li>
+        <li>Resilience4j: <code>@Retry</code> + <code>@CircuitBreaker</code> + <code>@RateLimiter</code></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════ -->
+<!-- 9. ACCESS CONTROL SUMMARY                           -->
+<!-- ════════════════════════════════════════════════════ -->
+<div class="section" data-key="s9">
+  <div class="section-header" onclick="toggle(this)">
+    <span class="section-num">9</span>
+    <div class="section-title-block">
+      <h2>Access Control Summary</h2>
+      <p class="section-summary">Three roles: ADMIN (full access), PRO_USER (forecasts + outcomes + re-runs), LITE_USER (read-only forecasts with basic scores). Backend 403 is the real enforcement; frontend greying is the UX layer.</p>
+    </div>
+    <span class="chevron">&#9654;</span>
+  </div>
+  <div class="section-body">
+    <div class="section-content">
+      <table>
+        <tr><th>Feature</th><th>LITE_USER</th><th>PRO_USER</th><th>ADMIN</th></tr>
+        <tr><td>Forecast view</td><td>Basic scores (observer-point)</td><td>Enhanced scores (directional)</td><td>Enhanced scores</td></tr>
+        <tr><td>Forecast horizon</td><td>3-day</td><td>3-day</td><td>Full</td></tr>
+        <tr><td>Detailed metrics</td><td>Blurred / greyed</td><td>Full</td><td>Full</td></tr>
+        <tr><td>Daily Briefing</td><td>Read-only</td><td>Read + drill-down</td><td>Full + run trigger</td></tr>
+        <tr><td>Best-bet picks</td><td>Visible</td><td>Visible</td><td>Visible + model compare</td></tr>
+        <tr><td>Aurora status/banner</td><td>Hidden (403)</td><td>Visible</td><td>Visible + admin tools</td></tr>
+        <tr><td>Aurora viewline/locations</td><td>Hidden</td><td>Visible</td><td>Visible</td></tr>
+        <tr><td>Outcomes recording</td><td>Read-only</td><td>Read + write</td><td>Read + write</td></tr>
+        <tr><td>Manage tab</td><td>Hidden</td><td>Hidden</td><td>Visible</td></tr>
+        <tr><td>Run Forecast</td><td>Hidden</td><td>Hidden</td><td>Visible (cost estimate dialog)</td></tr>
+        <tr><td>Scheduler admin</td><td>Hidden</td><td>Hidden</td><td>Visible</td></tr>
+        <tr><td>User management</td><td>Hidden</td><td>Hidden</td><td>Visible</td></tr>
+        <tr><td>Model config</td><td>Hidden</td><td>Hidden</td><td>Visible</td></tr>
+        <tr><td>Health widget</td><td>Hidden</td><td>Hidden</td><td>Visible (SSE probes)</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div><!-- .container -->
+
+<script>
+(function() {
+  const STORAGE_KEY = 'photocast-pipeline-ref-state';
+
+  function loadState() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+    catch { return {}; }
+  }
+  function saveState(s) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
+  }
+
+  // Restore persisted state
+  const state = loadState();
+  document.querySelectorAll('[data-key]').forEach(el => {
+    const key = el.dataset.key;
+    if (state[key]) el.classList.add('open');
+  });
+
+  // Toggle handler
+  window.toggle = function(header) {
+    const section = header.closest('[data-key]');
+    if (!section) return;
+    section.classList.toggle('open');
+    const s = loadState();
+    s[section.dataset.key] = section.classList.contains('open');
+    saveState(s);
+  };
+})();
+</script>
+</body>
+</html>
