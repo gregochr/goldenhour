@@ -9,13 +9,15 @@ import com.gregochr.goldenhour.model.AuroraRegionSummary;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.AuroraTomorrowSummary;
 import com.gregochr.goldenhour.model.KpForecast;
+import com.gregochr.goldenhour.model.MoonTransitionData;
 import com.gregochr.goldenhour.model.SolarWindReading;
+import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.aurora.MoonTransitionCalculator;
 import com.gregochr.goldenhour.service.evaluation.AuroraGlossService;
 import com.gregochr.goldenhour.util.RegionGroupingUtils;
 import com.gregochr.solarutils.LunarCalculator;
-import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -143,8 +145,8 @@ public class BriefingAuroraSummaryBuilder {
             // Solar wind speed from NOAA cache
             Double solarWindSpeed = extractLatestSolarWindSpeed();
 
-            // Moon at midpoint of tonight's dark window
-            LunarPosition moon = computeTonightMoon();
+            // Moon transition data across tonight's dark window
+            MoonTransitionData moon = computeMoonTransition();
 
             // Enrich GO regions with Claude-generated glosses
             if (allowFetch) {
@@ -160,8 +162,11 @@ public class BriefingAuroraSummaryBuilder {
             return new AuroraTonightSummary(alertLevel, kp, clearCount, regions,
                     solarWindSpeed,
                     moon != null ? moon.phase().name() : null,
-                    moon != null ? moon.illuminationPercent() : null,
-                    moon != null ? moon.isAboveHorizon() : null);
+                    moon != null ? moon.illuminationPct() : null,
+                    moon != null ? moon.moonUpAtStart() : null,
+                    moon != null ? moon.windowQuality().name() : null,
+                    moon != null ? moon.moonRiseTime() : null,
+                    moon != null ? moon.moonSetTime() : null);
         } catch (Exception e) {
             LOG.warn("Tonight aurora summary build failed: {}", e.getMessage());
             return null;
@@ -239,22 +244,29 @@ public class BriefingAuroraSummaryBuilder {
     }
 
     /**
-     * Computes lunar position at the midpoint of tonight's dark window.
-     * Uses midnight UTC as a reasonable approximation when the exact dusk/dawn
+     * Computes moon transition data across tonight's approximate dark window.
+     * Uses 21:00–04:00 UTC as a reasonable heuristic when exact dusk/dawn
      * times are not available.
      *
-     * @return lunar position at the midpoint, or {@code null} on error
+     * @return moon transition data, or {@code null} on error
      */
-    private LunarPosition computeTonightMoon() {
+    private MoonTransitionData computeMoonTransition() {
         try {
             ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
-            // Approximate tonight's dark window midpoint: midnight UTC tonight
-            ZonedDateTime midnight = utcNow.getHour() >= 6
-                    ? utcNow.toLocalDate().plusDays(1).atStartOfDay(ZoneOffset.UTC)
-                    : utcNow.toLocalDate().atStartOfDay(ZoneOffset.UTC);
-            return lunarCalculator.calculate(midnight, DURHAM_LAT, DURHAM_LON);
+            ZonedDateTime dusk;
+            ZonedDateTime dawn;
+            if (utcNow.getHour() >= 6) {
+                dusk = utcNow.toLocalDate().atTime(21, 0).atZone(ZoneOffset.UTC);
+                dawn = utcNow.toLocalDate().plusDays(1).atTime(4, 0).atZone(ZoneOffset.UTC);
+            } else {
+                dusk = utcNow.toLocalDate().minusDays(1).atTime(21, 0).atZone(ZoneOffset.UTC);
+                dawn = utcNow.toLocalDate().atTime(4, 0).atZone(ZoneOffset.UTC);
+            }
+            TonightWindow window = new TonightWindow(dusk, dawn);
+            return MoonTransitionCalculator.calculate(
+                    lunarCalculator, window, DURHAM_LAT, DURHAM_LON);
         } catch (Exception e) {
-            LOG.debug("Lunar calculation failed: {}", e.getMessage());
+            LOG.debug("Moon transition calculation failed: {}", e.getMessage());
             return null;
         }
     }

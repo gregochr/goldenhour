@@ -1142,9 +1142,14 @@ export default function HeatmapGrid({
                           {auroraTonight.moonPhase && (
                             <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
                               {MOON_EMOJI[auroraTonight.moonPhase] || ''} {Math.round(auroraTonight.moonIlluminationPct)}%
-                              {auroraTonight.moonAboveHorizon === false && ' (set)'}
-                              {auroraTonight.moonAboveHorizon && auroraTonight.moonIlluminationPct > 60
-                                && <span className="text-amber-400 ml-1">bright</span>}
+                              {auroraTonight.windowQuality === 'DARK_ALL_WINDOW' && ' (below all night)'}
+                              {auroraTonight.windowQuality === 'DARK_THEN_MOONLIT' && auroraTonight.moonRiseTime
+                                && ` rises ${auroraTonight.moonRiseTime}`}
+                              {auroraTonight.windowQuality === 'MOONLIT_THEN_DARK' && auroraTonight.moonSetTime
+                                && ` sets ${auroraTonight.moonSetTime}`}
+                              {auroraTonight.windowQuality === 'MOONLIT_ALL_WINDOW'
+                                && auroraTonight.moonIlluminationPct > 60
+                                && <span className="text-amber-400 ml-1">bright all window</span>}
                             </div>
                           )}
                           {auroraTonight.solarWindSpeedKmPerSec != null && (

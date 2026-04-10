@@ -9,9 +9,10 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraLocationSlot;
 import com.gregochr.goldenhour.model.AuroraRegionSummary;
+import com.gregochr.goldenhour.model.MoonTransitionData;
+import com.gregochr.goldenhour.model.MoonTransitionData.WindowQuality;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.solarutils.LunarPhase;
-import com.gregochr.solarutils.LunarPosition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,8 +62,8 @@ class AuroraGlossServiceTest {
         mockClaudeResponse("Strong Kp — excellent conditions");
 
         List<AuroraRegionSummary> regions = List.of(goRegion("Northumberland"));
-        LunarPosition moon = new LunarPosition(35.0, 180.0, 0.45,
-                LunarPhase.FIRST_QUARTER, 384400);
+        MoonTransitionData moon = new MoonTransitionData(LunarPhase.FIRST_QUARTER,
+                45.0, WindowQuality.MOONLIT_ALL_WINDOW, null, null, true, true);
 
         List<AuroraRegionSummary> result = glossService.enrichGlosses(
                 regions, moon, AlertLevel.MODERATE, 5.0);
@@ -227,8 +228,8 @@ class AuroraGlossServiceTest {
         mockClaudeResponse("Great conditions");
 
         List<AuroraRegionSummary> regions = List.of(goRegion("Northumberland"));
-        LunarPosition moon = new LunarPosition(-5.0, 180.0, 0.72,
-                LunarPhase.WAXING_GIBBOUS, 384400);
+        MoonTransitionData moon = new MoonTransitionData(LunarPhase.WAXING_GIBBOUS,
+                72.0, WindowQuality.DARK_THEN_MOONLIT, "23:05", null, false, true);
 
         glossService.enrichGlosses(regions, moon, AlertLevel.STRONG, 7.3);
 
@@ -242,8 +243,11 @@ class AuroraGlossServiceTest {
         assertThat(userMessage).contains("\"verdict\":\"GO\"");
         assertThat(userMessage).contains("\"alertLevel\":\"STRONG\"");
         assertThat(userMessage).contains("\"kp\":7.3");
-        assertThat(userMessage).contains("\"moonIlluminationPct\":72,");
-        assertThat(userMessage).contains("\"moonAboveHorizon\":false");
+        assertThat(userMessage).contains("\"moonIlluminationPct\":72");
+        assertThat(userMessage).contains("\"windowQuality\":\"DARK_THEN_MOONLIT\"");
+        assertThat(userMessage).contains("\"moonRiseTime\":\"23:05\"");
+        assertThat(userMessage).contains("\"moonUpAtStart\":false");
+        assertThat(userMessage).contains("\"moonUpAtEnd\":true");
     }
 
     // ── System prompt contains moonlight cautionary rule ──
@@ -264,7 +268,7 @@ class AuroraGlossServiceTest {
 
         String systemPrompt = captor.getValue().system().get().asTextBlockParams()
                 .getFirst().text();
-        assertThat(systemPrompt).contains("moonAboveHorizon is true");
+        assertThat(systemPrompt).contains("windowQuality is MOONLIT_ALL_WINDOW");
         assertThat(systemPrompt).contains("moonIlluminationPct > 60");
         assertThat(systemPrompt).contains("MUST be cautionary about moonlight");
     }
@@ -285,33 +289,37 @@ class AuroraGlossServiceTest {
     }
 
     @Test
-    @DisplayName("buildUserMessage sets moonAboveHorizon:true when moon is up")
-    void buildUserMessage_moonAboveHorizon() {
+    @DisplayName("buildUserMessage includes transition-aware moon fields when moon up all window")
+    void buildUserMessage_moonUpAllWindow() {
         AuroraRegionSummary region = goRegion("Northumberland");
-        LunarPosition moon = new LunarPosition(30.0, 180.0, 0.80,
-                LunarPhase.WAXING_GIBBOUS, 384400);
+        MoonTransitionData moon = new MoonTransitionData(LunarPhase.WAXING_GIBBOUS,
+                80.0, WindowQuality.MOONLIT_ALL_WINDOW, null, null, true, true);
 
         String json = glossService.buildUserMessage(
                 region, moon, AlertLevel.MODERATE, 5.0);
 
-        assertThat(json).contains("\"moonAboveHorizon\":true");
-        assertThat(json).contains("\"moonIlluminationPct\":80,");
+        assertThat(json).contains("\"moonIlluminationPct\":80");
         assertThat(json).contains("\"moonPhase\":\"WAXING_GIBBOUS\"");
+        assertThat(json).contains("\"windowQuality\":\"MOONLIT_ALL_WINDOW\"");
+        assertThat(json).contains("\"moonUpAtStart\":true");
+        assertThat(json).contains("\"moonUpAtEnd\":true");
     }
 
     @Test
-    @DisplayName("buildUserMessage sets moonAboveHorizon:false when moon is below horizon")
-    void buildUserMessage_moonBelowHorizon() {
+    @DisplayName("buildUserMessage includes transition-aware moon fields when moon below all window")
+    void buildUserMessage_moonBelowAllWindow() {
         AuroraRegionSummary region = goRegion("Northumberland");
-        LunarPosition moon = new LunarPosition(-10.0, 180.0, 0.05,
-                LunarPhase.NEW_MOON, 384400);
+        MoonTransitionData moon = new MoonTransitionData(LunarPhase.NEW_MOON,
+                5.0, WindowQuality.DARK_ALL_WINDOW, null, null, false, false);
 
         String json = glossService.buildUserMessage(
                 region, moon, AlertLevel.MODERATE, 5.0);
 
-        assertThat(json).contains("\"moonAboveHorizon\":false");
-        assertThat(json).contains("\"moonIlluminationPct\":5,");
+        assertThat(json).contains("\"moonIlluminationPct\":5");
         assertThat(json).contains("\"moonPhase\":\"NEW_MOON\"");
+        assertThat(json).contains("\"windowQuality\":\"DARK_ALL_WINDOW\"");
+        assertThat(json).contains("\"moonUpAtStart\":false");
+        assertThat(json).contains("\"moonUpAtEnd\":false");
     }
 
     @Test
@@ -322,7 +330,7 @@ class AuroraGlossServiceTest {
         String json = glossService.buildUserMessage(
                 region, null, AlertLevel.MODERATE, 5.0);
 
-        assertThat(json).doesNotContain("moonAboveHorizon");
+        assertThat(json).doesNotContain("windowQuality");
         assertThat(json).doesNotContain("moonIlluminationPct");
         assertThat(json).doesNotContain("moonPhase");
         assertThat(json).contains("\"regionName\":\"Northumberland\"");

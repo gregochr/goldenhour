@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
+import com.gregochr.goldenhour.model.MoonTransitionData;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
@@ -21,12 +22,10 @@ import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import com.gregochr.solarutils.LunarCalculator;
-import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -87,7 +86,12 @@ public class ClaudeAuroraInterpreter {
             - Bz persistently negative (−10 nT or below): +0.5. Positive: −0.5.
             - OVATION probability > 50% at 55°N: +0.5.
             - Cloud cover < 30%: +1. 30–60%: 0. 60–80%: −1. > 80%: −1.5.
-            - Moon below horizon or < 20% illuminated: +0.5. Severe moonlight: −1.
+            - Moon scoring depends on window_quality:
+              - DARK_ALL_WINDOW or illumination < 20%: +0.5 (dark skies all window)
+              - DARK_THEN_MOONLIT: +0.25 (good early window; mention moonrise time in summary)
+              - MOONLIT_THEN_DARK: +0.25 (good late window; mention moonset time in summary)
+              - MOONLIT_ALL_WINDOW with illumination > 60%: −1 (severe moonlight)
+              - MOONLIT_ALL_WINDOW with illumination 20–60%: −0.5 (moderate moonlight)
             - Bortle 1–2: +0.5. Bortle 3–4: 0. Bortle 5+: −0.5.
             - Clamp final score to 1–5 inclusive.
 
@@ -305,15 +309,25 @@ public class ClaudeAuroraInterpreter {
             sb.append("MET OFFICE SPACE WEATHER FORECAST:\n").append(metOfficeText).append("\n\n");
         }
 
-        // Lunar conditions
-        LunarPosition moon = computeMoon(tonightWindow);
+        // Lunar conditions (hourly sampling across the dark window)
+        MoonTransitionData moon = computeMoonTransition(tonightWindow);
         if (moon != null) {
             sb.append("LUNAR CONDITIONS:\n");
             sb.append(String.format("  Phase: %s%n", moon.phase().name()));
-            sb.append(String.format("  Illumination: %.0f%%%n", moon.illuminationPercent()));
-            sb.append(String.format("  Altitude: %.0f° (%s)%n",
-                    moon.altitude(),
-                    moon.isAboveHorizon() ? "above horizon" : "below horizon"));
+            sb.append(String.format("  Illumination: %.0f%%%n", moon.illuminationPct()));
+            sb.append(String.format("  Window quality: %s%n", moon.windowQuality().name()));
+            if (moon.moonRiseTime() != null) {
+                sb.append(String.format("  Moon rises: %s (within tonight's window)%n",
+                        moon.moonRiseTime()));
+            }
+            if (moon.moonSetTime() != null) {
+                sb.append(String.format("  Moon sets: %s (within tonight's window)%n",
+                        moon.moonSetTime()));
+            }
+            sb.append(String.format("  Moon up at window start: %s%n",
+                    moon.moonUpAtStart() ? "YES" : "NO"));
+            sb.append(String.format("  Moon up at window end: %s%n",
+                    moon.moonUpAtEnd() ? "YES" : "NO"));
             sb.append("\n");
         }
 
@@ -334,24 +348,17 @@ public class ClaudeAuroraInterpreter {
     }
 
     /**
-     * Computes lunar position at the midpoint of tonight's dark window.
+     * Computes moon transition data across tonight's dark window via hourly sampling.
      *
      * @param tonightWindow tonight's dark period, or {@code null} for real-time
-     * @return lunar position, or {@code null} on error
+     * @return transition data, or {@code null} on error
      */
-    private LunarPosition computeMoon(TonightWindow tonightWindow) {
+    private MoonTransitionData computeMoonTransition(TonightWindow tonightWindow) {
         try {
-            ZonedDateTime targetTime;
-            if (tonightWindow != null) {
-                long midpointMinutes = Duration.between(
-                        tonightWindow.dusk(), tonightWindow.dawn()).toMinutes() / 2;
-                targetTime = tonightWindow.dusk().plusMinutes(midpointMinutes);
-            } else {
-                targetTime = ZonedDateTime.now(ZoneOffset.UTC);
-            }
-            return lunarCalculator.calculate(targetTime, DURHAM_LAT, DURHAM_LON);
+            return MoonTransitionCalculator.calculate(
+                    lunarCalculator, tonightWindow, DURHAM_LAT, DURHAM_LON);
         } catch (Exception e) {
-            LOG.debug("Lunar calculation failed: {}", e.getMessage());
+            LOG.debug("Moon transition calculation failed: {}", e.getMessage());
             return null;
         }
     }

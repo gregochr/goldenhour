@@ -11,8 +11,8 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraRegionSummary;
+import com.gregochr.goldenhour.model.MoonTransitionData;
 import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -50,10 +50,11 @@ public class AuroraGlossService {
             phrase explaining the key factor for aurora viewing conditions.
             STRICT LIMIT: 8 words maximum. Count every word. If your line exceeds \
             8 words, rewrite it shorter. Never exceed 8 words under any circumstances.
-            CRITICAL RULE: If moonAboveHorizon is true and moonIlluminationPct > 60, \
-            the gloss MUST be cautionary about moonlight washing out the aurora. \
-            Use phrases like "Bright moon — aurora washed out", \
-            "Strong moonlight limits visibility", "Gibbous moon competes with aurora".
+            CRITICAL RULE: If windowQuality is MOONLIT_ALL_WINDOW and moonIlluminationPct > 60, \
+            the gloss MUST be cautionary about moonlight. If windowQuality is \
+            DARK_THEN_MOONLIT, mention the moonRiseTime (e.g. "Clear dark sky — moon \
+            rises 23:05"). If windowQuality is MOONLIT_THEN_DARK, mention when dark \
+            skies begin.
             No quotes, no punctuation other than what the phrase needs. \
             Examples: "Strong Kp — excellent aurora potential", \
             "Clear skies at dark Bortle 2 site", \
@@ -85,13 +86,13 @@ public class AuroraGlossService {
      * retain null gloss. Any failure is caught — the briefing always completes.
      *
      * @param regions    aurora region summaries (tonight only)
-     * @param moon       lunar position at tonight's midpoint, or {@code null}
+     * @param moon       moon transition data for tonight's window, or {@code null}
      * @param alertLevel current aurora alert level
      * @param kp         Kp index that triggered the alert, or {@code null}
      * @return enriched regions (new instances since records are immutable)
      */
     public List<AuroraRegionSummary> enrichGlosses(List<AuroraRegionSummary> regions,
-            LunarPosition moon, AlertLevel alertLevel, Double kp) {
+            MoonTransitionData moon, AlertLevel alertLevel, Double kp) {
         try {
             return doEnrichGlosses(regions, moon, alertLevel, kp);
         } catch (Exception e) {
@@ -102,7 +103,7 @@ public class AuroraGlossService {
     }
 
     private List<AuroraRegionSummary> doEnrichGlosses(List<AuroraRegionSummary> regions,
-            LunarPosition moon, AlertLevel alertLevel, Double kp) {
+            MoonTransitionData moon, AlertLevel alertLevel, Double kp) {
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.AURORA_GLOSS);
 
         List<GlossWorkItem> workItems = collectWorkItems(regions);
@@ -160,7 +161,7 @@ public class AuroraGlossService {
      * Makes a single Haiku call for one region and stores the result on the work item.
      */
     private void callGloss(GlossWorkItem item, EvaluationModel model,
-            LunarPosition moon, AlertLevel alertLevel, Double kp) {
+            MoonTransitionData moon, AlertLevel alertLevel, Double kp) {
         try {
             String userMessage = buildUserMessage(item.region, moon, alertLevel, kp);
 
@@ -189,7 +190,7 @@ public class AuroraGlossService {
     /**
      * Builds a compact JSON user message for a single aurora region gloss call.
      */
-    String buildUserMessage(AuroraRegionSummary region, LunarPosition moon,
+    String buildUserMessage(AuroraRegionSummary region, MoonTransitionData moon,
             AlertLevel alertLevel, Double kp) {
         try {
             ObjectNode node = objectMapper.createObjectNode();
@@ -205,9 +206,17 @@ public class AuroraGlossService {
                 node.put("bestBortleClass", region.bestBortleClass());
             }
             if (moon != null) {
-                node.put("moonIlluminationPct", Math.round(moon.illuminationPercent()));
-                node.put("moonAboveHorizon", moon.isAboveHorizon());
+                node.put("moonIlluminationPct", Math.round(moon.illuminationPct()));
                 node.put("moonPhase", moon.phase().name());
+                node.put("windowQuality", moon.windowQuality().name());
+                if (moon.moonRiseTime() != null) {
+                    node.put("moonRiseTime", moon.moonRiseTime());
+                }
+                if (moon.moonSetTime() != null) {
+                    node.put("moonSetTime", moon.moonSetTime());
+                }
+                node.put("moonUpAtStart", moon.moonUpAtStart());
+                node.put("moonUpAtEnd", moon.moonUpAtEnd());
             }
             return objectMapper.writeValueAsString(node);
         } catch (Exception e) {

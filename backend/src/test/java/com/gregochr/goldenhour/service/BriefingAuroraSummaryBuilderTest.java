@@ -21,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.gregochr.goldenhour.model.MoonTransitionData;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.solarutils.LunarPhase;
 import com.gregochr.solarutils.LunarPosition;
@@ -501,7 +502,7 @@ class BriefingAuroraSummaryBuilderTest {
     // ── Moon phase in tonight summary ──
 
     @Test
-    @DisplayName("buildAuroraTonight populates moon phase, illumination, and above-horizon fields")
+    @DisplayName("buildAuroraTonight populates moon phase, illumination, and transition fields")
     void tonightSummary_includesMoonData() {
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
@@ -513,6 +514,7 @@ class BriefingAuroraSummaryBuilderTest {
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
                         40, 3.5, 4.2, 2)));
+        // All hourly samples above horizon → MOONLIT_ALL_WINDOW
         when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
                 .thenReturn(new LunarPosition(
                         25.0, 180.0, 0.73, LunarPhase.WAXING_GIBBOUS, 384400));
@@ -522,6 +524,116 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(summary.moonPhase()).isEqualTo("WAXING_GIBBOUS");
         assertThat(summary.moonIlluminationPct()).isEqualTo(73.0);
         assertThat(summary.moonAboveHorizon()).isTrue();
+        assertThat(summary.windowQuality()).isEqualTo("MOONLIT_ALL_WINDOW");
+        assertThat(summary.moonRiseTime()).isNull();
+        assertThat(summary.moonSetTime()).isNull();
+    }
+
+    @Test
+    @DisplayName("Good Friday scenario: moon rises mid-window → DARK_THEN_MOONLIT with rise time")
+    void tonightSummary_moonRisesMidWindow_darkThenMoonlit() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 30, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        25, 3.0, 4.0, 0)));
+        // Moon below horizon at dusk (21:00), rises at 23:00 UTC, above for rest of window
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> {
+                    ZonedDateTime time = inv.getArgument(0);
+                    int hour = time.getHour();
+                    boolean above = hour >= 23 || hour < 6;
+                    double alt = above ? 30.0 : -12.0;
+                    return new LunarPosition(alt, 180.0, 0.82,
+                            LunarPhase.WAXING_GIBBOUS, 384400);
+                });
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        // The whole point: user should see "go before 23:xx — moon rises then"
+        assertThat(summary.windowQuality()).isEqualTo("DARK_THEN_MOONLIT");
+        assertThat(summary.moonRiseTime()).isNotNull();
+        assertThat(summary.moonSetTime()).isNull();
+        assertThat(summary.moonAboveHorizon()).isFalse(); // backward-compat: moonUpAtStart
+        assertThat(summary.moonPhase()).isEqualTo("WAXING_GIBBOUS");
+        assertThat(summary.moonIlluminationPct()).isEqualTo(82.0);
+
+        // Verify the gloss service also gets the transition data
+        ArgumentCaptor<MoonTransitionData> moonCaptor =
+                ArgumentCaptor.forClass(MoonTransitionData.class);
+        verify(auroraGlossService).enrichGlosses(
+                anyList(), moonCaptor.capture(), eq(AlertLevel.MODERATE), eq(5.0));
+        MoonTransitionData glossMoon = moonCaptor.getValue();
+        assertThat(glossMoon.windowQuality())
+                .isEqualTo(MoonTransitionData.WindowQuality.DARK_THEN_MOONLIT);
+        assertThat(glossMoon.moonRiseTime()).isNotNull();
+        assertThat(glossMoon.moonUpAtStart()).isFalse();
+        assertThat(glossMoon.moonUpAtEnd()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Moon sets mid-window → MOONLIT_THEN_DARK with set time on summary")
+    void tonightSummary_moonSetsMidWindow_moonlitThenDark() {
+        LocationEntity loc = location(1L, "Bamburgh", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 3, AlertLevel.MODERATE, 30, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        20, 2.0, 3.0, 0)));
+        // Moon above at dusk (21:00), sets at 01:00 UTC, below for rest of window
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> {
+                    ZonedDateTime time = inv.getArgument(0);
+                    int hour = time.getHour();
+                    boolean above = hour >= 21 || hour == 0;
+                    double alt = above ? 20.0 : -15.0;
+                    return new LunarPosition(alt, 220.0, 0.55,
+                            LunarPhase.FIRST_QUARTER, 384400);
+                });
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.windowQuality()).isEqualTo("MOONLIT_THEN_DARK");
+        assertThat(summary.moonSetTime()).isNotNull();
+        assertThat(summary.moonRiseTime()).isNull();
+        assertThat(summary.moonAboveHorizon()).isTrue(); // moonUpAtStart
+        assertThat(summary.moonPhase()).isEqualTo("FIRST_QUARTER");
+        assertThat(summary.moonIlluminationPct()).isCloseTo(55.0, org.assertj.core.data.Offset.offset(0.1));
+    }
+
+    @Test
+    @DisplayName("Moon below all window → DARK_ALL_WINDOW, best conditions")
+    void tonightSummary_moonBelowAllWindow_darkAllWindow() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 20, "Active aurora", "Clear skies");
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(score));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
+                        20, 2.0, 3.0, 0)));
+        // Moon below horizon all night
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        -20.0, 180.0, 0.05, LunarPhase.NEW_MOON, 384400));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.windowQuality()).isEqualTo("DARK_ALL_WINDOW");
+        assertThat(summary.moonRiseTime()).isNull();
+        assertThat(summary.moonSetTime()).isNull();
+        assertThat(summary.moonAboveHorizon()).isFalse();
     }
 
     @Test
@@ -545,6 +657,9 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(summary.moonPhase()).isNull();
         assertThat(summary.moonIlluminationPct()).isNull();
         assertThat(summary.moonAboveHorizon()).isNull();
+        assertThat(summary.windowQuality()).isNull();
+        assertThat(summary.moonRiseTime()).isNull();
+        assertThat(summary.moonSetTime()).isNull();
     }
 
     // ── Solar wind in tonight summary ──
@@ -594,8 +709,8 @@ class BriefingAuroraSummaryBuilderTest {
     // ── Gloss service interaction ──
 
     @Test
-    @DisplayName("buildAuroraTonight calls gloss service with correct alert level and kp")
-    void tonightSummary_callsGlossServiceWithCorrectArgs() {
+    @DisplayName("buildAuroraTonight passes MoonTransitionData (not null) to gloss service")
+    void tonightSummary_callsGlossServiceWithMoonTransitionData() {
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.STRONG, 40, "Active aurora", "Clear skies");
@@ -606,17 +721,32 @@ class BriefingAuroraSummaryBuilderTest {
         when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
                 .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(
                         30, 3.5, 4.2, 0)));
+        // All samples above → MOONLIT_ALL_WINDOW
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        25.0, 180.0, 0.73, LunarPhase.WAXING_GIBBOUS, 384400));
 
         builder.buildAuroraTonight();
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraRegionSummary>> regionsCaptor =
                 ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<MoonTransitionData> moonCaptor =
+                ArgumentCaptor.forClass(MoonTransitionData.class);
         verify(auroraGlossService).enrichGlosses(
-                regionsCaptor.capture(), any(), eq(AlertLevel.STRONG), eq(7.5));
+                regionsCaptor.capture(), moonCaptor.capture(),
+                eq(AlertLevel.STRONG), eq(7.5));
 
         assertThat(regionsCaptor.getValue()).hasSize(1);
         assertThat(regionsCaptor.getValue().get(0).regionName()).isEqualTo("Northumberland");
+
+        // Verify the gloss service received actual MoonTransitionData, not null
+        MoonTransitionData moon = moonCaptor.getValue();
+        assertThat(moon).isNotNull();
+        assertThat(moon.phase()).isEqualTo(LunarPhase.WAXING_GIBBOUS);
+        assertThat(moon.illuminationPct()).isEqualTo(73.0);
+        assertThat(moon.windowQuality())
+                .isEqualTo(MoonTransitionData.WindowQuality.MOONLIT_ALL_WINDOW);
     }
 
     @Test

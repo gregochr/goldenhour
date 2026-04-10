@@ -256,6 +256,92 @@ describe('HeatmapGrid — aurora cells with weather', () => {
   });
 });
 
+describe('HeatmapGrid — moon transition display', () => {
+  function auroraWithMoon(moonOverrides) {
+    return {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      clearLocationCount: 1,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [{
+          locationName: 'Bamburgh',
+          bortleClass: 3,
+          clear: true,
+          cloudPercent: 30,
+        }],
+        regionTemperatureCelsius: 4.5,
+        regionWindSpeedMs: 3.1,
+        regionWeatherCode: 2,
+      }],
+      moonPhase: 'WAXING_GIBBOUS',
+      moonIlluminationPct: 82,
+      ...moonOverrides,
+    };
+  }
+
+  it('DARK_ALL_WINDOW renders "below all night"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({
+        windowQuality: 'DARK_ALL_WINDOW',
+        moonIlluminationPct: 5,
+        moonPhase: 'NEW_MOON',
+      }),
+    });
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('below all night');
+  });
+
+  it('DARK_THEN_MOONLIT renders "rises HH:mm"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({
+        windowQuality: 'DARK_THEN_MOONLIT',
+        moonRiseTime: '23:05',
+      }),
+    });
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('rises 23:05');
+  });
+
+  it('MOONLIT_THEN_DARK renders "sets HH:mm"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({
+        windowQuality: 'MOONLIT_THEN_DARK',
+        moonSetTime: '02:30',
+      }),
+    });
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('sets 02:30');
+  });
+
+  it('MOONLIT_ALL_WINDOW with high illumination renders "bright all window"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({
+        windowQuality: 'MOONLIT_ALL_WINDOW',
+        moonIlluminationPct: 85,
+      }),
+    });
+    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
+    expect(cells.length).toBeGreaterThan(0);
+    expect(cells[0].textContent).toContain('bright all window');
+  });
+});
+
 describe('HeatmapGrid — verdict labels', () => {
   it('GO region cell shows Worth it sunset label', () => {
     renderGrid();

@@ -201,23 +201,25 @@ class ClaudeAuroraInterpreterTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("buildUserMessage includes LUNAR CONDITIONS block with phase, illumination, altitude")
+    @DisplayName("buildUserMessage includes transition-aware LUNAR CONDITIONS block")
     void buildUserMessage_includesLunarConditions() {
         LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
+        // Default mock: all samples above horizon (MOONLIT_ALL_WINDOW)
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
                 Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("LUNAR CONDITIONS:");
         assertThat(msg).contains("Phase: FIRST_QUARTER");
         assertThat(msg).contains("Illumination: 45%");
-        assertThat(msg).contains("Altitude: 35°");
-        assertThat(msg).contains("above horizon");
+        assertThat(msg).contains("Window quality: MOONLIT_ALL_WINDOW");
+        assertThat(msg).contains("Moon up at window start: YES");
+        assertThat(msg).contains("Moon up at window end: YES");
     }
 
     @Test
-    @DisplayName("buildUserMessage shows 'below horizon' when moon altitude is negative")
+    @DisplayName("buildUserMessage shows DARK_ALL_WINDOW when moon is below horizon")
     void buildUserMessage_moonBelowHorizon() {
         when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
                 .thenReturn(new LunarPosition(
@@ -231,7 +233,66 @@ class ClaudeAuroraInterpreterTest {
         assertThat(msg).contains("LUNAR CONDITIONS:");
         assertThat(msg).contains("Phase: WAXING_GIBBOUS");
         assertThat(msg).contains("Illumination: 80%");
-        assertThat(msg).contains("below horizon");
+        assertThat(msg).contains("Window quality: DARK_ALL_WINDOW");
+        assertThat(msg).contains("Moon up at window start: NO");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage DARK_THEN_MOONLIT includes Moon rises time")
+    void buildUserMessage_darkThenMoonlit_includesMoonRise() {
+        ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 20, 0, 0, 0, ZoneOffset.UTC);
+        ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 4, 0, 0, 0, ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(dusk, dawn);
+
+        // Moon below at dusk, rises at 23:00
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> {
+                    ZonedDateTime time = inv.getArgument(0);
+                    int hour = time.getHour();
+                    boolean above = hour >= 23 || hour < 6;
+                    double alt = above ? 25.0 : -10.0;
+                    return new LunarPosition(alt, 180.0, 0.82,
+                            LunarPhase.WAXING_GIBBOUS, 384400);
+                });
+
+        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(5.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+
+        assertThat(msg).contains("Window quality: DARK_THEN_MOONLIT");
+        assertThat(msg).contains("Moon rises:");
+        assertThat(msg).doesNotContain("Moon sets:");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage MOONLIT_THEN_DARK includes Moon sets time")
+    void buildUserMessage_moonlitThenDark_includesMoonSet() {
+        ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 20, 0, 0, 0, ZoneOffset.UTC);
+        ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 4, 0, 0, 0, ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(dusk, dawn);
+
+        // Moon above at dusk, sets at 02:00
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> {
+                    ZonedDateTime time = inv.getArgument(0);
+                    int hour = time.getHour();
+                    boolean above = hour >= 20 || hour <= 1;
+                    double alt = above ? 30.0 : -8.0;
+                    return new LunarPosition(alt, 180.0, 0.65,
+                            LunarPhase.WAXING_GIBBOUS, 384400);
+                });
+
+        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(5.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+
+        assertThat(msg).contains("Window quality: MOONLIT_THEN_DARK");
+        assertThat(msg).contains("Moon sets:");
+        assertThat(msg).doesNotContain("Moon rises:");
     }
 
     @Test
@@ -252,27 +313,25 @@ class ClaudeAuroraInterpreterTest {
     }
 
     @Test
-    @DisplayName("buildUserMessage computes moon at midpoint of tonight window when provided")
-    void buildUserMessage_usesTonightWindowMidpoint() {
+    @DisplayName("buildUserMessage samples hourly across tonight window when provided")
+    void buildUserMessage_samplesTonightWindow() {
         ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 20, 0, 0, 0, ZoneOffset.UTC);
         ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 4, 0, 0, 0, ZoneOffset.UTC);
         TonightWindow window = new TonightWindow(dusk, dawn);
 
-        ArgumentCaptor<ZonedDateTime> timeCaptor = ArgumentCaptor.forClass(ZonedDateTime.class);
-        when(lunarCalculator.calculate(timeCaptor.capture(), anyDouble(), anyDouble()))
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
                 .thenReturn(new LunarPosition(
                         20.0, 180.0, 0.50, LunarPhase.FIRST_QUARTER, 384400));
 
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
-        interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
                 Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
 
-        // Midpoint of 20:00 → 04:00 is midnight
-        ZonedDateTime capturedTime = timeCaptor.getValue();
-        assertThat(capturedTime.getHour()).isZero();
-        assertThat(capturedTime.getDayOfMonth()).isEqualTo(11);
+        // Should have sampled and produced a LUNAR CONDITIONS block
+        assertThat(msg).contains("LUNAR CONDITIONS:");
+        assertThat(msg).contains("Window quality:");
     }
 
     // -------------------------------------------------------------------------
