@@ -185,9 +185,9 @@ class AuroraWeatherEnricherTest {
     }
 
     @Test
-    @DisplayName("Open-Meteo request includes wind_speed_units=ms parameter")
+    @DisplayName("Open-Meteo request includes wind_speed_unit=ms (singular — not wind_speed_units)")
     @SuppressWarnings("unchecked")
-    void requestIncludesWindSpeedUnitsMs() throws Exception {
+    void requestIncludesWindSpeedUnitMs() throws Exception {
         ZonedDateTime target = ZonedDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
         Object response = buildWeatherResponse(target, 40, 3.5, 4.2, 2);
 
@@ -208,7 +208,8 @@ class AuroraWeatherEnricherTest {
 
         assertThat(capturedUris).isNotEmpty();
         String query = capturedUris.get(0).getQuery();
-        assertThat(query).contains("wind_speed_units=ms");
+        assertThat(query).contains("wind_speed_unit=ms");
+        assertThat(query).doesNotContain("wind_speed_units=ms");
     }
 
     @Test

@@ -1161,19 +1161,22 @@ export default function HeatmapGrid({
                             style={{ fontSize: '9px' }}>
                             {formatAlertLevel(auroraTonight.alertLevel)}
                           </div>
-                          {auroraTonight.moonPhase && (
-                            <div className="text-plex-text-secondary mt-0.5" style={{ fontSize: '10px' }}>
-                              {MOON_EMOJI[auroraTonight.moonPhase] || ''} {Math.round(auroraTonight.moonIlluminationPct)}%
-                              {auroraTonight.windowQuality === 'DARK_ALL_WINDOW' && ' (below all night)'}
-                              {auroraTonight.windowQuality === 'DARK_THEN_MOONLIT' && auroraTonight.moonRiseTime
-                                && ` rises ${auroraTonight.moonRiseTime}`}
-                              {auroraTonight.windowQuality === 'MOONLIT_THEN_DARK' && auroraTonight.moonSetTime
-                                && ` sets ${auroraTonight.moonSetTime}`}
-                              {auroraTonight.windowQuality === 'MOONLIT_ALL_WINDOW'
-                                && auroraTonight.moonIlluminationPct > 60
-                                && <span className="text-amber-400 ml-1">bright all window</span>}
-                            </div>
-                          )}
+                          {auroraTonight.moonPhase && (() => {
+                            const wq = auroraTonight.windowQuality;
+                            const isAmber = wq === 'DARK_THEN_MOONLIT' || wq === 'MOONLIT_ALL_WINDOW';
+                            const colourClass = isAmber ? 'text-amber-400' : 'text-green-400/70';
+                            let suffix = '';
+                            if (wq === 'DARK_ALL_WINDOW') suffix = ' — dark all night';
+                            else if (wq === 'DARK_THEN_MOONLIT' && auroraTonight.moonRiseTime) suffix = ` — dark until ${auroraTonight.moonRiseTime} ↑`;
+                            else if (wq === 'MOONLIT_THEN_DARK' && auroraTonight.moonSetTime) suffix = ` — clears after ${auroraTonight.moonSetTime} ↓`;
+                            else if (wq === 'MOONLIT_ALL_WINDOW') suffix = ' — moon up all night';
+                            return (
+                              <div data-testid="aurora-moon-indicator"
+                                className={`${colourClass} mt-0.5`} style={{ fontSize: '10px' }}>
+                                {MOON_EMOJI[auroraTonight.moonPhase] || ''} {Math.round(auroraTonight.moonIlluminationPct)}%{suffix}
+                              </div>
+                            );
+                          })()}
                           {auroraTonight.solarWindSpeedKmPerSec != null && (
                             <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
                               {Math.round(auroraTonight.solarWindSpeedKmPerSec)} km/s solar wind

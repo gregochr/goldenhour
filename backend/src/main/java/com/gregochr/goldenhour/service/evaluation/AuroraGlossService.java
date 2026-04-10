@@ -59,7 +59,8 @@ public class AuroraGlossService {
             about moonlight. If windowQuality is DARK_THEN_MOONLIT, mention the \
             moonRiseTime in the detail. If windowQuality is MOONLIT_THEN_DARK, \
             mention when dark skies begin.
-            Return ONLY the JSON object, no markdown fences, no extra text.
+            Respond with ONLY a JSON object. No markdown, no code fences, no preamble, \
+            no trailing text. The response must start with { and end with }.
             Example: {"headline": "Strong Kp — excellent aurora potential", \
             "detail": "Kp 6.3 with clear skies at Bortle 2 locations. \
             Moon below horizon all window — ideal dark-sky conditions. \
@@ -235,7 +236,12 @@ public class AuroraGlossService {
      */
     private void parseGlossResponse(GlossWorkItem item, String raw) {
         try {
-            JsonNode node = objectMapper.readTree(raw);
+            String cleaned = raw
+                    .replaceAll("(?s)^```json\\s*", "")
+                    .replaceAll("(?s)^```\\s*", "")
+                    .replaceAll("(?s)```\\s*$", "")
+                    .trim();
+            JsonNode node = objectMapper.readTree(cleaned);
             if (node.has("headline")) {
                 item.glossHeadline = BriefingGlossService.truncateToWords(
                         node.get("headline").asText(), 7);

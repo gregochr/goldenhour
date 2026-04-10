@@ -284,7 +284,7 @@ describe('HeatmapGrid — moon transition display', () => {
     };
   }
 
-  it('DARK_ALL_WINDOW renders "below all night"', () => {
+  it('DARK_ALL_WINDOW renders "dark all night" in green', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
@@ -294,12 +294,14 @@ describe('HeatmapGrid — moon transition display', () => {
         moonPhase: 'NEW_MOON',
       }),
     });
-    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
-    expect(cells.length).toBeGreaterThan(0);
-    expect(cells[0].textContent).toContain('below all night');
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('dark all night');
+    expect(indicator.className).toContain('text-green-400');
+    expect(indicator.className).not.toContain('text-amber-400');
   });
 
-  it('DARK_THEN_MOONLIT renders "rises HH:mm"', () => {
+  it('DARK_THEN_MOONLIT renders "dark until HH:mm ↑" in amber', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
@@ -308,12 +310,14 @@ describe('HeatmapGrid — moon transition display', () => {
         moonRiseTime: '23:05',
       }),
     });
-    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
-    expect(cells.length).toBeGreaterThan(0);
-    expect(cells[0].textContent).toContain('rises 23:05');
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('dark until 23:05 ↑');
+    expect(indicator.className).toContain('text-amber-400');
+    expect(indicator.className).not.toContain('text-green-400');
   });
 
-  it('MOONLIT_THEN_DARK renders "sets HH:mm"', () => {
+  it('MOONLIT_THEN_DARK renders "clears after HH:mm ↓" in green', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
@@ -322,12 +326,14 @@ describe('HeatmapGrid — moon transition display', () => {
         moonSetTime: '02:30',
       }),
     });
-    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
-    expect(cells.length).toBeGreaterThan(0);
-    expect(cells[0].textContent).toContain('sets 02:30');
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('clears after 02:30 ↓');
+    expect(indicator.className).toContain('text-green-400');
+    expect(indicator.className).not.toContain('text-amber-400');
   });
 
-  it('MOONLIT_ALL_WINDOW with high illumination renders "bright all window"', () => {
+  it('MOONLIT_ALL_WINDOW renders "moon up all night" in amber', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
@@ -336,9 +342,11 @@ describe('HeatmapGrid — moon transition display', () => {
         moonIlluminationPct: 85,
       }),
     });
-    const cells = screen.queryAllByTestId('aurora-heatmap-cell');
-    expect(cells.length).toBeGreaterThan(0);
-    expect(cells[0].textContent).toContain('bright all window');
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('moon up all night');
+    expect(indicator.className).toContain('text-amber-400');
+    expect(indicator.className).not.toContain('text-green-400');
   });
 });
 

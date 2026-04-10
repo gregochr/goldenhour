@@ -60,7 +60,8 @@ public class BriefingGlossService {
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
             cautionary — clear skies mean no cloud canvas to catch colour. Never describe \
             clear-all-layers conditions as good, promising, or colourful.
-            Return ONLY the JSON object, no markdown fences, no extra text.
+            Respond with ONLY a JSON object. No markdown, no code fences, no preamble, \
+            no trailing text. The response must start with { and end with }.
             Example: {"headline": "High cirrus canvas — colour potential", \
             "detail": "40% high cloud provides a canvas for colour at sunset. \
             Low cloud is minimal at 15%, keeping the horizon clear. \
@@ -278,7 +279,12 @@ public class BriefingGlossService {
      */
     private void parseGlossResponse(GlossWorkItem item, String raw) {
         try {
-            JsonNode node = objectMapper.readTree(raw);
+            String cleaned = raw
+                    .replaceAll("(?s)^```json\\s*", "")
+                    .replaceAll("(?s)^```\\s*", "")
+                    .replaceAll("(?s)```\\s*$", "")
+                    .trim();
+            JsonNode node = objectMapper.readTree(cleaned);
             if (node.has("headline")) {
                 item.glossHeadline = truncateToWords(node.get("headline").asText(), 7);
             }

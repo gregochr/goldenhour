@@ -568,6 +568,40 @@ class BriefingGlossServiceTest {
         assertThat(r.glossDetail()).isEqualTo("Detail text.");
     }
 
+    @Test
+    @DisplayName("```json ... ``` code fence wrapper is stripped before parsing")
+    void jsonCodeFence_strippedAndParsedCorrectly() {
+        Message response = mockResponse(
+                "```json\n{\"headline\": \"Cirrus canvas — colour potential\","
+                        + " \"detail\": \"High cloud at 35%.\"\n}```");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("Cirrus canvas — colour potential");
+        assertThat(r.glossDetail()).isEqualTo("High cloud at 35%.");
+    }
+
+    @Test
+    @DisplayName("Plain ``` fence wrapper (no language tag) is stripped before parsing")
+    void plainCodeFence_strippedAndParsedCorrectly() {
+        Message response = mockResponse(
+                "```\n{\"headline\": \"Low cloud clearing by sunset\","
+                        + " \"detail\": \"Breaks expected by 19:00.\"\n}```");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("Low cloud clearing by sunset");
+        assertThat(r.glossDetail()).isEqualTo("Breaks expected by 19:00.");
+    }
+
     // ── truncateToWords ─────────────────────────────────────────────────────
 
     @Test

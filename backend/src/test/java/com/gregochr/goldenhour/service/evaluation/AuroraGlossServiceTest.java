@@ -456,6 +456,36 @@ class AuroraGlossServiceTest {
         assertThat(result.get(0).glossDetail()).isNull();
     }
 
+    @Test
+    @DisplayName("```json ... ``` code fence wrapper is stripped before parsing")
+    void jsonCodeFence_strippedAndParsedCorrectly() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("```json\n{\"headline\": \"Clear dark sky tonight\","
+                + " \"detail\": \"Kp 5.5 with Bortle 3 clear.\"\n}```");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.5);
+
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Clear dark sky tonight");
+        assertThat(result.get(0).glossDetail()).isEqualTo("Kp 5.5 with Bortle 3 clear.");
+    }
+
+    @Test
+    @DisplayName("Plain ``` fence wrapper (no language tag) is stripped before parsing")
+    void plainCodeFence_strippedAndParsedCorrectly() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("```\n{\"headline\": \"Moon below horizon all window\","
+                + " \"detail\": \"Excellent dark sky window.\"\n}```");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
+
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Moon below horizon all window");
+        assertThat(result.get(0).glossDetail()).isEqualTo("Excellent dark sky window.");
+    }
+
     // ── Helpers ──
 
     private void mockClaudeResponse(String text) {
