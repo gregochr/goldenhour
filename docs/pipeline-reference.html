@@ -287,9 +287,10 @@
   <div class="section-body">
     <div class="section-content">
       <p>PhotoCast is a photographer's forecast system. Its core value proposition: for each configured location, it fetches weather, aerosol, tidal, and solar geometry data, assembles a rich atmospheric snapshot, and asks Claude to score the sunrise/sunset colour potential on two axes (Fiery Sky 0&ndash;100, Golden Hour 0&ndash;100) plus a 1&ndash;5 star rating.</p>
-      <p>The system operates on three tiers of Claude usage:</p>
+      <p>The system operates on four tiers of Claude usage:</p>
       <ul>
-        <li><strong>Daily Briefing</strong> &mdash; zero-Claude-cost weather triage producing GO/MARGINAL/STANDDOWN verdicts per location, plus a single Haiku call for "best bet" recommendations.</li>
+        <li><strong>Daily Briefing</strong> &mdash; zero-Claude-cost weather triage producing GO/MARGINAL/STANDDOWN verdicts per location, plus a single Haiku call for "best bet" recommendations and parallel Haiku calls for per-region glosses.</li>
+        <li><strong>Briefing Gloss</strong> &mdash; per GO/MARGINAL region, a single Haiku call (max 64 tokens) generates a &le;10-word plain-English sentence explaining the key reason for the verdict. Parallel via virtual threads with semaphore (max 10 concurrent).</li>
         <li><strong>Per-Location Forecast</strong> &mdash; full Claude evaluation (Haiku/Sonnet/Opus configurable per run type) with directional cloud sampling, cloud approach risk, storm surge, and inversion scoring.</li>
         <li><strong>Aurora Photography</strong> &mdash; NOAA SWPC polling with state-machine alert management, weather triage, and a single Claude call to score all viable dark-sky locations.</li>
       </ul>
@@ -449,7 +450,7 @@ precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pr
     <span class="section-num">3</span>
     <div class="section-title-block">
       <h2>Claude Calls</h2>
-      <p class="section-summary">4 distinct Claude call types in the system. All route through <code>AnthropicApiClient</code> with Resilience4j <code>@Retry</code> (529/content-filter) + <code>@CircuitBreaker</code>. Models configurable per RunType via Admin UI. System prompt caching via <code>CacheControlEphemeral</code> on forecast evaluations.</p>
+      <p class="section-summary">5 distinct Claude call types in the system. All route through <code>AnthropicApiClient</code> with Resilience4j <code>@Retry</code> (529/content-filter) + <code>@CircuitBreaker</code>. Models configurable per RunType via Admin UI. System prompt caching via <code>CacheControlEphemeral</code> on forecast evaluations.</p>
     </div>
     <span class="chevron">&#9654;</span>
   </div>
@@ -460,6 +461,7 @@ precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pr
         <tr><th>Call</th><th>Service</th><th>Default Model</th><th>Max Tokens</th><th>Trigger</th><th>Batch API?</th></tr>
         <tr><td>Forecast Colour</td><td><code>ClaudeEvaluationStrategy</code></td><td>Per RunType</td><td>512</td><td>Scheduled / On-demand</td><td><span class="badge badge-yes">Yes</span></td></tr>
         <tr><td>Briefing Best-Bet</td><td><code>BriefingBestBetAdvisor</code></td><td>Haiku</td><td>1024</td><td>After briefing refresh</td><td><span class="badge badge-no">No</span></td></tr>
+        <tr><td>Briefing Gloss</td><td><code>BriefingGlossService</code></td><td>Haiku</td><td>64</td><td>After briefing refresh</td><td><span class="badge badge-no">No</span></td></tr>
         <tr><td>Aurora Scoring</td><td><code>ClaudeAuroraInterpreter</code></td><td>Haiku</td><td>1024</td><td>Aurora alert / Batch</td><td><span class="badge badge-yes">Yes</span></td></tr>
         <tr><td>Briefing Model Compare</td><td><code>BriefingBestBetAdvisor</code></td><td>All three</td><td>1024</td><td>Admin manual</td><td><span class="badge badge-no">No</span></td></tr>
       </table>
@@ -520,10 +522,90 @@ precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pr
         </div>
       </div>
 
-      <!-- 3.2 Forecast Colour Evaluation -->
+      <!-- 3.2 Briefing Gloss -->
       <div class="subsection" data-key="s3-2">
         <div class="subsection-header" onclick="toggle(this)">
-          <h3>3.2 Per-Location Forecast Colour Evaluation</h3>
+          <h3>3.2 Briefing Region Gloss</h3>
+          <span class="chevron">&#9654;</span>
+        </div>
+        <div class="subsection-body">
+          <div class="subsection-content">
+            <p>Per GO/MARGINAL region, generates a &le;10-word plain-English sentence explaining the key reason for the verdict. Parallel calls via virtual threads.</p>
+
+            <h4>Service &amp; Method</h4>
+            <p><code>BriefingGlossService.generateGlosses(List&lt;BriefingDay&gt; days, Long jobRunId)</code></p>
+            <p>Called from <code>BriefingService.refreshBriefing()</code> after hierarchy assembly, before caching. STANDDOWN regions are skipped (no API call).</p>
+
+            <h4>Model &amp; Tokens</h4>
+            <table>
+              <tr><th>Parameter</th><th>Value</th></tr>
+              <tr><td>RunType</td><td><code>BRIEFING_GLOSS</code></td></tr>
+              <tr><td>Default model</td><td>Haiku (<code>claude-haiku-4-5</code>), configurable via Admin UI</td></tr>
+              <tr><td>Max tokens</td><td>64 (a 10-word gloss needs far fewer)</td></tr>
+              <tr><td>Prompt caching</td><td>Not used (short system prompt, high miss rate)</td></tr>
+            </table>
+
+            <h4>System Prompt</h4>
+            <pre><code>You are a photography forecast assistant. Given weather and tide data for a
+region at a solar event, write a single plain-English sentence of 10 words or
+fewer explaining the key reason for the verdict. No quotes, no punctuation
+other than what the sentence needs. Be specific about cloud conditions.
+Examples: "High cirrus canvas — good colour potential",
+"Clear all layers — flat light, nothing to catch colour",
+"Mid-level cloud building — risk of blanket by event time".</code></pre>
+
+            <h4>User Message (JSON)</h4>
+            <pre><code>{
+  "region": "Northumberland",
+  "event": "sunset",
+  "date": "2026-04-10",
+  "verdict": "GO",
+  "cloudLow": 15,          // median % across GO slots (or non-STANDDOWN)
+  "cloudMid": 25,
+  "cloudHigh": 40,
+  "clearAllLayers": false,  // flag presence check
+  "buildingTrend": false,
+  "tideAlignedCount": 0,
+  "hasKingTide": false,
+  "hasSpringTide": false,
+  "coastalLocationCount": 0,
+  "goCount": 1,
+  "marginalCount": 0,
+  "totalLocations": 1
+}</code></pre>
+
+            <h4>Output Format</h4>
+            <p>Plain UTF-8 text (no JSON schema). Response stripped of whitespace and stored directly as the <code>gloss</code> field on <code>BriefingRegion</code>. No length validation beyond the 64-token cap.</p>
+
+            <h4>Parallelism</h4>
+            <table>
+              <tr><th>Mechanism</th><th>Detail</th></tr>
+              <tr><td>Executor</td><td>Virtual threads via <code>CompletableFuture.runAsync()</code></td></tr>
+              <tr><td>Concurrency cap</td><td><code>Semaphore(10)</code> &mdash; max 10 concurrent Claude calls</td></tr>
+              <tr><td>Wait strategy</td><td><code>CompletableFuture.allOf().join()</code> &mdash; blocks until all complete</td></tr>
+            </table>
+
+            <h4>Error Handling</h4>
+            <ul>
+              <li><strong>Per-call:</strong> Exception caught, logged with duration and error message via <code>jobRunService.logApiCall()</code>. Gloss field stays <code>null</code> for that region. No re-throw.</li>
+              <li><strong>Global:</strong> Entire <code>generateGlosses()</code> wrapped in try-catch. On failure, returns the original <code>days</code> list with all gloss fields <code>null</code>.</li>
+              <li><strong>Retry/CB:</strong> Delegated to <code>AnthropicApiClient</code> Resilience4j decorators (max 4 attempts, exponential backoff).</li>
+            </ul>
+
+            <h4>Storage &amp; API Exposure</h4>
+            <p><strong>Not persisted to DB.</strong> Gloss is computed at cache-time, stored in-memory on <code>BriefingRegion.gloss</code> (nullable String) within the <code>DailyBriefingResponse</code>, and serialized to JSON via <code>GET /api/briefing</code>. Regenerated on each briefing refresh.</p>
+            <p>Immutable record reassembly: <code>BriefingGlossService</code> reconstructs new <code>BriefingDay</code> / <code>BriefingEventSummary</code> / <code>BriefingRegion</code> instances with populated gloss values (Java records are immutable).</p>
+
+            <h4>Access Control</h4>
+            <p>Visible to all authenticated users via the briefing endpoint. Model configurable via Admin UI (<code>RunType.BRIEFING_GLOSS</code>).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3.3 Forecast Colour Evaluation -->
+      <div class="subsection" data-key="s3-3">
+        <div class="subsection-header" onclick="toggle(this)">
+          <h3>3.3 Per-Location Forecast Colour Evaluation</h3>
           <span class="chevron">&#9654;</span>
         </div>
         <div class="subsection-body">
@@ -620,10 +702,10 @@ precipitation_probability, dew_point_2m, pressure_msl, wind_gusts_10m</code></pr
         </div>
       </div>
 
-      <!-- 3.3 Aurora Evaluation -->
-      <div class="subsection" data-key="s3-3">
+      <!-- 3.4 Aurora Evaluation -->
+      <div class="subsection" data-key="s3-4">
         <div class="subsection-header" onclick="toggle(this)">
-          <h3>3.3 Aurora Photography Evaluation</h3>
+          <h3>3.4 Aurora Photography Evaluation</h3>
           <span class="chevron">&#9654;</span>
         </div>
         <div class="subsection-body">
