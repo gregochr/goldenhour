@@ -206,12 +206,6 @@ public class PromptBuilder {
             "Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), "
             + "then summarise in exactly one sentence.";
 
-    /** 16-point compass directions, indexed by (degrees / 22.5) rounded. */
-    private static final String[] CARDINAL_DIRECTIONS = {
-            "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"
-    };
-
     /** AOD threshold above which the dust context block is included. */
     private static final double DUST_AOD_THRESHOLD = 0.3;
 
@@ -297,11 +291,13 @@ public class PromptBuilder {
         if (surge == null || !surge.isSignificant()) {
             return base;
         }
-        int suffixIdx = base.lastIndexOf(getPromptSuffix());
-        String beforeSuffix = suffixIdx >= 0 ? base.substring(0, suffixIdx) : base + "\n";
-        String suffix = suffixIdx >= 0 ? base.substring(suffixIdx) : "";
+        String surgeBlock = buildSurgeBlockString(surge, adjustedRangeM, astronomicalRangeM);
+        return PromptUtils.insertBeforeSuffix(base, getPromptSuffix(), surgeBlock);
+    }
 
-        var sb = new StringBuilder(beforeSuffix);
+    private String buildSurgeBlockString(StormSurgeBreakdown surge,
+                                          Double adjustedRangeM, Double astronomicalRangeM) {
+        var sb = new StringBuilder();
         sb.append("STORM SURGE FORECAST:\n");
         sb.append(String.format("- Pressure effect: %+.2fm (%s pressure %.0f hPa)%n",
                 surge.pressureRiseMetres(),
@@ -315,13 +311,13 @@ public class PromptBuilder {
         sb.append(String.format("- Total estimated surge: +%.2fm (upper bound)%n",
                 surge.totalSurgeMetres()));
         if (adjustedRangeM != null && astronomicalRangeM != null) {
-            sb.append(String.format("- Adjusted tidal range: up to %.1fm (predicted %.1fm + %.2fm surge)%n",
+            sb.append(String.format(
+                    "- Adjusted tidal range: up to %.1fm (predicted %.1fm + %.2fm surge)%n",
                     adjustedRangeM, astronomicalRangeM, surge.totalSurgeMetres()));
         }
         sb.append(String.format("- Risk level: %s%n", surge.riskLevel()));
         sb.append("- Note: Upper-bound estimate. Tide-surge interaction means actual level at HW"
                 + " is typically less.\n");
-        sb.append(suffix);
         return sb.toString();
     }
 
@@ -521,9 +517,7 @@ public class PromptBuilder {
      * @return compass cardinal (e.g. "N", "SW", "ENE")
      */
     static String toCardinal(int degrees) {
-        int normalised = ((degrees % 360) + 360) % 360;
-        int index = (int) Math.round(normalised / 22.5) % 16;
-        return CARDINAL_DIRECTIONS[index];
+        return PromptUtils.toCardinal(degrees);
     }
 
     /**

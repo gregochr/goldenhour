@@ -72,16 +72,9 @@ public class CoastalPromptBuilder extends PromptBuilder {
             return base;
         }
 
-        int suffixIdx = base.lastIndexOf(getPromptSuffix());
-        String beforeSuffix = suffixIdx >= 0
-                ? base.substring(0, suffixIdx) : base + "\n";
-        String suffix = suffixIdx >= 0
-                ? base.substring(suffixIdx) : "";
-
-        StringBuilder sb = new StringBuilder(beforeSuffix);
-        appendTideBlock(sb, tide);
-        sb.append(suffix);
-        return sb.toString();
+        StringBuilder tideBlock = new StringBuilder();
+        appendTideBlock(tideBlock, tide);
+        return PromptUtils.insertBeforeSuffix(base, getPromptSuffix(), tideBlock.toString());
     }
 
     /**
@@ -104,16 +97,9 @@ public class CoastalPromptBuilder extends PromptBuilder {
             return withTide;
         }
 
-        int suffixIdx = withTide.lastIndexOf(getPromptSuffix());
-        String beforeSuffix = suffixIdx >= 0
-                ? withTide.substring(0, suffixIdx) : withTide + "\n";
-        String suffix = suffixIdx >= 0
-                ? withTide.substring(suffixIdx) : "";
-
-        StringBuilder sb = new StringBuilder(beforeSuffix);
-        appendSurgeBlock(sb, surge, adjustedRangeM, astronomicalRangeM);
-        sb.append(suffix);
-        return sb.toString();
+        StringBuilder surgeBlock = new StringBuilder();
+        appendSurgeBlock(surgeBlock, surge, adjustedRangeM, astronomicalRangeM);
+        return PromptUtils.insertBeforeSuffix(withTide, getPromptSuffix(), surgeBlock.toString());
     }
 
     /**

@@ -236,11 +236,7 @@ public class AuroraGlossService {
      */
     private void parseGlossResponse(GlossWorkItem item, String raw) {
         try {
-            String cleaned = raw
-                    .replaceAll("(?s)^```json\\s*", "")
-                    .replaceAll("(?s)^```\\s*", "")
-                    .replaceAll("(?s)```\\s*$", "")
-                    .trim();
+            String cleaned = PromptUtils.stripCodeFences(raw);
             JsonNode node = objectMapper.readTree(cleaned);
             if (node.has("headline")) {
                 item.glossHeadline = BriefingGlossService.truncateToWords(

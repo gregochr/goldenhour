@@ -758,13 +758,7 @@ public class BriefingBestBetAdvisor {
             return List.of();
         }
         try {
-            String cleaned = raw.strip();
-            if (cleaned.startsWith("```")) {
-                cleaned = cleaned
-                        .replaceFirst("^```[a-zA-Z]*\\n?", "")
-                        .replaceFirst("```\\s*$", "")
-                        .strip();
-            }
+            String cleaned = PromptUtils.stripCodeFences(raw);
             JsonNode root = objectMapper.readTree(cleaned);
             JsonNode picksNode = root.get("picks");
             if (picksNode == null || !picksNode.isArray() || picksNode.isEmpty()) {

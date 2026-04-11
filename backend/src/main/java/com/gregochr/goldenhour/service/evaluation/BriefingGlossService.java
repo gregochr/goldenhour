@@ -279,11 +279,7 @@ public class BriefingGlossService {
      */
     private void parseGlossResponse(GlossWorkItem item, String raw) {
         try {
-            String cleaned = raw
-                    .replaceAll("(?s)^```json\\s*", "")
-                    .replaceAll("(?s)^```\\s*", "")
-                    .replaceAll("(?s)```\\s*$", "")
-                    .trim();
+            String cleaned = PromptUtils.stripCodeFences(raw);
             JsonNode node = objectMapper.readTree(cleaned);
             if (node.has("headline")) {
                 item.glossHeadline = truncateToWords(node.get("headline").asText(), 7);
@@ -344,10 +340,7 @@ public class BriefingGlossService {
      * Returns the median of a sorted int array, or 0 if empty.
      */
     static int median(int[] sorted) {
-        if (sorted.length == 0) {
-            return 0;
-        }
-        return sorted[sorted.length / 2];
+        return PromptUtils.median(sorted);
     }
 
     /**
@@ -358,14 +351,7 @@ public class BriefingGlossService {
      * @return truncated text, or the original if already within the limit
      */
     static String truncateToWords(String text, int maxWords) {
-        if (text == null || text.isBlank()) {
-            return text;
-        }
-        String[] words = text.strip().split("\\s+");
-        if (words.length <= maxWords) {
-            return text.strip();
-        }
-        return String.join(" ", java.util.Arrays.copyOf(words, maxWords));
+        return PromptUtils.truncateToWords(text, maxWords);
     }
 
     /**
