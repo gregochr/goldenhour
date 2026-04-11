@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -60,9 +61,6 @@ class BriefingGlossServiceTest {
     void setUp() {
         glossService = new BriefingGlossService(
                 anthropicApiClient, new ObjectMapper(), jobRunService, modelSelectionService);
-        org.mockito.Mockito.lenient()
-                .when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS))
-                .thenReturn(EvaluationModel.HAIKU);
     }
 
     // ── Core behaviour: gloss populated per verdict ──────────────────────────
@@ -70,6 +68,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("GO region gets Haiku-generated gloss from JSON response")
     void goRegion_glossPopulated() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"High cirrus — good colour potential\","
                         + " \"detail\": \"40% high cloud provides canvas.\"}");
@@ -87,6 +86,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("MARGINAL region gets Haiku-generated gloss from JSON response")
     void marginalRegion_glossPopulated() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"Clear all layers — flat light\","
                         + " \"detail\": \"No cloud canvas to catch colour.\"}");
@@ -116,6 +116,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Mixed verdicts: GO gets gloss, STANDDOWN stays null in same event")
     void mixedVerdicts_goGlossedStanddownNull() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"High cloud with clear horizon\","
                         + " \"detail\": \"Horizon clear for colour.\"}");
@@ -146,6 +147,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Haiku failure for one region leaves gloss null, others populated")
     void partialFailure_oneGlossNull() {
+        stubModelSelection();
         Message successResponse = mockResponse("Clear skies with high cloud canvas");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(successResponse)
@@ -179,6 +181,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Successful API call logged with ServiceName.ANTHROPIC, status 200, response body")
     void apiCallLogged_successDetails() {
+        stubModelSelection();
         Message response = mockResponse("Good colour potential");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
@@ -203,6 +206,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Failed API call logged with error message and request body containing region")
     void failedCallLogged_errorDetails() {
+        stubModelSelection();
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenThrow(new RuntimeException("Connection timeout"));
 
@@ -248,6 +252,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Anthropic call includes system prompt about photography forecast")
     void anthropicCall_includesSystemPrompt() {
+        stubModelSelection();
         Message response = mockResponse("Good colour potential");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
@@ -270,6 +275,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Enriched region preserves all original fields alongside gloss")
     void reassembly_preservesOriginalFields() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"High cloud canvas\", \"detail\": \"Detailed explanation.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
@@ -296,6 +302,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Multiple days and events all enriched correctly")
     void multiDayMultiEvent_allEnriched() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"Good colour potential\", \"detail\": \"Details.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
@@ -333,6 +340,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Day date and event target type preserved after enrichment")
     void reassembly_preservesDayAndEventMetadata() {
+        stubModelSelection();
         Message response = mockResponse("High cirrus");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
@@ -387,6 +395,31 @@ class BriefingGlossServiceTest {
         assertThat(json).contains("\"goCount\":0");
     }
 
+    @Test
+    @DisplayName("buildUserMessage with coastal GO slot produces non-zero tide counts")
+    void buildUserMessage_coastalSlot_nonZeroTideCounts() {
+        BriefingSlot coastalSlot = new BriefingSlot(
+                "Bamburgh", LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.GO,
+                new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                        10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
+                new BriefingSlot.TideInfo("HIGH", true, null,
+                        new BigDecimal("4.5"), true, false, null, null, null),
+                List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "Northumberland", Verdict.GO, "Summary", List.of(),
+                List.of(coastalSlot), 10.0, 8.0, 3.5, 0, null, null);
+        BriefingDay day = dayWith(region);
+        BriefingEventSummary es = day.eventSummaries().getFirst();
+        BriefingGlossService.GlossWorkItem item =
+                new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region);
+
+        String json = glossService.buildUserMessage(item);
+
+        assertThat(json).contains("\"tideAlignedCount\":1");
+        assertThat(json).contains("\"coastalLocationCount\":1");
+        assertThat(json).contains("\"hasKingTide\":true");
+    }
+
     // ── clearAllLayers flag ─────────────────────────────────────────────────
 
     @Test
@@ -421,6 +454,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Clear-all-layers region sends clearAllLayers:true in user message to Claude")
     void clearAllLayersRegion_userMessageSentToClaude() {
+        stubModelSelection();
         Message response = mockResponse("Clear sky — no canvas");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
@@ -442,6 +476,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("System prompt contains clearAllLayers cautionary rule")
     void systemPrompt_containsClearAllLayersCautionaryRule() {
+        stubModelSelection();
         Message response = mockResponse("Canvas potential");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
@@ -477,6 +512,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("System prompt instructs Claude to return JSON with headline and detail fields")
     void systemPrompt_requestsJsonFormat() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"Test\", \"detail\": \"Test detail.\"}");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
@@ -498,6 +534,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("GO glossDetail survives reassembly while STANDDOWN glossDetail stays null")
     void mixedVerdicts_glossDetailSurvivesReassembly() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"Clear horizon\","
                         + " \"detail\": \"Low cloud minimal, mid clear.\"}");
@@ -520,6 +557,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Valid JSON response parses headline and detail")
     void validJson_parsesHeadlineAndDetail() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"Cirrus canvas — good colour\","
                         + " \"detail\": \"High cloud at 40% provides canvas. "
@@ -538,6 +576,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Invalid JSON falls back to truncated headline, null detail")
     void invalidJson_fallsBackToTruncatedHeadline() {
+        stubModelSelection();
         Message response = mockResponse(
                 "High cirrus canvas providing excellent colour potential today");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
@@ -554,6 +593,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Headline exceeding 7 words is truncated")
     void longHeadline_truncatedToSevenWords() {
+        stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"One two three four five six seven eight nine\","
                         + " \"detail\": \"Detail text.\"}");
@@ -571,6 +611,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("```json ... ``` code fence wrapper is stripped before parsing")
     void jsonCodeFence_strippedAndParsedCorrectly() {
+        stubModelSelection();
         Message response = mockResponse(
                 "```json\n{\"headline\": \"Cirrus canvas — colour potential\","
                         + " \"detail\": \"High cloud at 35%.\"\n}```");
@@ -588,6 +629,7 @@ class BriefingGlossServiceTest {
     @Test
     @DisplayName("Plain ``` fence wrapper (no language tag) is stripped before parsing")
     void plainCodeFence_strippedAndParsedCorrectly() {
+        stubModelSelection();
         Message response = mockResponse(
                 "```\n{\"headline\": \"Low cloud clearing by sunset\","
                         + " \"detail\": \"Breaks expected by 19:00.\"\n}```");
@@ -604,15 +646,69 @@ class BriefingGlossServiceTest {
 
     // ── truncateToWords ─────────────────────────────────────────────────────
 
-    @Test
-    @DisplayName("truncateToWords basic cases")
-    void truncateToWords_basicCases() {
-        assertThat(BriefingGlossService.truncateToWords("one two three", 2))
-                .isEqualTo("one two");
-        assertThat(BriefingGlossService.truncateToWords("short", 5))
-                .isEqualTo("short");
-        assertThat(BriefingGlossService.truncateToWords(null, 5)).isNull();
-        assertThat(BriefingGlossService.truncateToWords("  ", 5)).isEqualTo("  ");
+    @Nested
+    @DisplayName("truncateToWords")
+    class TruncateToWordsTests {
+
+        @Test
+        @DisplayName("Truncates to maxWords when input exceeds limit")
+        void truncates_whenExceedsLimit() {
+            assertThat(BriefingGlossService.truncateToWords("one two three", 2))
+                    .isEqualTo("one two");
+        }
+
+        @Test
+        @DisplayName("Returns original when within limit")
+        void returnsOriginal_whenWithinLimit() {
+            assertThat(BriefingGlossService.truncateToWords("short", 5))
+                    .isEqualTo("short");
+        }
+
+        @Test
+        @DisplayName("Returns null for null input")
+        void returnsNull_forNull() {
+            assertThat(BriefingGlossService.truncateToWords(null, 5)).isNull();
+        }
+
+        @Test
+        @DisplayName("Returns original for blank input")
+        void returnsBlank_forBlank() {
+            assertThat(BriefingGlossService.truncateToWords("  ", 5)).isEqualTo("  ");
+        }
+
+        @Test
+        @DisplayName("Returns original for empty string")
+        void returnsEmpty_forEmpty() {
+            assertThat(BriefingGlossService.truncateToWords("", 5)).isEqualTo("");
+        }
+
+        @Test
+        @DisplayName("Exactly maxWords returns original stripped")
+        void exactlyMaxWords_returnsOriginal() {
+            assertThat(BriefingGlossService.truncateToWords("one two three", 3))
+                    .isEqualTo("one two three");
+        }
+
+        @Test
+        @DisplayName("Single word with limit 1 returns that word")
+        void singleWord_limitOne() {
+            assertThat(BriefingGlossService.truncateToWords("hello", 1))
+                    .isEqualTo("hello");
+        }
+
+        @Test
+        @DisplayName("Multiple spaces between words handled correctly")
+        void multipleSpaces_handled() {
+            assertThat(BriefingGlossService.truncateToWords("one  two  three  four", 2))
+                    .isEqualTo("one two");
+        }
+
+        @Test
+        @DisplayName("Leading/trailing whitespace stripped before counting")
+        void leadingTrailingWhitespace_stripped() {
+            assertThat(BriefingGlossService.truncateToWords("  one two three  ", 2))
+                    .isEqualTo("one two");
+        }
     }
 
     // ── Utility ──────────────────────────────────────────────────────────────
@@ -627,6 +723,11 @@ class BriefingGlossServiceTest {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private void stubModelSelection() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+    }
 
     private static BriefingDay dayWith(BriefingRegion... regions) {
         BriefingEventSummary es = new BriefingEventSummary(
