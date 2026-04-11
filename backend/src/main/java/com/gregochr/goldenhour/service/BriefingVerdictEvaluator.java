@@ -365,26 +365,53 @@ public class BriefingVerdictEvaluator {
     }
 
     /**
-     * Rolls up individual slot verdicts to a region-level verdict, excluding STANDDOWN slots.
+     * Rolls up individual slot verdicts to a region-level verdict using a 20% minimum threshold.
      *
-     * <p>STANDDOWN locations are filtered out so that a region with even one viable
-     * (GO or MARGINAL) location surfaces that opportunity instead of being buried by
-     * a majority of poor-condition locations.
+     * <p>A single GO location in a large region must not elevate the entire region to WORTH IT
+     * when the gradient bar and gloss tell a different story. Two percentage thresholds are applied:
      *
-     * @param slots the location slots
-     * @return GO if any viable slot is GO, MARGINAL if viable but none GO, STANDDOWN if all are
+     * <ol>
+     *   <li><b>GO threshold</b>: {@code goCount / totalViable >= 20%}. Uses viable (non-STANDDOWN)
+     *       locations as the denominator so that a large MARGINAL tail does not unfairly suppress
+     *       a strong GO signal. A single GO with no MARGINALs still passes (100%).</li>
+     *   <li><b>MARGINAL threshold</b>: {@code totalViable / totalLocations >= 20%}. If fewer than
+     *       20% of all locations are worth considering, the region is effectively STANDDOWN.</li>
+     * </ol>
+     *
+     * <p>Sense-check examples:
+     * <pre>
+     *   GO  MARG  STDN  Total  Result
+     *    1     8    33     42  MAYBE  (1/9 = 11% GO; 9/42 = 21% viable)
+     *   12     8    22     42  WORTH IT (12/20 = 60% GO)
+     *    1     1     2      4  WORTH IT (1/2 = 50% GO)
+     *    0     0    54     54  STANDDOWN
+     *    2    18     4     24  MAYBE  (2/20 = 10% GO; 20/24 = 83% viable)
+     * </pre>
+     *
+     * @param slots the location slots for this region
+     * @return GO, MARGINAL, or STANDDOWN
      */
     public Verdict rollUpVerdict(List<BriefingSlot> slots) {
-        if (slots.isEmpty()) {
-            return Verdict.MARGINAL;
-        }
-        List<BriefingSlot> viable = slots.stream()
-                .filter(s -> s.verdict() != Verdict.STANDDOWN).toList();
-        if (viable.isEmpty()) {
+        int totalLocations = slots.size();
+        long goCount = slots.stream().filter(s -> s.verdict() == Verdict.GO).count();
+        long marginalCount = slots.stream().filter(s -> s.verdict() == Verdict.MARGINAL).count();
+        long totalViable = goCount + marginalCount;
+
+        if (totalViable == 0) {
             return Verdict.STANDDOWN;
         }
-        boolean hasGo = viable.stream().anyMatch(s -> s.verdict() == Verdict.GO);
-        return hasGo ? Verdict.GO : Verdict.MARGINAL;
+
+        // GO: at least 20% of viable locations must be GO
+        if (goCount * 100 >= totalViable * 20) {
+            return Verdict.GO;
+        }
+
+        // MARGINAL: at least 20% of all locations must be viable
+        if (totalViable * 100 >= totalLocations * 20) {
+            return Verdict.MARGINAL;
+        }
+
+        return Verdict.STANDDOWN;
     }
 
     /**

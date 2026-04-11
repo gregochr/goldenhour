@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -418,9 +419,9 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
-        @DisplayName("MARGINAL for empty slots")
+        @DisplayName("STANDDOWN for empty slots — no viable locations")
         void rollup_empty() {
-            assertThat(evaluator.rollUpVerdict(List.of())).isEqualTo(Verdict.MARGINAL);
+            assertThat(evaluator.rollUpVerdict(List.of())).isEqualTo(Verdict.STANDDOWN);
         }
 
         @Test
@@ -433,7 +434,7 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
-        @DisplayName("GO when 1 GO + 8 STANDDOWN (the key scenario)")
+        @DisplayName("GO when 1 GO + 8 STANDDOWN (no MARGINALs — 1/1 viable = 100% GO)")
         void rollup_oneGoAmongManyStanddowns() {
             List<BriefingSlot> slots = List.of(
                     slot("A", Verdict.GO),
@@ -449,7 +450,7 @@ class BriefingVerdictEvaluatorTest {
         }
 
         @Test
-        @DisplayName("MARGINAL when 3 MARGINAL + 5 STANDDOWN")
+        @DisplayName("MARGINAL when 3 MARGINAL + 5 STANDDOWN (3/8 = 37.5% viable — above 20%)")
         void rollup_marginalAmongStanddowns() {
             List<BriefingSlot> slots = List.of(
                     slot("A", Verdict.MARGINAL),
@@ -475,6 +476,79 @@ class BriefingVerdictEvaluatorTest {
                     slot("F", Verdict.STANDDOWN),
                     slot("G", Verdict.STANDDOWN));
             assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.STANDDOWN);
+        }
+
+        // ── 20% threshold cases ──
+
+        @Test
+        @DisplayName("MAYBE — Northumberland clear-sky: 1 GO + 8 MARGINAL + 33 STANDDOWN")
+        void rollup_northumberlandClearSky() {
+            // 1/9 = 11% GO (below 20%); 9/42 = 21% viable (above 20%) → MARGINAL
+            List<BriefingSlot> slots = slots(1, 8, 33);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("WORTH IT — Northumberland good: 12 GO + 8 MARGINAL + 22 STANDDOWN")
+        void rollup_northumberlandGoodConditions() {
+            // 12/20 = 60% GO (above 20%) → GO
+            List<BriefingSlot> slots = slots(12, 8, 22);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("WORTH IT — Teesdale small: 1 GO + 1 MARGINAL + 2 STANDDOWN (50% GO)")
+        void rollup_teedsdaleSingleGo() {
+            // 1/2 = 50% GO (above 20%) → GO — small region, single GO is meaningful
+            List<BriefingSlot> slots = List.of(
+                    slot("A", Verdict.GO),
+                    slot("B", Verdict.MARGINAL),
+                    slot("C", Verdict.STANDDOWN),
+                    slot("D", Verdict.STANDDOWN));
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("MAYBE — N Yorks Coast: 2 GO + 18 MARGINAL + 4 STANDDOWN")
+        void rollup_northYorksCoastMostlyMarginal() {
+            // 2/20 = 10% GO (below 20%); 20/24 = 83% viable (above 20%) → MARGINAL
+            List<BriefingSlot> slots = slots(2, 18, 4);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("STANDDOWN — Lake District: 54 STANDDOWN")
+        void rollup_lakeDistrictAllStanddown() {
+            List<BriefingSlot> slots = slots(0, 0, 54);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("STANDDOWN — 5 MARGINAL out of 42 (5/42 = 12% viable — below 20%)")
+        void rollup_fewMarginalInLargeRegion() {
+            List<BriefingSlot> slots = slots(0, 5, 37);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.STANDDOWN);
+        }
+
+        @Test
+        @DisplayName("MAYBE — 10 MARGINAL out of 42 (10/42 = 24% viable — above 20%)")
+        void rollup_tenMarginalInLargeRegion() {
+            List<BriefingSlot> slots = slots(0, 10, 32);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("GO boundary — exactly 20% GO (8 GO + 32 MARGINAL = 20% GO)")
+        void rollup_exactlyTwentyPercentGo() {
+            List<BriefingSlot> slots = slots(8, 32, 0);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("MAYBE — just below GO boundary (7 GO + 33 MARGINAL = 17.5% GO)")
+        void rollup_justBelowTwentyPercentGo() {
+            List<BriefingSlot> slots = slots(7, 33, 0);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
         }
     }
 
@@ -797,6 +871,24 @@ class BriefingVerdictEvaluatorTest {
     }
 
     // ── Helpers ──
+
+    /**
+     * Builds a mixed slot list with exactly {@code go} GO slots, {@code marginal} MARGINAL
+     * slots, and {@code standdown} STANDDOWN slots.
+     */
+    private static List<BriefingSlot> slots(int go, int marginal, int standdown) {
+        List<BriefingSlot> result = new ArrayList<>();
+        for (int i = 0; i < go; i++) {
+            result.add(slot("G" + i, Verdict.GO));
+        }
+        for (int i = 0; i < marginal; i++) {
+            result.add(slot("M" + i, Verdict.MARGINAL));
+        }
+        for (int i = 0; i < standdown; i++) {
+            result.add(slot("S" + i, Verdict.STANDDOWN));
+        }
+        return result;
+    }
 
     private static BriefingSlot slot(String name, Verdict verdict) {
         return new BriefingSlot(name,
