@@ -24,9 +24,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Generates Claude-authored one-line glosses for GO/MARGINAL briefing regions.
@@ -71,6 +68,8 @@ public class BriefingGlossService {
     private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
+    private final ParallelGlossExecutor<GlossWorkItem> glossExecutor =
+            new ParallelGlossExecutor<>(MAX_CONCURRENCY, "Gloss");
 
     /**
      * Constructs a {@code BriefingGlossService}.
@@ -119,35 +118,7 @@ public class BriefingGlossService {
             return days;
         }
 
-        long startMs = System.currentTimeMillis();
-        Semaphore semaphore = new Semaphore(MAX_CONCURRENCY);
-        AtomicInteger succeeded = new AtomicInteger();
-        AtomicInteger failed = new AtomicInteger();
-
-        // Submit all calls in parallel
-        List<CompletableFuture<Void>> futures = workItems.stream()
-                .map(item -> CompletableFuture.runAsync(() -> {
-                    try {
-                        semaphore.acquire();
-                        try {
-                            callGloss(item, model, jobRunId);
-                            succeeded.incrementAndGet();
-                        } finally {
-                            semaphore.release();
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        failed.incrementAndGet();
-                    }
-                }))
-                .toList();
-
-        // Wait for all to complete
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-
-        long totalMs = System.currentTimeMillis() - startMs;
-        LOG.info("Gloss complete: {}/{} succeeded, {} failed ({}ms)",
-                succeeded.get(), workItems.size(), failed.get(), totalMs);
+        glossExecutor.execute(workItems, item -> callGloss(item, model, jobRunId));
 
         return reassemble(days, workItems);
     }

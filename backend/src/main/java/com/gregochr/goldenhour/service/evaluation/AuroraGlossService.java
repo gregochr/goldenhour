@@ -20,9 +20,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Generates Claude-authored one-line glosses for GO aurora regions.
@@ -69,6 +66,8 @@ public class AuroraGlossService {
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
     private final ModelSelectionService modelSelectionService;
+    private final ParallelGlossExecutor<GlossWorkItem> glossExecutor =
+            new ParallelGlossExecutor<>(MAX_CONCURRENCY, "Aurora gloss");
 
     /**
      * Constructs an {@code AuroraGlossService}.
@@ -118,33 +117,7 @@ public class AuroraGlossService {
             return regions;
         }
 
-        long startMs = System.currentTimeMillis();
-        Semaphore semaphore = new Semaphore(MAX_CONCURRENCY);
-        AtomicInteger succeeded = new AtomicInteger();
-        AtomicInteger failed = new AtomicInteger();
-
-        List<CompletableFuture<Void>> futures = workItems.stream()
-                .map(item -> CompletableFuture.runAsync(() -> {
-                    try {
-                        semaphore.acquire();
-                        try {
-                            callGloss(item, model, moon, alertLevel, kp);
-                            succeeded.incrementAndGet();
-                        } finally {
-                            semaphore.release();
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        failed.incrementAndGet();
-                    }
-                }))
-                .toList();
-
-        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
-
-        long totalMs = System.currentTimeMillis() - startMs;
-        LOG.info("Aurora gloss complete: {}/{} succeeded, {} failed ({}ms)",
-                succeeded.get(), workItems.size(), failed.get(), totalMs);
+        glossExecutor.execute(workItems, item -> callGloss(item, model, moon, alertLevel, kp));
 
         return reassemble(regions, workItems);
     }
