@@ -288,37 +288,11 @@ public class PromptBuilder {
     public String buildUserMessage(AtmosphericData data, StormSurgeBreakdown surge,
                                    Double adjustedRangeM, Double astronomicalRangeM) {
         String base = buildUserMessage(data);
-        if (surge == null || !surge.isSignificant()) {
+        String surgeBlock = SurgeBlockFormatter.format(surge, adjustedRangeM, astronomicalRangeM);
+        if (surgeBlock.isEmpty()) {
             return base;
         }
-        String surgeBlock = buildSurgeBlockString(surge, adjustedRangeM, astronomicalRangeM);
         return PromptUtils.insertBeforeSuffix(base, getPromptSuffix(), surgeBlock);
-    }
-
-    private String buildSurgeBlockString(StormSurgeBreakdown surge,
-                                          Double adjustedRangeM, Double astronomicalRangeM) {
-        var sb = new StringBuilder();
-        sb.append("STORM SURGE FORECAST:\n");
-        sb.append(String.format("- Pressure effect: %+.2fm (%s pressure %.0f hPa)%n",
-                surge.pressureRiseMetres(),
-                surge.pressureRiseMetres() > 0 ? "low" : "high",
-                surge.pressureHpa()));
-        if (surge.windRiseMetres() >= 0.02) {
-            double windKnots = surge.windSpeedMs() * 1.94384;
-            sb.append(String.format("- Wind effect: +%.2fm (onshore wind %.0f kn)%n",
-                    surge.windRiseMetres(), windKnots));
-        }
-        sb.append(String.format("- Total estimated surge: +%.2fm (upper bound)%n",
-                surge.totalSurgeMetres()));
-        if (adjustedRangeM != null && astronomicalRangeM != null) {
-            sb.append(String.format(
-                    "- Adjusted tidal range: up to %.1fm (predicted %.1fm + %.2fm surge)%n",
-                    adjustedRangeM, astronomicalRangeM, surge.totalSurgeMetres()));
-        }
-        sb.append(String.format("- Risk level: %s%n", surge.riskLevel()));
-        sb.append("- Note: Upper-bound estimate. Tide-surge interaction means actual level at HW"
-                + " is typically less.\n");
-        return sb.toString();
     }
 
     public String buildUserMessage(AtmosphericData data) {
