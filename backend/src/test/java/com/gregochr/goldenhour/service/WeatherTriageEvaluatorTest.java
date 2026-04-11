@@ -77,6 +77,7 @@ class WeatherTriageEvaluatorTest {
         Optional<TriageResult> result = evaluator.evaluate(data);
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.PRECIPITATION);
+        assertThat(result.get().reason()).contains("2.5");
     }
 
     @Test
@@ -119,6 +120,50 @@ class WeatherTriageEvaluatorTest {
         Optional<TriageResult> result = evaluator.evaluate(data);
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.PRECIPITATION);
+    }
+
+    @Test
+    @DisplayName("Observer low cloud 81% triggers HIGH_CLOUD (one above threshold)")
+    void observerCloud81_triages() {
+        AtmosphericData data = buildData(81, 0, 30000, BigDecimal.ZERO, null);
+        Optional<TriageResult> result = evaluator.evaluate(data);
+        assertThat(result).isPresent();
+        assertThat(result.get().rule()).isEqualTo(TriageRule.HIGH_CLOUD);
+    }
+
+    @Test
+    @DisplayName("Solar low cloud 81% triggers HIGH_CLOUD (one above threshold)")
+    void solarCloud81_triages() {
+        DirectionalCloudData dc = new DirectionalCloudData(81, 10, 5, 20, 10, 5, null);
+        AtmosphericData data = buildData(10, 0, 30000, BigDecimal.ZERO, dc);
+        Optional<TriageResult> result = evaluator.evaluate(data);
+        assertThat(result).isPresent();
+        assertThat(result.get().rule()).isEqualTo(TriageRule.HIGH_CLOUD);
+    }
+
+    @Test
+    @DisplayName("Precipitation 2.1mm triggers PRECIPITATION (one step above threshold)")
+    void precip2point1_triages() {
+        AtmosphericData data = buildData(20, 0, 30000, new BigDecimal("2.1"), null);
+        Optional<TriageResult> result = evaluator.evaluate(data);
+        assertThat(result).isPresent();
+        assertThat(result.get().rule()).isEqualTo(TriageRule.PRECIPITATION);
+    }
+
+    @Test
+    @DisplayName("Visibility 4999m triggers LOW_VISIBILITY (one below threshold)")
+    void visibility4999_triages() {
+        AtmosphericData data = buildData(20, 0, 4999, BigDecimal.ZERO, null);
+        Optional<TriageResult> result = evaluator.evaluate(data);
+        assertThat(result).isPresent();
+        assertThat(result.get().rule()).isEqualTo(TriageRule.LOW_VISIBILITY);
+    }
+
+    @Test
+    @DisplayName("Null precipitation does not trigger PRECIPITATION rule")
+    void nullPrecipitation_passes() {
+        AtmosphericData data = buildData(20, 0, 30000, null, null);
+        assertThat(evaluator.evaluate(data)).isEmpty();
     }
 
     @Test
