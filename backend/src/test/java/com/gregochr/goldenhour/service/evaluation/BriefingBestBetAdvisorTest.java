@@ -43,7 +43,6 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,8 +62,6 @@ class BriefingBestBetAdvisorTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
-                .thenReturn(EvaluationModel.OPUS);
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache);
@@ -480,6 +477,51 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("Exactly 6 events all pass through — no truncation")
+        void exactlySixEvents_allPassThrough() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 1; i <= 3; i++) {
+                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                days.add(new BriefingDay(date, List.of(
+                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
+                        new BriefingEventSummary(TargetType.SUNSET, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
+                )));
+            }
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now);
+            assertThat(result.validEvents()).hasSize(6);
+        }
+
+        @Test
+        @DisplayName("5 events all pass through — below cap")
+        void fiveEvents_allPassThrough() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 1; i <= 2; i++) {
+                LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(i);
+                days.add(new BriefingDay(date, List.of(
+                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
+                        new BriefingEventSummary(TargetType.SUNSET, List.of(
+                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
+                )));
+            }
+            LocalDate day3 = LocalDate.now(ZoneOffset.UTC).plusDays(3);
+            days.add(new BriefingDay(day3, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            region("Region3", Verdict.GO, 1, 0, 0)), List.of())
+            )));
+
+            BriefingBestBetAdvisor.RollupResult result = advisor.buildRollupJson(days, now);
+            assertThat(result.validEvents()).hasSize(5);
+        }
+
+        @Test
         @DisplayName("Past events on today are skipped before counting the 6-event limit")
         void pastEventsSkippedBeforeCounting() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
@@ -524,6 +566,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("Returns empty list when Claude call throws")
         void claudeThrowsReturnsEmpty() {
+            stubModelSelection();
             when(anthropicApiClient.createMessage(any()))
                     .thenThrow(new RuntimeException("overloaded — simulated failure"));
             when(auroraStateCache.isActive()).thenReturn(false);
@@ -535,6 +578,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("Returns picks from valid Claude response matching validEvents/validRegions")
         void returnsPicksFromValidResponse() {
+            stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
@@ -562,6 +606,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("Enriches picks with structured event data from triage")
         void enrichesWithStructuredEventData() {
+            stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
@@ -594,6 +639,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("Stay-home pick has null structured fields")
         void stayHomePickNullStructuredFields() {
+            stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
 
             TextBlock textBlock = mock(TextBlock.class);
@@ -758,6 +804,20 @@ class BriefingBestBetAdvisorTest {
             assertThat(result).hasSize(1);
             assertThat(result.get(0).rank()).isEqualTo(1);
             assertThat(result.get(0).event()).isEqualTo("2026-03-29_sunset");
+        }
+
+        @Test
+        @DisplayName("Aurora event pick skips region validation")
+        void auroraEventSkipsRegionValidation() {
+            List<BestBet> picks = List.of(
+                    pick(1, "2026-03-30_aurora", "Some Random Region",
+                            "Aurora tonight", "Strong Kp."));
+            Set<String> eventsWithAurora = new java.util.LinkedHashSet<>(VALID_EVENTS);
+            eventsWithAurora.add("2026-03-30_aurora");
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    picks, eventsWithAurora, VALID_REGIONS, VALID_DAY_NAMES);
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).region()).isEqualTo("Some Random Region");
         }
 
         @Test
@@ -927,6 +987,11 @@ class BriefingBestBetAdvisorTest {
     }
 
     // ── Helpers ──
+
+    private void stubModelSelection() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                .thenReturn(EvaluationModel.OPUS);
+    }
 
     private static BriefingRegion region(String name, Verdict verdict,
             int go, int marginal, int standdown) {
