@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -256,10 +257,124 @@ public class PromptBuilderTest {
         assertThat(PromptBuilder.isDustElevated(aerosol)).isFalse();
     }
 
-    @Test
-    @DisplayName("buildOutputConfig returns non-null config")
-    void buildOutputConfig_returnsNonNull() {
-        assertThat(promptBuilder.buildOutputConfig()).isNotNull();
+    @Nested
+    @DisplayName("isDustElevated boundary values")
+    class IsDustElevatedBoundaryTests {
+
+        @Test
+        @DisplayName("AOD exactly 0.30 is NOT elevated (threshold is >0.3)")
+        void aodAtBoundary_notElevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, BigDecimal.TWO,
+                    new BigDecimal("0.30"), 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isFalse();
+        }
+
+        @Test
+        @DisplayName("AOD 0.31 IS elevated (one step above threshold)")
+        void aodJustAboveBoundary_elevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, BigDecimal.TWO,
+                    new BigDecimal("0.31"), 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Dust exactly 50.0 ug/m3 is NOT elevated (threshold is >50)")
+        void dustAtBoundary_notElevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, new BigDecimal("50.00"),
+                    new BigDecimal("0.10"), 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isFalse();
+        }
+
+        @Test
+        @DisplayName("Dust 50.01 ug/m3 IS elevated (one step above threshold)")
+        void dustJustAboveBoundary_elevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, new BigDecimal("50.01"),
+                    new BigDecimal("0.10"), 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Both AOD and dust at boundary — not elevated")
+        void bothAtBoundary_notElevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, new BigDecimal("50.00"),
+                    new BigDecimal("0.30"), 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isFalse();
+        }
+
+        @Test
+        @DisplayName("Null AOD with high dust still elevated")
+        void nullAodHighDust_elevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, new BigDecimal("65.00"),
+                    null, 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Null dust with high AOD still elevated")
+        void nullDustHighAod_elevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, null,
+                    new BigDecimal("0.50"), 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isTrue();
+        }
+
+        @Test
+        @DisplayName("Both AOD and dust null — not elevated")
+        void bothNull_notElevated() {
+            AerosolData aerosol = new AerosolData(
+                    BigDecimal.TEN, null, null, 1200);
+            assertThat(PromptBuilder.isDustElevated(aerosol)).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("buildOutputConfig schema")
+    class OutputConfigTests {
+
+        @Test
+        @DisplayName("Output config is non-null")
+        void outputConfig_nonNull() {
+            assertThat(promptBuilder.buildOutputConfig()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Output config JSON contains required schema fields")
+        void outputConfig_containsRequiredFields() {
+            var config = promptBuilder.buildOutputConfig();
+            String configStr = config.toString();
+
+            assertThat(configStr).contains("rating");
+            assertThat(configStr).contains("fiery_sky");
+            assertThat(configStr).contains("golden_hour");
+            assertThat(configStr).contains("summary");
+        }
+
+        @Test
+        @DisplayName("Output config JSON contains dual-tier fields")
+        void outputConfig_containsDualTierFields() {
+            var config = promptBuilder.buildOutputConfig();
+            String configStr = config.toString();
+
+            assertThat(configStr).contains("basic_fiery_sky");
+            assertThat(configStr).contains("basic_golden_hour");
+            assertThat(configStr).contains("basic_summary");
+        }
+
+        @Test
+        @DisplayName("Output config JSON contains inversion fields")
+        void outputConfig_containsInversionFields() {
+            var config = promptBuilder.buildOutputConfig();
+            String configStr = config.toString();
+
+            assertThat(configStr).contains("inversion_score");
+            assertThat(configStr).contains("inversion_potential");
+        }
     }
 
     @Test
