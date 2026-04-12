@@ -674,6 +674,292 @@ class BriefingSlotBuilderTest {
         }
     }
 
+    // ── Mid/high cloud null-guard extraction ──
+
+    @Nested
+    @DisplayName("Mid and high cloud extraction in buildSlot")
+    class WeatherMetricsExtractionTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity inlandLoc() {
+            return LocationEntity.builder()
+                    .id(11L).name("Durham").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        @Test
+        @DisplayName("midCloudPercent reflects forecast value 30 — not null-guard fallback of 0")
+        void midCloud_readFromForecast() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.weather().midCloudPercent()).isEqualTo(30);
+        }
+
+        @Test
+        @DisplayName("highCloudPercent reflects forecast value 40 — not null-guard fallback of 0")
+        void highCloud_readFromForecast() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.weather().highCloudPercent()).isEqualTo(40);
+        }
+
+        @Test
+        @DisplayName("midCloudPercent defaults to 0 when cloudCoverMid list is null")
+        void midCloud_nullList_defaultsToZero() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            OpenMeteoForecastResponse forecast = buildForecastResponse();
+            forecast.getHourly().setCloudCoverMid(null);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, forecast);
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.weather().midCloudPercent()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("highCloudPercent defaults to 0 when cloudCoverHigh list is null")
+        void highCloud_nullList_defaultsToZero() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            OpenMeteoForecastResponse forecast = buildForecastResponse();
+            forecast.getHourly().setCloudCoverHigh(null);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, forecast);
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.weather().highCloudPercent()).isEqualTo(0);
+        }
+    }
+
+    // ── Tide window minutes and king/spring threshold boundaries ──
+
+    @Nested
+    @DisplayName("Tide window minutes and king/spring threshold boundaries")
+    class TideCalculationTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity coastalLoc() {
+            return LocationEntity.builder()
+                    .id(10L).name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of(TideType.HIGH)).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private TideStats buildStats(BigDecimal springThreshold, BigDecimal p95) {
+            return new TideStats(
+                    new BigDecimal("4.00"), new BigDecimal("6.00"),
+                    new BigDecimal("1.00"), new BigDecimal("0.50"),
+                    200, new BigDecimal("3.00"),
+                    new BigDecimal("4.50"), new BigDecimal("5.00"), p95,
+                    10, new BigDecimal("0.05"), springThreshold,
+                    p95, 5);
+        }
+
+        private void stubLunar() {
+            when(lunarPhaseService.classifyTide(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(LunarTideType.REGULAR_TIDE);
+            when(lunarPhaseService.getMoonPhase(SOLAR_TIME.toLocalDate()))
+                    .thenReturn("Waxing Crescent");
+            when(lunarPhaseService.isMoonAtPerigee(SOLAR_TIME.toLocalDate()))
+                    .thenReturn(false);
+        }
+
+        @Test
+        @DisplayName("deriveTideData is called with windowMinutes = 30 (duration / 2, not * 2)")
+        void windowMinutes_isHalfOfDuration() {
+            // stubSolarWindow: goldenHourStart=17:30, blueHourEnd=18:30 → 60 min / 2 = 30
+            stubSolarWindow();
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
+                    .thenReturn(Optional.empty());
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+
+            verify(tideService).deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), eq(30L));
+        }
+
+        @Test
+        @DisplayName("Height exactly at P95 threshold is NOT a king tide (strictly greater-than, not >=)")
+        void heightAtP95_notKingTide() {
+            stubSolarWindow();
+            stubLunar();
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            TideData td = new TideData(TideState.HIGH, false, null,
+                    new BigDecimal("5.50"), null, null, SOLAR_TIME.plusMinutes(30), null);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
+                    .thenReturn(Optional.of(td));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+            when(tideService.getTideStats(loc.getId())).thenReturn(
+                    Optional.of(buildStats(new BigDecimal("5.00"), new BigDecimal("5.50"))));
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide().isKingTide()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Height one cent above P95 threshold IS a king tide")
+        void heightAboveP95_isKingTide() {
+            stubSolarWindow();
+            stubLunar();
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            TideData td = new TideData(TideState.HIGH, false, null,
+                    new BigDecimal("5.51"), null, null, SOLAR_TIME.plusMinutes(30), null);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
+                    .thenReturn(Optional.of(td));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+            when(tideService.getTideStats(loc.getId())).thenReturn(
+                    Optional.of(buildStats(new BigDecimal("5.00"), new BigDecimal("5.50"))));
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide().isKingTide()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Height exactly at spring threshold is NOT a spring tide (strictly greater-than)")
+        void heightAtSpringThreshold_notSpringTide() {
+            stubSolarWindow();
+            stubLunar();
+            LocationEntity loc = coastalLoc();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            TideData td = new TideData(TideState.HIGH, false, null,
+                    new BigDecimal("5.00"), null, null, SOLAR_TIME.plusMinutes(30), null);
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
+                    .thenReturn(Optional.of(td));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(false);
+            when(tideService.getTideStats(loc.getId())).thenReturn(
+                    Optional.of(buildStats(new BigDecimal("5.00"), new BigDecimal("5.50"))));
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot).isNotNull();
+            assertThat(slot.tide().isSpringTide()).isFalse();
+        }
+    }
+
+    // ── extractLowCloudTrend static method ──
+
+    @Nested
+    @DisplayName("extractLowCloudTrend")
+    class LowCloudTrendExtractionTests {
+
+        @Test
+        @DisplayName("Returns [idx-2, idx-1, idx] — 3 values, not an empty list")
+        void returnsThreeValues_forNormalIdx() {
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setCloudCoverLow(new ArrayList<>(List.of(10, 20, 30, 40, 50, 60)));
+
+            List<Integer> trend = BriefingSlotBuilder.extractLowCloudTrend(hourly, 5);
+
+            assertThat(trend).containsExactly(40, 50, 60);
+        }
+
+        @Test
+        @DisplayName("idx=0: returns exactly [cloud[0]], clamping start to 0")
+        void idx0_returnsSingleElement() {
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setCloudCoverLow(new ArrayList<>(List.of(55, 60, 65)));
+
+            List<Integer> trend = BriefingSlotBuilder.extractLowCloudTrend(hourly, 0);
+
+            assertThat(trend).containsExactly(55);
+        }
+
+        @Test
+        @DisplayName("idx=1: clamps start to 0 and returns [cloud[0], cloud[1]]")
+        void idx1_twoElementsWithClampedStart() {
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setCloudCoverLow(new ArrayList<>(List.of(10, 20, 30)));
+
+            List<Integer> trend = BriefingSlotBuilder.extractLowCloudTrend(hourly, 1);
+
+            assertThat(trend).containsExactly(10, 20);
+        }
+
+        @Test
+        @DisplayName("Returns empty list when cloudCoverLow is null")
+        void nullCloud_returnsEmpty() {
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setCloudCoverLow(null);
+
+            List<Integer> trend = BriefingSlotBuilder.extractLowCloudTrend(hourly, 3);
+
+            assertThat(trend).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Returns empty list when cloudCoverLow is empty")
+        void emptyCloud_returnsEmpty() {
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setCloudCoverLow(new ArrayList<>());
+
+            List<Integer> trend = BriefingSlotBuilder.extractLowCloudTrend(hourly, 0);
+
+            assertThat(trend).isEmpty();
+        }
+    }
+
     /**
      * Builds a cloud-only forecast response with uniform low cloud values.
      * Matches what {@code fetchCloudOnlyBatch} returns (only cloud layers populated).

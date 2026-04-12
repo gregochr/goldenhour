@@ -47,8 +47,15 @@ public class AuroraGlossService {
             location data for an aurora-eligible region, respond with a JSON object \
             containing two fields:
             {"headline": "...", "detail": "..."}
-            HEADLINE: A 7-word-max plain-English phrase — the key factor for aurora \
-            viewing conditions. Count every word. Never exceed 7 words.
+            HEADLINE rules:
+            - 7 words maximum. Count every word before responding.
+            - Write a COMPLETE thought that makes sense on its own.
+            - Do NOT start a sentence you cannot finish in 7 words.
+            - If your first attempt is too long, rewrite from scratch — do not truncate a longer sentence.
+            - No punctuation at the end.
+            - Never end with a preposition or conjunction (for, and, but, with, of, to, at, by).
+            Good: "Strong Kp — excellent aurora potential" (5 words), "Clear skies, Kp rising" (4 words).
+            Bad: "Strong Kp with excellent aurora viewing conditions at" (ends with "at").
             DETAIL: 2-3 sentences expanding on the headline. Mention Kp level, cloud \
             conditions, Bortle class, and any moon transition timing. Keep it factual.
             CRITICAL RULE: If windowQuality is MOONLIT_ALL_WINDOW and \

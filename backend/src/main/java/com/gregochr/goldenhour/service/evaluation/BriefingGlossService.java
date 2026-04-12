@@ -50,8 +50,17 @@ public class BriefingGlossService {
             You are a photography forecast assistant. Given weather and tide data for a \
             region at a solar event, respond with a JSON object containing two fields:
             {"headline": "...", "detail": "..."}
-            HEADLINE: A 7-word-max plain-English phrase — the key reason for the verdict. \
-            Be specific about cloud conditions. Count every word. Never exceed 7 words.
+            HEADLINE rules:
+            - 7 words maximum. Count every word before responding.
+            - Write a COMPLETE thought that makes sense on its own.
+            - Do NOT start a sentence you cannot finish in 7 words.
+            - If your first attempt is too long, rewrite from scratch — do not truncate a longer sentence.
+            - No punctuation at the end.
+            - Never end with a preposition or conjunction (for, and, but, with, of, to, at, by).
+            Good: "Clear sky — no canvas for colour", "High cloud canvas, clear horizon", \
+            "Clear skies limit colour potential".
+            Bad: "Clear skies offer no cloud canvas for" (ends with "for"), \
+            "High cloud with good canvas potential at" (ends with "at").
             DETAIL: 2-3 sentences expanding on the headline. Mention specific cloud layers, \
             percentages, trends, and any tide/coastal factors. Keep it factual and concise.
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \

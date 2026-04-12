@@ -74,7 +74,7 @@ export default function InfoTip({ text, className = '', position = 'above' }) {
     <span ref={triggerRef} className={`relative inline-flex items-center ${className}`}>
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={(e) => { e.stopPropagation(); setOpen((prev) => !prev); }}
         className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current opacity-50 hover:opacity-80 transition-opacity cursor-pointer"
         aria-label="More info"
         data-testid="infotip-trigger"
@@ -87,6 +87,7 @@ export default function InfoTip({ text, className = '', position = 'above' }) {
           style={popoverStyle}
           className="w-max max-w-[min(24rem,calc(100vw-2rem))] px-2.5 py-1.5 text-xs rounded shadow-lg whitespace-pre-line bg-plex-surface text-plex-text border border-plex-border"
           data-testid="infotip-popover"
+          onClick={(e) => e.stopPropagation()}
         >
           {text}
         </span>

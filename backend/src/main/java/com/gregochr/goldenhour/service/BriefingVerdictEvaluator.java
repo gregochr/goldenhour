@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -19,6 +21,8 @@ import java.util.Map;
  */
 @Component
 public class BriefingVerdictEvaluator {
+
+    private static final Logger LOG = LoggerFactory.getLogger(BriefingVerdictEvaluator.class);
 
     /** Low cloud percentage above which conditions are STANDDOWN. */
     static final int CLOUD_STANDDOWN = 80;
@@ -401,17 +405,28 @@ public class BriefingVerdictEvaluator {
             return Verdict.STANDDOWN;
         }
 
+        final Verdict verdict;
         // GO: at least 20% of viable locations must be GO
         if (goCount * 100 >= totalViable * 20) {
-            return Verdict.GO;
-        }
-
+            verdict = Verdict.GO;
         // MARGINAL: at least 20% of all locations must be viable
-        if (totalViable * 100 >= totalLocations * 20) {
-            return Verdict.MARGINAL;
+        } else if (totalViable * 100 >= totalLocations * 20) {
+            verdict = Verdict.MARGINAL;
+        } else {
+            verdict = Verdict.STANDDOWN;
         }
 
-        return Verdict.STANDDOWN;
+        if (LOG.isDebugEnabled()) {
+            double goPercent = (double) goCount / totalViable * 100.0;
+            double viablePercent = (double) totalViable / totalLocations * 100.0;
+            String sample = slots.get(0).locationName();
+            LOG.debug("[VERDICT] sample={} goCount={} marginalCount={} totalViable={} totalLocations={}"
+                            + " goPercent={} viablePercent={} verdict={}",
+                    sample, goCount, marginalCount, totalViable, totalLocations,
+                    String.format("%.1f", goPercent), String.format("%.1f", viablePercent), verdict);
+        }
+
+        return verdict;
     }
 
     /**

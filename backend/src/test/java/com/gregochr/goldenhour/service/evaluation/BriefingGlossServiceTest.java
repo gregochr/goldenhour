@@ -266,7 +266,7 @@ class BriefingGlossServiceTest {
         String systemPrompt = captor.getValue().system().get()
                 .asTextBlockParams().get(0).text();
         assertThat(systemPrompt).contains("photography forecast assistant");
-        assertThat(systemPrompt).contains("7-word-max");
+        assertThat(systemPrompt).contains("7 words maximum");
         assertThat(systemPrompt).contains("clearAllLayers is true");
     }
 
