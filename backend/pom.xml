@@ -532,6 +532,9 @@
                         <param>com.gregochr.goldenhour.controller.*</param>
                         <param>com.gregochr.goldenhour.*IntegrationTest</param>
                         <param>com.gregochr.goldenhour.*IT</param>
+                        <param>com.gregochr.goldenhour.service.LocationFailureTrackingUIDemo</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
                     </excludedTestClasses>
                     <excludedClasses>
                         <param>com.gregochr.goldenhour.GoldenHourApplication</param>
