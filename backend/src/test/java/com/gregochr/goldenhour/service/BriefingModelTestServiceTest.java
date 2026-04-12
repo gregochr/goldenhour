@@ -41,6 +41,7 @@ class BriefingModelTestServiceTest {
     @Mock private BriefingModelTestResultRepository resultRepository;
     @Mock private CostCalculator costCalculator;
     @Mock private ExchangeRateService exchangeRateService;
+    @Mock private DynamicSchedulerService dynamicSchedulerService;
 
     private BriefingModelTestService service;
 
@@ -49,7 +50,8 @@ class BriefingModelTestServiceTest {
         service = new BriefingModelTestService(
                 briefingService, bestBetAdvisor,
                 runRepository, resultRepository, costCalculator,
-                exchangeRateService, new ObjectMapper().findAndRegisterModules());
+                exchangeRateService, new ObjectMapper().findAndRegisterModules(),
+                dynamicSchedulerService);
     }
 
     @Test

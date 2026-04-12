@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.BriefingModelTestResultRepository;
 import com.gregochr.goldenhour.repository.BriefingModelTestRunRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,17 +34,19 @@ public class BriefingModelTestService {
     private final CostCalculator costCalculator;
     private final ExchangeRateService exchangeRateService;
     private final ObjectMapper objectMapper;
+    private final DynamicSchedulerService dynamicSchedulerService;
 
     /**
      * Constructs a {@code BriefingModelTestService}.
      *
-     * @param briefingService      provides the cached briefing data
-     * @param bestBetAdvisor       advisor that calls Claude for best-bet picks
-     * @param runRepository        repository for test run entities
-     * @param resultRepository     repository for test result entities
-     * @param costCalculator       calculates micro-dollar costs from token usage
-     * @param exchangeRateService  provides current GBP/USD exchange rate
-     * @param objectMapper         Jackson mapper for serializing picks to JSON
+     * @param briefingService         provides the cached briefing data
+     * @param bestBetAdvisor          advisor that calls Claude for best-bet picks
+     * @param runRepository           repository for test run entities
+     * @param resultRepository        repository for test result entities
+     * @param costCalculator          calculates micro-dollar costs from token usage
+     * @param exchangeRateService     provides current GBP/USD exchange rate
+     * @param objectMapper            Jackson mapper for serializing picks to JSON
+     * @param dynamicSchedulerService registers the daily scheduled comparison job
      */
     public BriefingModelTestService(BriefingService briefingService,
             BriefingBestBetAdvisor bestBetAdvisor,
@@ -51,7 +54,8 @@ public class BriefingModelTestService {
             BriefingModelTestResultRepository resultRepository,
             CostCalculator costCalculator,
             ExchangeRateService exchangeRateService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            DynamicSchedulerService dynamicSchedulerService) {
         this.briefingService = briefingService;
         this.bestBetAdvisor = bestBetAdvisor;
         this.runRepository = runRepository;
@@ -59,6 +63,28 @@ public class BriefingModelTestService {
         this.costCalculator = costCalculator;
         this.exchangeRateService = exchangeRateService;
         this.objectMapper = objectMapper;
+        this.dynamicSchedulerService = dynamicSchedulerService;
+    }
+
+    /**
+     * Registers the briefing model comparison job with the dynamic scheduler.
+     */
+    @PostConstruct
+    void registerJobs() {
+        dynamicSchedulerService.registerJobTarget("briefing_model_comparison",
+                this::runComparisonScheduled);
+    }
+
+    /**
+     * Scheduled entry point — runs the comparison and swallows exceptions so a
+     * missing cached briefing or transient API failure does not kill the scheduler thread.
+     */
+    void runComparisonScheduled() {
+        try {
+            runComparison();
+        } catch (Exception e) {
+            LOG.error("Scheduled briefing model comparison failed: {}", e.getMessage(), e);
+        }
     }
 
     /**
