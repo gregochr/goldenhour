@@ -201,6 +201,48 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("getCachedEvaluatedAt returns null when no cache exists")
+    void getCachedEvaluatedAt_noCacheReturnsNull() {
+        assertThat(service.getCachedEvaluatedAt("Unknown", DATE, TargetType.SUNSET)).isNull();
+    }
+
+    @Test
+    @DisplayName("getCachedEvaluatedAt returns formatted UK time after evaluation")
+    void getCachedEvaluatedAt_returnsFormattedTimeAfterEvaluation() {
+        LocationEntity loc = locationInRegion("Bamburgh", REGION);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+        ForecastPreEvalResult preEval = nonTriagedResult(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                .thenReturn(preEval);
+        when(forecastService.evaluateAndPersist(any(), any()))
+                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        String evaluatedAt = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
+        assertThat(evaluatedAt).isNotNull();
+        assertThat(evaluatedAt).matches("\\d{2}:\\d{2}");
+    }
+
+    @Test
+    @DisplayName("getCachedEvaluatedAt returns formatted time after writeFromBatch")
+    void getCachedEvaluatedAt_returnsTimeAfterBatchWrite() {
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
+        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET", List.of(result));
+
+        String evaluatedAt = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
+        assertThat(evaluatedAt).isNotNull();
+        assertThat(evaluatedAt).matches("\\d{2}:\\d{2}");
+    }
+
+    @Test
     @DisplayName("Null briefing yields no evaluable locations")
     void nullBriefing_noEvaluations() {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
@@ -439,6 +481,35 @@ class BriefingEvaluationServiceTest {
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter2);
 
         verify(emitter2).complete();
+    }
+
+    @Test
+    @DisplayName("evaluation-complete SSE event contains regionName, date, targetType, and evaluatedAt")
+    void evaluationComplete_sseEventContainsExpectedFields() {
+        LocationEntity loc = locationInRegion("Bamburgh", REGION);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+        ForecastPreEvalResult preEval = nonTriagedResult(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                .thenReturn(preEval);
+        when(forecastService.evaluateAndPersist(any(), any()))
+                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        // Cache state is the source of truth for what is sent in the evaluation-complete event.
+        // SseEventBuilder content cannot be meaningfully inspected via Mockito.
+        Map<String, BriefingEvaluationResult> cached =
+                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+        assertThat(cached).containsKey("Bamburgh");
+        assertThat(service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET))
+                .isNotNull()
+                .matches("\\d{2}:\\d{2}");
     }
 
     @Test
@@ -694,6 +765,26 @@ class BriefingEvaluationServiceTest {
         service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
 
         assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+    }
+
+    @Test
+    @DisplayName("writeFromBatch overwrites existing cache entry for same key")
+    void writeFromBatch_overwritesExistingEntry() {
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+
+        BriefingEvaluationResult first =
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "First run");
+        service.writeFromBatch(cacheKey, List.of(first));
+
+        BriefingEvaluationResult second =
+                new BriefingEvaluationResult("Dunstanburgh", 3, 50, 45, "Second run");
+        service.writeFromBatch(cacheKey, List.of(second));
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+        assertThat(scores).hasSize(1);
+        assertThat(scores).containsKey("Dunstanburgh");
+        assertThat(scores).doesNotContainKey("Bamburgh");
     }
 
     // ── Batch cancel-on-JFDI tests ──────────────────────────────────────────────
