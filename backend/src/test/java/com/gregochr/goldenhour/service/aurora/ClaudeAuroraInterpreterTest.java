@@ -22,6 +22,7 @@ import com.gregochr.solarutils.LunarPosition;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -32,7 +33,6 @@ import org.mockito.ArgumentCaptor;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -66,15 +66,31 @@ class ClaudeAuroraInterpreterTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
-                .thenReturn(EvaluationModel.HAIKU);
-        lenient().when(lunarCalculator.calculate(any(ZonedDateTime.class),
-                anyDouble(), anyDouble()))
-                .thenReturn(new LunarPosition(
-                        35.0, 180.0, 0.45, LunarPhase.FIRST_QUARTER, 384400));
         interpreter = new ClaudeAuroraInterpreter(
                 anthropicApiClient, new ObjectMapper(), modelSelectionService,
                 lunarCalculator);
+    }
+
+    private void stubModelSelection() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU);
+    }
+
+    private void stubDefaultMoon() {
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        35.0, 180.0, 0.45, LunarPhase.FIRST_QUARTER, 384400));
+    }
+
+    private void mockClaudeResponse(String jsonText) {
+        Message mockMessage = mock(Message.class);
+        ContentBlock mockBlock = mock(ContentBlock.class);
+        TextBlock mockTextBlock = mock(TextBlock.class);
+        when(anthropicApiClient.createMessage(any())).thenReturn(mockMessage);
+        when(mockMessage.content()).thenReturn(List.of(mockBlock));
+        when(mockBlock.isText()).thenReturn(true);
+        when(mockBlock.asText()).thenReturn(mockTextBlock);
+        when(mockTextBlock.text()).thenReturn(jsonText);
     }
 
     // -------------------------------------------------------------------------
@@ -84,6 +100,8 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("interpret invokes Claude API and returns parsed scores")
     void interpret_invokesClaudeAndReturnsParsedScores() {
+        stubModelSelection();
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
@@ -159,6 +177,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes TRIGGER TYPE: realtime for real-time alerts")
     void buildUserMessage_realtimeTrigger_includesRealtimeContext() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
@@ -172,6 +191,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes TRIGGER TYPE: forecast_lookahead for forecast alerts")
     void buildUserMessage_forecastTrigger_includesForecastContext() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(5.0);
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
@@ -187,6 +207,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage omits tonight window section when window is null (real-time)")
     void buildUserMessage_nullWindow_omitsTonightWindowSection() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
@@ -203,6 +224,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes transition-aware LUNAR CONDITIONS block")
     void buildUserMessage_includesLunarConditions() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
@@ -341,6 +363,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes alert level and location count")
     void buildUserMessage_containsAlertLevelAndLocationCount() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Cairngorms", 57.1, -3.8, 2);
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
@@ -355,6 +378,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes Kp trend section")
     void buildUserMessage_containsKpTrend() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(5.5);
 
@@ -368,6 +392,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes OVATION probability when present")
     void buildUserMessage_includesOvation() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         OvationReading ovation = new OvationReading(now, 35.0, 55.0);
@@ -384,6 +409,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes Met Office text when provided")
     void buildUserMessage_includesMetOfficeText() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
@@ -397,6 +423,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage omits Met Office section when text is blank")
     void buildUserMessage_omitsMetOfficeWhenBlank() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
@@ -409,6 +436,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes solar wind Bz when readings present")
     void buildUserMessage_includesSolarWindBz() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         SolarWindReading wind = new SolarWindReading(now, -8.5, 480.0, 5.2);
@@ -425,6 +453,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage includes active alerts section")
     void buildUserMessage_includesActiveAlerts() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
         SpaceWeatherAlert alert = new SpaceWeatherAlert("W", "20250801-WA-001", now,
@@ -442,6 +471,7 @@ class ClaudeAuroraInterpreterTest {
     @Test
     @DisplayName("buildUserMessage limits Kp trend to last 5 readings")
     void buildUserMessage_limitsKpTrendToFive() {
+        stubDefaultMoon();
         LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
         ZonedDateTime base = ZonedDateTime.of(2025, 8, 1, 0, 0, 0, 0, ZoneOffset.UTC);
         // Supply 8 readings; only last 5 should appear
@@ -670,6 +700,165 @@ class ClaudeAuroraInterpreterTest {
 
         assertThat(scores).hasSize(1);
         assertThat(scores.get(0).stars()).isEqualTo(5);
+    }
+
+    // -------------------------------------------------------------------------
+    // buildUserMessage — multiple locations and null Bortle
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("buildUserMessage with multiple locations includes numbered list and count")
+    void buildUserMessage_multipleLocations_numberedListAndCount() {
+        stubDefaultMoon();
+        LocationEntity locA = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        LocationEntity locB = buildLocation(2L, "Kielder", 55.2, -2.6, 3);
+        SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE,
+                List.of(locA, locB), Map.of(locA, 20, locB, 40),
+                data, null, TriggerType.REALTIME, null);
+
+        assertThat(msg).contains("LOCATIONS TO SCORE (2 locations)");
+        assertThat(msg).contains("1. Galloway");
+        assertThat(msg).contains("2. Kielder");
+        assertThat(msg).contains("Return a JSON array with 2 objects");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage with null Bortle class shows 'unknown'")
+    void buildUserMessage_nullBortle_showsUnknown() {
+        stubDefaultMoon();
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("NoBortle").lat(55.0).lon(-2.0)
+                .bortleClass(null).build();
+        SpaceWeatherData data = minimalSpaceWeather(5.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 50), data, null, TriggerType.REALTIME, null);
+
+        assertThat(msg).contains("Bortle=unknown");
+    }
+
+    // -------------------------------------------------------------------------
+    // parseBatchResponse — delegation smoke test
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("parseBatchResponse delegates to parseResponse and returns same results")
+    void parseBatchResponse_delegatesToParseResponse() {
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        String json = "[{\"name\":\"Galloway\",\"stars\":4,\"summary\":\"Strong\",\"detail\":\"–\"}]";
+
+        List<AuroraForecastScore> scores = interpreter.parseBatchResponse(
+                json, AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(4);
+        assertThat(scores.get(0).summary()).isEqualTo("Strong");
+    }
+
+    // -------------------------------------------------------------------------
+    // System prompt scoring rules
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("System prompt scoring rules")
+    class SystemPromptTests {
+
+        @Test
+        @DisplayName("System prompt contains Kp base scoring guidance")
+        void systemPrompt_containsKpBaseScoring() {
+            stubModelSelection();
+            stubDefaultMoon();
+            LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+            SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+            mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
+
+            interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                    data, null, TriggerType.REALTIME, null);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemPrompt = captor.getValue().system().get()
+                    .asTextBlockParams().getFirst().text();
+
+            assertThat(systemPrompt).contains("STRONG (Kp 7+): base 4");
+            assertThat(systemPrompt).contains("MODERATE (Kp 5–6): base 3");
+        }
+
+        @Test
+        @DisplayName("System prompt contains moon scoring by window quality")
+        void systemPrompt_containsMoonWindowQualityScoring() {
+            stubModelSelection();
+            stubDefaultMoon();
+            LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+            SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+            mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
+
+            interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                    data, null, TriggerType.REALTIME, null);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemPrompt = captor.getValue().system().get()
+                    .asTextBlockParams().getFirst().text();
+
+            assertThat(systemPrompt).contains("DARK_ALL_WINDOW");
+            assertThat(systemPrompt).contains("DARK_THEN_MOONLIT");
+            assertThat(systemPrompt).contains("MOONLIT_THEN_DARK");
+            assertThat(systemPrompt).contains("MOONLIT_ALL_WINDOW");
+        }
+
+        @Test
+        @DisplayName("System prompt contains Bortle scoring modifiers")
+        void systemPrompt_containsBortleModifiers() {
+            stubModelSelection();
+            stubDefaultMoon();
+            LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+            SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+            mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
+
+            interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                    data, null, TriggerType.REALTIME, null);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemPrompt = captor.getValue().system().get()
+                    .asTextBlockParams().getFirst().text();
+
+            assertThat(systemPrompt).contains("Bortle 1–2: +0.5");
+            assertThat(systemPrompt).contains("Bortle 5+: −0.5");
+        }
+
+        @Test
+        @DisplayName("System prompt contains trigger type tone guidance")
+        void systemPrompt_containsTriggerTypeToneGuidance() {
+            stubModelSelection();
+            stubDefaultMoon();
+            LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+            SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+            mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
+
+            interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                    data, null, TriggerType.REALTIME, null);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemPrompt = captor.getValue().system().get()
+                    .asTextBlockParams().getFirst().text();
+
+            assertThat(systemPrompt).contains("forecast_lookahead");
+            assertThat(systemPrompt).contains("realtime");
+            assertThat(systemPrompt).contains("happening now");
+        }
     }
 
     // -------------------------------------------------------------------------
