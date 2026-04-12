@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -63,7 +64,7 @@ class DriveDurationServiceTest {
         int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
         assertThat(result).isZero();
-        verify(orsClient, never()).fetchDurations(anyDouble(), anyDouble(), any());
+        verifyNoInteractions(orsClient);
     }
 
     @Test
@@ -75,7 +76,7 @@ class DriveDurationServiceTest {
         int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
 
         assertThat(result).isZero();
-        verify(orsClient, never()).fetchDurations(anyDouble(), anyDouble(), any());
+        verifyNoInteractions(orsClient);
     }
 
     @Test
@@ -295,6 +296,47 @@ class DriveDurationServiceTest {
                 .hasMessageContaining("503");
 
         verify(userDriveTimeRepository, never()).saveAll(any());
+    }
+
+    @Test
+    @DisplayName("zero seconds ORS duration is valid and persisted (>= 0 boundary)")
+    void refreshForUser_zeroDuration_persisted() {
+        // 0.0 is a valid duration (>= 0). Mutating >= to > would skip it.
+        when(orsProperties.isConfigured()).thenReturn(true);
+        LocationEntity loc = location(1L, "Local", 54.78, -1.58);
+        when(locationRepository.findAll()).thenReturn(List.of(loc));
+        when(orsClient.fetchDurations(eq(SOURCE_LAT), eq(SOURCE_LON), any()))
+                .thenReturn(List.of(0.0));
+
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
+
+        assertThat(result).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(userDriveTimeRepository).saveAll(captor.capture());
+        assertThat(captor.getValue().get(0).getDriveDurationSeconds()).isZero();
+    }
+
+    @Test
+    @DisplayName("if ORS returns more durations than locations, only location-indexed entries persisted")
+    void refreshForUser_moreDurationsThanLocations_onlyMatchingPersisted() {
+        // Math.min(locations, durations) loop bound — mutating to locations.size() causes IOOBE
+        when(orsProperties.isConfigured()).thenReturn(true);
+        LocationEntity loc1 = location(1L, "Durham", 54.78, -1.58);
+        LocationEntity loc2 = location(2L, "Bamburgh", 55.61, -1.71);
+        when(locationRepository.findAll()).thenReturn(List.of(loc1, loc2));
+        when(orsClient.fetchDurations(eq(SOURCE_LAT), eq(SOURCE_LON), any()))
+                .thenReturn(List.of(1800.0, 3600.0, 5400.0, 7200.0));
+
+        int result = service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
+
+        assertThat(result).isEqualTo(2);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<UserDriveTimeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(userDriveTimeRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(2);
+        assertThat(captor.getValue().get(0).getLocationId()).isEqualTo(1L);
+        assertThat(captor.getValue().get(1).getLocationId()).isEqualTo(2L);
     }
 
     private static LocationEntity location(Long id, String name, double lat, double lon) {

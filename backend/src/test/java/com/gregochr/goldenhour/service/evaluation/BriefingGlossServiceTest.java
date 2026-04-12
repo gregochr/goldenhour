@@ -396,6 +396,31 @@ class BriefingGlossServiceTest {
     }
 
     @Test
+    @DisplayName("buildUserMessage for MARGINAL-only region derives cloud median from MARGINAL slots, not 0")
+    void buildUserMessage_marginalOnlyRegion_cloudValuesFromMarginalSlots() {
+        // goSlots is empty → medianSource must fall back to nonStanddown (MARGINAL slots).
+        // A mutation that inverts the isEmpty() check would use empty goSlots and produce 0s.
+        BriefingSlot marginalSlot = new BriefingSlot(
+                "Kielder", LocalDateTime.of(2026, 4, 10, 18, 30), Verdict.MARGINAL,
+                new BriefingSlot.WeatherConditions(35, BigDecimal.ZERO, 12000, 75,
+                        9.0, 7.0, 1, BigDecimal.valueOf(4.0), 50, 60),
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "Northumberland", Verdict.MARGINAL, "Summary", List.of(),
+                List.of(marginalSlot), 9.0, 7.0, 4.0, 1, null, null);
+        BriefingDay day = dayWith(region);
+        BriefingEventSummary es = day.eventSummaries().getFirst();
+        BriefingGlossService.GlossWorkItem item =
+                new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region);
+
+        String json = glossService.buildUserMessage(item);
+
+        assertThat(json).contains("\"cloudLow\":35");
+        assertThat(json).contains("\"cloudMid\":50");
+        assertThat(json).contains("\"cloudHigh\":60");
+    }
+
+    @Test
     @DisplayName("buildUserMessage with coastal GO slot produces non-zero tide counts")
     void buildUserMessage_coastalSlot_nonZeroTideCounts() {
         BriefingSlot coastalSlot = new BriefingSlot(
@@ -642,6 +667,38 @@ class BriefingGlossServiceTest {
         BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
         assertThat(r.glossHeadline()).isEqualTo("Low cloud clearing by sunset");
         assertThat(r.glossDetail()).isEqualTo("Breaks expected by 19:00.");
+    }
+
+    @Test
+    @DisplayName("JSON with only 'detail' field — headline is null, detail is populated")
+    void json_missingHeadlineField_headlineNullDetailPresent() {
+        stubModelSelection();
+        Message response = mockResponse("{\"detail\": \"High cloud at 40% provides canvas.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isNull();
+        assertThat(r.glossDetail()).isEqualTo("High cloud at 40% provides canvas.");
+    }
+
+    @Test
+    @DisplayName("JSON with only 'headline' field — headline populated, detail is null")
+    void json_missingDetailField_detailNullHeadlinePresent() {
+        stubModelSelection();
+        Message response = mockResponse("{\"headline\": \"High cirrus canvas\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.GO)));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("High cirrus canvas");
+        assertThat(r.glossDetail()).isNull();
     }
 
     // ── truncateToWords ─────────────────────────────────────────────────────

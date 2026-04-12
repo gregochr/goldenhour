@@ -486,6 +486,34 @@ class AuroraGlossServiceTest {
         assertThat(result.get(0).glossDetail()).isEqualTo("Excellent dark sky window.");
     }
 
+    @Test
+    @DisplayName("JSON with only 'detail' field — headline is null, detail is populated")
+    void json_missingHeadlineField_headlineNullDetailPresent() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("{\"detail\": \"Kp 5.5 with Bortle 3 clear skies.\"}");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.5);
+
+        assertThat(result.get(0).glossHeadline()).isNull();
+        assertThat(result.get(0).glossDetail()).isEqualTo("Kp 5.5 with Bortle 3 clear skies.");
+    }
+
+    @Test
+    @DisplayName("JSON with only 'headline' field — headline populated, detail is null")
+    void json_missingDetailField_detailNullHeadlinePresent() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenReturn(EvaluationModel.HAIKU);
+        mockClaudeResponse("{\"headline\": \"Strong Kp clear skies\"}");
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
+
+        assertThat(result.get(0).glossHeadline()).isEqualTo("Strong Kp clear skies");
+        assertThat(result.get(0).glossDetail()).isNull();
+    }
+
     // ── Helpers ──
 
     private void mockClaudeResponse(String text) {

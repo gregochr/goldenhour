@@ -550,6 +550,22 @@ class BriefingVerdictEvaluatorTest {
             List<BriefingSlot> slots = slots(7, 33, 0);
             assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
         }
+
+        @Test
+        @DisplayName("MAYBE — exactly 20% viable boundary (0 GO + 5 MARGINAL + 20 STANDDOWN = 5/25 = 20%)")
+        void rollup_exactlyTwentyPercentViable() {
+            // 5*100=500 >= 25*20=500: the >= boundary — mutating to > would yield STANDDOWN
+            List<BriefingSlot> slots = slots(0, 5, 20);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("STANDDOWN — just below 20% viable (0 GO + 4 MARGINAL + 21 STANDDOWN = 4/25 = 16%)")
+        void rollup_justBelowTwentyPercentViable() {
+            // 4*100=400 < 25*20=500: one slot below the boundary
+            List<BriefingSlot> slots = slots(0, 4, 21);
+            assertThat(evaluator.rollUpVerdict(slots)).isEqualTo(Verdict.STANDDOWN);
+        }
     }
 
     // ── Standdown reason derivation ──
