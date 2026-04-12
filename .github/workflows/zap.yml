@@ -1,0 +1,111 @@
+name: ZAP Security Scan
+
+on:
+  schedule:
+    - cron: '0 4 * * MON'  # 4am UTC every Monday — runs before PIT at 6am
+  workflow_dispatch:
+
+jobs:
+  zap-scan:
+    name: ZAP Full Scan
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Snapshot production database
+        run: |
+          set -e
+          PGPASSWORD="${{ secrets.POSTGRES_PASSWORD }}" pg_dump \
+            -h localhost -p 5432 -U goldenhour -d goldenhour \
+            --no-owner --no-acl \
+            -f /tmp/pentest-dump.sql
+          echo "Database snapshot taken: $(wc -l < /tmp/pentest-dump.sql) lines"
+
+      - name: Start pen test environment
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          set -e
+          docker compose -f docker-compose.pentest.yml up -d pentest-db
+
+          # Wait for DB to be ready
+          echo "Waiting for pen test database..."
+          for i in $(seq 1 30); do
+            if PGPASSWORD="${{ secrets.POSTGRES_PASSWORD }}" pg_isready -h localhost -p 5433 -U goldenhour 2>/dev/null; then
+              echo "Database ready"
+              break
+            fi
+            sleep 2
+          done
+
+          # Restore production snapshot
+          PGPASSWORD="${{ secrets.POSTGRES_PASSWORD }}" psql \
+            -h localhost -p 5433 -U goldenhour -d goldenhour \
+            -f /tmp/pentest-dump.sql
+          echo "Database restored"
+
+          # Start backend and frontend
+          docker compose -f docker-compose.pentest.yml up -d
+
+          # Wait for backend health
+          echo "Waiting for backend..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8083/actuator/health > /dev/null 2>&1; then
+              echo "Backend healthy"
+              break
+            fi
+            sleep 5
+          done
+
+          # Verify frontend
+          echo "Waiting for frontend..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8180 > /dev/null 2>&1; then
+              echo "Frontend ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run ZAP full scan — backend API
+        run: |
+          set -e
+          mkdir -p zap-reports
+          docker run --rm --network host \
+            -v $(pwd)/zap-reports:/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-full-scan.py \
+              -t http://localhost:8083 \
+              -r backend-report.html \
+              -x backend-report.xml \
+              -J backend-report.json \
+              -I \
+            || true  # Don't fail workflow on findings — upload report first
+
+      - name: Run ZAP baseline scan — frontend
+        run: |
+          set -e
+          docker run --rm --network host \
+            -v $(pwd)/zap-reports:/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t http://localhost:8180 \
+              -r frontend-report.html \
+              -x frontend-report.xml \
+              -J frontend-report.json \
+              -I \
+            || true
+
+      - name: Upload ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-reports-${{ github.run_number }}
+          path: zap-reports/
+
+      - name: Tear down pen test environment
+        if: always()
+        run: |
+          docker compose -f docker-compose.pentest.yml down -v --remove-orphans
+          rm -f /tmp/pentest-dump.sql
+          echo "Pen test environment destroyed"
