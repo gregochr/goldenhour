@@ -269,6 +269,12 @@ Every new UI feature must be assessed for role gating.
 
 ---
 
+## Test Standards
+
+Read `docs/engineering/test-improvement-standards.md` before writing or modifying any test class.
+
+---
+
 ## Code Standards
 
 ### Backend
