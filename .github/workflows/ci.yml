@@ -31,6 +31,17 @@ jobs:
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
 
+      - name: Security static analysis (FindSecBugs)
+        run: |
+          cd backend && ./mvnw compile spotbugs:check --batch-mode --no-transfer-progress
+
+      - name: Upload SpotBugs report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-report
+          path: backend/target/spotbugsXml.xml
+
       - name: OWASP Dependency-Check (backend)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
