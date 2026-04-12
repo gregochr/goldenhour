@@ -102,10 +102,11 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,info
   endpoint:
     health:
-      show-details: always
+      show-details: when_authorized
+      show-components: when_authorized
   health:
     circuitbreakers:
       enabled: true
@@ -161,6 +162,11 @@ server:
   port: 8082
   servlet:
     context-path: /
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+    include-exception: false
 
 # Forecast scheduling — can be customized via environment variables
 forecast:

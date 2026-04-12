@@ -127,9 +127,9 @@ public class GlobalExceptionHandler {
         if (ex instanceof AccessDeniedException ade) {
             throw ade;
         }
-        LOG.error("Unhandled exception: {}", ex.getMessage(), ex);
+        LOG.error("Unhandled exception", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse("Internal error: " + ex.getMessage()));
+                .body(new ErrorResponse("An unexpected error occurred"));
     }
 
     /**
@@ -144,7 +144,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(RestClientResponseException.class)
     public ResponseEntity<ErrorResponse> handleUpstreamError(RestClientResponseException ex) {
-        String message = "Upstream API error: " + ex.getStatusCode().value() + " " + ex.getMessage();
+        LOG.error("Upstream API error: status={}", ex.getStatusCode().value(), ex);
+        String message = "Upstream API error: " + ex.getStatusCode().value();
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(message));
     }
 }
