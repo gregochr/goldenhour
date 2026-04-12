@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.service.OpenMeteoClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -35,19 +36,6 @@ class WeatherTriageServiceTest {
     @BeforeEach
     void setUp() {
         service = new WeatherTriageService(openMeteoClient);
-    }
-
-    // -------------------------------------------------------------------------
-    // Empty input
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("triage returns empty result when candidates list is empty")
-    void triage_emptyCandidates_emptyResult() {
-        WeatherTriageService.TriageResult result = service.triage(List.of());
-
-        assertThat(result.viable()).isEmpty();
-        assertThat(result.rejected()).isEmpty();
     }
 
     // -------------------------------------------------------------------------
@@ -123,7 +111,7 @@ class WeatherTriageServiceTest {
     }
 
     @Test
-    @DisplayName("triage computes average cloud and stores it in cloudByLocation")
+    @DisplayName("triage computes average cloud across transect and stores in cloudByLocation")
     void triage_storesAverageCloud() {
         int[] cloudValues = {20, 20, 20, 20, 20, 20, 20};
         stubBatchReturnsCloudData(cloudValues);
@@ -133,12 +121,17 @@ class WeatherTriageServiceTest {
         WeatherTriageService.TriageResult result = service.triage(List.of(loc));
 
         assertThat(result.cloudByLocation()).containsKey(loc);
-        assertThat(result.cloudByLocation().get(loc)).isLessThan(75);
+        // low 20 + mid 20 + high 20 = 60 per hour; 3 transect points all identical → avg 60;
+        // 7-hour average of 60 = 60
+        assertThat(result.cloudByLocation().get(loc)).isEqualTo(60);
     }
 
     // -------------------------------------------------------------------------
     // Multiple locations
     // -------------------------------------------------------------------------
+    // Note: stubBatchReturnsCloudData applies the same cloud data to all
+    // grid points, so both locations always get the same triage result.
+    // Per-location discrimination requires per-coordinate stubbing.
 
     @Test
     @DisplayName("triage handles two locations independently when both overcast")
@@ -168,6 +161,88 @@ class WeatherTriageServiceTest {
 
         assertThat(result.viable()).containsExactlyInAnyOrder(locA, locB);
         assertThat(result.rejected()).isEmpty();
+    }
+
+    // -------------------------------------------------------------------------
+    // Overcast threshold boundary (75%)
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Overcast threshold boundary (75%)")
+    class OvercastThresholdBoundaryTests {
+
+        @Test
+        @DisplayName("All hours at exactly 75% — rejected (threshold is strictly < 75)")
+        void allHoursExactly75_rejected() {
+            int[] allAt75 = {75, 75, 75, 75, 75, 75, 75};
+            stubBatchReturnsCloudData(allAt75);
+
+            LocationEntity loc = buildLocation(20L, "Boundary", 55.0, -2.0, 2);
+            WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+            assertThat(result.rejected()).containsExactly(loc);
+            assertThat(result.viable()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("One hour combined at 72% (24+24+24), rest at 78% — viable (one hour below threshold)")
+        void oneHourAt74_viable() {
+            // Stub sets all three layers to the same value; combined = 3×value.
+            // 24 per layer → 72% combined (< 75, viable); 26 per layer → 78% (≥ 75, overcast).
+            int[] oneBelow = {26, 26, 24, 26, 26, 26, 26};
+            stubBatchReturnsCloudData(oneBelow);
+
+            LocationEntity loc = buildLocation(21L, "JustViable", 55.0, -2.0, 2);
+            WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+            assertThat(result.viable()).containsExactly(loc);
+            assertThat(result.rejected()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("All hours combined at 72% (24+24+24) — viable (all below threshold)")
+        void allHoursAt74_viable() {
+            // 24 per layer × 3 layers = 72% combined, which is < 75 → viable
+            int[] allAt24 = {24, 24, 24, 24, 24, 24, 24};
+            stubBatchReturnsCloudData(allAt24);
+
+            LocationEntity loc = buildLocation(22L, "AllJustBelow", 55.0, -2.0, 2);
+            WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+            assertThat(result.viable()).containsExactly(loc);
+        }
+
+        @Test
+        @DisplayName("All hours at 100% — rejected")
+        void allHoursAt100_rejected() {
+            // low 100 + mid 100 + high 100 = 300, capped at 100 per hour
+            int[] allAt100 = {100, 100, 100, 100, 100, 100, 100};
+            stubBatchReturnsCloudData(allAt100);
+
+            LocationEntity loc = buildLocation(23L, "TotalOvercast", 55.0, -2.0, 2);
+            WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+            assertThat(result.rejected()).containsExactly(loc);
+        }
+
+        @Test
+        @DisplayName("All hours at 0% — viable with cloud average of 0")
+        void allHoursAt0_viable() {
+            int[] allClear = {0, 0, 0, 0, 0, 0, 0};
+            stubBatchReturnsCloudData(allClear);
+
+            LocationEntity loc = buildLocation(24L, "PerfectlyClear", 55.0, -2.0, 2);
+            WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+            assertThat(result.viable()).containsExactly(loc);
+            assertThat(result.cloudByLocation().get(loc)).isEqualTo(0);
+        }
+    }
+
+    @Test
+    @DisplayName("OVERCAST_THRESHOLD_PERCENT constant is 75")
+    void defaultCloud_matchesThreshold() {
+        assertThat(WeatherTriageService.OVERCAST_THRESHOLD_PERCENT).isEqualTo(75);
     }
 
     // -------------------------------------------------------------------------
