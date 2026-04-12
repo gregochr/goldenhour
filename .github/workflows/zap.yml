@@ -15,10 +15,10 @@ jobs:
       - name: Snapshot production database
         run: |
           set -e
-          PGPASSWORD="${{ secrets.POSTGRES_PASSWORD }}" pg_dump \
-            -h localhost -p 5432 -U goldenhour -d goldenhour \
+          docker exec goldenhour-db pg_dump \
+            -U goldenhour -d goldenhour \
             --no-owner --no-acl \
-            -f /tmp/pentest-dump.sql
+            > /tmp/pentest-dump.sql
           echo "Database snapshot taken: $(wc -l < /tmp/pentest-dump.sql) lines"
 
       - name: Start pen test environment
@@ -31,7 +31,7 @@ jobs:
           # Wait for DB to be ready
           echo "Waiting for pen test database..."
           for i in $(seq 1 30); do
-            if PGPASSWORD="${{ secrets.POSTGRES_PASSWORD }}" pg_isready -h localhost -p 5433 -U goldenhour 2>/dev/null; then
+            if docker exec pentest-db pg_isready -U goldenhour 2>/dev/null; then
               echo "Database ready"
               break
             fi
@@ -39,9 +39,8 @@ jobs:
           done
 
           # Restore production snapshot
-          PGPASSWORD="${{ secrets.POSTGRES_PASSWORD }}" psql \
-            -h localhost -p 5433 -U goldenhour -d goldenhour \
-            -f /tmp/pentest-dump.sql
+          docker exec -i pentest-db psql -U goldenhour -d goldenhour \
+            < /tmp/pentest-dump.sql
           echo "Database restored"
 
           # Start backend and frontend
