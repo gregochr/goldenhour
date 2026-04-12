@@ -26,7 +26,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
           set -e
-          docker compose -f docker-compose.pentest.yml up -d pentest-db
+          docker compose -p pentest -f docker-compose.pentest.yml up -d pentest-db
 
           # Wait for DB to be ready
           echo "Waiting for pen test database..."
@@ -39,17 +39,18 @@ jobs:
           done
 
           # Restore production snapshot
-          docker exec -i pentest-db psql -U goldenhour -d goldenhour \
-            < /tmp/pentest-dump.sql
+          docker exec -i pentest-db psql \
+            -U goldenhour -d goldenhour \
+            -f /dev/stdin < /tmp/pentest-dump.sql
           echo "Database restored"
 
           # Start backend and frontend
-          docker compose -f docker-compose.pentest.yml up -d
+          docker compose -p pentest -f docker-compose.pentest.yml up -d
 
           # Wait for backend health
           echo "Waiting for backend..."
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:8083/actuator/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8086/actuator/health > /dev/null 2>&1; then
               echo "Backend healthy"
               break
             fi
@@ -59,7 +60,7 @@ jobs:
           # Verify frontend
           echo "Waiting for frontend..."
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8180 > /dev/null 2>&1; then
+            if curl -sf http://localhost:8181 > /dev/null 2>&1; then
               echo "Frontend ready"
               break
             fi
@@ -74,7 +75,7 @@ jobs:
             -v $(pwd)/zap-reports:/zap/wrk:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-full-scan.py \
-              -t http://localhost:8083 \
+              -t http://localhost:8086 \
               -r backend-report.html \
               -x backend-report.xml \
               -J backend-report.json \
@@ -88,7 +89,7 @@ jobs:
             -v $(pwd)/zap-reports:/zap/wrk:rw \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
-              -t http://localhost:8180 \
+              -t http://localhost:8181 \
               -r frontend-report.html \
               -x frontend-report.xml \
               -J frontend-report.json \
@@ -105,6 +106,6 @@ jobs:
       - name: Tear down pen test environment
         if: always()
         run: |
-          docker compose -f docker-compose.pentest.yml down -v --remove-orphans
+          docker compose -p pentest -f docker-compose.pentest.yml down -v --remove-orphans
           rm -f /tmp/pentest-dump.sql
           echo "Pen test environment destroyed"
