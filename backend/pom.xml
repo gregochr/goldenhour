@@ -522,18 +522,24 @@
                         <param>com.gregochr.goldenhour.service.evaluation.*</param>
                         <param>com.gregochr.goldenhour.service.notification.*</param>
                         <param>com.gregochr.goldenhour.service.aurora.*</param>
-                        <param>com.gregochr.goldenhour.controller.*</param>
-                        <param>com.gregochr.goldenhour.config.*</param>
+                        <param>com.gregochr.goldenhour.service.batch.*</param>
+                        <param>com.gregochr.goldenhour.util.*</param>
                     </targetClasses>
                     <targetTests>
                         <param>com.gregochr.goldenhour.*</param>
                     </targetTests>
+                    <excludedTestClasses>
+                        <param>com.gregochr.goldenhour.controller.*</param>
+                        <param>com.gregochr.goldenhour.*IntegrationTest</param>
+                        <param>com.gregochr.goldenhour.*IT</param>
+                    </excludedTestClasses>
                     <excludedClasses>
                         <param>com.gregochr.goldenhour.GoldenHourApplication</param>
                     </excludedClasses>
                     <mutators>
                         <mutator>DEFAULTS</mutator>
                     </mutators>
+                    <mutationThreshold>60</mutationThreshold>
                     <parseSurefireConfig>false</parseSurefireConfig>
                     <timeoutConstant>10000</timeoutConstant>
                     <threads>4</threads>

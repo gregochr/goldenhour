@@ -8,7 +8,7 @@ on:
 jobs:
   pitest:
     name: PIT Mutation Testing
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -17,14 +17,10 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: GITHUB_TOKEN
       - name: Run PIT mutation testing
         id: pitest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -o pipefail
           chmod +x backend/mvnw
           cd backend && ./mvnw test pitest:mutationCoverage --batch-mode --no-transfer-progress 2>&1 | tee pitest-output.log
           # Extract summary stats from PIT output
@@ -37,20 +33,3 @@ jobs:
         with:
           name: pitest-report
           path: backend/target/pit-reports/
-      - name: Send email notification
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_HOST }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "PIT Mutation Testing — ${{ job.status }}"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: PhotoCast CI <${{ secrets.SMTP_USERNAME }}>
-          body: |
-            PIT mutation testing ${{ job.status }}.
-
-            ${{ steps.pitest.outputs.summary }}
-
-            Report artifact: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
