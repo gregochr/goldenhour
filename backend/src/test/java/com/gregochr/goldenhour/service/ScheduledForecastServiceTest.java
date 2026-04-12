@@ -17,7 +17,6 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -64,13 +63,17 @@ class ScheduledForecastServiceTest {
                 commandFactory, commandExecutor, tideService, locationService,
                 jobRunService, exchangeRateService, briefingService,
                 dynamicSchedulerService);
-        lenient().when(commandFactory.create(any(RunType.class), any(boolean.class)))
+    }
+
+    private void stubCommandFactory() {
+        when(commandFactory.create(any(RunType.class), any(boolean.class)))
                 .thenReturn(new ForecastCommand(RunType.SHORT_TERM, List.of(), null, null, false));
     }
 
     @Test
     @DisplayName("runNearTermForecasts() creates SHORT_TERM command and executes it")
     void runNearTermForecasts_createsShortTermCommand() {
+        stubCommandFactory();
         scheduledForecastService.runNearTermForecasts();
 
         ArgumentCaptor<RunType> rtCaptor = ArgumentCaptor.forClass(RunType.class);
@@ -84,6 +87,7 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("runDistantForecasts() creates LONG_TERM command and executes it")
     void runDistantForecasts_createsLongTermCommand() {
+        stubCommandFactory();
         scheduledForecastService.runDistantForecasts();
 
         ArgumentCaptor<RunType> rtCaptor = ArgumentCaptor.forClass(RunType.class);
@@ -95,6 +99,7 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("runWeatherForecasts() creates WEATHER command and executes it")
     void runWeatherForecasts_createsWeatherCommand() {
+        stubCommandFactory();
         scheduledForecastService.runWeatherForecasts();
 
         ArgumentCaptor<RunType> rtCaptor = ArgumentCaptor.forClass(RunType.class);

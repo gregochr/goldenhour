@@ -108,8 +108,7 @@ class ClaudeEvaluationStrategyTest {
     void evaluate_nonRetryableError_propagates() {
         AtmosphericData data = buildAtmosphericData();
 
-        AnthropicServiceException badRequestException = buildServiceException(
-                400, "invalid_request_error: max_tokens must be positive");
+        AnthropicServiceException badRequestException = mock(AnthropicServiceException.class);
 
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenThrow(badRequestException);
@@ -715,6 +714,29 @@ class ClaudeEvaluationStrategyTest {
         assertThat(systemPrompt).contains("COASTAL TIDE GUIDANCE:");
     }
 
+    @Test
+    @DisplayName("evaluateWithDetails() user prompt contains fiery_sky, golden_hour, and location name")
+    void evaluateWithDetails_userMessage_containsPromptKeywords() {
+        AtmosphericData data = buildAtmosphericData();
+        String rawJson = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Standard.\"}";
+        Message response = buildMessage(rawJson);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        EvaluationDetail detail = strategy.evaluateWithDetails(data);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).isNotBlank();
+
+        assertThat(detail.promptSent()).contains("Fiery Sky Potential");
+        assertThat(detail.promptSent()).contains("Golden Hour Potential");
+        assertThat(detail.promptSent()).contains("Durham UK");
+    }
+
     // --- Helper methods ---
 
     private Message buildMessage(String text) {
@@ -756,13 +778,6 @@ class ClaudeEvaluationStrategyTest {
                         .build())
                 .serviceTier(Usage.ServiceTier.of("standard"))
                 .build();
-    }
-
-    private AnthropicServiceException buildServiceException(int statusCode, String message) {
-        AnthropicServiceException ex = mock(AnthropicServiceException.class);
-        org.mockito.Mockito.lenient().when(ex.statusCode()).thenReturn(statusCode);
-        org.mockito.Mockito.lenient().when(ex.getMessage()).thenReturn(message);
-        return ex;
     }
 
     private AtmosphericData buildAtmosphericData() {

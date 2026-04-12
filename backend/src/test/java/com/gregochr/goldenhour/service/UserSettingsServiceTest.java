@@ -51,7 +51,11 @@ class UserSettingsServiceTest {
     @BeforeEach
     void setUp() {
         service = new UserSettingsService(userRepository, postcodesIoClient, driveDurationService);
-        org.mockito.Mockito.lenient().when(auth.getName()).thenReturn(USERNAME);
+    }
+
+    /** Stub {@code auth.getName()} — call in every test that passes {@code auth} to the service. */
+    private void stubAuth() {
+        when(auth.getName()).thenReturn(USERNAME);
     }
 
     private AppUserEntity buildUser() {
@@ -66,6 +70,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getSettings returns profile with no home location")
     void getSettings_noHome_returnsNullFields() {
+        stubAuth();
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
@@ -81,6 +86,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getSettings resolves place name when home postcode is set")
     void getSettings_withHome_resolvesPlaceName() {
+        stubAuth();
         AppUserEntity user = buildUser();
         user.setHomePostcode("DH1 3LE");
         user.setHomeLatitude(54.7761);
@@ -98,6 +104,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getSettings gracefully handles postcode lookup failure")
     void getSettings_lookupFails_returnsNullPlaceName() {
+        stubAuth();
         AppUserEntity user = buildUser();
         user.setHomePostcode("DH1 3LE");
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
@@ -125,6 +132,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("saveHome persists postcode and coordinates")
     void saveHome_persistsFields() {
+        stubAuth();
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
@@ -141,6 +149,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("refreshDriveTimes throws 400 when no home location set")
     void refreshDriveTimes_noHome_throws400() {
+        stubAuth();
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
@@ -152,6 +161,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("refreshDriveTimes throws 429 when recently refreshed")
     void refreshDriveTimes_recentRefresh_throws429() {
+        stubAuth();
         AppUserEntity user = buildUser();
         user.setHomeLatitude(54.7761);
         user.setHomeLongitude(-1.5733);
@@ -166,6 +176,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("refreshDriveTimes passes correct user ID and coordinates to duration service")
     void refreshDriveTimes_success_passesCorrectArgs() {
+        stubAuth();
         AppUserEntity user = buildUser();
         user.setHomeLatitude(54.7761);
         user.setHomeLongitude(-1.5733);
@@ -185,6 +196,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("refreshDriveTimes allows refresh after cooldown period")
     void refreshDriveTimes_afterCooldown_succeeds() {
+        stubAuth();
         AppUserEntity user = buildUser();
         user.setHomeLatitude(54.7761);
         user.setHomeLongitude(-1.5733);
@@ -200,6 +212,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("refreshDriveTimes succeeds on first-ever refresh (null driveTimesCalculatedAt)")
     void refreshDriveTimes_firstEver_succeeds() {
+        stubAuth();
         AppUserEntity user = buildUser();
         user.setHomeLatitude(54.7761);
         user.setHomeLongitude(-1.5733);
@@ -215,6 +228,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("refreshDriveTimes does not call duration service when home coordinates missing")
     void refreshDriveTimes_noHome_doesNotCallDurationService() {
+        stubAuth();
         AppUserEntity user = buildUser();
         // homeLatitude and homeLongitude both null
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
@@ -227,6 +241,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("saveHome returns response with persisted postcode")
     void saveHome_returnsResponseWithPostcode() {
+        stubAuth();
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
@@ -240,6 +255,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getSettings includes driveTimesCalculatedAt in response")
     void getSettings_includesDriveTimesCalculatedAt() {
+        stubAuth();
         AppUserEntity user = buildUser();
         Instant calculated = Instant.parse("2026-04-04T18:30:00Z");
         user.setDriveTimesCalculatedAt(calculated);
@@ -253,6 +269,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getSettings returns null driveTimesCalculatedAt when never refreshed")
     void getSettings_noDriveTimes_returnsNullTimestamp() {
+        stubAuth();
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
@@ -264,6 +281,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getUserId returns user primary key")
     void getUserId_returnsId() {
+        stubAuth();
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
@@ -275,6 +293,7 @@ class UserSettingsServiceTest {
     @Test
     @DisplayName("getSettings throws NoSuchElementException for unknown user")
     void getSettings_unknownUser_throws() {
+        stubAuth();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getSettings(auth))

@@ -42,7 +42,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -130,38 +129,60 @@ class ForecastCommandExecutorTest {
     @BeforeEach
     void setUp() {
         noOpStrategy = new NoOpEvaluationStrategy();
-        lenient().when(locationService.findAllEnabled()).thenReturn(List.of(durham()));
-        lenient().when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
-        lenient().when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
-        // Return MAX so shouldSkipEvent() never skips
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
-                .thenReturn(LocalDateTime.MAX);
-        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
-                .thenReturn(LocalDateTime.MAX);
-        lenient().when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
-        lenient().when(optimisationSkipEvaluator.shouldSkip(any(), any(LocationEntity.class), any(), any()))
-                .thenReturn(false);
-        lenient().when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
-        lenient().when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
-
-        // Return a stub job run entity from startRun()
         stubJobRun = new JobRunEntity();
         stubJobRun.setId(1L);
-        lenient().when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
-                .thenReturn(stubJobRun);
-
-        // Default: prefetchWeatherBatch returns a shared map that we can verify was passed through
         stubPrefetchedWeather = new java.util.LinkedHashMap<>();
-        lenient().when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
-                .thenReturn(stubPrefetchedWeather);
-
-        // Default: prefetchCloudBatch returns a shared cache
         stubCloudCache = new CloudPointCache(java.util.Map.of());
-        lenient().when(openMeteoService.prefetchCloudBatch(anyList(), any()))
-                .thenReturn(stubCloudCache);
 
-        // Default: fetchWeatherAndTriage returns non-triaged result
-        lenient().when(forecastService.fetchWeatherAndTriage(
+        // Use synchronous executor
+        executor = new ForecastCommandExecutor(
+                forecastService, locationService, jobRunService, solarService,
+                commandFactory, Runnable::run, optimisationSkipEvaluator,
+                optimisationStrategyService, progressTracker, eventPublisher,
+                sentinelSelector, astroConditionsService, stabilityClassifier,
+                openMeteoService);
+    }
+
+    /**
+     * Stubs for the "infrastructure" layer shared by all colour execute() tests:
+     * job run, prefetch, model resolution, strategy list, and solar-event guards.
+     * Does NOT stub {@code findAllEnabled()} — add that inline when the command has null locations.
+     * Does NOT stub {@code shouldSkip()} — add that inline when testing skip-evaluator behaviour.
+     * Does NOT stub {@code fetchWeatherAndTriage} or {@code evaluateAndPersist} —
+     * call {@link #stubDefaultTriage()} when you need the pass-through default, or
+     * add your own triage stub when the test controls triage outcomes directly.
+     */
+    private void stubExecuteDefaults() {
+        when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
+        when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
+        when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
+        when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
+                .thenReturn(stubJobRun);
+        when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
+                .thenReturn(stubPrefetchedWeather);
+        when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+                .thenReturn(stubCloudCache);
+    }
+
+    /**
+     * Stubs solar-service calls so {@code shouldSkipEvent()} never drops a slot.
+     * Add this to tests that run against today's date and both SUNRISE + SUNSET are active.
+     */
+    private void stubSolarNotPast() {
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
+                .thenReturn(LocalDateTime.MAX);
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                .thenReturn(LocalDateTime.MAX);
+    }
+
+    /**
+     * Default pass-through stub for {@code fetchWeatherAndTriage} (returns triaged=false,
+     * daysAhead=0, rating placeholder). Call this when the test does not control triage outcomes.
+     */
+    private void stubDefaultFetch() {
+        when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
                 any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class),
                 eq(stubPrefetchedWeather), eq(stubCloudCache)))
@@ -175,24 +196,35 @@ class ForecastCommandExecutorTest {
                             model, loc.getTideType(),
                             loc.getName() + "|" + date + "|" + type, null);
                 });
+    }
 
-        // Default: evaluateAndPersist returns a stub entity
-        lenient().when(forecastService.evaluateAndPersist(
+    /**
+     * Default stub for {@code evaluateAndPersist} (returns rating 3).
+     * Call this in tests that verify evaluation happens but do not assert the specific rating.
+     */
+    private void stubDefaultEval() {
+        when(forecastService.evaluateAndPersist(
                 any(ForecastPreEvalResult.class), any(JobRunEntity.class)))
                 .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(3).build());
+    }
 
-        // Use synchronous executor
-        executor = new ForecastCommandExecutor(
-                forecastService, locationService, jobRunService, solarService,
-                commandFactory, Runnable::run, optimisationSkipEvaluator,
-                optimisationStrategyService, progressTracker, eventPublisher,
-                sentinelSelector, astroConditionsService, stabilityClassifier,
-                openMeteoService);
+    /**
+     * Minimal stubs for wildlife (NoOp strategy) execute() tests.
+     * Wildlife tests only reach {@code runForecasts()}, so colour-pipeline stubs are unused.
+     */
+    private void stubWildlifeDefaults() {
+        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
+        when(jobRunService.startRun(any(), any(boolean.class), any(), any()))
+                .thenReturn(stubJobRun);
     }
 
     @Test
     @DisplayName("execute() calls fetchWeatherAndTriage once per target type per day for colour locations")
     void execute_colourLocations_callsTriageForEachTargetTypePerDay() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2));
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates, List.of(durham()),
@@ -221,6 +253,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() calls evaluateAndPersist for non-triaged tasks")
     void execute_colourLocations_callsEvaluateForNonTriaged() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates, List.of(durham()),
@@ -239,6 +275,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() skips evaluation for triaged tasks")
     void execute_triagedTasks_skipEvaluation() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         // All tasks triaged
         when(forecastService.fetchWeatherAndTriage(
                 any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
@@ -268,7 +306,7 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() with NoOp strategy calls forecastService with WILDLIFE model")
     void execute_wildlife_callsForecastServiceWithWildlife() {
-        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
+        stubWildlifeDefaults();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
@@ -287,7 +325,7 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() with NoOp strategy does NOT call for colour locations")
     void execute_wildlife_excludesColourLocations() {
-        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
+        stubWildlifeDefaults();
         when(locationService.findAllEnabled()).thenReturn(List.of(durham(), wildlifeReserve()));
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
@@ -374,6 +412,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() skips locations in excludedLocations set")
     void execute_excludedLocations_skipsThoseLocations() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocationEntity whitley = LocationEntity.builder()
                 .id(3L)
                 .name("Whitley Bay")
@@ -420,6 +462,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() with empty excludedLocations processes all locations normally")
     void execute_emptyExcludedLocations_processesAll() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocationEntity whitley = LocationEntity.builder()
                 .id(3L)
                 .name("Whitley Bay")
@@ -457,13 +503,18 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Past sunrise today is dropped before triage; sunset still proceeds")
     void execute_pastSunriseToday_sunriseDropped_sunsetProceeds() {
+        stubExecuteDefaults();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDateTime twoHoursAgo = LocalDateTime.now(ZoneOffset.UTC).minusHours(2);
 
         // Sunrise happened 2 h ago — should be silently dropped before triage
         when(solarService.sunriseUtc(eq(durham().getLat()), eq(durham().getLon()), eq(today)))
                 .thenReturn(twoHoursAgo);
-        // Sunset remains at MAX (far future) from lenient setUp stub
+        // Sunset is far future — should proceed normally
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                .thenReturn(LocalDateTime.MAX);
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
@@ -486,8 +537,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Future-date slots are never dropped by solar timing — shouldSkipEvent only applies to today")
     void execute_futureDateSlots_neverDroppedBySolarTiming() {
-        // shouldSkipEvent short-circuits on targetDate != today without calling solarService,
-        // so no stub needed — the default lenient MAX stub covers any residual calls.
+        stubExecuteDefaults();
+        stubDefaultFetch();
+        stubDefaultEval();
+        // shouldSkipEvent short-circuits on targetDate != today without calling solarService
         LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(tomorrow),
@@ -515,6 +568,11 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Excluded SUNRISE slot is dropped before triage; SUNSET still proceeds")
     void execute_excludedSunriseSlot_onlySunsetPassedToTriage() {
+        stubExecuteDefaults();
+        stubDefaultFetch();
+        stubDefaultEval();
+        // SUNRISE is excluded before shouldSkipEvent — only sunsetUtc is checked
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.MAX);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         String excludedSlot = today + "|SUNRISE";
 
@@ -539,6 +597,11 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Excluded SUNSET slot is dropped before triage; SUNRISE still proceeds")
     void execute_excludedSunsetSlot_onlySunrisePassedToTriage() {
+        stubExecuteDefaults();
+        stubDefaultFetch();
+        stubDefaultEval();
+        // SUNSET is excluded before shouldSkipEvent — only sunriseUtc is checked
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.MAX);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         String excludedSlot = today + "|SUNSET";
 
@@ -567,6 +630,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("All tasks triaged: persistCannedResult and evaluateAndPersist never called")
     void execute_allTasksTriaged_noPersistAndNoEvaluate() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         // Both SUNRISE and SUNSET come back triaged
         when(forecastService.fetchWeatherAndTriage(
@@ -600,6 +665,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Mixed triage: survivor proceeds to evaluateAndPersist; triaged location does not")
     void execute_mixedTriage_survivorEvaluated_triagedLocationNot() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocationEntity whitley = LocationEntity.builder()
                 .id(3L).name("Whitley Bay").lat(55.04).lon(-1.44)
                 .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET)))
@@ -641,6 +710,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Optimisation skip produces no persistCannedResult call — no phantom DB write")
     void execute_scheduledOptimisationSkip_persistCannedResultNeverCalled() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         when(optimisationSkipEvaluator.shouldSkip(
                 org.mockito.ArgumentMatchers.anyList(),
@@ -681,6 +752,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Scheduled run delegates skip decision to OptimisationSkipEvaluator for each event type")
     void execute_scheduledRun_delegatesToSkipEvaluatorForEachEventType() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
@@ -709,6 +784,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Scheduled run skips evaluation when OptimisationSkipEvaluator returns true")
     void execute_scheduledRun_skipsWhenEvaluatorSaysSkip() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
@@ -741,6 +818,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Manual run bypasses OptimisationSkipEvaluator and always proceeds to triage")
     void execute_manualRun_bypassesOptimisationSkipEvaluator() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
 
@@ -781,6 +862,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() captures active strategies on job run")
     void execute_capturesStrategiesOnJobRun() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today);
         when(optimisationStrategyService.serialiseEnabledStrategies(RunType.SHORT_TERM))
@@ -799,7 +884,7 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Wildlife run does not load optimisation strategies")
     void execute_wildlife_noStrategies() {
-        when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.WILDLIFE);
+        stubWildlifeDefaults();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
 
         ForecastCommand cmd = new ForecastCommand(RunType.WEATHER, List.of(today),
@@ -817,6 +902,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() passes tideAlignmentEnabled=true when TIDE_ALIGNMENT strategy is active")
     void execute_tideAlignmentStrategyEnabled_passesTrue() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         OptimisationStrategyEntity tideAlignmentStrategy = OptimisationStrategyEntity.builder()
                 .strategyType(OptimisationStrategyType.TIDE_ALIGNMENT)
                 .enabled(true)
@@ -839,6 +928,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("execute() passes tideAlignmentEnabled=false when TIDE_ALIGNMENT strategy is inactive")
     void execute_tideAlignmentStrategyDisabled_passesFalse() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
 
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
@@ -868,6 +961,9 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Sentinel early-stop skips remainder when all sentinels rate ≤ threshold")
     void execute_sentinelEarlyStop_skipsRemainder() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
         RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
         LocationEntity sentinel = LocationEntity.builder()
                 .id(10L).name("Sentinel Loc").lat(55.0).lon(-1.0)
@@ -909,6 +1005,9 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Sentinel passes when any sentinel rates above threshold, remainder evaluated")
     void execute_sentinelPasses_remainderEvaluated() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
         RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
         LocationEntity sentinel = LocationEntity.builder()
                 .id(10L).name("Sentinel Loc").lat(55.0).lon(-1.0)
@@ -939,6 +1038,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Null-region locations bypass sentinel logic and go directly to full eval")
     void execute_nullRegion_bypassesSentinel() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         when(optimisationStrategyService.getEnabledStrategies(any()))
                 .thenReturn(List.of(sentinelStrategy(2)));
 
@@ -959,6 +1062,9 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Sentinel disabled — all survivors go directly to full evaluation, no sentinel calls")
     void execute_sentinelDisabled_allGoToFullEval() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
         RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
         LocationEntity loc1 = LocationEntity.builder()
                 .id(10L).name("Loc A").lat(55.0).lon(-1.0)
@@ -998,6 +1104,9 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Sentinel with custom threshold 3 — skips when all sentinels rate ≤3")
     void execute_sentinelCustomThreshold_usesParamValue() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
         RegionEntity northRegion = RegionEntity.builder().id(1L).name("North").enabled(true).build();
         LocationEntity sentinel = LocationEntity.builder()
                 .id(10L).name("Sentinel Loc").lat(55.0).lon(-1.0)
@@ -1047,6 +1156,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Stability filter: UNSETTLED skips T+2 tasks, keeps T+0")
     void stabilityFilter_unsettled_skipsT2() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
 
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
@@ -1063,7 +1174,7 @@ class ForecastCommandExecutorTest {
                             loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
                 });
 
-        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+        when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenReturn(new GridCellStabilityResult(
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.UNSETTLED, "Deep low", 0));
@@ -1088,6 +1199,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Stability filter: SETTLED allows all tasks through")
     void stabilityFilter_settled_allowsAll() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
 
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
@@ -1104,7 +1217,7 @@ class ForecastCommandExecutorTest {
                             loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
                 });
 
-        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+        when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenReturn(new GridCellStabilityResult(
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.SETTLED, "High pressure", 3));
@@ -1129,6 +1242,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Stability filter: location without grid cell defaults to T+1 window")
     void stabilityFilter_noGridCell_defaultsToT1() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocationEntity loc = durham(); // no gridLat/gridLng
 
         when(forecastService.fetchWeatherAndTriage(
@@ -1164,6 +1279,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Stability filter: TRANSITIONAL allows T+0 and T+1, skips T+2")
     void stabilityFilter_transitional_allowsT0T1() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
 
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
@@ -1180,7 +1297,7 @@ class ForecastCommandExecutorTest {
                             loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
                 });
 
-        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+        when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenReturn(new GridCellStabilityResult(
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.TRANSITIONAL, "Mixed signals", 1));
@@ -1210,6 +1327,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("prefetchWeather deduplicates same location across multiple dates")
     void prefetchWeather_deduplicatesSameLocation() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today, today.plusDays(1));
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
@@ -1227,6 +1348,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("prefetchWeather deduplicates two locations with identical lat/lon")
     void prefetchWeather_sameLatLon_differentNames_deduplicates() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocationEntity durham2 = LocationEntity.builder()
                 .id(5L).name("Durham Castle")
                 .lat(54.7753).lon(-1.5849)
@@ -1249,6 +1374,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("triagePhase passes exact prefetched map object to fetchWeatherAndTriage")
     void triagePhase_passesExactPrefetchedMap() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
                 List.of(durham()), haikuStrategy, true);
@@ -1268,6 +1397,8 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Stability snapshot: scheduled run populates getLatestStabilitySummary()")
     void stabilitySnapshot_populatedAfterScheduledRun() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
         OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
 
@@ -1280,7 +1411,7 @@ class ForecastCommandExecutorTest {
                         0, EvaluationModel.HAIKU, loc.getTideType(),
                         loc.getName() + "|" + today + "|SUNSET", resp));
 
-        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+        when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenReturn(new GridCellStabilityResult(
                         loc.gridCellKey(), 54.75, -1.625,
                         ForecastStability.SETTLED, "High pressure dominant (1025 hPa)", 3));
@@ -1303,6 +1434,10 @@ class ForecastCommandExecutorTest {
     @Test
     @DisplayName("Stability snapshot: manual run does not update getLatestStabilitySummary()")
     void stabilitySnapshot_notUpdatedByManualRun() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
         LocationEntity loc = durhamWithGrid();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
 

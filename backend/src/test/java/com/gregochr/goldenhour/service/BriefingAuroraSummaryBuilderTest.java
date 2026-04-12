@@ -40,7 +40,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -73,12 +72,15 @@ class BriefingAuroraSummaryBuilderTest {
 
     @BeforeEach
     void setUp() {
-        // By default, gloss service passes through regions unchanged
-        lenient().when(auroraGlossService.enrichGlosses(anyList(), any(), any(), any()))
-                .thenAnswer(invocation -> invocation.getArgument(0));
         builder = new BriefingAuroraSummaryBuilder(
                 auroraStateCache, noaaSwpcClient, weatherEnricher, locationRepository,
                 lunarCalculator, auroraGlossService);
+    }
+
+    /** Stub gloss service to pass regions through unchanged — call from every tonight active-path test. */
+    private void stubGlossPassthrough() {
+        when(auroraGlossService.enrichGlosses(anyList(), any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
@@ -91,6 +93,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("buildAuroraTonight returns summary with weather when active")
     void tonightSummary_whenActive() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
@@ -120,6 +123,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("buildAuroraTonight gracefully handles weather enrichment failure")
     void tonightSummary_weatherEnrichmentFails() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
@@ -236,6 +240,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("buildAuroraTonight passes correct locations and midnight target to enricher")
     void tonightWeatherUseMidnightTarget() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
@@ -293,6 +298,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("Fresh enricher cloud data overrides stale score — score says clear, enricher says overcast")
     void tonightSummary_enricherOverridesStaleScore_clearToOvercast() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Bamburgh", "Northumberland");
         // Score baked in hours ago when skies were clear (30% cloud)
         AuroraForecastScore score = new AuroraForecastScore(
@@ -319,6 +325,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("Fresh enricher cloud data overrides stale score — score says overcast, enricher says clear")
     void tonightSummary_enricherOverridesStaleScore_overcastToClear() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         // Score baked in hours ago when storm was active (90% cloud)
         AuroraForecastScore score = new AuroraForecastScore(
@@ -345,6 +352,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("Falls back to score cloud data when enricher has no data for a location")
     void tonightSummary_fallsBackToScoreWhenEnricherMissing() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear");
@@ -369,6 +377,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("Multi-region: one GO one STANDDOWN — clearCount is regional total, not stale score total")
     void tonightSummary_multiRegion_mixedWeather() {
+        stubGlossPassthrough();
         LocationEntity kielder = location(1L, "Kielder", "Northumberland");
         LocationEntity bamburgh = location(2L, "Bamburgh", "Northumberland");
         LocationEntity roseberry = location(3L, "Roseberry Topping", "North York Moors");
@@ -414,6 +423,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("STANDDOWN verdict when every location in a region is overcast")
     void tonightSummary_allOvercast_standdown() {
+        stubGlossPassthrough();
         LocationEntity loc1 = location(1L, "Bamburgh", "Northumberland");
         LocationEntity loc2 = location(2L, "Embleton", "Northumberland");
 
@@ -447,6 +457,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("Cloud threshold boundary: 74% is clear, 75% is not")
     void tonightSummary_cloudThresholdBoundary() {
+        stubGlossPassthrough();
         LocationEntity clearLoc = location(1L, "Kielder", "Northumberland");
         LocationEntity borderLoc = location(2L, "Bamburgh", "Northumberland");
 
@@ -475,6 +486,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("bestBortleClass reflects the darkest location in the region")
     void tonightSummary_bestBortleClass() {
+        stubGlossPassthrough();
         LocationEntity dark = location(1L, "Kielder", "Northumberland");
         dark.setBortleClass(2);
         LocationEntity moderate = location(2L, "Bamburgh", "Northumberland");
@@ -504,6 +516,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("buildAuroraTonight populates moon phase, illumination, and transition fields")
     void tonightSummary_includesMoonData() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
@@ -532,6 +545,7 @@ class BriefingAuroraSummaryBuilderTest {
     @Test
     @DisplayName("Good Friday scenario: moon rises mid-window → DARK_THEN_MOONLIT with rise time")
     void tonightSummary_moonRisesMidWindow_darkThenMoonlit() {
+        stubGlossPassthrough();
         LocationEntity loc = location(1L, "Kielder", "Northumberland");
         AuroraForecastScore score = new AuroraForecastScore(
                 loc, 4, AlertLevel.MODERATE, 30, "Active aurora", "Clear skies");

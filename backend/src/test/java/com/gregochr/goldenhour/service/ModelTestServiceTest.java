@@ -43,7 +43,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -138,16 +137,12 @@ class ModelTestServiceTest {
     void runTest_noRegions() {
         when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             e.setId(1L);
             return e;
         });
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
-        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
 
         ModelTestRunEntity result = service.runTest();
 
@@ -209,7 +204,7 @@ class ModelTestServiceTest {
 
         when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(r));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(wildLoc));
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             if (e.getId() == null) {
@@ -217,9 +212,7 @@ class ModelTestServiceTest {
             }
             return e;
         });
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
-                .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
-        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
 
         ModelTestRunEntity result = service.runTest();
@@ -259,11 +252,11 @@ class ModelTestServiceTest {
                 .thenThrow(new RuntimeException("Sonnet overloaded"));
         when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.OPUS), any()))
                 .thenReturn(sampleDetail(EvaluationModel.OPUS));
-        lenient().when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any()))
+        when(costCalculator.calculateCost(eq(ServiceName.ANTHROPIC), any()))
                 .thenReturn(50);
-        lenient().when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.runTest();
@@ -282,7 +275,7 @@ class ModelTestServiceTest {
 
         when(regionRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(r));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             if (e.getId() == null) {
@@ -290,7 +283,7 @@ class ModelTestServiceTest {
             }
             return e;
         });
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
@@ -492,7 +485,7 @@ class ModelTestServiceTest {
 
         when(locationRepository.findById(1L)).thenReturn(Optional.of(loc));
         when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testRunRepository.save(any())).thenAnswer(inv -> {
             ModelTestRunEntity e = inv.getArgument(0);
             if (e.getId() == null) {
@@ -500,7 +493,7 @@ class ModelTestServiceTest {
             }
             return e;
         });
-        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 6, 30));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                 .thenReturn(LocalDateTime.of(2026, 3, 1, 17, 30));
@@ -632,7 +625,7 @@ class ModelTestServiceTest {
                 .thenReturn(50);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
                 .thenReturn(5400L);
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.rerunTestDeterministic(10L);
@@ -679,9 +672,9 @@ class ModelTestServiceTest {
         });
         when(evaluationService.evaluateWithDetails(any(), any(), any()))
                 .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
-        lenient().when(costCalculator.calculateCost(any(), any())).thenReturn(50);
-        lenient().when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
-        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(costCalculator.calculateCost(any(), any())).thenReturn(50);
+        when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ModelTestRunEntity result = service.rerunTestDeterministic(10L);

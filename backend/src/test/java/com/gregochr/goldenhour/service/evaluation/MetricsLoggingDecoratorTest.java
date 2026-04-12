@@ -3,8 +3,8 @@ package com.gregochr.goldenhour.service.evaluation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -67,7 +67,7 @@ class MetricsLoggingDecoratorTest {
                 350L,
                 new TokenUsage(500, 80, 200, 100));
 
-        lenient().when(delegate.getEvaluationModel()).thenReturn(EvaluationModel.SONNET);
+        when(delegate.getEvaluationModel()).thenReturn(EvaluationModel.SONNET);
     }
 
     @Test
@@ -94,6 +94,7 @@ class MetricsLoggingDecoratorTest {
         assertThat(result.promptSent()).isEqualTo("user prompt text");
         assertThat(result.durationMs()).isEqualTo(350L);
         assertThat(result.tokenUsage().inputTokens()).isEqualTo(500);
+        verify(delegate, times(1)).evaluateWithDetails(atmosphericData);
     }
 
     @Test
@@ -128,8 +129,8 @@ class MetricsLoggingDecoratorTest {
     @DisplayName("evaluateWithDetails() logs a failed API call when AnthropicServiceException is thrown")
     void evaluateWithDetails_logsApiCallOnFailure() {
         AnthropicServiceException ex = mock(AnthropicServiceException.class);
-        lenient().when(ex.statusCode()).thenReturn(429);
-        lenient().when(ex.getMessage()).thenReturn("rate limit exceeded");
+        when(ex.statusCode()).thenReturn(429);
+        when(ex.getMessage()).thenReturn("rate limit exceeded");
 
         when(delegate.evaluateWithDetails(atmosphericData)).thenThrow(ex);
 
@@ -168,8 +169,8 @@ class MetricsLoggingDecoratorTest {
     @DisplayName("evaluateWithDetails() rethrows AnthropicServiceException after logging")
     void evaluateWithDetails_rethrowsAnthropicException() {
         AnthropicServiceException ex = mock(AnthropicServiceException.class);
-        lenient().when(ex.statusCode()).thenReturn(529);
-        lenient().when(ex.getMessage()).thenReturn("overloaded");
+        when(ex.statusCode()).thenReturn(529);
+        when(ex.getMessage()).thenReturn("overloaded");
 
         when(delegate.evaluateWithDetails(atmosphericData)).thenThrow(ex);
 

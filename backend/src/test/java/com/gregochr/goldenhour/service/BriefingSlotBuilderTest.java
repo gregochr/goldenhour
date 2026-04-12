@@ -33,7 +33,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -55,15 +54,21 @@ class BriefingSlotBuilderTest {
 
     @BeforeEach
     void setUp() {
-        // Stub golden/blue window so tide augmentation can compute windowMinutes
-        lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+        slotBuilder = new BriefingSlotBuilder(solarService, locationService,
+                tideService, lunarPhaseService, new BriefingVerdictEvaluator());
+    }
+
+    /**
+     * Stub golden/blue window so tide augmentation can compute windowMinutes.
+     * Call this in tests (or nested class {@code @BeforeEach}) that use coastal locations.
+     */
+    private void stubSolarWindow() {
+        when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(new SolarService.SolarWindow(
                         LocalDateTime.of(2026, 3, 25, 18, 0),
                         LocalDateTime.of(2026, 3, 25, 18, 30),
                         LocalDateTime.of(2026, 3, 25, 17, 30),
                         LocalDateTime.of(2026, 3, 25, 18, 0)));
-        slotBuilder = new BriefingSlotBuilder(solarService, locationService,
-                tideService, lunarPhaseService, new BriefingVerdictEvaluator());
     }
 
     @Nested
@@ -101,6 +106,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Coastal + weather GO + tide not aligned → STANDDOWN with 'Tide not aligned' flag")
         void coastal_weatherGo_tideNotAligned_demotedToStanddown() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -122,6 +128,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Coastal + weather MARGINAL + tide not aligned → STANDDOWN")
         void coastal_weatherMarginal_tideNotAligned_demotedToStanddown() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -164,6 +171,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Coastal + no tide data in DB → weather GO verdict retained")
         void coastal_noTideData_weatherVerdictRetained() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -184,6 +192,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Coastal + weather already STANDDOWN + tide not aligned → no 'Tide not aligned' flag")
         void coastal_weatherStanddown_noFlagAdded() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -209,6 +218,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Coastal + tide aligned → GO retained, 'Tide aligned' flag present")
         void coastal_tideAligned_goRetained() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -273,6 +283,7 @@ class BriefingSlotBuilderTest {
     @Test
     @DisplayName("King tide detected when height exceeds P95")
     void kingTide_detected() {
+        stubSolarWindow();
         LocalDateTime solarTime = LocalDateTime.of(2026, 3, 25, 18, 0);
         LocationEntity loc = LocationEntity.builder()
                 .id(10L).name("Bamburgh").lat(55.6).lon(-1.7)
@@ -335,6 +346,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Lunar spring tide flag when new/full moon")
         void lunarSpringTide_flagGenerated() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -366,6 +378,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Lunar king tide flag when spring + perigee")
         void lunarKingTide_flagGenerated() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
@@ -420,6 +433,7 @@ class BriefingSlotBuilderTest {
         @Test
         @DisplayName("Combined label: Spring Tide + Extra High")
         void combinedLabel_springPlusStatHigh() throws Exception {
+            stubSolarWindow();
             LocationEntity loc = coastalLoc();
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);

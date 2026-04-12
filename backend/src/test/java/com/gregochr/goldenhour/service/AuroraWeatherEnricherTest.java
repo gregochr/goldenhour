@@ -27,7 +27,6 @@ import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -267,7 +266,7 @@ class AuroraWeatherEnricherTest {
     @SuppressWarnings("unchecked")
     private void stubRestClientReturns(Object returnValue) {
         when(restClient.get()).thenReturn(uriSpec);
-        lenient().when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
+        when(uriSpec.uri(any(Function.class))).thenAnswer(invocation -> {
             Function<org.springframework.web.util.UriBuilder, java.net.URI> fn =
                     invocation.getArgument(0);
             fn.apply(org.springframework.web.util.UriComponentsBuilder.newInstance());
