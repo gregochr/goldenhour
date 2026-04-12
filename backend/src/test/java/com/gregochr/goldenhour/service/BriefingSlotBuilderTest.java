@@ -33,7 +33,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -810,14 +809,13 @@ class BriefingSlotBuilderTest {
             when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
                     .thenReturn(SOLAR_TIME);
             when(locationService.isCoastal(loc)).thenReturn(true);
-            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), anyLong()))
+            // eq(30L) is the assertion: strict stubs fail if the mutant passes 120L instead
+            when(tideService.deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), eq(30L)))
                     .thenReturn(Optional.empty());
 
             BriefingSlotBuilder.LocationWeather lw =
                     new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
             slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
-
-            verify(tideService).deriveTideData(eq(loc.getId()), eq(SOLAR_TIME), eq(30L));
         }
 
         @Test
