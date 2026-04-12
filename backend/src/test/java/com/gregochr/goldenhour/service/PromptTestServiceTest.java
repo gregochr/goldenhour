@@ -538,6 +538,142 @@ class PromptTestServiceTest {
     // --- resolveDates tests ---
 
     @Test
+    @DisplayName("replayTest handles corrupt atmospheric JSON gracefully — records failure, continues")
+    void replayTest_corruptJson_recordsFailure() {
+        PromptTestRunEntity parentRun = PromptTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).evaluationModel(EvaluationModel.HAIKU)
+                .build();
+        PromptTestResultEntity corruptResult = PromptTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .targetDate(LocalDate.of(2026, 3, 1)).targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
+                .atmosphericDataJson("{invalid json!!!}")
+                .build();
+
+        stubRunRepository(parentRun);
+        when(testResultRepository.findByTestRunIdOrderByLocationNameAsc(10L))
+                .thenReturn(List.of(corruptResult));
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        stubGitInfo();
+
+        PromptTestRunEntity result = service.replayTest(10L);
+
+        assertThat(result.getSucceeded()).isEqualTo(0);
+        assertThat(result.getFailed()).isEqualTo(1);
+
+        ArgumentCaptor<PromptTestResultEntity> captor =
+                ArgumentCaptor.forClass(PromptTestResultEntity.class);
+        verify(testResultRepository, times(1)).save(captor.capture());
+        PromptTestResultEntity failedResult = captor.getAllValues().stream()
+                .filter(r -> !r.getSucceeded())
+                .findFirst()
+                .orElse(null);
+        assertThat(failedResult).isNotNull();
+        assertThat(failedResult.getErrorMessage()).contains("deserialisation failed");
+        verify(evaluationService, never()).evaluateWithDetails(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("runTest truncates error message to 500 chars on weather fetch failure")
+    void runTest_longErrorMessage_truncatedTo500() {
+        LocationEntity loc = location(1L, "Durham", Set.of(LocationType.LANDSCAPE));
+        String longError = "X".repeat(600);
+
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(loc));
+        stubRunRepository();
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
+        when(openMeteoService.getAtmosphericData(any(), any()))
+                .thenThrow(new RuntimeException(longError));
+        stubGitInfo();
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+
+        ArgumentCaptor<PromptTestResultEntity> captor =
+                ArgumentCaptor.forClass(PromptTestResultEntity.class);
+        when(testResultRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.runTest(EvaluationModel.HAIKU, RunType.VERY_SHORT_TERM);
+
+        PromptTestResultEntity failedResult = captor.getAllValues().stream()
+                .filter(r -> !r.getSucceeded())
+                .findFirst()
+                .orElse(null);
+        assertThat(failedResult).isNotNull();
+        assertThat(failedResult.getErrorMessage()).hasSize(500);
+    }
+
+    @Test
+    @DisplayName("resolveTargetTypesForDate returns both types for future date")
+    void resolveTargetTypesForDate_futureDate_returnsBoth() {
+        LocalDate tomorrow = LocalDate.now(java.time.ZoneOffset.UTC).plusDays(1);
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+
+        List<TargetType> types = service.resolveTargetTypesForDate(
+                tomorrow, now, List.of());
+
+        assertThat(types).containsExactly(TargetType.SUNRISE, TargetType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("resolveTargetTypesForDate filters past events for today")
+    void resolveTargetTypesForDate_todayAfterSunrise_excludesSunrise() {
+        LocationEntity loc = location(1L, "Durham", Set.of(LocationType.LANDSCAPE));
+        LocalDate today = LocalDate.of(2026, 6, 21);
+        LocalDateTime now = LocalDateTime.of(2026, 6, 21, 10, 0); // after sunrise
+
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(today)))
+                .thenReturn(LocalDateTime.of(2026, 6, 21, 3, 30));
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(today)))
+                .thenReturn(LocalDateTime.of(2026, 6, 21, 20, 47));
+
+        List<TargetType> types = service.resolveTargetTypesForDate(
+                today, now, List.of(loc));
+
+        assertThat(types).containsExactly(TargetType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("resolveTargetTypesForDate returns empty when both events past")
+    void resolveTargetTypesForDate_todayAfterBoth_returnsEmpty() {
+        LocationEntity loc = location(1L, "Durham", Set.of(LocationType.LANDSCAPE));
+        LocalDate today = LocalDate.of(2026, 6, 21);
+        LocalDateTime now = LocalDateTime.of(2026, 6, 21, 22, 0); // after sunset
+
+        when(solarService.sunriseUtc(anyDouble(), anyDouble(), eq(today)))
+                .thenReturn(LocalDateTime.of(2026, 6, 21, 3, 30));
+        when(solarService.sunsetUtc(anyDouble(), anyDouble(), eq(today)))
+                .thenReturn(LocalDateTime.of(2026, 6, 21, 20, 47));
+
+        List<TargetType> types = service.resolveTargetTypesForDate(
+                today, now, List.of(loc));
+
+        assertThat(types).isEmpty();
+    }
+
+    @Test
+    @DisplayName("runTest handles exchange rate fetch failure — run still completes with null rate")
+    void runTest_exchangeRateFails_runCompletesWithNullRate() {
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
+        when(exchangeRateService.getCurrentRate())
+                .thenThrow(new RuntimeException("Exchange API down"));
+        stubGitInfo();
+        stubRunRepository();
+        lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 6, 30));
+        lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                .thenReturn(LocalDateTime.of(2099, 1, 1, 17, 30));
+
+        PromptTestRunEntity result = service.runTest(EvaluationModel.HAIKU, RunType.SHORT_TERM);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getExchangeRateGbpPerUsd()).isNull();
+    }
+
+    @Test
     @DisplayName("resolveDates returns 2 dates for VERY_SHORT_TERM")
     void resolveDates_veryShortTerm() {
         List<LocalDate> dates = service.resolveDates(RunType.VERY_SHORT_TERM);

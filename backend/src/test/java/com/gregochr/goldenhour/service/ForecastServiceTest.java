@@ -1093,6 +1093,102 @@ class ForecastServiceTest {
         assertThat(result.forecastResponse()).isSameAs(forecastResp);
     }
 
+    // --- runForecasts() event publishing and notification resilience ---
+
+    @Test
+    @DisplayName("runForecasts() swallows notification failure and still returns saved entities")
+    void runForecasts_notificationFails_stillReturnsSavedEntities() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 65, "Good.");
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(evaluationService.evaluate(eq(data), any(EvaluationModel.class), any()))
+                .thenReturn(evaluation);
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("SMTP down"))
+                .when(emailService).notify(any(), any(), any(), any());
+
+        List<ForecastEvaluationEntity> results = forecastService.runForecasts(
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
+
+        assertThat(results).hasSize(2);
+        verify(repository, times(2)).save(any());
+    }
+
+    @Test
+    @DisplayName("runForecasts() publishes FAILED event before throwing on weather fetch error")
+    void runForecasts_weatherFetchFails_publishesFailedEvent() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(88L);
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException("Network error"));
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, jobRun))
+                .isInstanceOf(WeatherDataFetchException.class);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor =
+                ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, org.mockito.Mockito.atLeastOnce())
+                .publishEvent(eventCaptor.capture());
+
+        List<LocationTaskEvent> events = eventCaptor.getAllValues();
+        LocationTaskEvent failedEvent = events.stream()
+                .filter(e -> e.getState() == LocationTaskState.FAILED)
+                .findFirst()
+                .orElse(null);
+        assertThat(failedEvent).isNotNull();
+        assertThat(failedEvent.getJobRunId()).isEqualTo(88L);
+        assertThat(failedEvent.getLocationName()).isEqualTo(DURHAM);
+        assertThat(failedEvent.getErrorMessage()).contains("Network error");
+    }
+
+    @Test
+    @DisplayName("runForecasts() publishes FETCHING_WEATHER → FETCHING_CLOUD → EVALUATING → COMPLETE events")
+    void runForecasts_success_publishesLifecycleEvents() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 70, 65, "Good.");
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(99L);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(evaluationService.evaluate(eq(data), any(EvaluationModel.class), any()))
+                .thenReturn(evaluation);
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.runForecasts(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, jobRun);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor =
+                ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, org.mockito.Mockito.atLeast(3))
+                .publishEvent(eventCaptor.capture());
+
+        List<LocationTaskState> states = eventCaptor.getAllValues().stream()
+                .map(LocationTaskEvent::getState)
+                .toList();
+        assertThat(states).contains(
+                LocationTaskState.FETCHING_WEATHER,
+                LocationTaskState.FETCHING_CLOUD,
+                LocationTaskState.EVALUATING,
+                LocationTaskState.COMPLETE);
+    }
+
     // --- Notification failure cascade ---
 
     @Test

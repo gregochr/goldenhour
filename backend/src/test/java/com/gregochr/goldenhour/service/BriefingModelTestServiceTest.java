@@ -259,6 +259,140 @@ class BriefingModelTestServiceTest {
     }
 
     @Test
+    @DisplayName("All models fail — succeeded=0, failed=3, totalCostMicroDollars=0")
+    void allModelsFail_zeroCost() throws Exception {
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.now(), "Test", List.of(), List.of(),
+                null, null, false, false, 0, "Opus");
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+
+        BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
+                "{}", List.of(
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.HAIKU, null, List.of(), List.of(), 0, TokenUsage.EMPTY),
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.SONNET, null, List.of(), List.of(), 0, TokenUsage.EMPTY),
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.OPUS, null, List.of(), List.of(), 0, TokenUsage.EMPTY)));
+
+        when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
+
+        BriefingModelTestRunEntity savedRun = BriefingModelTestRunEntity.builder()
+                .id(1L).succeeded(0).failed(3).build();
+        when(runRepository.save(any())).thenReturn(savedRun);
+
+        service.runComparison();
+
+        ArgumentCaptor<BriefingModelTestRunEntity> runCaptor =
+                ArgumentCaptor.forClass(BriefingModelTestRunEntity.class);
+        verify(runRepository).save(runCaptor.capture());
+        assertThat(runCaptor.getValue().getSucceeded()).isEqualTo(0);
+        assertThat(runCaptor.getValue().getFailed()).isEqualTo(3);
+        assertThat(runCaptor.getValue().getTotalCostMicroDollars()).isEqualTo(0L);
+
+        ArgumentCaptor<BriefingModelTestResultEntity> resultCaptor =
+                ArgumentCaptor.forClass(BriefingModelTestResultEntity.class);
+        verify(resultRepository, times(3)).save(resultCaptor.capture());
+        assertThat(resultCaptor.getAllValues())
+                .allMatch(r -> !r.getSucceeded());
+        assertThat(resultCaptor.getAllValues())
+                .allMatch(r -> r.getCostMicroDollars() == 0L);
+    }
+
+    @Test
+    @DisplayName("totalCostMicroDollars on run equals sum of per-model costs")
+    void totalCostAggregated() throws Exception {
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.now(), "Test", List.of(), List.of(),
+                null, null, false, false, 0, "Opus");
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+
+        TokenUsage usage = new TokenUsage(500, 100, 0, 0);
+        BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
+                "{}", List.of(
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100, usage),
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.SONNET, "raw", List.of(), List.of(), 200, usage),
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.OPUS, "raw", List.of(), List.of(), 300, usage)));
+
+        when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
+        when(costCalculator.calculateCostMicroDollars(EvaluationModel.HAIKU, usage)).thenReturn(100L);
+        when(costCalculator.calculateCostMicroDollars(EvaluationModel.SONNET, usage)).thenReturn(300L);
+        when(costCalculator.calculateCostMicroDollars(EvaluationModel.OPUS, usage)).thenReturn(1500L);
+
+        BriefingModelTestRunEntity savedRun = BriefingModelTestRunEntity.builder().id(1L).build();
+        when(runRepository.save(any())).thenReturn(savedRun);
+
+        service.runComparison();
+
+        ArgumentCaptor<BriefingModelTestRunEntity> runCaptor =
+                ArgumentCaptor.forClass(BriefingModelTestRunEntity.class);
+        verify(runRepository).save(runCaptor.capture());
+        // 100 + 300 + 1500 = 1900
+        assertThat(runCaptor.getValue().getTotalCostMicroDollars()).isEqualTo(1900L);
+    }
+
+    @Test
+    @DisplayName("compareModels exception wrapped in IllegalStateException")
+    void compareModelsThrows_wrappedInIllegalState() throws Exception {
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.now(), "Test", List.of(), List.of(),
+                null, null, false, false, 0, "Opus");
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+
+        when(bestBetAdvisor.compareModels(any(), any()))
+                .thenThrow(new RuntimeException("Anthropic API overloaded"));
+
+        assertThatThrownBy(() -> service.runComparison())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Model comparison failed")
+                .hasCauseInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    @DisplayName("Token usage fields persisted on result entity")
+    void tokenUsageFieldsPersisted() throws Exception {
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                LocalDateTime.now(), "Test", List.of(), List.of(),
+                null, null, false, false, 0, "Opus");
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+
+        TokenUsage usage = new TokenUsage(1200, 250, 800, 400);
+        BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
+                "{}", List.of(
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100, usage),
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.SONNET, "raw", List.of(), List.of(), 200, usage),
+                        new BriefingBestBetAdvisor.ModelComparisonResult(
+                                EvaluationModel.OPUS, "raw", List.of(), List.of(), 300, usage)));
+
+        when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(500L);
+
+        BriefingModelTestRunEntity savedRun = BriefingModelTestRunEntity.builder().id(1L).build();
+        when(runRepository.save(any())).thenReturn(savedRun);
+
+        service.runComparison();
+
+        ArgumentCaptor<BriefingModelTestResultEntity> captor =
+                ArgumentCaptor.forClass(BriefingModelTestResultEntity.class);
+        verify(resultRepository, times(3)).save(captor.capture());
+
+        BriefingModelTestResultEntity first = captor.getAllValues().get(0);
+        assertThat(first.getInputTokens()).isEqualTo(1200L);
+        assertThat(first.getOutputTokens()).isEqualTo(250L);
+        assertThat(first.getCacheCreationInputTokens()).isEqualTo(800L);
+        assertThat(first.getCacheReadInputTokens()).isEqualTo(400L);
+    }
+
+    @Test
     @DisplayName("getRecentRuns delegates to repository")
     void getRecentRunsDelegates() {
         List<BriefingModelTestRunEntity> expected = List.of(

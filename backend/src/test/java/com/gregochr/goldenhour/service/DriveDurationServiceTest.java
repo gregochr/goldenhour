@@ -262,6 +262,41 @@ class DriveDurationServiceTest {
         verify(userDriveTimeRepository, never()).deleteAllByUserId(USER_ID);
     }
 
+    @Test
+    @DisplayName("InterruptedException on semaphore throws IllegalStateException and restores interrupt flag")
+    void refreshForUser_interrupted_throwsIllegalState() {
+        when(orsProperties.isConfigured()).thenReturn(true);
+
+        // Set the interrupt flag before calling — Semaphore.acquire() throws InterruptedException
+        // if the thread is interrupted on entry, even when permits are available
+        Thread.currentThread().interrupt();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("interrupted");
+
+        // Interrupt flag should still be set (restored by the catch block)
+        assertThat(Thread.interrupted()).isTrue(); // also clears the flag for test cleanup
+    }
+
+    @Test
+    @DisplayName("ORS client exception propagates — drive times not persisted")
+    void refreshForUser_orsClientThrows_propagates() {
+        when(orsProperties.isConfigured()).thenReturn(true);
+        LocationEntity loc = location(1L, "Durham", 54.78, -1.58);
+        when(locationRepository.findAll()).thenReturn(List.of(loc));
+        when(orsClient.fetchDurations(anyDouble(), anyDouble(), any()))
+                .thenThrow(new RuntimeException("ORS 503 Service Unavailable"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("503");
+
+        verify(userDriveTimeRepository, never()).saveAll(any());
+    }
+
     private static LocationEntity location(Long id, String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(id)

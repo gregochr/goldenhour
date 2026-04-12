@@ -128,6 +128,18 @@ class TideServiceTest {
         assertThat(tideService.classifyTideState(extremes, event)).isEqualTo(TideState.MID);
     }
 
+    @Test
+    @DisplayName("classifyTideState() returns HIGH when event is 59 minutes from extreme (within threshold)")
+    void classifyTideState_59MinutesFromExtreme_returnsHigh() {
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 14, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 13, 1); // 59 min before
+
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8));
+
+        assertThat(tideService.classifyTideState(extremes, event)).isEqualTo(TideState.HIGH);
+    }
+
     // -------------------------------------------------------------------------
     // buildTideData
     // -------------------------------------------------------------------------
@@ -664,6 +676,86 @@ class TideServiceTest {
         assertThat(stats.p75HighMetres()).isNotNull();
         assertThat(stats.p95HighMetres()).isNotNull();
         assertThat(stats.dataPoints()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("getTideStats() spring tide: height exactly at 125% threshold is NOT counted")
+    void getTideStats_heightExactlyAtSpringThreshold_notCounted() {
+        // avgHigh = 2.000, threshold = 2.000 * 1.25 = 2.500
+        // Height of exactly 2.500 should NOT count (compareTo > 0 required, not >=)
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(2.000), BigDecimal.valueOf(2.500),
+                        BigDecimal.valueOf(1.500), 3L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{null, null, null, 0L});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
+                1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(
+                        BigDecimal.valueOf(1.500),
+                        BigDecimal.valueOf(2.000),
+                        BigDecimal.valueOf(2.500)));  // exactly at threshold
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        // 125% of 2.000 = 2.500; 2.500 is NOT > 2.500 → springCount = 0
+        assertThat(result.get().springTideThreshold())
+                .isEqualByComparingTo(BigDecimal.valueOf(2.500));
+        assertThat(result.get().springTideCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("getTideStats() spring tide: height one step above 125% threshold IS counted")
+    void getTideStats_heightJustAboveSpringThreshold_counted() {
+        // avgHigh = 2.000, threshold = 2.500
+        // Height of 2.501 should count
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(2.000), BigDecimal.valueOf(2.501),
+                        BigDecimal.valueOf(1.500), 3L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{null, null, null, 0L});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
+                1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(
+                        BigDecimal.valueOf(1.500),
+                        BigDecimal.valueOf(2.000),
+                        BigDecimal.valueOf(2.501)));
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().springTideCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("getTideStats() king tide: height exactly at P95 is NOT counted")
+    void getTideStats_heightExactlyAtP95_kingTideNotCounted() {
+        // 10 values where the top two are equal: P95 = 1.9 (no interpolation gap)
+        // rank = 0.95 * (10-1) = 8.55 → lower=8, upper=9, value[8]=1.9, value[9]=1.9
+        // P95 = 1.9 + (1.9-1.9)*0.55 = 1.900 exactly
+        // No height is strictly > 1.900 → kingTideCount = 0
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.HIGH))
+                .thenReturn(new Object[]{
+                        BigDecimal.valueOf(1.540), BigDecimal.valueOf(1.900),
+                        BigDecimal.valueOf(1.100), 10L});
+        when(tideExtremeRepository.findHeightStatsByLocationIdAndType(1L, TideExtremeType.LOW))
+                .thenReturn(new Object[]{null, null, null, 0L});
+        when(tideExtremeRepository.findHeightsByLocationIdAndTypeOrderByHeightAsc(
+                1L, TideExtremeType.HIGH))
+                .thenReturn(List.of(
+                        BigDecimal.valueOf(1.100), BigDecimal.valueOf(1.200),
+                        BigDecimal.valueOf(1.300), BigDecimal.valueOf(1.400),
+                        BigDecimal.valueOf(1.500), BigDecimal.valueOf(1.600),
+                        BigDecimal.valueOf(1.700), BigDecimal.valueOf(1.800),
+                        BigDecimal.valueOf(1.900), BigDecimal.valueOf(1.900)));
+
+        Optional<TideStats> result = tideService.getTideStats(1L);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().p95HighMetres()).isEqualByComparingTo(BigDecimal.valueOf(1.900));
+        assertThat(result.get().kingTideCount()).isEqualTo(0);
     }
 
     @Test
