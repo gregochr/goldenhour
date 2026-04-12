@@ -27,6 +27,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.mockito.ArgumentCaptor;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -293,7 +295,11 @@ class TideServiceTest {
 
         verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
                 eq(1L), any(LocalDateTime.class), any(LocalDateTime.class));
-        verify(tideExtremeRepository).saveAll(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<TideExtremeEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(tideExtremeRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).isNotEmpty();
+        assertThat(captor.getValue()).allMatch(e -> e.getLocationId().equals(1L));
     }
 
     @Test

@@ -29,6 +29,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -179,7 +180,14 @@ class AuroraOrchestratorTest {
         AuroraStateCache.Action action = orchestrator.run();
 
         assertThat(action).isEqualTo(AuroraStateCache.Action.NOTIFY);
-        verify(claudeInterpreter).interpret(any(), any(), any(), any(), any(), any(), any());
+        verify(claudeInterpreter).interpret(
+                eq(AlertLevel.MODERATE),
+                eq(List.of(loc)),
+                any(),
+                any(),
+                eq("Active G2 storm"),
+                org.mockito.ArgumentMatchers.eq(TriggerType.REALTIME),
+                org.mockito.ArgumentMatchers.isNull());
         verify(stateCache).updateScores(any());
     }
 

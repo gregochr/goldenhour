@@ -84,10 +84,12 @@ export default function InfoTip({ text, className = '', position = 'above' }) {
       {open && (
         <span
           ref={popoverRef}
+          role="presentation"
           style={popoverStyle}
           className="w-max max-w-[min(24rem,calc(100vw-2rem))] px-2.5 py-1.5 text-xs rounded shadow-lg whitespace-pre-line bg-plex-surface text-plex-text border border-plex-border"
           data-testid="infotip-popover"
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
         >
           {text}
         </span>

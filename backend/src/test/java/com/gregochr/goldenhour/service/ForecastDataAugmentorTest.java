@@ -33,10 +33,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -64,8 +63,13 @@ class ForecastDataAugmentorTest {
 
     @BeforeEach
     void setUp() {
+        // stubs added per-test to avoid lenient() and unused-stubbing violations
+    }
+
+    /** Stubs the solar window for coastal augmentWithTideData tests. */
+    private void stubCoastalSolarWindow() {
         // Sunset window: golden hour 20:17-20:47, blue hour 20:47-21:17
-        lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+        when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(new SolarService.SolarWindow(
                         EVENT_TIME, EVENT_TIME.plusMinutes(30),
                         EVENT_TIME.minusMinutes(30), EVENT_TIME));
@@ -103,6 +107,7 @@ class ForecastDataAugmentorTest {
     @Test
     @DisplayName("augmentWithTideData() adds tide fields for coastal location")
     void augmentWithTideData_coastal_addsTideFields() {
+        stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
         LocalDateTime highTide = EVENT_TIME.plusHours(2);
         LocalDateTime lowTide = EVENT_TIME.minusHours(4);
@@ -135,6 +140,7 @@ class ForecastDataAugmentorTest {
     @Test
     @DisplayName("augmentWithTideData() sets KING_TIDE lunar type when perigee + new/full moon")
     void augmentWithTideData_kingTide_setsLunarKingTide() {
+        stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
         LocalDateTime highTide = EVENT_TIME.plusHours(2);
         LocalDateTime lowTide = EVENT_TIME.minusHours(4);
@@ -163,6 +169,7 @@ class ForecastDataAugmentorTest {
     @Test
     @DisplayName("augmentWithTideData() classifies EXTRA_EXTRA_HIGH when height exceeds P95")
     void augmentWithTideData_heightAboveP95_setsExtraExtraHigh() {
+        stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
         LocalDateTime highTide = EVENT_TIME.plusHours(2);
         LocalDateTime lowTide = EVENT_TIME.minusHours(4);
@@ -197,6 +204,7 @@ class ForecastDataAugmentorTest {
     @Test
     @DisplayName("augmentWithTideData() classifies EXTRA_HIGH when height exceeds spring threshold but not P95")
     void augmentWithTideData_heightAboveSpringNotP95_setsExtraHigh() {
+        stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
         LocalDateTime highTide = EVENT_TIME.plusHours(2);
         LocalDateTime lowTide = EVENT_TIME.minusHours(4);
@@ -231,6 +239,7 @@ class ForecastDataAugmentorTest {
     @Test
     @DisplayName("augmentWithTideData() returns null statistical size when height is below thresholds")
     void augmentWithTideData_heightBelowThresholds_nullStatisticalSize() {
+        stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
         LocalDateTime highTide = EVENT_TIME.plusHours(2);
         LocalDateTime lowTide = EVENT_TIME.minusHours(4);
@@ -273,7 +282,7 @@ class ForecastDataAugmentorTest {
                 55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
-        verify(tideService, never()).deriveTideData(any(), any(), anyLong());
+        verifyNoInteractions(tideService, solarService);
     }
 
     @Test
@@ -286,7 +295,7 @@ class ForecastDataAugmentorTest {
                 55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
-        verify(tideService, never()).deriveTideData(any(), any(), anyLong());
+        verifyNoInteractions(tideService, solarService);
     }
 
     @Test
@@ -299,12 +308,13 @@ class ForecastDataAugmentorTest {
                 55.0, -1.5, TargetType.SUNSET);
 
         assertThat(result).isSameAs(base);
-        verify(tideService, never()).deriveTideData(any(), any(), anyLong());
+        verifyNoInteractions(tideService, solarService);
     }
 
     @Test
     @DisplayName("augmentWithTideData() returns original data when no tide extremes found")
     void augmentWithTideData_noTideData_returnsOriginal() {
+        stubCoastalSolarWindow();
         AtmosphericData base = TestAtmosphericData.defaults();
         when(tideService.deriveTideData(1L, EVENT_TIME, 30L)).thenReturn(Optional.empty());
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import InfoTip from '../components/InfoTip.jsx';
 
@@ -57,5 +57,34 @@ describe('InfoTip', () => {
     // Popover must use position:fixed (not absolute) so it escapes overflow:hidden containers
     expect(popover.style.position).toBe('fixed');
     expect(Number(popover.style.zIndex)).toBeGreaterThanOrEqual(9000);
+  });
+
+  it('trigger click does not propagate to parent handler', () => {
+    const parentHandler = vi.fn();
+    render(
+      <button onClick={parentHandler} data-testid="parent">
+        <InfoTip text="help" />
+      </button>,
+    );
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    expect(parentHandler).not.toHaveBeenCalled();
+  });
+
+  it('popover content click does not propagate to parent handler', () => {
+    const parentHandler = vi.fn();
+    render(
+      <button onClick={parentHandler} data-testid="parent">
+        <InfoTip text="help text content" />
+      </button>,
+    );
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    fireEvent.click(screen.getByTestId('infotip-popover'));
+    expect(parentHandler).not.toHaveBeenCalled();
+  });
+
+  it('popover has role="presentation" to suppress interaction semantics', () => {
+    render(<InfoTip text="Some help text" />);
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    expect(screen.getByTestId('infotip-popover')).toHaveAttribute('role', 'presentation');
   });
 });
