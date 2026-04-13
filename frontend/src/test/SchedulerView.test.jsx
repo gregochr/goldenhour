@@ -361,3 +361,145 @@ describe('SchedulerView', () => {
     vi.useRealTimers();
   });
 });
+
+// ---------------------------------------------------------------------------
+// describeCron() — UK time conversion (exact-value, mutation-killing)
+//
+// vi.useFakeTimers({ toFake: ['Date'] }) pins Date to April 2026 so that
+// Europe/London is deterministically on BST (UTC+1). A winter test pins to
+// January 2026 (GMT). setInterval/setTimeout are NOT faked so polling works.
+// ---------------------------------------------------------------------------
+describe('describeCron() — UK time conversion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-04-13T10:00:00Z')); // BST: London = UTC+1
+    fetchSchedulerJobs.mockResolvedValue(MOCK_JOBS);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('converts a single UTC hour to BST (+1)', async () => {
+    // 04:00 UTC → 05:00 BST
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 4 * * *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 05:00 BST',
+      );
+    });
+  });
+
+  it('converts multiple comma-separated UTC hours to BST — all shifted +1', async () => {
+    // 04:00, 14:00, 22:00 UTC → 05:00, 15:00, 23:00 BST
+    fetchSchedulerJobs.mockResolvedValue([{
+      ...MOCK_JOBS[0], cronExpression: '0 0 4,14,22 * * *',
+    }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 05:00, 15:00, 23:00 BST',
+      );
+    });
+  });
+
+  it('wraps midnight UTC (00:00) to 01:00 BST', async () => {
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 0 * * *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 01:00 BST',
+      );
+    });
+  });
+
+  it('converts weekly cron and uses the correct day name', async () => {
+    // 02:00 UTC MON → 03:00 BST Every Monday
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 2 * * MON' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Every Monday at 03:00 BST',
+      );
+    });
+  });
+
+  it.each([
+    ['TUE', 'Tuesday'],
+    ['WED', 'Wednesday'],
+    ['THU', 'Thursday'],
+    ['FRI', 'Friday'],
+    ['SAT', 'Saturday'],
+    ['SUN', 'Sunday'],
+  ])('maps dow %s to full name "%s"', async (dow, name) => {
+    fetchSchedulerJobs.mockResolvedValue([{
+      ...MOCK_JOBS[0], cronExpression: `0 0 3 * * ${dow}`,
+    }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        `Every ${name} at 04:00 BST`,
+      );
+    });
+  });
+
+  it('preserves non-zero minutes — 07:30 UTC → 08:30 BST', async () => {
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 30 7 * * *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 08:30 BST',
+      );
+    });
+  });
+
+  it('returns the raw expression when day-of-month is not *', async () => {
+    // dom=1 → the guard fails, falls through to raw cron — kills dom guard removal mutant
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 4 1 * *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent('0 0 4 1 * *');
+    });
+  });
+
+  it('returns the raw expression when month is not *', async () => {
+    // mon=6 → the guard fails, falls through to raw cron — kills mon guard removal mutant
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 4 * 6 *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent('0 0 4 * 6 *');
+    });
+  });
+
+  it('shows GMT label and no offset in winter (January)', async () => {
+    vi.setSystemTime(new Date('2026-01-15T10:00:00Z')); // GMT: London = UTC+0
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 4 * * *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => {
+      // In GMT, 04:00 UTC == 04:00 local — label is GMT, not BST
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 04:00 GMT',
+      );
+    });
+  });
+
+  it('edit-mode cron hint also converts to UK time', async () => {
+    fetchSchedulerJobs.mockResolvedValue([{ ...MOCK_JOBS[0], cronExpression: '0 0 4 * * *' }]);
+    render(<SchedulerView />);
+    await waitFor(() => screen.getByTestId('edit-btn-tide_refresh'));
+    fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
+
+    fireEvent.change(screen.getByTestId('edit-input-tide_refresh'), {
+      target: { value: '0 0 3 * * *' },
+    });
+
+    await waitFor(() => {
+      // 03:00 UTC → 04:00 BST — the hint in edit mode uses describeCron too
+      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
+        'Daily at 04:00 BST',
+      );
+    });
+  });
+});
