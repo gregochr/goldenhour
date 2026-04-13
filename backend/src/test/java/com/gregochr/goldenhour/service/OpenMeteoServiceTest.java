@@ -1811,6 +1811,29 @@ class OpenMeteoServiceTest {
 
             assertThat(result).isNull();
         }
+
+        @Test
+        @DisplayName("null temperature returns null (kills RemoveConditionalMutator on temp==null)")
+        void extractMistTrend_nullTemperature_returnsNull() {
+            // vis and dew are non-null; only temp is null
+            // Real: temp==null → return null
+            // Mutant (temp==null check → false): skips null guard, enters loop,
+            //   calls temp.size() on null → NPE → test fails (no null return) → KILLED
+            OpenMeteoForecastResponse forecast = buildForecastResponse(
+                    List.of("2026-06-21T20:00"),
+                    List.of(10), List.of(20), List.of(30),
+                    List.of(20000.0), List.of(4.0), List.of(225),
+                    List.of(0.0), List.of(1), List.of(60),
+                    List.of(1000.0), List.of(100.0),
+                    null,           // temperature2m = null
+                    null, null, List.of(5.0)); // dewPoint2m non-null
+            // vis and dew are now non-null; clear temp explicitly
+            forecast.getHourly().setTemperature2m(null);
+
+            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+
+            assertThat(result).isNull();
+        }
     }
 
     // --- extractSolarTrend tests ---
@@ -1831,6 +1854,31 @@ class OpenMeteoServiceTest {
                 cloud, LocalDateTime.of(2026, 6, 21, 20, 0), TargetType.SUNSET);
 
         assertThat(result).isNotNull();
+    }
+
+    /**
+     * Kills RemoveConditionalMutator on {@code return slots.isEmpty() ? null : new SolarCloudTrend(slots)}.
+     *
+     * <p>When {@code lowCloud} is an empty list, every candidate {@code idx} fails the
+     * {@code idx < lowCloud.size()} guard so {@code slots} stays empty.  Real code returns
+     * {@code null}.  The EQUAL_ELSE mutant replaces {@code slots.isEmpty()} with {@code false},
+     * forcing the branch to always return {@code new SolarCloudTrend(slots)} — non-null —
+     * which fails the assertion.
+     */
+    @Test
+    @DisplayName("extractSolarTrend with empty low-cloud list returns null (no valid slots)")
+    void extractSolarTrend_emptyLowCloudList_returnsNull() {
+        // time has one entry so findBestIndex returns 0; lowCloud is empty so
+        // idx(0) < lowCloud.size()(0) is false — no slot is added → slots is empty
+        // Real: null.  Mutant (isEmpty→false): returns SolarCloudTrend(emptyList) ≠ null → KILLED
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00"),
+                List.of(), List.of(), List.of());
+
+        SolarCloudTrend result = openMeteoService.extractSolarTrend(
+                cloud, LocalDateTime.of(2026, 6, 21, 20, 0), TargetType.SUNSET);
+
+        assertThat(result).isNull();
     }
 
     // --- fetchCloudApproachDataFromCache tests ---
