@@ -97,7 +97,7 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                         {getStatusBadge(run)}
                       </div>
                       <div className="text-xs text-plex-text-muted mt-1">
-                        {formatTimestampUk(run.startedAt)} · {formatDuration(run.durationMs)}
+                        {formatTimestampUk(run.startedAt)}{run.appVersion ? ` · ${run.appVersion}` : ''} · {formatDuration(run.durationMs)}
                       </div>
                       {run.activeStrategies && (
                         <div className="flex flex-wrap gap-1 mt-1" data-testid={`strategies-${run.id}`}>

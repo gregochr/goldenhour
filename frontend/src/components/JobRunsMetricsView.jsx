@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { getJobRuns, getApiCalls, getBuildInfo } from '../api/metricsApi';
+import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { runBriefing } from '../api/briefingApi.js';
@@ -15,20 +15,6 @@ import JobRunsGrid from './JobRunsGrid';
 import RunProgressPanel from './RunProgressPanel';
 import AuroraForecastModal from './AuroraForecastModal';
 import AuroraSimulateModal from './AuroraSimulateModal';
-
-/**
- * Formats a UTC ISO timestamp as "12 Apr 21:30" in local browser time.
- *
- * @param {string} iso - ISO-8601 timestamp
- * @returns {string}
- */
-function formatDeployTime(iso) {
-  const d = new Date(iso);
-  const day = d.getDate();
-  const month = d.toLocaleString('en-GB', { month: 'short' });
-  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  return `${day} ${month} ${time}`;
-}
 
 /** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
 const STRATEGY_LABELS = {
@@ -189,7 +175,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [dateRange, setDateRange] = useState('7d');
   const [showBriefingRuns, setShowBriefingRuns] = useState(false);
   const [strategies, setStrategies] = useState({});
-  const [buildInfo, setBuildInfo] = useState(null);
   const PAGE_SIZE = 20;
 
   // Load locations and optimisation strategies once for run summaries
@@ -197,14 +182,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     fetchLocations().then(setAllLocations).catch(() => {});
     getAvailableModels()
       .then((data) => setStrategies(data.optimisationStrategies || {}))
-      .catch(() => {});
-    getBuildInfo()
-      .then((res) => {
-        const { version, deployedAt } = res.data || {};
-        if (version && version !== 'unknown') {
-          setBuildInfo({ version, deployedAt });
-        }
-      })
       .catch(() => {});
   }, []);
 
@@ -571,13 +548,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           Show briefing runs
         </label>
       </div>
-
-      {/* Build version + deploy time */}
-      {buildInfo && (
-        <p className="text-right text-[11px] text-plex-text-muted -mt-4" data-testid="build-info">
-          {buildInfo.version} · deployed {formatDeployTime(buildInfo.deployedAt)}
-        </p>
-      )}
 
       {/* Job runs grid — filtered by the same date range as the summary */}
       <JobRunsGrid

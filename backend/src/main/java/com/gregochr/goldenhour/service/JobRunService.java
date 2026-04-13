@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +33,7 @@ public class JobRunService {
     private final ApiCallLogRepository apiCallLogRepository;
     private final CostCalculator costCalculator;
     private final ExchangeRateService exchangeRateService;
+    private final String appVersion;
 
     /**
      * Constructs a {@code JobRunService}.
@@ -40,15 +42,18 @@ public class JobRunService {
      * @param apiCallLogRepository repository for API call log entities
      * @param costCalculator       service for calculating API call costs
      * @param exchangeRateService  service for fetching exchange rates
+     * @param appVersion           application version stamped on each run, from {@code APP_VERSION}
      */
     public JobRunService(JobRunRepository jobRunRepository,
             ApiCallLogRepository apiCallLogRepository,
             CostCalculator costCalculator,
-            ExchangeRateService exchangeRateService) {
+            ExchangeRateService exchangeRateService,
+            @Value("${APP_VERSION:dev}") String appVersion) {
         this.jobRunRepository = jobRunRepository;
         this.apiCallLogRepository = apiCallLogRepository;
         this.costCalculator = costCalculator;
         this.exchangeRateService = exchangeRateService;
+        this.appVersion = appVersion;
     }
 
     /**
@@ -97,6 +102,7 @@ public class JobRunService {
                 .triggeredManually(triggeredManually)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .activeStrategies(activeStrategies)
+                .appVersion(appVersion)
                 .build();
         return jobRunRepository.save(jobRun);
     }

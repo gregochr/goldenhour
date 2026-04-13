@@ -101,6 +101,10 @@ public class JobRunEntity {
     @Column(name = "active_strategies")
     private String activeStrategies;
 
+    /** Application version at the time this run was created (e.g. {@code "v2.8.19"}). */
+    @Column(name = "app_version", length = 20)
+    private String appVersion;
+
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;
