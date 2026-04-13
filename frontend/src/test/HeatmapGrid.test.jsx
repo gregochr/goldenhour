@@ -1041,3 +1041,144 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
     expect(drillDown.textContent).toContain('Bortle 3 site with low wind and clear conditions tonight.');
   });
 });
+
+// ── Day header solar times ───────────────────────────────────────────────────
+
+describe('HeatmapGrid — day header solar times', () => {
+  /**
+   * Builds a briefing day with both SUNRISE and SUNSET event summaries, each
+   * carrying a single slot at the given UTC solarEventTime strings.
+   */
+  function buildDayWithTimes(date, sunriseUtc, sunsetUtc) {
+    return {
+      date,
+      eventSummaries: [
+        {
+          targetType: 'SUNRISE',
+          regions: [{
+            regionName: 'North East',
+            verdict: 'GO',
+            summary: 'Clear',
+            slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: sunriseUtc }],
+          }],
+        },
+        {
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            verdict: 'GO',
+            summary: 'Clear',
+            slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: sunsetUtc }],
+          }],
+        },
+      ],
+    };
+  }
+
+  it('shows sunrise and sunset times in the day column header', () => {
+    // UTC 04:58 → BST 05:58  |  UTC 18:42 → BST 19:42
+    const days = [buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`)];
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const header = screen.getByTestId('heatmap-day-solar-times');
+    expect(header.textContent).toContain('05:58');
+    expect(header.textContent).toContain('19:42');
+  });
+
+  it('sunrise emoji precedes sunrise time, sunset emoji precedes sunset time — not swapped', () => {
+    // Distinct UTC times so a swap would fail: sunrise 04:58→05:58 BST, sunset 18:42→19:42 BST
+    const days = [buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`)];
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const header = screen.getByTestId('heatmap-day-solar-times');
+    const text = header.textContent;
+    const sunrisePos = text.indexOf('🌅');
+    const sunsetPos = text.indexOf('🌇');
+    // Each emoji should appear exactly once and sunrise should come before sunset
+    expect(sunrisePos).toBeGreaterThanOrEqual(0);
+    expect(sunsetPos).toBeGreaterThanOrEqual(0);
+    expect(sunrisePos).toBeLessThan(sunsetPos);
+    // The sunrise time (05:58) must appear between the two emojis
+    const betweenEmojis = text.slice(sunrisePos, sunsetPos);
+    expect(betweenEmojis).toContain('05:58');
+    // The sunset time (19:42) must appear after the sunset emoji
+    expect(text.slice(sunsetPos)).toContain('19:42');
+  });
+
+  it('shows only sunset time when day has no SUNRISE event summary', () => {
+    const days = [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${DATE_1}T18:42:00` }],
+        }],
+      }],
+    }];
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const header = screen.getByTestId('heatmap-day-solar-times');
+    expect(header.textContent).toContain('🌇');
+    expect(header.textContent).toContain('19:42');
+    expect(header.textContent).not.toContain('🌅');
+  });
+
+  it('renders no solar-times element when no slot has a solarEventTime', () => {
+    const days = [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: null }],
+        }],
+      }],
+    }];
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    expect(screen.queryByTestId('heatmap-day-solar-times')).toBeNull();
+  });
+
+  it('shows separate solar times for each day column', () => {
+    const days = [
+      buildDayWithTimes(DATE_1, `${DATE_1}T04:58:00`, `${DATE_1}T18:42:00`),
+      buildDayWithTimes(DATE_2, `${DATE_2}T04:55:00`, `${DATE_2}T18:44:00`),
+    ];
+
+    renderGrid({
+      events: [
+        { date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' },
+        { date: DATE_2, targetType: 'SUNRISE' }, { date: DATE_2, targetType: 'SUNSET' },
+      ],
+      briefingDays: days,
+    });
+
+    const headers = screen.getAllByTestId('heatmap-day-solar-times');
+    expect(headers).toHaveLength(2);
+    expect(headers[0].textContent).toContain('05:58');
+    expect(headers[0].textContent).toContain('19:42');
+    expect(headers[1].textContent).toContain('05:55');
+    expect(headers[1].textContent).toContain('19:44');
+  });
+});

@@ -854,6 +854,35 @@ export default function HeatmapGrid({
     return groups;
   }, [events]);
 
+  // Extract the first sunrise and sunset solarEventTime for each date
+  const solarTimesPerDate = useMemo(() => {
+    const map = new Map();
+    for (const day of briefingDays || []) {
+      let sunriseTime = null;
+      let sunsetTime = null;
+      for (const es of day.eventSummaries || []) {
+        if (es.targetType === 'SUNRISE' && !sunriseTime) {
+          outer: for (const r of es.regions || []) {
+            for (const s of r.slots || []) {
+              if (s.solarEventTime) { sunriseTime = s.solarEventTime; break outer; }
+            }
+          }
+        }
+        if (es.targetType === 'SUNSET' && !sunsetTime) {
+          outer: for (const r of es.regions || []) {
+            for (const s of r.slots || []) {
+              if (s.solarEventTime) { sunsetTime = s.solarEventTime; break outer; }
+            }
+          }
+        }
+      }
+      if (sunriseTime || sunsetTime) {
+        map.set(day.date, { sunriseTime, sunsetTime });
+      }
+    }
+    return map;
+  }, [briefingDays]);
+
   if (sortedRegions.length === 0 || events.length === 0) return null;
 
   const numEventCols = events.length;
@@ -938,21 +967,34 @@ export default function HeatmapGrid({
       <div className="px-1 py-1" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)' }}>
         Region
       </div>
-      {dayGroups.map(({ date, count }) => (
-        <div
-          key={date}
-          data-testid="heatmap-day-header"
-          className="text-center py-1 px-1"
-          style={{ gridColumn: `span ${count}` }}
-        >
-          <div className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
-            {getDayLabel(date, todayStr, tomorrowStr)}
+      {dayGroups.map(({ date, count }) => {
+        const times = solarTimesPerDate.get(date);
+        return (
+          <div
+            key={date}
+            data-testid="heatmap-day-header"
+            className="text-center py-1 px-1"
+            style={{ gridColumn: `span ${count}` }}
+          >
+            <div className="font-semibold text-plex-text" style={{ fontSize: '13px' }}>
+              {getDayLabel(date, todayStr, tomorrowStr)}
+            </div>
+            <div className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
+              {getShortDate(date)}
+            </div>
+            {(times?.sunriseTime || times?.sunsetTime) && (
+              <div
+                data-testid="heatmap-day-solar-times"
+                className="text-plex-text-muted flex justify-center gap-2 flex-wrap mt-0.5"
+                style={{ fontSize: '10px' }}
+              >
+                {times.sunriseTime && <span>🌅{formatTime(times.sunriseTime)}</span>}
+                {times.sunsetTime && <span>🌇{formatTime(times.sunsetTime)}</span>}
+              </div>
+            )}
           </div>
-          <div className="text-plex-text-secondary" style={{ fontSize: '11px' }}>
-            {getShortDate(date)}
-          </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* ── Sub-column header row: 🌅 / 🌇 ── */}
       <div /> {/* empty corner */}
