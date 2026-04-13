@@ -9,8 +9,10 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
@@ -18,6 +20,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -30,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -39,6 +43,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -720,6 +726,36 @@ class BriefingServiceTest {
         }
 
         @Test
+        @DisplayName("Response with non-null lat but null lon does not persist grid coordinates")
+        void fetchWeather_nonNullLatNullLon_doesNotSave() {
+            // Kills the second equality-check removal mutant at L433:
+            // real: lat==null || lon==null → true when lon==null → return early
+            // mutant (lon check removed): false || false → proceeds to set lat, null lon → saveAll called
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("Loc").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            // Response has lat set but lon null — only the lat check is alive; lon check is the survivor
+            OpenMeteoForecastResponse response = buildForecastResponse();
+            response.setLatitude(55.0);
+            response.setLongitude(null);
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList())).thenReturn(List.of(response));
+
+            briefingService.refreshBriefing();
+
+            assertThat(loc.getGridLat()).isNull();
+            assertThat(loc.getGridLng()).isNull();
+            org.mockito.Mockito.verify(locationRepository, org.mockito.Mockito.never()).saveAll(any());
+        }
+
+        @Test
         @DisplayName("saveAll failure during grid capture is logged but does not break briefing")
         void fetchWeather_saveAllFailure_briefingStillCompletes() {
             LocationEntity loc = LocationEntity.builder()
@@ -931,6 +967,469 @@ class BriefingServiceTest {
             String key1 = BriefingService.horizonGridKey(new double[]{55.0, -1.5});
             String key2 = BriefingService.horizonGridKey(new double[]{54.0, -2.0});
             assertThat(key1).isNotEqualTo(key2);
+        }
+    }
+
+    // ── lastKnownGood is populated by loadPersistedBriefing (L141) ──
+
+    @Nested
+    @DisplayName("loadPersistedBriefing populates lastKnownGood")
+    class CacheLoadingLkgTests {
+
+        /**
+         * Kills the VoidMethodCallMutator at L141 (lastKnownGood.set removed).
+         * If lastKnownGood is not set during load, a subsequent below-threshold refresh has no LKG
+         * to fall back to and returns a partial non-stale response instead of a stale one.
+         */
+        @Test
+        @DisplayName("loadPersistedBriefing sets lastKnownGood — stale served on below-threshold refresh")
+        void loadPersistedBriefing_setsLastKnownGood_usedOnBelowThresholdRefresh() throws Exception {
+            ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+            DailyBriefingResponse persisted = new DailyBriefingResponse(
+                    LocalDateTime.now(ZoneOffset.UTC), "Loaded headline", List.of(), List.of(),
+                    null, null, false, false, 0, "Haiku");
+            DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+            entity.setId(1);
+            entity.setGeneratedAt(persisted.generatedAt());
+            entity.setPayload(mapper.writeValueAsString(persisted));
+
+            when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
+
+            BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+            LunarPhaseService lunarPhaseService = new LunarPhaseService();
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                    solarService, locationService, tideService, lunarPhaseService, verdictEvaluator);
+            BriefingService freshService = new BriefingService(
+                    locationService, openMeteoClient,
+                    jobRunService, briefingCacheRepository, locationRepository, mapper,
+                    new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
+                    auroraSummaryBuilder, new BriefingHierarchyBuilder(verdictEvaluator),
+                    slotBuilder, eventPublisher);
+            freshService.loadPersistedBriefing();
+
+            // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenThrow(new RuntimeException("API down"));
+
+            freshService.refreshBriefing();
+
+            // LKG (loaded from DB) must be served as stale. Without L141, LKG is null → not stale.
+            DailyBriefingResponse result = freshService.getCachedBriefing();
+            assertThat(result).isNotNull();
+            assertThat(result.stale()).isTrue();
+        }
+    }
+
+    // ── getCachedBriefing aurora equality guard (L166-L167) ──
+
+    @Nested
+    @DisplayName("getCachedBriefing aurora equality")
+    class GetCachedBriefingAuroraTests {
+
+        /**
+         * Kills RemoveConditionalMutator at L166-L167 that causes the cache to always be rebuilt.
+         * When aurora is unchanged, getCachedBriefing must return the exact same cached instance
+         * rather than allocating a new DailyBriefingResponse on every call.
+         */
+        @Test
+        @DisplayName("aurora unchanged — successive calls return the same cached instance")
+        void auroraUnchanged_successiveCalls_returnSameInstance() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+
+            briefingService.refreshBriefing();
+
+            // Both buildAuroraTonight (stored in cache) and buildAuroraTonightCached (getCachedBriefing)
+            // return null by default → Objects.equals(null, null) = true → same instance returned
+            DailyBriefingResponse first = briefingService.getCachedBriefing();
+            DailyBriefingResponse second = briefingService.getCachedBriefing();
+            assertThat(second).isSameAs(first);
+        }
+
+        /**
+         * Kills RemoveConditionalMutator at L166-L167 that causes the cache to never rebuild.
+         * When aurora data changes, getCachedBriefing must return a new response carrying the
+         * live aurora data, not the stale snapshot stored in the cache AtomicReference.
+         */
+        @Test
+        @DisplayName("aurora changed — getCachedBriefing returns new response with live aurora")
+        void auroraChanged_returnsNewResponseWithLiveAurora() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+
+            // During refresh: buildAuroraTonight() returns null → cached response has auroraTonight=null
+            briefingService.refreshBriefing();
+
+            // Now live aurora becomes non-null — simulates aurora FSM activating between refresh calls
+            AuroraTonightSummary liveAurora = mock(AuroraTonightSummary.class);
+            when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(liveAurora);
+
+            DailyBriefingResponse result = briefingService.getCachedBriefing();
+            assertThat(result.auroraTonight()).isSameAs(liveAurora);
+        }
+    }
+
+    // ── Refresh lifecycle: counters, gloss/bestBet gates, threshold, persist, event ──
+
+    @Nested
+    @DisplayName("Refresh lifecycle counters and side effects")
+    class RefreshLifecycleTests {
+
+        /**
+         * Kills IncrementsMutator at L224 (succeeded++ → succeeded--).
+         * Verifies the four-arg completeRun receives succeeded=1, failed=0 on a single success.
+         */
+        @Test
+        @DisplayName("single success — completeRun receives succeeded=1, failed=0")
+        void singleSuccess_completeRunCountsCorrect() {
+            LocationEntity loc = location("Durham", null);
+            JobRunEntity jobRun = JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build();
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any())).thenReturn(jobRun);
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            verify(jobRunService).completeRun(eq(jobRun), eq(1), eq(0), any());
+        }
+
+        /**
+         * Kills RemoveConditionalMutator at L245 (gloss gate: succeeded > 0 always true).
+         * When all locations fail, glossService must not be called.
+         */
+        @Test
+        @DisplayName("all locations fail — glossService not called")
+        void allLocationsFail_glossServiceNotCalled() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenThrow(new RuntimeException("API down"));
+
+            briefingService.refreshBriefing();
+
+            verify(glossService, never()).generateGlosses(any(), any());
+        }
+
+        /**
+         * Kills RemoveConditionalMutator at L250 (bestBet gate: succeeded > 0 always true).
+         * When all locations fail, bestBetAdvisor must not be called.
+         */
+        @Test
+        @DisplayName("all locations fail — bestBetAdvisor not called")
+        void allLocationsFail_bestBetAdvisorNotCalled() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenThrow(new RuntimeException("API down"));
+
+            briefingService.refreshBriefing();
+
+            verify(bestBetAdvisor, never()).advise(any(), any(), any());
+        }
+
+        /**
+         * Kills BooleanReturnValsMutator at L256 (partialFailure = false constant).
+         * 2 locations with one null batch entry → succeeded=1, failed=1 → above 50% threshold.
+         * The cached response must report partialFailure=true.
+         */
+        @Test
+        @DisplayName("partial failure above threshold — cached response has partialFailure=true")
+        void partialFailureAboveThreshold_partialFailureFlagTrue() {
+            LocationEntity loc1 = locationWithId(1L, "Durham", 55.0, -1.5);
+            LocationEntity loc2 = locationWithId(2L, "Whitby", 54.4, -0.6);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc1);
+            stubSolarTimes(loc2);
+            // loc1 succeeds, loc2's entry is null → succeeded=1, failed=1 → 50% threshold
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(Arrays.asList(buildForecastResponse(), null));
+
+            briefingService.refreshBriefing();
+
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            assertThat(cached.partialFailure()).isTrue();
+            assertThat(cached.stale()).isFalse();
+        }
+
+        /**
+         * Kills MathMutator at L258 (division replaced by multiplication).
+         * 1 succeed + 2 fail (total=3): real=(1*100/3)=33 &lt; 50 → below threshold.
+         * Mutant=(1*100*3)=300 &ge; 50 → above threshold. With LKG present, real serves stale.
+         */
+        @Test
+        @DisplayName("1 succeed + 2 fail (33%) with LKG — below threshold, stale served")
+        void oneSucceedTwoFail_belowThreshold_withLkg_staleServed() {
+            // First refresh: single location succeeds → populates LKG
+            LocationEntity lkg = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(lkg));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(lkg);
+            briefingService.refreshBriefing();
+
+            // Second refresh: 3 locations, 1 succeed + 2 fail → 33% below threshold → LKG served
+            LocationEntity loc1 = locationWithId(1L, "Loc1", 55.0, -1.5);
+            LocationEntity loc2 = locationWithId(2L, "Loc2", 54.4, -0.6);
+            LocationEntity loc3 = locationWithId(3L, "Loc3", 53.8, -1.2);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(2L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(eq(loc1.getLat()), eq(loc1.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+            // loc2 and loc3 get null forecasts (batch returns [valid, null, null])
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(Arrays.asList(buildForecastResponse(), null, null));
+
+            briefingService.refreshBriefing();
+
+            // Real: 33% < 50 → LKG served (stale=true). Mutant: 300 >= 50 → fresh (stale=false).
+            DailyBriefingResponse result = briefingService.getCachedBriefing();
+            assertThat(result).isNotNull();
+            assertThat(result.stale()).isTrue();
+        }
+
+        /**
+         * Kills VoidMethodCallMutator at L270 (persistBriefing call removed).
+         * A successful refresh must save the briefing to the DB cache repository.
+         */
+        @Test
+        @DisplayName("successful refresh — briefingCacheRepository.save called")
+        void aboveThreshold_persistBriefingCalled() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            verify(briefingCacheRepository).save(any());
+        }
+
+        /**
+         * Kills VoidMethodCallMutator at L271 (publishEvent call removed).
+         * A successful refresh must publish a BriefingRefreshedEvent.
+         */
+        @Test
+        @DisplayName("successful refresh — BriefingRefreshedEvent published")
+        void aboveThreshold_briefingRefreshedEventPublished() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            ArgumentCaptor<org.springframework.context.ApplicationEvent> eventCaptor =
+                    ArgumentCaptor.forClass(org.springframework.context.ApplicationEvent.class);
+            verify(eventPublisher).publishEvent(eventCaptor.capture());
+            assertThat(eventCaptor.getValue()).isInstanceOf(BriefingRefreshedEvent.class);
+        }
+
+        /**
+         * Kills RemoveConditionalMutator at L245 that replaces "succeeded > 0" with false.
+         * When at least one location succeeds, glossService must be called.
+         */
+        @Test
+        @DisplayName("successful refresh — glossService called with day data")
+        void singleSuccess_glossServiceCalled() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            verify(glossService).generateGlosses(anyList(), any());
+        }
+
+        /**
+         * Kills RemoveConditionalMutator at L250 that replaces "succeeded > 0" with false.
+         * When at least one location succeeds, bestBetAdvisor must be called.
+         */
+        @Test
+        @DisplayName("successful refresh — bestBetAdvisor called")
+        void singleSuccess_bestBetAdvisorCalled() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            verify(bestBetAdvisor).advise(anyList(), any(), any());
+        }
+
+        /**
+         * Kills ConditionalsBoundaryMutator at L256 that changes "failed > 0" to "failed >= 0".
+         * When all locations succeed (failed=0), partialFailure must be false.
+         */
+        @Test
+        @DisplayName("all locations succeed — partialFailure is false")
+        void allLocationsSucceed_partialFailureFalse() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            assertThat(briefingService.getCachedBriefing().partialFailure()).isFalse();
+        }
+
+        /**
+         * Kills ConditionalsBoundaryMutator at L258 that changes ">= 50" to "> 50".
+         * At exactly 50% (1 succeed + 1 fail), real code treats it as above threshold and
+         * persists the briefing. The mutant would fall through to the below-threshold branch.
+         */
+        @Test
+        @DisplayName("exactly 50% success rate — above threshold, briefing persisted")
+        void exactlyFiftyPercent_aboveThreshold_briefingPersisted() {
+            LocationEntity loc1 = locationWithId(1L, "Durham", 55.0, -1.5);
+            LocationEntity loc2 = locationWithId(2L, "Whitby", 54.4, -0.6);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            stubSolarTimes(loc1);
+            stubSolarTimes(loc2);
+            // First entry succeeds, second is null → succeeded=1, failed=1, total=2 → 50%
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenReturn(Arrays.asList(buildForecastResponse(), null));
+
+            briefingService.refreshBriefing();
+
+            // Real: 50 >= 50 = true → above threshold → save called
+            // Mutant (> 50): 50 > 50 = false → below threshold → save NOT called
+            verify(briefingCacheRepository).save(any());
+        }
+
+        /**
+         * Kills VoidMethodCallMutator at L272 (completeRun removed on above-threshold path).
+         * Verifies the four-arg completeRun is called on the happy path.
+         */
+        @Test
+        @DisplayName("above-threshold refresh — four-arg completeRun called")
+        void aboveThreshold_fourArgCompleteRunCalled() {
+            LocationEntity loc = location("Durham", null);
+            JobRunEntity jobRun = JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build();
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any())).thenReturn(jobRun);
+            stubSolarTimes(loc);
+
+            briefingService.refreshBriefing();
+
+            verify(jobRunService).completeRun(eq(jobRun), eq(1), eq(0), any());
+        }
+
+        /**
+         * Kills VoidMethodCallMutator at L296 (completeRun removed on below-threshold path).
+         * Verifies completeRun is still called even when the briefing falls below the 50% threshold.
+         */
+        @Test
+        @DisplayName("below-threshold refresh — four-arg completeRun still called")
+        void belowThreshold_fourArgCompleteRunCalled() {
+            LocationEntity loc = location("Durham", null);
+            JobRunEntity jobRun = JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build();
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any())).thenReturn(jobRun);
+            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                    .thenThrow(new RuntimeException("API down"));
+
+            briefingService.refreshBriefing();
+
+            // All locations failed → 0/1 = 0% below threshold → four-arg completeRun on else branch
+            verify(jobRunService).completeRun(eq(jobRun), eq(0), eq(1), any());
+        }
+
+        private void stubSolarTimes(LocationEntity loc) {
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+        }
+
+        private LocationEntity locationWithId(long id, String name, double lat, double lon) {
+            return LocationEntity.builder()
+                    .id(id).name(name).lat(lat).lon(lon)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+    }
+
+    // ── persistBriefing entity field verification (L320–L322) ──
+
+    @Nested
+    @DisplayName("persistBriefing DB entity fields")
+    class PersistBriefingEntityTests {
+
+        /**
+         * Kills VoidMethodCallMutator / field mutation at L320 (entity.setId(1) removed),
+         * L321 (setGeneratedAt removed), and L322 (setPayload removed).
+         * The saved entity must have id=1, a non-null generatedAt, and a payload that
+         * contains the headline text so a deserialised response would be non-empty.
+         */
+        @Test
+        @DisplayName("persistBriefing saves entity with id=1, generatedAt, and serialised payload")
+        void persistBriefing_entityFieldsCorrect() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+
+            briefingService.refreshBriefing();
+
+            ArgumentCaptor<DailyBriefingCacheEntity> captor =
+                    ArgumentCaptor.forClass(DailyBriefingCacheEntity.class);
+            verify(briefingCacheRepository).save(captor.capture());
+            DailyBriefingCacheEntity saved = captor.getValue();
+
+            // L320: entity must use the fixed upsert id=1 (single-row cache)
+            assertThat(saved.getId()).isEqualTo(1);
+            // L321: generatedAt must be set (not null)
+            assertThat(saved.getGeneratedAt()).isNotNull();
+            // L322: payload must be serialised JSON (non-blank, contains expected structure)
+            assertThat(saved.getPayload()).isNotBlank();
+            assertThat(saved.getPayload()).contains("\"headline\"");
         }
     }
 
