@@ -313,7 +313,6 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
 function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap,  evaluationScores = new Map(), evaluationProgress, evaluationTimestamps = new Map(), onRunEvaluation, onStopEvaluation, canRunEvaluation, activeModelName, showAllLocations = false }) {
   const day = briefingDays.find((d) => d.date === date);
-  const [expandedType, setExpandedType] = useState(null);
   const { openDialog, closeDialog, dialogElement } = useConfirmDialog();
 
   const events = [];
@@ -376,7 +375,6 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
         {events.map(({ es, region, past }) => {
           const tappable = !past && (region.verdict !== 'STANDDOWN' || showAllLocations);
           const eventKey = es.targetType;
-          const isExpanded = expandedType === eventKey;
           const eventTime = formatTime(
             (es.regions || []).flatMap((r) => r.slots || []).find((s) => s.solarEventTime)?.solarEventTime,
           );
@@ -387,14 +385,9 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
             <div key={eventKey}>
               <div
                 data-testid="drill-down-event-row"
-                role={tappable ? 'button' : undefined}
-                tabIndex={tappable ? 0 : undefined}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded
-                  ${tappable ? 'cursor-pointer hover:bg-plex-bg/30' : 'opacity-40 cursor-default'}
-                  ${isExpanded ? 'bg-plex-bg/20' : ''}`}
+                  ${tappable ? '' : 'opacity-40'}`}
                 style={{ fontSize: '12px' }}
-                onClick={tappable ? () => setExpandedType(isExpanded ? null : eventKey) : undefined}
-                onKeyDown={tappable ? (e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedType(isExpanded ? null : eventKey); } : undefined}
               >
                 <span className="text-sm">{emoji}</span>
                 <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
@@ -426,17 +419,14 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                     🗺
                   </button>
                 )}
-                {tappable && (
-                  <Chevron open={isExpanded} className="text-plex-text-muted shrink-0" />
-                )}
               </div>
 
-              {isExpanded && region.glossDetail && (
+              {region.glossDetail && (
                 <div className="text-plex-text-secondary px-2 py-1" style={{ fontSize: '13px' }}>
                   {region.glossDetail}
                 </div>
               )}
-              {isExpanded && (
+              {tappable && (
                 <LocationSlotList
                   slots={region.slots}
                   driveMap={driveMap}

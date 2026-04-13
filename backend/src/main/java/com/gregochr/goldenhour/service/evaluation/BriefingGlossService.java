@@ -48,7 +48,7 @@ public class BriefingGlossService {
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast assistant. Given weather and tide data for a \
-            region at a solar event, respond with a JSON object containing two fields:
+            region at a sunrise or sunset, respond with a JSON object containing two fields:
             {"headline": "...", "detail": "..."}
             HEADLINE rules:
             - 7 words maximum. Count every word before responding.
@@ -63,6 +63,8 @@ public class BriefingGlossService {
             "High cloud with good canvas potential at" (ends with "at").
             DETAIL: 2-3 sentences expanding on the headline. Mention specific cloud layers, \
             percentages, trends, and any tide/coastal factors. Keep it factual and concise.
+            EVENT TYPE: The "event" field in the input will be "sunrise" or "sunset". \
+            Always refer to the event as "sunrise" or "sunset" — never use "solar event".
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
             cautionary — clear skies mean no cloud canvas to catch colour. Never describe \
             clear-all-layers conditions as good, promising, or colourful.

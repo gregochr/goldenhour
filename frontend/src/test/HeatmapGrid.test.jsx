@@ -615,10 +615,6 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
     const cell = screen.getByTestId('heatmap-cell');
     fireEvent.click(cell);
 
-    // Expand the event row inside drill-down
-    const eventRow = screen.getByTestId('drill-down-event-row');
-    fireEvent.click(eventRow);
-
     // GO slot visible, STANDDOWN slots not rendered
     const slots = screen.queryAllByTestId('briefing-slot');
     expect(slots).toHaveLength(1);
@@ -636,9 +632,6 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
 
     const cell = screen.getByTestId('heatmap-cell');
     fireEvent.click(cell);
-
-    const eventRow = screen.getByTestId('drill-down-event-row');
-    fireEvent.click(eventRow);
 
     // 1 GO slot + 2 STANDDOWN slots
     expect(screen.queryAllByTestId('briefing-slot')).toHaveLength(1);
@@ -679,10 +672,6 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
     // Click cell to open drill-down
     fireEvent.click(cell);
     expect(screen.getByTestId('drill-down-panel')).toBeTruthy();
-
-    // Expand the event row
-    const eventRow = screen.getByTestId('drill-down-event-row');
-    fireEvent.click(eventRow);
 
     // Both STANDDOWN slots visible with their reason
     const standdownSlots = screen.queryAllByTestId('standdown-slot');
@@ -928,7 +917,7 @@ describe('HeatmapGrid — aurora cell glossHeadline', () => {
 });
 
 describe('HeatmapGrid — glossDetail in drill-down', () => {
-  it('briefing drill-down shows glossDetail when event row expanded', () => {
+  it('briefing drill-down shows glossDetail immediately when drill-down opens', () => {
     const days = [DATE_1].map((date) => ({
       date,
       eventSummaries: [{
@@ -953,11 +942,7 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
     const cell = screen.getByTestId('heatmap-cell');
     fireEvent.click(cell);
 
-    // Expand the event row
-    const eventRow = screen.getByTestId('drill-down-event-row');
-    fireEvent.click(eventRow);
-
-    // glossDetail should appear between event row and locations
+    // glossDetail should appear immediately between event row and locations
     expect(screen.getByText('Thin high cloud at 40% provides colour canvas. Horizon clear.')).toBeTruthy();
   });
 
@@ -982,15 +967,48 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
       briefingDays: days,
     });
 
-    // Open drill-down and expand event
+    // Open drill-down
     const cell = screen.getByTestId('heatmap-cell');
     fireEvent.click(cell);
-    const eventRow = screen.getByTestId('drill-down-event-row');
-    fireEvent.click(eventRow);
 
     // Should not have any glossDetail text — the drill-down panel should exist but without detail
     const drillDown = screen.getByTestId('drill-down-panel');
     expect(drillDown.textContent).not.toContain('provides colour canvas');
+  });
+
+  it('location slots visible immediately when drill-down opens — no event row click needed', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['GO', 'GO']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // Slots visible without any interaction with the event row
+    expect(screen.queryAllByTestId('briefing-slot')).toHaveLength(2);
+  });
+
+  it('drill-down event row has no button role or tabIndex — it is not interactive', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const eventRow = screen.getByTestId('drill-down-event-row');
+    expect(eventRow.getAttribute('role')).toBeNull();
+    expect(eventRow.getAttribute('tabindex')).toBeNull();
+  });
+
+  it('drill-down panel contains no expand chevron (▶)', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    expect(screen.getByTestId('drill-down-panel').textContent).not.toContain('▶');
   });
 
   it('aurora drill-down shows glossDetail after header', () => {

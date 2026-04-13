@@ -379,6 +379,22 @@ class BriefingGlossServiceTest {
     }
 
     @Test
+    @DisplayName("buildUserMessage for SUNRISE event type produces event:sunrise, not sunset")
+    void buildUserMessage_sunriseEvent_producesEventSunrise() {
+        BriefingRegion goRegion = region("Northumberland", Verdict.GO);
+        BriefingEventSummary sunriseEs = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(goRegion), List.of());
+        BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 10), List.of(sunriseEs));
+        BriefingGlossService.GlossWorkItem item =
+                new BriefingGlossService.GlossWorkItem(0, 0, 0, day, sunriseEs, goRegion);
+
+        String json = glossService.buildUserMessage(item);
+
+        assertThat(json).contains("\"event\":\"sunrise\"");
+        assertThat(json).doesNotContain("\"event\":\"sunset\"");
+    }
+
+    @Test
     @DisplayName("buildUserMessage for MARGINAL region includes correct verdict")
     void buildUserMessage_marginalVerdict() {
         BriefingRegion marginalRegion = region("Lake District", Verdict.MARGINAL);
@@ -496,6 +512,25 @@ class BriefingGlossServiceTest {
                 .content().asString();
         assertThat(userMessage).contains("\"clearAllLayers\":true");
         assertThat(userMessage).contains("\"verdict\":\"MARGINAL\"");
+    }
+
+    @Test
+    @DisplayName("System prompt uses sunrise/sunset wording — never says 'solar event'")
+    void systemPrompt_usesSunriseSunsetNotSolarEvent() {
+        stubModelSelection();
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(mockResponse("Good colour"));
+
+        glossService.generateGlosses(List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        String systemPrompt = captor.getValue().system().get()
+                .asTextBlockParams().get(0).text();
+        assertThat(systemPrompt).contains("sunrise or sunset");
+        assertThat(systemPrompt).contains("never use \"solar event\"");
+        assertThat(systemPrompt).doesNotContain("at a solar event");
     }
 
     @Test
