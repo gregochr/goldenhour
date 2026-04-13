@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -12,6 +15,7 @@ import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -25,9 +29,13 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -1375,9 +1383,11 @@ class OpenMeteoServiceTest {
                 54.77, -1.58, 270, eventTime, TargetType.SUNSET, cloudCache);
 
         assertThat(result).isNotNull();
-        // Cone average: (30+40+50)/3 = 40
+        // Cone average: (30+40+50)/3 = 40 low, (10+20+30)/3 = 20 mid, (5+15+25)/3 = 15 high
+        // MathMutator (×3 instead of /3) would give 360, 180, 135 — asserting all three kills it
         assertThat(result.solarLowCloudPercent()).isEqualTo(40);
         assertThat(result.solarMidCloudPercent()).isEqualTo(20);
+        assertThat(result.solarHighCloudPercent()).isEqualTo(15);
         assertThat(result.antisolarLowCloudPercent()).isEqualTo(60);
         assertThat(result.farSolarLowCloudPercent()).isEqualTo(90);
     }
@@ -1393,5 +1403,508 @@ class OpenMeteoServiceTest {
                 54.77, -1.58, 270, eventTime, TargetType.SUNSET, cloudCache);
 
         assertThat(result).isNull();
+    }
+
+    // --- API call logging tests ---
+
+    /**
+     * Verifies that logApiCall is invoked whenever a non-null jobRun is supplied.
+     * Kills RemoveConditionalMutator on all {@code if (jobRun != null)} guards and
+     * VoidMethodCallMutator on the logApiCall call sites.
+     */
+    @Nested
+    @DisplayName("API call logging with non-null jobRun")
+    class ApiCallLoggingTests {
+
+        private final JobRunEntity jobRun = JobRunEntity.builder()
+                .id(1L).runType(RunType.BRIEFING).build();
+        private final LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+        private final ForecastRequest request = new ForecastRequest(
+                55.0, -1.5, "Test", LocalDate.of(2026, 6, 21), TargetType.SUNSET);
+
+        private OpenMeteoForecastResponse singleSlotForecast() {
+            return buildForecastResponse(
+                    List.of("2026-06-21T20:00"),
+                    List.of(10), List.of(20), List.of(30),
+                    List.of(20000.0), List.of(4.0), List.of(225),
+                    List.of(0.0), List.of(1), List.of(60),
+                    List.of(1000.0), List.of(100.0));
+        }
+
+        private OpenMeteoAirQualityResponse singleSlotAq() {
+            return buildAirQualityResponse(
+                    List.of("2026-06-21T20:00"),
+                    List.of(3.0), List.of(0.5), List.of(0.05));
+        }
+
+        private OpenMeteoForecastResponse singleSlotCloud() {
+            return buildCloudOnlyResponse(
+                    List.of("2026-06-21T20:00"), List.of(10), List.of(10), List.of(10));
+        }
+
+        @Test
+        @DisplayName("getAtmosphericDataWithResponse success logs both forecast and air-quality calls")
+        void getAtmosphericDataWithResponse_success_logsBothApiCalls() {
+            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
+                    .thenReturn(singleSlotForecast());
+            when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble()))
+                    .thenReturn(singleSlotAq());
+
+            openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_AIR_QUALITY),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("getAtmosphericDataWithResponse failure logs forecast call with success=false")
+        void getAtmosphericDataWithResponse_failure_logsApiCallFailure() {
+            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
+                    .thenThrow(new RuntimeException("timeout"));
+
+            assertThatThrownBy(() ->
+                    openMeteoService.getAtmosphericDataWithResponse(request, eventTime, jobRun))
+                    .isInstanceOf(RuntimeException.class);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("prefetchWeatherBatch success logs forecast and air-quality batch calls")
+        void prefetchWeatherBatch_success_logsBothBatchCalls() {
+            when(openMeteoClient.fetchForecastBatch(anyList()))
+                    .thenReturn(List.of(singleSlotForecast()));
+            when(openMeteoClient.fetchAirQualityBatch(anyList()))
+                    .thenReturn(List.of(singleSlotAq()));
+
+            openMeteoService.prefetchWeatherBatch(List.of(new double[]{55.0, -1.5}), jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_AIR_QUALITY),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("prefetchWeatherBatch failure logs forecast batch call with success=false")
+        void prefetchWeatherBatch_failure_logsApiCallFailure() {
+            when(openMeteoClient.fetchForecastBatch(anyList()))
+                    .thenThrow(new RuntimeException("batch timeout"));
+
+            assertThatThrownBy(() ->
+                    openMeteoService.prefetchWeatherBatch(
+                            List.of(new double[]{55.0, -1.5}), jobRun))
+                    .isInstanceOf(RuntimeException.class);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("getHourlyAtmosphericData success logs both forecast and air-quality calls")
+        void getHourlyAtmosphericData_success_logsBothApiCalls() {
+            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
+                    .thenReturn(singleSlotForecast());
+            when(openMeteoClient.fetchAirQuality(anyDouble(), anyDouble()))
+                    .thenReturn(singleSlotAq());
+
+            openMeteoService.getHourlyAtmosphericData(request,
+                    LocalDateTime.of(2026, 6, 21, 20, 0),
+                    LocalDateTime.of(2026, 6, 21, 20, 0), jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_AIR_QUALITY),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("getHourlyAtmosphericData failure logs both calls with success=false")
+        void getHourlyAtmosphericData_failure_logsBothApiCallsFailure() {
+            when(openMeteoClient.fetchForecast(anyDouble(), anyDouble()))
+                    .thenThrow(new RuntimeException("API down"));
+
+            assertThatThrownBy(() ->
+                    openMeteoService.getHourlyAtmosphericData(request,
+                            LocalDateTime.of(2026, 6, 21, 20, 0),
+                            LocalDateTime.of(2026, 6, 21, 20, 0), jobRun))
+                    .isInstanceOf(RuntimeException.class);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_AIR_QUALITY),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("fetchDirectionalCloudData success logs cloud batch call with success=true")
+        void fetchDirectionalCloudData_success_logsApiCall() {
+            OpenMeteoForecastResponse cloud = singleSlotCloud();
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(cloud, cloud, cloud, cloud, cloud));
+
+            openMeteoService.fetchDirectionalCloudData(
+                    55.0, -1.5, 270, eventTime, TargetType.SUNSET, jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("fetchDirectionalCloudData failure logs cloud batch call with success=false")
+        void fetchDirectionalCloudData_failure_logsApiCallFailure() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenThrow(new RuntimeException("cloud API error"));
+
+            var result = openMeteoService.fetchDirectionalCloudData(
+                    55.0, -1.5, 270, eventTime, TargetType.SUNSET, jobRun);
+
+            assertThat(result).isNull();
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("fetchCloudApproachData success (no upwind) logs cloud-approach call with success=true")
+        void fetchCloudApproachData_success_logsApiCall() {
+            // windSpeedMs=0 → no upwind point → 1 coord in batch
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(singleSlotCloud()));
+
+            var result = openMeteoService.fetchCloudApproachData(
+                    55.0, -1.5, 270, eventTime,
+                    LocalDateTime.of(2026, 6, 21, 19, 0),
+                    TargetType.SUNSET, 270, 0.0, jobRun);
+
+            assertThat(result).isNotNull();
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("fetchCloudApproachData failure logs cloud-approach call with success=false")
+        void fetchCloudApproachData_failure_logsApiCallFailure() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenThrow(new RuntimeException("approach API error"));
+
+            var result = openMeteoService.fetchCloudApproachData(
+                    55.0, -1.5, 270, eventTime,
+                    LocalDateTime.of(2026, 6, 21, 19, 0),
+                    TargetType.SUNSET, 270, 0.0, jobRun);
+
+            assertThat(result).isNull();
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch success logs cloud batch call with success=true")
+        void prefetchCloudBatch_success_logsApiCall() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(singleSlotCloud()));
+
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch failure logs cloud batch call with success=false")
+        void prefetchCloudBatch_failure_logsApiCallFailure() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenThrow(new RuntimeException("batch error"));
+
+            // prefetchCloudBatch swallows the exception and returns an empty cache
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+    }
+
+    // --- computeUpwindPoint boundary tests ---
+
+    /**
+     * Kills ConditionalsBoundaryMutator on the {@code dist < MIN_UPWIND_DISTANCE_M} (5 km) guard.
+     */
+    @Nested
+    @DisplayName("computeUpwindPoint boundary at MIN_UPWIND_DISTANCE_M (5 km)")
+    class UpwindBoundaryTests {
+
+        @Test
+        @DisplayName("exactly 5 km upwind distance returns non-null (boundary: < not <=)")
+        void computeUpwindPoint_exactlyMinDistance_returnsNonNull() {
+            // 5.0 m/s × 1000 s = 5000 m = MIN_UPWIND_DISTANCE_M exactly
+            // Real: 5000 < 5000 → false → returns offset point (non-null)
+            // Mutant (<=): 5000 <= 5000 → true → returns null
+            LocalDateTime now = LocalDateTime.of(2026, 6, 21, 19, 43, 20); // 1000s before event
+            LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0, 0);
+
+            double[] result = openMeteoService.computeUpwindPoint(
+                    54.77, -1.58, 270, 5.0, now, eventTime);
+
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("just below 5 km upwind distance returns null")
+        void computeUpwindPoint_justBelowMinDistance_returnsNull() {
+            // 5.0 m/s × 999 s = 4995 m < 5000 → null
+            LocalDateTime now = LocalDateTime.of(2026, 6, 21, 19, 43, 21); // 999s before event
+            LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0, 0);
+
+            double[] result = openMeteoService.computeUpwindPoint(
+                    54.77, -1.58, 270, 5.0, now, eventTime);
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("fetchCloudApproachData at exactly 5 km includes upwind sample")
+        void fetchCloudApproachData_exactlyMinUpwindDistance_includesUpwindSample() {
+            // 5.0 m/s × 1000 s = 5000 m = MIN exactly; upwindDistanceM >= MIN → included
+            // Mutant (> MIN): 5000 > 5000 → false → upwindPoint null → upwindSample null
+            LocalDateTime currentTime = LocalDateTime.of(2026, 6, 21, 19, 43, 20);
+            LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0, 0);
+            OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                    List.of("2026-06-21T20:00"), List.of(15), List.of(10), List.of(5));
+
+            // 2 coords (solar + upwind) → 2 responses
+            when(openMeteoClient.fetchCloudOnlyBatch(
+                    org.mockito.ArgumentMatchers.argThat(
+                            (java.util.List<double[]> c) -> c != null && c.size() == 2)))
+                    .thenReturn(java.util.Arrays.asList(cloud, cloud));
+
+            var result = openMeteoService.fetchCloudApproachData(
+                    55.0, -1.5, 270, eventTime, currentTime,
+                    TargetType.SUNSET, 270, 5.0, null);
+
+            assertThat(result).isNotNull();
+            assertThat(result.upwindSample()).isNotNull();
+        }
+    }
+
+    // --- upwind distance arithmetic test ---
+
+    /**
+     * Kills MathMutator on the {@code (int) (upwindDistanceM / 1000)} division
+     * in {@code fetchCloudApproachData}.
+     */
+    @Test
+    @DisplayName("fetchCloudApproachData passes distanceKm = upwindDistanceM / 1000 (not multiplied)")
+    void fetchCloudApproachData_distanceKmIsDistanceDividedBy1000() {
+        // 10.0 m/s × 5000 s = 50 000 m → distanceKm should be 50, not 50 000 000
+        LocalDateTime currentTime = LocalDateTime.of(2026, 6, 21, 18, 36, 40);
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0, 0); // 5000 s later
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00"), List.of(20), List.of(10), List.of(5));
+
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(java.util.Arrays.asList(cloud, cloud));
+
+        var result = openMeteoService.fetchCloudApproachData(
+                55.0, -1.5, 270, eventTime, currentTime,
+                TargetType.SUNSET, 270, 10.0, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.upwindSample()).isNotNull();
+        assertThat(result.upwindSample().distanceKm()).isEqualTo(50);
+    }
+
+    // --- findNearestIndex correctness via extractUpwindSample ---
+
+    /**
+     * Kills BooleanReturnValsMutator / IncrementsMutator on {@code return bestIdx} in
+     * {@code findNearestIndex}: a mutant that always returns 0 would pick the wrong cloud value.
+     */
+    @Test
+    @DisplayName("extractUpwindSample uses findNearestIndex to pick current-time cloud (not slot 0)")
+    void extractUpwindSample_findNearestIndex_picksCorrectCurrentTimeSlot() {
+        // Three hourly slots; event at T18:00 (idx 0), current time at T20:00 (idx 2)
+        // currentLowCloud = slot[2] = 30; eventLowCloud = slot[0] = 10
+        // Mutant (findNearestIndex always returns 0): currentLowCloud = slot[0] = 10
+        List<String> times = List.of(
+                "2026-06-21T18:00", "2026-06-21T19:00", "2026-06-21T20:00");
+        OpenMeteoForecastResponse forecast = buildCloudOnlyResponse(
+                times, List.of(10, 20, 30), List.of(0, 0, 0), List.of(0, 0, 0));
+
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 18, 0);
+        LocalDateTime currentTime = LocalDateTime.of(2026, 6, 21, 20, 0);
+
+        UpwindCloudSample result = openMeteoService.extractUpwindSample(
+                forecast, eventTime, currentTime, TargetType.SUNSET, 50, 270);
+
+        assertThat(result.currentLowCloudPercent()).isEqualTo(30);
+        assertThat(result.eventLowCloudPercent()).isEqualTo(10);
+    }
+
+    // --- extractMistTrend tests ---
+
+    /**
+     * Kills RemoveConditionalMutator on the null-check guard in {@code extractMistTrend}
+     * and the boundary mutant on {@code idx >= 0}.
+     */
+    @Nested
+    @DisplayName("extractMistTrend boundary and null-guard tests")
+    class ExtractMistTrendTests {
+
+        @Test
+        @DisplayName("null visibility returns null (kills RemoveConditionalMutator on null guard)")
+        void extractMistTrend_nullVisibility_returnsNull() {
+            // Build a forecast with null visibility so the null guard fires
+            // Mutant (removes null check): proceeds, tries vis.size() on null → NPE
+            OpenMeteoForecastResponse forecast = buildForecastResponse(
+                    List.of("2026-06-21T20:00"),
+                    List.of(10), List.of(20), List.of(30),
+                    List.of(20000.0), List.of(4.0), List.of(225),
+                    List.of(0.0), List.of(1), List.of(60),
+                    List.of(1000.0), List.of(100.0),
+                    List.of(14.0), List.of(12.0), null, List.of(5.0));
+            forecast.getHourly().setVisibility(null);
+
+            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("single slot at eventIdx=0 returns non-null (kills ConditionalsBoundaryMutator on idx>=0)")
+        void extractMistTrend_singleSlotAtEventIdx0_returnsNonNull() {
+            // eventIdx=0, offsets -3,-2,-1 are out of bounds; offset=0 gives idx=0
+            // Real: 0 >= 0 → true → slot added → non-null
+            // Mutant (> instead of >=): 0 > 0 → false → slot skipped → empty → null
+            OpenMeteoForecastResponse forecast = buildForecastResponse(
+                    List.of("2026-06-21T20:00"),
+                    List.of(10), List.of(20), List.of(30),
+                    List.of(20000.0), List.of(4.0), List.of(225),
+                    List.of(0.0), List.of(1), List.of(60),
+                    List.of(1000.0), List.of(100.0),
+                    List.of(14.0), List.of(12.0), null, List.of(5.0));
+
+            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+
+            assertThat(result).isNotNull();
+        }
+
+        @Test
+        @DisplayName("all dew values null produces empty slots and returns null")
+        void extractMistTrend_nullDewValues_emptySlots_returnsNull() {
+            // dew list contains one null element → dewVal == null for each valid slot
+            // Real: slots.isEmpty() = true → return null
+            // Mutant (isEmpty always false): returns new MistTrend(empty list), i.e. non-null
+            OpenMeteoForecastResponse forecast = buildForecastResponse(
+                    List.of("2026-06-21T20:00"),
+                    List.of(10), List.of(20), List.of(30),
+                    List.of(20000.0), List.of(4.0), List.of(225),
+                    List.of(0.0), List.of(1), List.of(60),
+                    List.of(1000.0), List.of(100.0),
+                    List.of(14.0), List.of(12.0), null, null);
+            java.util.List<Double> dewWithNull = new java.util.ArrayList<>();
+            dewWithNull.add(null);
+            forecast.getHourly().setDewPoint2m(dewWithNull);
+
+            MistTrend result = openMeteoService.extractMistTrend(forecast.getHourly(), 0);
+
+            assertThat(result).isNull();
+        }
+    }
+
+    // --- extractSolarTrend tests ---
+
+    /**
+     * Kills ConditionalsBoundaryMutator on {@code idx >= 0} in {@code extractSolarTrend}.
+     */
+    @Test
+    @DisplayName("extractSolarTrend with single slot at eventIdx=0 returns non-null")
+    void extractSolarTrend_singleSlotAtEventIdx0_returnsNonNull() {
+        // TREND_HOURS_BACK=3: h=3,2,1 give idx=-3,-2,-1 (skipped); h=0 gives idx=0
+        // Real: 0 >= 0 → true → slot added → non-null
+        // Mutant (> instead of >=): 0 > 0 → false → slot skipped → empty → null
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00"), List.of(40), List.of(10), List.of(5));
+
+        SolarCloudTrend result = openMeteoService.extractSolarTrend(
+                cloud, LocalDateTime.of(2026, 6, 21, 20, 0), TargetType.SUNSET);
+
+        assertThat(result).isNotNull();
+    }
+
+    // --- fetchCloudApproachDataFromCache tests ---
+
+    /**
+     * Kills NullReturnValsMutator on {@code return new CloudApproachData(trend, upwind)} and
+     * NullReturnValsMutator on {@code computeSolarHorizonPoint}.
+     */
+    @Test
+    @DisplayName("fetchCloudApproachDataFromCache returns non-null when solar point is in cache")
+    void fetchCloudApproachDataFromCache_solarPointInCache_returnsNonNull() {
+        // Build a cache containing the exact grid cell for the solar horizon point
+        double[] solarPoint = openMeteoService.computeSolarHorizonPoint(55.0, -1.5, 270);
+        String key = com.gregochr.goldenhour.model.CloudPointCache.gridKey(
+                solarPoint[0], solarPoint[1]);
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T20:00"), List.of(15), List.of(10), List.of(5));
+        var cacheMap = new java.util.LinkedHashMap<String,
+                com.gregochr.goldenhour.model.OpenMeteoForecastResponse>();
+        cacheMap.put(key, cloud);
+        var cloudCache = new com.gregochr.goldenhour.model.CloudPointCache(cacheMap);
+
+        var result = openMeteoService.fetchCloudApproachDataFromCache(
+                55.0, -1.5, 270,
+                LocalDateTime.of(2026, 6, 21, 20, 0),
+                LocalDateTime.of(2026, 6, 21, 19, 0),
+                TargetType.SUNSET, 270, 0.0, cloudCache);
+
+        assertThat(result).isNotNull();
+    }
+
+    // --- utility boundary tests ---
+
+    /**
+     * Kills ConditionalsBoundaryMutator on the {@code idx >= values.size()} guards in
+     * getAirQualityValue, getDoubleValue, and getIntegerValue.
+     *
+     * <p>When idx equals list.size() exactly (one past the end), real code returns
+     * null/defaults; the {@code >} mutant proceeds to get(idx) which throws IOOBE.
+     */
+    @Test
+    @DisplayName("extractAtmosphericData gracefully handles idx == list.size() for optional fields")
+    void extractAtmosphericData_idxAtListSizeExactly_returnsDefaults() {
+        // 3 forecast slots; event at T08:00 → idx = 2
+        // AQ lists have only 2 entries → idx (2) == list.size() (2): boundary triggers
+        // dewPoint2m and precipProbability also have only 2 entries
+        // Mutant (> instead of >=): get(2) on size-2 list → IndexOutOfBoundsException
+        OpenMeteoForecastResponse forecast = buildForecastResponse(
+                List.of("2026-06-21T06:00", "2026-06-21T07:00", "2026-06-21T08:00"),
+                List.of(5, 10, 15), List.of(20, 25, 30), List.of(10, 15, 20),
+                List.of(20000.0, 20000.0, 20000.0), List.of(4.0, 4.0, 4.0),
+                List.of(225, 225, 225),
+                List.of(0.0, 0.0, 0.0), List.of(1, 1, 1), List.of(60, 60, 60),
+                List.of(1000.0, 1000.0, 1000.0), List.of(100.0, 100.0, 100.0),
+                List.of(14.0, 15.0),          // temperature: 2 entries, idx=2 → null
+                null,                          // apparentTemperature
+                List.of(30, 40),               // precipProbability: 2 entries, idx=2 → null
+                List.of(5.0, 6.0));            // dewPoint2m: 2 entries, idx=2 → null
+
+        // AQ has only 2 entries — idx=2 equals list.size() exactly
+        OpenMeteoAirQualityResponse aq = buildAirQualityResponse(
+                List.of("2026-06-21T06:00", "2026-06-21T07:00"),
+                List.of(5.0, 6.0), List.of(1.0, 1.5), List.of(0.05, 0.06));
+
+        AtmosphericData result = openMeteoService.extractAtmosphericData(
+                forecast, aq, "Test", LocalDateTime.of(2026, 6, 21, 8, 0),
+                TargetType.SUNSET);
+
+        // AQ values fall back to zero (getAirQualityValue returns null → toDecimal(null) = ZERO)
+        assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
+        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("0.00");
+        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.000");
+        // precipProbability and temperature fall back to null (getIntegerValue / getDoubleValue)
+        assertThat(result.comfort().precipitationProbability()).isNull();
+        assertThat(result.comfort().temperatureCelsius()).isNull();
     }
 }
