@@ -518,8 +518,9 @@ class BriefingGlossServiceTest {
     @DisplayName("System prompt uses sunrise/sunset wording — never says 'solar event'")
     void systemPrompt_usesSunriseSunsetNotSolarEvent() {
         stubModelSelection();
+        Message response = mockResponse("Good colour");
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                .thenReturn(mockResponse("Good colour"));
+                .thenReturn(response);
 
         glossService.generateGlosses(List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
 
