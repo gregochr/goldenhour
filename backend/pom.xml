@@ -19,7 +19,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <anthropic-sdk.version>2.18.0</anthropic-sdk.version>
+        <anthropic-sdk.version>2.24.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
     </properties>
 
