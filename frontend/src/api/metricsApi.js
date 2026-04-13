@@ -30,3 +30,12 @@ export const getJobRuns = (runType = undefined, page = 0, size = 20) => {
 export const getApiCalls = (jobRunId) => {
   return axios.get(`/api/metrics/api-calls?jobRunId=${jobRunId}`);
 };
+
+/**
+ * Fetch the application build and deploy metadata.
+ *
+ * @returns {Promise<{version: string, deployedAt: string}>} version and ISO deploy timestamp
+ */
+export const getBuildInfo = () => {
+  return axios.get('/api/admin/build-info');
+};
