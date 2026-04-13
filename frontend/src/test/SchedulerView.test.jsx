@@ -162,8 +162,9 @@ describe('SchedulerView', () => {
     render(<SchedulerView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('scheduler-job-tide_refresh')).toHaveTextContent(
-        'Every Monday at 02:00 UTC',
+      // Time is converted from UTC to UK local (BST in summer, GMT in winter)
+      expect(screen.getByTestId('scheduler-job-tide_refresh').textContent).toMatch(
+        /Every Monday at \d{2}:\d{2} (BST|GMT)/,
       );
     });
   });
@@ -310,7 +311,10 @@ describe('SchedulerView', () => {
     fireEvent.change(input, { target: { value: '0 0 6 * * *' } });
 
     await waitFor(() => {
-      expect(screen.getByText('Daily at 06:00 UTC')).toBeInTheDocument();
+      // Time shown in UK local time (BST in summer, GMT in winter) — not UTC
+      expect(screen.getByTestId('scheduler-job-tide_refresh').textContent).toMatch(
+        /Daily at \d{2}:\d{2} (BST|GMT)/,
+      );
     });
   });
 

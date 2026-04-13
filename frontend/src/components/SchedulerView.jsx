@@ -14,7 +14,42 @@ const POLL_INTERVAL_MS = 30_000;
 const TRIGGER_CONFIRM_MS = 2000;
 
 /**
- * Returns a human-readable description of a cron expression.
+ * Returns the current UK timezone label — "BST" in summer, "GMT" in winter.
+ *
+ * Uses {@code Intl.DateTimeFormat} with the {@code Europe/London} timezone so that
+ * BST/GMT transitions are handled automatically without any hardcoded offset.
+ *
+ * @returns {string} "BST" or "GMT"
+ */
+function getUKTimezoneLabel() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    timeZoneName: 'short',
+  }).formatToParts(new Date());
+  return parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT';
+}
+
+/**
+ * Converts a UTC hour/minute pair to a UK local time string (HH:MM).
+ *
+ * @param {number} utcHour - UTC hour (0-23)
+ * @param {number} [utcMinute=0] - UTC minute (0-59)
+ * @returns {string} time in HH:MM format, adjusted for Europe/London
+ */
+function formatUTCAsUK(utcHour, utcMinute = 0) {
+  const date = new Date();
+  date.setUTCHours(utcHour, utcMinute, 0, 0);
+  return date.toLocaleTimeString('en-GB', {
+    timeZone: 'Europe/London',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Returns a human-readable description of a cron expression, with times
+ * converted to UK local time (BST or GMT).
  *
  * @param {string} cron - a 6-field Spring cron expression
  * @returns {string} human-readable description
@@ -26,12 +61,14 @@ function describeCron(cron) {
 
   const [sec, min, hour, dom, mon, dow] = parts;
 
-  if (sec === '0' && min === '0' && dom === '*' && mon === '*') {
+  if (sec === '0' && dom === '*' && mon === '*') {
+    const tzLabel = getUKTimezoneLabel();
+    const minVal = parseInt(min, 10) || 0;
     const hours = hour.split(',');
-    const timeStr = hours.map((h) => `${h.padStart(2, '0')}:00`).join(', ');
-    if (dow === '*') return `Daily at ${timeStr} UTC`;
+    const timeStr = hours.map((h) => formatUTCAsUK(parseInt(h, 10), minVal)).join(', ');
+    if (dow === '*') return `Daily at ${timeStr} ${tzLabel}`;
     const dayMap = { MON: 'Monday', TUE: 'Tuesday', WED: 'Wednesday', THU: 'Thursday', FRI: 'Friday', SAT: 'Saturday', SUN: 'Sunday' };
-    return `Every ${dayMap[dow] || dow} at ${timeStr} UTC`;
+    return `Every ${dayMap[dow] || dow} at ${timeStr} ${tzLabel}`;
   }
   return cron;
 }
