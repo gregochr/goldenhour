@@ -18,11 +18,15 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
+import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskState;
+import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -1446,5 +1450,631 @@ class ForecastCommandExecutorTest {
         executor.execute(cmd);
 
         assertThat(executor.getLatestStabilitySummary()).isNull();
+    }
+
+    // =========================================================================
+    // Mutation-kill additions
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    // Execute routing
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ExecuteRoutingTests {
+
+        @Test
+        @DisplayName("no-arg execute() delegates to two-arg overload (startRun called exactly once)")
+        void execute_noArg_delegatesToTwoArgOverload() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            List<ForecastEvaluationEntity> results = executor.execute(cmd);
+
+            // startRun is only called in the two-arg overload when preCreatedJobRun == null
+            verify(jobRunService).startRun(any(), any(boolean.class), any(), any());
+            assertThat(results).isNotEmpty();
+        }
+
+        @Test
+        @DisplayName("preCreatedJobRun is used directly — startRun is NOT called")
+        void execute_withPreCreatedJobRun_doesNotCallStartRun() {
+            // Inline stubs — exclude startRun since the pre-created run bypasses it
+            when(locationService.shouldEvaluateSunrise(any())).thenReturn(true);
+            when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
+            when(commandFactory.resolveEvaluationModel(any())).thenReturn(EvaluationModel.HAIKU);
+            when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of());
+            when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
+            when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
+                    .thenReturn(stubPrefetchedWeather);
+            when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+                    .thenReturn(stubCloudCache);
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+
+            JobRunEntity preCreated = new JobRunEntity();
+            preCreated.setId(99L);
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd, preCreated);
+
+            verify(jobRunService, never()).startRun(any(), any(boolean.class), any(), any());
+        }
+
+        @Test
+        @DisplayName("null preCreatedJobRun triggers startRun")
+        void execute_nullPreCreatedJobRun_callsStartRun() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd, null);
+
+            verify(jobRunService).startRun(any(), any(boolean.class), any(), any());
+        }
+
+        @Test
+        @DisplayName("colour run type (SHORT_TERM) triggers astro conditions scoring")
+        void execute_colourRunType_triggersAstroScoring() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(astroConditionsService).evaluateAndPersist(any());
+        }
+
+        @Test
+        @DisplayName("non-colour run type (WEATHER) does NOT trigger astro conditions scoring")
+        void execute_nonColourRunType_noAstroScoring() {
+            stubWildlifeDefaults();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
+                    List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
+
+            executor.execute(cmd);
+
+            verify(astroConditionsService, never()).evaluateAndPersist(any());
+        }
+
+        @Test
+        @DisplayName("execute() returns non-empty results when evaluations succeed")
+        void execute_returnsNonEmptyResults() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            List<ForecastEvaluationEntity> results = executor.execute(cmd);
+
+            assertThat(results).hasSize(EXPECTED_CALLS_PER_DAY);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Three-phase pipeline lifecycle
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ThreePhasePipelineLifecycleTests {
+
+        @Test
+        @DisplayName("progressTracker.initRun is called with the jobRun ID and all task keys")
+        void pipeline_initRunCalled() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(progressTracker).initRun(eq(stubJobRun.getId()), any());
+        }
+
+        @Test
+        @DisplayName("setPhase(TRIAGE) is called before triage runs")
+        void pipeline_setPhaseTriageCalled() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(progressTracker).setPhase(stubJobRun.getId(), RunPhase.TRIAGE);
+        }
+
+        @Test
+        @DisplayName("setPhase(FULL_EVALUATION) and setPhase(COMPLETE) called on normal path")
+        void pipeline_setPhaseFullEvalAndCompleteCalled() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(progressTracker).setPhase(stubJobRun.getId(), RunPhase.FULL_EVALUATION);
+            verify(progressTracker).setPhase(stubJobRun.getId(), RunPhase.COMPLETE);
+        }
+
+        @Test
+        @DisplayName("completeRun and progressTracker.completeRun called on normal path")
+        void pipeline_completeRunCalled() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(jobRunService).completeRun(eq(stubJobRun), any(int.class), any(int.class), any());
+            verify(progressTracker).completeRun(stubJobRun.getId());
+        }
+
+        @Test
+        @DisplayName("all-triaged path: setPhase(EARLY_STOP) and completeRun called, no full eval")
+        void pipeline_allTriaged_earlyStop() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            // All tasks return triaged=true
+            when(forecastService.fetchWeatherAndTriage(
+                    any(LocationEntity.class), any(LocalDate.class), any(TargetType.class),
+                    any(), any(EvaluationModel.class), anyBoolean(), any(JobRunEntity.class),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                    .thenAnswer(inv -> {
+                        LocationEntity loc = inv.getArgument(0);
+                        LocalDate date = inv.getArgument(1);
+                        TargetType type = inv.getArgument(2);
+                        return new ForecastPreEvalResult(true, "Cloud blocked", null,
+                                loc, date, type, LocalDateTime.now(), 90, 0,
+                                EvaluationModel.HAIKU, loc.getTideType(),
+                                loc.getName() + "|" + date + "|" + type, null);
+                    });
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(progressTracker).setPhase(stubJobRun.getId(), RunPhase.EARLY_STOP);
+            verify(jobRunService).completeRun(eq(stubJobRun), eq(0), eq(0), any());
+            verify(progressTracker).completeRun(stubJobRun.getId());
+            verify(forecastService, never()).evaluateAndPersist(any(), any());
+        }
+
+        @Test
+        @DisplayName("full eval succeeded and failed counters are passed to completeRun")
+        void pipeline_counterArithmetic_succeededAndFailed() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+
+            // First call succeeds (returns entity), second throws
+            when(forecastService.evaluateAndPersist(
+                    any(ForecastPreEvalResult.class), any(JobRunEntity.class)))
+                    .thenReturn(ForecastEvaluationEntity.builder().id(1L).rating(4).build())
+                    .thenThrow(new RuntimeException("Claude API error"));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            // 2 tasks (SUNRISE + SUNSET): 1 succeeded (returned entity), 1 failed (threw then null)
+            ArgumentCaptor<Integer> succeededCaptor = ArgumentCaptor.forClass(Integer.class);
+            ArgumentCaptor<Integer> failedCaptor = ArgumentCaptor.forClass(Integer.class);
+            verify(jobRunService).completeRun(
+                    eq(stubJobRun), succeededCaptor.capture(), failedCaptor.capture(), any());
+            assertThat(succeededCaptor.getValue()).isEqualTo(1);
+            assertThat(failedCaptor.getValue()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("sentinel phase: setPhase(SENTINEL_SAMPLING), succeeded/failed counters, "
+                + "COMPLETE (not EARLY_STOP) when survivors non-empty, results contain sentinel entity")
+        void pipeline_sentinelPhase_countersAndPhaseTransitions() {
+            stubExecuteDefaults();
+            // SUNSET only — only stub sunsetUtc; sunriseUtc not called when SUNRISE disabled
+            when(locationService.shouldEvaluateSunrise(any())).thenReturn(false);
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.MAX);
+
+            RegionEntity northRegion = RegionEntity.builder()
+                    .id(1L).name("North").enabled(true).build();
+            LocationEntity sentinelLoc1 = LocationEntity.builder()
+                    .id(10L).name("Sentinel1").lat(55.0).lon(-1.0)
+                    .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNSET)))
+                    .region(northRegion).build();
+            LocationEntity sentinelLoc2 = LocationEntity.builder()
+                    .id(11L).name("Sentinel2").lat(54.5).lon(-1.5)
+                    .solarEventType(new HashSet<>(Set.of(SolarEventType.SUNSET)))
+                    .region(northRegion).build();
+
+            when(optimisationStrategyService.getEnabledStrategies(any()))
+                    .thenReturn(List.of(sentinelStrategy(2)));
+            when(sentinelSelector.selectSentinels(any()))
+                    .thenReturn(List.of(sentinelLoc1, sentinelLoc2)); // both are sentinels, no remainder
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), anyBoolean(), any(),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                    .thenAnswer(inv -> {
+                        LocationEntity loc = inv.getArgument(0);
+                        LocalDate date = inv.getArgument(1);
+                        TargetType type = inv.getArgument(2);
+                        EvaluationModel model = inv.getArgument(4);
+                        return new ForecastPreEvalResult(false, null, null,
+                                loc, date, type, LocalDateTime.now(), 90, 0,
+                                model, loc.getTideType(),
+                                loc.getName() + "|" + date + "|" + type, null);
+                    });
+
+            // Sentinel1 succeeds (rating 4), Sentinel2 throws → failed
+            when(forecastService.evaluateAndPersist(
+                    org.mockito.ArgumentMatchers.argThat(
+                            r -> r != null && "Sentinel1".equals(r.location().getName())), any()))
+                    .thenReturn(ForecastEvaluationEntity.builder().id(10L).rating(4).build());
+            when(forecastService.evaluateAndPersist(
+                    org.mockito.ArgumentMatchers.argThat(
+                            r -> r != null && "Sentinel2".equals(r.location().getName())), any()))
+                    .thenThrow(new RuntimeException("sentinel eval failed"));
+
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(sentinelLoc1, sentinelLoc2), haikuStrategy, true);
+
+            List<ForecastEvaluationEntity> results = executor.execute(cmd);
+
+            // Sentinel phase was entered
+            verify(progressTracker).setPhase(stubJobRun.getId(), RunPhase.SENTINEL_SAMPLING);
+
+            // No full eval batch — complete via empty-batch early exit (COMPLETE not EARLY_STOP)
+            verify(progressTracker).setPhase(stubJobRun.getId(), RunPhase.COMPLETE);
+            verify(progressTracker, never()).setPhase(stubJobRun.getId(), RunPhase.EARLY_STOP);
+
+            // Counters: 1 succeeded (Sentinel1), 1 failed (Sentinel2)
+            ArgumentCaptor<Integer> succCaptor = ArgumentCaptor.forClass(Integer.class);
+            ArgumentCaptor<Integer> failCaptor = ArgumentCaptor.forClass(Integer.class);
+            verify(jobRunService).completeRun(
+                    eq(stubJobRun), succCaptor.capture(), failCaptor.capture(), any());
+            assertThat(succCaptor.getValue()).isEqualTo(1);
+            assertThat(failCaptor.getValue()).isEqualTo(1);
+
+            // Result contains the Sentinel1 entity (not empty list)
+            assertThat(results).hasSize(1);
+            assertThat(results.get(0).getId()).isEqualTo(10L);
+
+            verify(progressTracker).completeRun(stubJobRun.getId());
+        }
+
+        @Test
+        @DisplayName("skipped slots publish SKIPPED events via eventPublisher")
+        void pipeline_skippedSlots_publishSkippedEvents() {
+            stubExecuteDefaults();
+            // Solar: SUNRISE is past, SUNSET is not
+            when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusHours(1));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.MAX);
+            stubDefaultFetch();
+            stubDefaultEval();
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            // SUNRISE was past → skipped; expect SKIPPED event for SUNRISE
+            // Use ApplicationEvent captor so Mockito resolves the correct overload
+            ArgumentCaptor<org.springframework.context.ApplicationEvent> eventCaptor =
+                    ArgumentCaptor.forClass(org.springframework.context.ApplicationEvent.class);
+            verify(eventPublisher, org.mockito.Mockito.atLeastOnce())
+                    .publishEvent(eventCaptor.capture());
+            boolean hasSkippedSunrise = eventCaptor.getAllValues().stream()
+                    .filter(e -> e instanceof LocationTaskEvent)
+                    .map(e -> (LocationTaskEvent) e)
+                    .anyMatch(e -> e.getState() == LocationTaskState.SKIPPED
+                            && e.getTargetType().equals("SUNRISE"));
+            assertThat(hasSkippedSunrise).isTrue();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Wildlife execution
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class ExecuteWildlifeTests {
+
+        @Test
+        @DisplayName("progressTracker.initRun is called for wildlife runs")
+        void wildlife_initRunCalled() {
+            stubWildlifeDefaults();
+            when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder().id(1L).build()));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
+                    List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
+
+            executor.execute(cmd);
+
+            verify(progressTracker).initRun(eq(stubJobRun.getId()), any());
+        }
+
+        @Test
+        @DisplayName("jobRunService.completeRun is called after wildlife execution")
+        void wildlife_completeRunCalled() {
+            stubWildlifeDefaults();
+            when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder().id(1L).build()));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
+                    List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
+
+            executor.execute(cmd);
+
+            verify(jobRunService).completeRun(eq(stubJobRun), any(int.class), any(int.class), any());
+            verify(progressTracker).completeRun(stubJobRun.getId());
+        }
+
+        @Test
+        @DisplayName("successful wildlife forecast increments succeeded counter")
+        void wildlife_successfulForecast_incrementsSucceeded() {
+            stubWildlifeDefaults();
+            when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder().id(1L).build()));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
+                    List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
+
+            List<ForecastEvaluationEntity> results = executor.execute(cmd);
+
+            assertThat(results).hasSize(1);
+            ArgumentCaptor<Integer> succeededCaptor = ArgumentCaptor.forClass(Integer.class);
+            ArgumentCaptor<Integer> failedCaptor = ArgumentCaptor.forClass(Integer.class);
+            verify(jobRunService).completeRun(
+                    eq(stubJobRun), succeededCaptor.capture(), failedCaptor.capture(), any());
+            assertThat(succeededCaptor.getValue()).isEqualTo(1);
+            assertThat(failedCaptor.getValue()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("null runForecasts result increments failed counter")
+        void wildlife_nullForecastResult_incrementsFailed() {
+            stubWildlifeDefaults();
+            when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
+                    .thenReturn(null);
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
+                    List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
+
+            executor.execute(cmd);
+
+            ArgumentCaptor<Integer> failedCaptor = ArgumentCaptor.forClass(Integer.class);
+            verify(jobRunService).completeRun(eq(stubJobRun), eq(0), failedCaptor.capture(), any());
+            assertThat(failedCaptor.getValue()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("empty runForecasts result increments failed counter")
+        void wildlife_emptyForecastResult_incrementsFailed() {
+            stubWildlifeDefaults();
+            when(forecastService.runForecasts(any(), any(), any(), any(), any(), any()))
+                    .thenReturn(List.of());
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.WEATHER,
+                    List.of(today), List.of(wildlifeReserve()), noOpStrategy, false);
+
+            executor.execute(cmd);
+
+            ArgumentCaptor<Integer> failedCaptor = ArgumentCaptor.forClass(Integer.class);
+            verify(jobRunService).completeRun(eq(stubJobRun), eq(0), failedCaptor.capture(), any());
+            assertThat(failedCaptor.getValue()).isEqualTo(1);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Utility methods
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class UtilityMethodTests {
+
+        @Test
+        @DisplayName("isColourRunType: SHORT_TERM triggers astro scoring")
+        void isColourRunType_shortTerm_triggersAstro() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(astroConditionsService).evaluateAndPersist(any());
+        }
+
+        @Test
+        @DisplayName("isColourRunType: VERY_SHORT_TERM triggers astro scoring")
+        void isColourRunType_veryShortTerm_triggersAstro() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(astroConditionsService).evaluateAndPersist(any());
+        }
+
+        @Test
+        @DisplayName("isColourRunType: LONG_TERM triggers astro scoring")
+        void isColourRunType_longTerm_triggersAstro() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            stubDefaultFetch();
+            stubDefaultEval();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.LONG_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(astroConditionsService).evaluateAndPersist(any());
+        }
+
+        @Test
+        @DisplayName("shouldSkipEvent: future date is never skipped regardless of time")
+        void shouldSkipEvent_futureDate_neverSkipped() {
+            stubExecuteDefaults();
+            // No solar stubs needed: shouldSkipEvent short-circuits on !targetDate.equals(today)
+            stubDefaultFetch();
+            stubDefaultEval();
+
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(tomorrow), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            // Both SUNRISE and SUNSET on a future date should not be skipped
+            verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                    .fetchWeatherAndTriage(any(), eq(tomorrow), any(), any(), any(),
+                            anyBoolean(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("shouldSkipEvent: today's past event is skipped")
+        void shouldSkipEvent_todayPastEvent_skipped() {
+            stubExecuteDefaults();
+            // Both solar events in the past for today
+            when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusHours(3));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusHours(1));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            // Both are past → no triage calls
+            verify(forecastService, never())
+                    .fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                            anyBoolean(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("shouldSkipEvent: today's future event is NOT skipped")
+        void shouldSkipEvent_todayFutureEvent_notSkipped() {
+            stubExecuteDefaults();
+            when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.now(ZoneOffset.UTC).plusHours(1));
+            when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
+                    .thenReturn(LocalDateTime.now(ZoneOffset.UTC).plusHours(3));
+            stubDefaultFetch();
+            stubDefaultEval();
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today), List.of(durham()), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            verify(forecastService, times(EXPECTED_CALLS_PER_DAY))
+                    .fetchWeatherAndTriage(any(), eq(today), any(), any(), any(),
+                            anyBoolean(), any(), any(), any());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Stability filter — manual bypass
+    // -------------------------------------------------------------------------
+
+    @Nested
+    class StabilityFilterManualBypassTests {
+
+        @Test
+        @DisplayName("manual run bypasses stability filter — stabilityClassifier never called")
+        void stabilityFilter_manualRun_bypassesClassifier() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            LocationEntity loc = durhamWithGrid();
+            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            LocalDate dayAfterTomorrow = today.plusDays(2);
+
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), anyBoolean(), any(),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                    .thenAnswer(inv -> {
+                        LocalDate date = inv.getArgument(1);
+                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(today, date);
+                        return new ForecastPreEvalResult(false, null, null,
+                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                    });
+            stubDefaultEval();
+
+            // triggeredManually = true
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today, dayAfterTomorrow), List.of(loc), haikuStrategy, true);
+
+            executor.execute(cmd);
+
+            // Stability classifier should NOT be called when run is manual
+            verify(stabilityClassifier, never()).classify(any(), anyDouble(), anyDouble(), any());
+            // All 4 tasks (2 dates × 2 target types) should be evaluated
+            verify(forecastService, times(4))
+                    .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+        }
     }
 }
