@@ -67,6 +67,7 @@ public class CostCalculator {
             case WORLD_TIDES -> costProperties.getWorldTidesMicroDollars();
             case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY -> costProperties.getOpenMeteoMicroDollars();
             case ANTHROPIC -> 0;
+            case LIGHT_POLLUTION -> 0L;
         };
     }
 
@@ -97,6 +98,7 @@ public class CostCalculator {
             }
             case WORLD_TIDES -> costProperties.getWorldTidesPence();
             case OPEN_METEO_FORECAST, OPEN_METEO_AIR_QUALITY -> costProperties.getOpenMeteoPence();
+            case LIGHT_POLLUTION -> 0;
         };
     }
 

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.aurora;
 import com.gregochr.goldenhour.client.LightPollutionClient;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunPhase;
@@ -94,11 +95,18 @@ public class BortleEnrichmentService {
         for (LocationEntity location : pending) {
             publishEvent(jobRun.getId(), location, LocationTaskState.EVALUATING, null);
 
+            String callUrl = String.format(
+                    "https://www.lightpollutionmap.info/api/queryraster?ql=sb_2025&qt=point&qd=%f,%f",
+                    location.getLon(), location.getLat());
+            long callStart = System.currentTimeMillis();
             LightPollutionClient.SkyBrightnessResult brightness =
                     lightPollutionClient.querySkyBrightness(
                             location.getLat(), location.getLon(), apiKey);
+            long callDurationMs = System.currentTimeMillis() - callStart;
 
             if (brightness != null) {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.LIGHT_POLLUTION,
+                        "GET", callUrl, null, callDurationMs, 200, null, true, null);
                 location.setSkyBrightnessSqm(brightness.sqm());
                 location.setBortleClass(brightness.bortle());
                 locationRepository.save(location);
@@ -107,6 +115,8 @@ public class BortleEnrichmentService {
                 LOG.debug("Enriched '{}': SQM {}, Bortle {}",
                         location.getName(), brightness.sqm(), brightness.bortle());
             } else {
+                jobRunService.logApiCall(jobRun.getId(), ServiceName.LIGHT_POLLUTION,
+                        "GET", callUrl, null, callDurationMs, null, null, false, "API returned no data");
                 failed.add(location.getName());
                 publishEvent(jobRun.getId(), location, LocationTaskState.FAILED, "API returned no data");
                 LOG.warn("Failed to enrich '{}' — will remain null", location.getName());

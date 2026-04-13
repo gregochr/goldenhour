@@ -151,4 +151,17 @@ class CostCalculatorTest {
     void calculateCost_legacy_openMeteo() {
         assertThat(calculator().calculateCost(ServiceName.OPEN_METEO_FORECAST)).isZero();
     }
+
+    @Test
+    @DisplayName("calculateFlatCostMicroDollars() for LIGHT_POLLUTION returns 0 (free API)")
+    void calculateFlatCostMicroDollars_lightPollution_returnsZero() {
+        assertThat(calculator().calculateFlatCostMicroDollars(ServiceName.LIGHT_POLLUTION)).isZero();
+    }
+
+    @Test
+    @DisplayName("calculateCost() legacy: returns zero for LIGHT_POLLUTION (free API)")
+    @SuppressWarnings("deprecation")
+    void calculateCost_legacy_lightPollution_returnsZero() {
+        assertThat(calculator().calculateCost(ServiceName.LIGHT_POLLUTION)).isZero();
+    }
 }

@@ -14,5 +14,8 @@ public enum ServiceName {
     WORLD_TIDES,
 
     /** Anthropic Claude API for evaluation. */
-    ANTHROPIC
+    ANTHROPIC,
+
+    /** lightpollutionmap.info QueryRaster API (free tier). */
+    LIGHT_POLLUTION
 }

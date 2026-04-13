@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Light pollution job API call logging
+- **`LIGHT_POLLUTION` service name** — added to `ServiceName` enum; `CostCalculator` handles it with zero cost (free API) in both modern micro-dollar and legacy pence switches
+- **API call logging for Bortle enrichment** — `BortleEnrichmentService.enrichAll()` now records each `lightpollutionmap.info` call via `jobRunService.logApiCall()` with per-location URL (lon,lat), duration, HTTP status, and success/error flag; the LIGHT_POLLUTION job run panel now shows individual API calls instead of "No API calls recorded"
+- **Mutation-killing test coverage** — `BortleEnrichmentServiceTest` verifies exact `logApiCall` arguments (service name, method, URL coordinate order, status code, succeeded flag, error message); `CostCalculatorTest` covers zero-cost entries for `LIGHT_POLLUTION`
+
 ### Added — Aurora heatmap grid integration + cloud inversion scoring
 - **Aurora grid columns** — aurora promoted from separate banner row to grid columns in Plan tab heatmap with proper day-spanning; aurora data renders alongside sunrise/sunset in the same visual grid
 - **Cloud inversion scoring** — `InversionScoreCalculator` produces 0–10 likelihood score from temperature-dew gap, wind speed, humidity, and low cloud; location `elevation_m` and `overlooks_water` metadata (V65); `inversion_score` + `inversion_potential` columns on forecast_evaluation (V66); integrated into PromptBuilder for valley/lake locations
