@@ -95,6 +95,10 @@ public class BriefingModelTestResultEntity {
     @Column(name = "error_message", length = 500)
     private String errorMessage;
 
+    /** Extended thinking chain text from Claude (nullable — only present for ET variants). */
+    @Column(name = "thinking_text", columnDefinition = "TEXT")
+    private String thinkingText;
+
     /** UTC timestamp when this result was created. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

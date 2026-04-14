@@ -92,7 +92,7 @@ public class CostCalculator {
                 }
                 yield switch (model) {
                         case HAIKU -> costProperties.getAnthropicHaikuPence();
-                        case OPUS -> costProperties.getAnthropicOpusPence();
+                        case OPUS, OPUS_ET -> costProperties.getAnthropicOpusPence();
                         default -> costProperties.getAnthropicSonnetPence();
                     };
             }
@@ -121,8 +121,8 @@ public class CostCalculator {
     private double getInputRate(EvaluationModel model) {
         return switch (model) {
             case HAIKU -> costProperties.getHaikuInputUsdPerMtok();
-            case SONNET -> costProperties.getSonnetInputUsdPerMtok();
-            case OPUS -> costProperties.getOpusInputUsdPerMtok();
+            case SONNET, SONNET_ET -> costProperties.getSonnetInputUsdPerMtok();
+            case OPUS, OPUS_ET -> costProperties.getOpusInputUsdPerMtok();
             default -> costProperties.getSonnetInputUsdPerMtok();
         };
     }
@@ -130,8 +130,8 @@ public class CostCalculator {
     private double getOutputRate(EvaluationModel model) {
         return switch (model) {
             case HAIKU -> costProperties.getHaikuOutputUsdPerMtok();
-            case SONNET -> costProperties.getSonnetOutputUsdPerMtok();
-            case OPUS -> costProperties.getOpusOutputUsdPerMtok();
+            case SONNET, SONNET_ET -> costProperties.getSonnetOutputUsdPerMtok();
+            case OPUS, OPUS_ET -> costProperties.getOpusOutputUsdPerMtok();
             default -> costProperties.getSonnetOutputUsdPerMtok();
         };
     }
@@ -139,8 +139,8 @@ public class CostCalculator {
     private double getCacheWriteRate(EvaluationModel model) {
         return switch (model) {
             case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
-            case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
-            case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
+            case SONNET, SONNET_ET -> costProperties.getSonnetCacheWriteUsdPerMtok();
+            case OPUS, OPUS_ET -> costProperties.getOpusCacheWriteUsdPerMtok();
             default -> costProperties.getSonnetCacheWriteUsdPerMtok();
         };
     }
@@ -148,8 +148,8 @@ public class CostCalculator {
     private double getCacheReadRate(EvaluationModel model) {
         return switch (model) {
             case HAIKU -> costProperties.getHaikuCacheReadUsdPerMtok();
-            case SONNET -> costProperties.getSonnetCacheReadUsdPerMtok();
-            case OPUS -> costProperties.getOpusCacheReadUsdPerMtok();
+            case SONNET, SONNET_ET -> costProperties.getSonnetCacheReadUsdPerMtok();
+            case OPUS, OPUS_ET -> costProperties.getOpusCacheReadUsdPerMtok();
             default -> costProperties.getSonnetCacheReadUsdPerMtok();
         };
     }

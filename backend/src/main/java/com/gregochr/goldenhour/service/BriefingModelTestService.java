@@ -18,9 +18,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Orchestrates briefing model comparison tests — calls all three Claude models
- * (Haiku, Sonnet, Opus) with the same briefing rollup and persists the results
- * for side-by-side comparison.
+ * Orchestrates briefing model comparison tests — calls all five Claude variants
+ * (Haiku, Sonnet, Sonnet+ET, Opus, Opus+ET) with the same briefing rollup and
+ * persists the results for side-by-side comparison.
  */
 @Service
 public class BriefingModelTestService {
@@ -169,6 +169,7 @@ public class BriefingModelTestService {
                             r.model(), r.tokenUsage()) : 0L)
                     .succeeded(ok)
                     .errorMessage(ok ? null : "Model call failed")
+                    .thinkingText(r.thinkingText())
                     .createdAt(completedAt)
                     .build();
             resultRepository.save(result);

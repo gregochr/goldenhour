@@ -5,6 +5,8 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
+import com.anthropic.models.messages.ThinkingBlock;
+import com.anthropic.models.messages.ThinkingConfigEnabled;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,8 +58,14 @@ public class BriefingBestBetAdvisor {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingBestBetAdvisor.class);
 
-    /** Maximum response tokens for the best-bet JSON. */
+    /** Maximum response tokens for the best-bet JSON (standard calls). */
     private static final int MAX_TOKENS = 1024;
+
+    /** Maximum response tokens for extended-thinking calls (thinking budget + response). */
+    private static final int MAX_TOKENS_THINKING = 16000;
+
+    /** Token budget allocated for Claude's thinking chain in extended-thinking variants. */
+    private static final long THINKING_BUDGET_TOKENS = 10000L;
 
     /** Maximum number of solar events to include in the rollup (matches frontend grid). */
     private static final int MAX_VISIBLE_EVENTS = 6;
@@ -666,31 +674,33 @@ public class BriefingBestBetAdvisor {
      * @param validatedPicks  picks after validation (empty on failure)
      * @param durationMs      API call duration in milliseconds
      * @param tokenUsage      token counts from the API response
+     * @param thinkingText    raw extended thinking chain text, or null for non-ET variants
      */
     public record ModelComparisonResult(EvaluationModel model, String rawResponse,
             List<BestBet> parsedPicks, List<BestBet> validatedPicks,
-            long durationMs, TokenUsage tokenUsage) {
+            long durationMs, TokenUsage tokenUsage, String thinkingText) {
     }
 
     /**
      * Aggregated result of a multi-model comparison run.
      *
-     * @param rollupJson the JSON sent to all three models
-     * @param results    one result per model (HAIKU, SONNET, OPUS)
+     * @param rollupJson the JSON sent to all five variants
+     * @param results    one result per variant (HAIKU, SONNET, SONNET_ET, OPUS, OPUS_ET)
      */
     public record ComparisonRun(String rollupJson, List<ModelComparisonResult> results) {
     }
 
     /**
-     * Calls all three Claude models (Haiku, Sonnet, Opus) with the same briefing rollup
-     * and returns the parsed, validated picks for each.
+     * Calls all five variants (Haiku, Sonnet, Sonnet+ET, Opus, Opus+ET) sequentially with
+     * the same briefing rollup and returns the parsed, validated picks for each.
      *
-     * <p>Per-model failures are caught and returned as failed results with null rawResponse,
-     * so partial success is possible.
+     * <p>Variants run sequentially (not in parallel) to stay within the Claude bulkhead
+     * concurrency cap. Per-variant failures are caught and returned as failed results with
+     * null rawResponse, so partial success is possible.
      *
      * @param days     the fully assembled briefing days (triage complete)
      * @param driveMap unused — retained for API compatibility (pass {@code Map.of()})
-     * @return comparison run containing the rollup JSON and all model results
+     * @return comparison run containing the rollup JSON and all variant results
      * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
      */
     public ComparisonRun compareModels(List<BriefingDay> days,
@@ -698,7 +708,8 @@ public class BriefingBestBetAdvisor {
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         RollupResult rollup = buildRollupJson(days, now);
         List<EvaluationModel> models = List.of(
-                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
+                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
+                EvaluationModel.OPUS, EvaluationModel.OPUS_ET);
 
         List<ModelComparisonResult> results = new ArrayList<>();
         for (EvaluationModel model : models) {
@@ -710,23 +721,41 @@ public class BriefingBestBetAdvisor {
     private ModelComparisonResult callModel(EvaluationModel model, RollupResult rollup,
             List<BriefingDay> days) {
         try {
+            boolean extendedThinking = model.isExtendedThinking();
             long startMs = System.currentTimeMillis();
-            Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
-                            .model(model.getModelId())
-                            .maxTokens(MAX_TOKENS)
-                            .systemOfTextBlockParams(List.of(
-                                    TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
-                            .addUserMessage(rollup.json())
-                            .build());
+
+            MessageCreateParams.Builder builder = MessageCreateParams.builder()
+                    .model(model.getModelId())
+                    .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : MAX_TOKENS)
+                    .systemOfTextBlockParams(List.of(
+                            TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
+                    .addUserMessage(rollup.json());
+
+            if (extendedThinking) {
+                builder.thinking(ThinkingConfigEnabled.builder()
+                        .budgetTokens(THINKING_BUDGET_TOKENS)
+                        .build());
+            }
+
+            Message response = anthropicApiClient.createMessage(builder.build());
             long durationMs = System.currentTimeMillis() - startMs;
 
+            // Text blocks only — thinking blocks are filtered out here
             String raw = response.content().stream()
                     .filter(ContentBlock::isText)
                     .map(ContentBlock::asText)
                     .map(TextBlock::text)
                     .findFirst()
                     .orElse("");
+
+            // Extract thinking chain text (null for non-ET variants)
+            String thinkingText = response.content().stream()
+                    .filter(ContentBlock::isThinking)
+                    .map(ContentBlock::asThinking)
+                    .map(ThinkingBlock::thinking)
+                    .filter(t -> t != null && !t.isBlank())
+                    .findFirst()
+                    .orElse(null);
 
             TokenUsage tokenUsage = new TokenUsage(
                     response.usage().inputTokens(),
@@ -739,11 +768,12 @@ public class BriefingBestBetAdvisor {
                     parsed, rollup.validEvents(), rollup.validRegions(), rollup.validDayNames());
             List<BestBet> enriched = enrichWithEventData(validated, days);
 
-            LOG.info("Model comparison {} completed ({}ms, {} picks)", model, durationMs, enriched.size());
-            return new ModelComparisonResult(model, raw, parsed, enriched, durationMs, tokenUsage);
+            LOG.info("Model comparison {} completed ({}ms, {} picks, thinking={})",
+                    model, durationMs, enriched.size(), thinkingText != null);
+            return new ModelComparisonResult(model, raw, parsed, enriched, durationMs, tokenUsage, thinkingText);
         } catch (Exception e) {
             LOG.warn("Model comparison {} failed: {}", model, e.getMessage());
-            return new ModelComparisonResult(model, null, List.of(), List.of(), 0, TokenUsage.EMPTY);
+            return new ModelComparisonResult(model, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null);
         }
     }
 

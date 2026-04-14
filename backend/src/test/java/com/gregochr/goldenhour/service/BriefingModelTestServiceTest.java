@@ -81,11 +81,11 @@ class BriefingModelTestServiceTest {
         BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
                 "{\"test\":\"rollup\"}", List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.HAIKU, "raw1", List.of(pick), List.of(pick), 100, usage),
+                                EvaluationModel.HAIKU, "raw1", List.of(pick), List.of(pick), 100, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.SONNET, "raw2", List.of(pick), List.of(pick), 200, usage),
+                                EvaluationModel.SONNET, "raw2", List.of(pick), List.of(pick), 200, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.OPUS, "raw3", List.of(pick), List.of(pick), 300, usage)));
+                                EvaluationModel.OPUS, "raw3", List.of(pick), List.of(pick), 300, usage, null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
@@ -136,11 +136,11 @@ class BriefingModelTestServiceTest {
         BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
                 "{}", List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.HAIKU, "raw", List.of(pick), List.of(pick), 100, usage),
+                                EvaluationModel.HAIKU, "raw", List.of(pick), List.of(pick), 100, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.SONNET, null, List.of(), List.of(), 0, TokenUsage.EMPTY),
+                                EvaluationModel.SONNET, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.OPUS, "raw", List.of(pick), List.of(pick), 300, usage)));
+                                EvaluationModel.OPUS, "raw", List.of(pick), List.of(pick), 300, usage, null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
@@ -187,13 +187,13 @@ class BriefingModelTestServiceTest {
                 "{}", List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
                                 EvaluationModel.HAIKU, "raw",
-                                List.of(pick1, pick2), List.of(pick1), 100, usage),
+                                List.of(pick1, pick2), List.of(pick1), 100, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
                                 EvaluationModel.SONNET, "raw",
-                                List.of(pick1, pick2), List.of(pick1, pick2), 200, usage),
+                                List.of(pick1, pick2), List.of(pick1, pick2), 200, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
                                 EvaluationModel.OPUS, "raw",
-                                List.of(pick1), List.of(pick1), 300, usage)));
+                                List.of(pick1), List.of(pick1), 300, usage, null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
@@ -237,13 +237,13 @@ class BriefingModelTestServiceTest {
                 rollupJson, List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
                                 EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100,
-                                new TokenUsage(100, 50, 0, 0)),
+                                new TokenUsage(100, 50, 0, 0), null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
                                 EvaluationModel.SONNET, "raw", List.of(), List.of(), 200,
-                                new TokenUsage(100, 50, 0, 0)),
+                                new TokenUsage(100, 50, 0, 0), null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
                                 EvaluationModel.OPUS, "raw", List.of(), List.of(), 300,
-                                new TokenUsage(100, 50, 0, 0))));
+                                new TokenUsage(100, 50, 0, 0), null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
@@ -272,11 +272,11 @@ class BriefingModelTestServiceTest {
         BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
                 "{}", List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.HAIKU, null, List.of(), List.of(), 0, TokenUsage.EMPTY),
+                                EvaluationModel.HAIKU, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.SONNET, null, List.of(), List.of(), 0, TokenUsage.EMPTY),
+                                EvaluationModel.SONNET, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.OPUS, null, List.of(), List.of(), 0, TokenUsage.EMPTY)));
+                                EvaluationModel.OPUS, null, List.of(), List.of(), 0, TokenUsage.EMPTY, null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
 
@@ -315,11 +315,11 @@ class BriefingModelTestServiceTest {
         BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
                 "{}", List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100, usage),
+                                EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.SONNET, "raw", List.of(), List.of(), 200, usage),
+                                EvaluationModel.SONNET, "raw", List.of(), List.of(), 200, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.OPUS, "raw", List.of(), List.of(), 300, usage)));
+                                EvaluationModel.OPUS, "raw", List.of(), List.of(), 300, usage, null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
         when(costCalculator.calculateCostMicroDollars(EvaluationModel.HAIKU, usage)).thenReturn(100L);
@@ -368,11 +368,11 @@ class BriefingModelTestServiceTest {
         BriefingBestBetAdvisor.ComparisonRun comparisonRun = new BriefingBestBetAdvisor.ComparisonRun(
                 "{}", List.of(
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100, usage),
+                                EvaluationModel.HAIKU, "raw", List.of(), List.of(), 100, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.SONNET, "raw", List.of(), List.of(), 200, usage),
+                                EvaluationModel.SONNET, "raw", List.of(), List.of(), 200, usage, null),
                         new BriefingBestBetAdvisor.ModelComparisonResult(
-                                EvaluationModel.OPUS, "raw", List.of(), List.of(), 300, usage)));
+                                EvaluationModel.OPUS, "raw", List.of(), List.of(), 300, usage, null)));
 
         when(bestBetAdvisor.compareModels(any(), any())).thenReturn(comparisonRun);
         when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))

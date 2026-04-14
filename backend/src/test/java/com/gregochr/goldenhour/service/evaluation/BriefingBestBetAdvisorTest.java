@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
+import com.anthropic.models.messages.ThinkingBlock;
 import com.anthropic.models.messages.Usage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -44,6 +45,7 @@ import org.mockito.ArgumentCaptor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -838,8 +840,8 @@ class BriefingBestBetAdvisorTest {
     class CompareModelsTests {
 
         @Test
-        @DisplayName("Fans out to 3 models with the same rollup JSON")
-        void fansOutToThreeModels() throws Exception {
+        @DisplayName("Fans out to 5 variants with the same rollup JSON")
+        void fansOutToFiveVariants() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
             String eventId = tomorrow.toString() + "_sunset";
@@ -857,13 +859,15 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
                     List.of(day), Map.of());
 
-            assertThat(result.results()).hasSize(3);
+            assertThat(result.results()).hasSize(5);
             assertThat(result.results().get(0).model()).isEqualTo(EvaluationModel.HAIKU);
             assertThat(result.results().get(1).model()).isEqualTo(EvaluationModel.SONNET);
-            assertThat(result.results().get(2).model()).isEqualTo(EvaluationModel.OPUS);
+            assertThat(result.results().get(2).model()).isEqualTo(EvaluationModel.SONNET_ET);
+            assertThat(result.results().get(3).model()).isEqualTo(EvaluationModel.OPUS);
+            assertThat(result.results().get(4).model()).isEqualTo(EvaluationModel.OPUS_ET);
             assertThat(result.rollupJson()).isNotBlank();
 
-            // All 3 should have the same parsed picks
+            // All 5 should have the same parsed picks
             for (BriefingBestBetAdvisor.ModelComparisonResult r : result.results()) {
                 assertThat(r.rawResponse()).isNotNull();
                 assertThat(r.validatedPicks()).hasSize(1);
@@ -872,7 +876,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Per-model failure is isolated — other models still succeed")
+        @DisplayName("Per-variant failure is isolated — other variants still succeed")
         void perModelFailureIsolated() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -883,7 +887,7 @@ class BriefingBestBetAdvisorTest {
                     + "\"event\":\"" + eventId + "\",\"region\":\"Northumberland\","
                     + "\"confidence\":\"high\"}]}");
 
-            // First call succeeds, second fails, third succeeds
+            // HAIKU succeeds, SONNET fails, remaining three succeed
             when(anthropicApiClient.createMessage(any()))
                     .thenReturn(goodMessage)
                     .thenThrow(new RuntimeException("overloaded"))
@@ -896,10 +900,12 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
                     List.of(day), Map.of());
 
-            assertThat(result.results()).hasSize(3);
+            assertThat(result.results()).hasSize(5);
             assertThat(result.results().get(0).rawResponse()).isNotNull(); // HAIKU ok
             assertThat(result.results().get(1).rawResponse()).isNull();    // SONNET failed
-            assertThat(result.results().get(2).rawResponse()).isNotNull(); // OPUS ok
+            assertThat(result.results().get(2).rawResponse()).isNotNull(); // SONNET_ET ok
+            assertThat(result.results().get(3).rawResponse()).isNotNull(); // OPUS ok
+            assertThat(result.results().get(4).rawResponse()).isNotNull(); // OPUS_ET ok
             assertThat(result.results().get(1).tokenUsage()).isEqualTo(TokenUsage.EMPTY);
         }
 
@@ -983,6 +989,206 @@ class BriefingBestBetAdvisorTest {
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.SONNET);
             assertThat(advisor.getModelDisplayName()).isEqualTo("Sonnet");
+        }
+    }
+
+    // ── Extended thinking ──
+
+    @Nested
+    @DisplayName("Extended thinking variants")
+    class ExtendedThinkingTests {
+
+        @Test
+        @DisplayName("ET variants send ThinkingConfigEnabled with budget=10000 and maxTokens=16000")
+        void extendedThinkingVariants_sendCorrectParams() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            Message plain = textOnlyMessage("{\"picks\":[]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(plain);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            advisor.compareModels(List.of(day), Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient, times(5)).createMessage(captor.capture());
+            List<MessageCreateParams> params = captor.getAllValues();
+
+            // SONNET_ET at index 2
+            assertThat(params.get(2)._body().maxTokens()).isEqualTo(16000L);
+            assertThat(params.get(2)._body().thinking()).isPresent();
+            assertThat(params.get(2)._body().thinking().get().isEnabled()).isTrue();
+            assertThat(params.get(2)._body().thinking().get().asEnabled().budgetTokens())
+                    .isEqualTo(10000L);
+
+            // OPUS_ET at index 4
+            assertThat(params.get(4)._body().maxTokens()).isEqualTo(16000L);
+            assertThat(params.get(4)._body().thinking()).isPresent();
+            assertThat(params.get(4)._body().thinking().get().isEnabled()).isTrue();
+            assertThat(params.get(4)._body().thinking().get().asEnabled().budgetTokens())
+                    .isEqualTo(10000L);
+        }
+
+        @Test
+        @DisplayName("Standard variants send maxTokens=1024 and no thinking config")
+        void standardVariants_sendDefaultMaxTokensNoThinking() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            Message plain = textOnlyMessage("{\"picks\":[]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(plain);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            advisor.compareModels(List.of(day), Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient, times(5)).createMessage(captor.capture());
+            List<MessageCreateParams> params = captor.getAllValues();
+
+            // HAIKU (0), SONNET (1), OPUS (3) — no thinking
+            assertThat(params.get(0)._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params.get(0)._body().thinking()).isEmpty();
+
+            assertThat(params.get(1)._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params.get(1)._body().thinking()).isEmpty();
+
+            assertThat(params.get(3)._body().maxTokens()).isEqualTo(1024L);
+            assertThat(params.get(3)._body().thinking()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("ET variant extracts thinking text from thinking block in response")
+        void etVariant_extractsThinkingText_whenThinkingBlockPresent() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+
+            Message plain = textOnlyMessage("{\"picks\":[]}");
+            Message withThinking = textPlusThinkingMessage(
+                    "{\"picks\":[]}", "Tide alignment is the deciding factor here.");
+
+            // HAIKU=plain, SONNET=plain, SONNET_ET=thinking, OPUS=plain, OPUS_ET=thinking
+            when(anthropicApiClient.createMessage(any()))
+                    .thenReturn(plain)
+                    .thenReturn(plain)
+                    .thenReturn(withThinking)
+                    .thenReturn(plain)
+                    .thenReturn(withThinking);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
+                    List.of(day), Map.of());
+
+            assertThat(result.results().get(0).thinkingText()).isNull();   // HAIKU
+            assertThat(result.results().get(1).thinkingText()).isNull();   // SONNET
+            assertThat(result.results().get(2).thinkingText())             // SONNET_ET
+                    .isEqualTo("Tide alignment is the deciding factor here.");
+            assertThat(result.results().get(3).thinkingText()).isNull();   // OPUS
+            assertThat(result.results().get(4).thinkingText())             // OPUS_ET
+                    .isEqualTo("Tide alignment is the deciding factor here.");
+        }
+
+        @Test
+        @DisplayName("Non-ET variants produce null thinkingText even when API returns text-only")
+        void standardVariants_alwaysHaveNullThinkingText() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            Message plain = textOnlyMessage("{\"picks\":[]}");
+            when(anthropicApiClient.createMessage(any())).thenReturn(plain);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
+                    List.of(day), Map.of());
+
+            assertThat(result.results().get(0).thinkingText()).isNull(); // HAIKU
+            assertThat(result.results().get(1).thinkingText()).isNull(); // SONNET
+            assertThat(result.results().get(3).thinkingText()).isNull(); // OPUS
+        }
+
+        @Test
+        @DisplayName("ET variant failure is isolated — other variants still produce results")
+        void etVariantFailure_doesNotBlockOtherVariants() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            Message plain = textOnlyMessage("{\"picks\":[]}");
+
+            // SONNET_ET fails; all others succeed
+            when(anthropicApiClient.createMessage(any()))
+                    .thenReturn(plain)
+                    .thenReturn(plain)
+                    .thenThrow(new RuntimeException("Extended thinking not available for this model"))
+                    .thenReturn(plain)
+                    .thenReturn(plain);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun result = advisor.compareModels(
+                    List.of(day), Map.of());
+
+            assertThat(result.results().get(0).rawResponse()).isNotNull(); // HAIKU
+            assertThat(result.results().get(1).rawResponse()).isNotNull(); // SONNET
+            assertThat(result.results().get(2).rawResponse()).isNull();    // SONNET_ET failed
+            assertThat(result.results().get(2).thinkingText()).isNull();   // no thinking on failure
+            assertThat(result.results().get(2).tokenUsage()).isEqualTo(TokenUsage.EMPTY);
+            assertThat(result.results().get(3).rawResponse()).isNotNull(); // OPUS
+            assertThat(result.results().get(4).rawResponse()).isNotNull(); // OPUS_ET
+        }
+
+        private Message textOnlyMessage(String text) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(text);
+            ContentBlock cb = mock(ContentBlock.class);
+            when(cb.isText()).thenReturn(true);
+            when(cb.asText()).thenReturn(textBlock);
+
+            Usage usage = mock(Usage.class);
+            when(usage.inputTokens()).thenReturn(500L);
+            when(usage.outputTokens()).thenReturn(100L);
+            when(usage.cacheCreationInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(usage.cacheReadInputTokens()).thenReturn(java.util.Optional.of(0L));
+
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(cb));
+            when(message.usage()).thenReturn(usage);
+            return message;
+        }
+
+        private Message textPlusThinkingMessage(String text, String thinkingContent) {
+            ThinkingBlock thinkingBlock = mock(ThinkingBlock.class);
+            when(thinkingBlock.thinking()).thenReturn(thinkingContent);
+            ContentBlock thinkingCb = mock(ContentBlock.class);
+            when(thinkingCb.isThinking()).thenReturn(true);
+            when(thinkingCb.asThinking()).thenReturn(thinkingBlock);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(text);
+            ContentBlock textCb = mock(ContentBlock.class);
+            when(textCb.isText()).thenReturn(true);
+            when(textCb.asText()).thenReturn(textBlock);
+
+            Usage usage = mock(Usage.class);
+            when(usage.inputTokens()).thenReturn(500L);
+            when(usage.outputTokens()).thenReturn(800L);
+            when(usage.cacheCreationInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(usage.cacheReadInputTokens()).thenReturn(java.util.Optional.of(0L));
+
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(thinkingCb, textCb));
+            when(message.usage()).thenReturn(usage);
+            return message;
         }
     }
 

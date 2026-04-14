@@ -164,4 +164,88 @@ class CostCalculatorTest {
     void calculateCost_legacy_lightPollution_returnsZero() {
         assertThat(calculator().calculateCost(ServiceName.LIGHT_POLLUTION)).isZero();
     }
+
+    // --- Extended thinking variant cost tests ---
+
+    @Test
+    @DisplayName("SONNET_ET input tokens billed at Sonnet rate: 1000 tokens = 3000 µ$")
+    void calculateCostMicroDollars_sonnetEt_inputUsesSonnetRate() {
+        // SONNET rate = $3.00/MTok; 1000 tokens * 3.00 = 3000 µ$
+        TokenUsage usage = new TokenUsage(1000, 0, 0, 0);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.SONNET_ET, usage))
+                .isEqualTo(3000);
+    }
+
+    @Test
+    @DisplayName("SONNET_ET output tokens billed at Sonnet rate: 100 tokens = 1500 µ$")
+    void calculateCostMicroDollars_sonnetEt_outputUsesSonnetRate() {
+        // SONNET rate = $15.00/MTok; 100 tokens * 15.00 = 1500 µ$
+        TokenUsage usage = new TokenUsage(0, 100, 0, 0);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.SONNET_ET, usage))
+                .isEqualTo(1500);
+    }
+
+    @Test
+    @DisplayName("SONNET_ET cache write billed at Sonnet rate: 1000 tokens = 3750 µ$")
+    void calculateCostMicroDollars_sonnetEt_cacheWriteUsesSonnetRate() {
+        // SONNET rate = $3.75/MTok; 1000 tokens * 3.75 = 3750 µ$
+        TokenUsage usage = new TokenUsage(0, 0, 1000, 0);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.SONNET_ET, usage))
+                .isEqualTo(3750);
+    }
+
+    @Test
+    @DisplayName("OPUS_ET input tokens billed at Opus rate: 1000 tokens = 5000 µ$")
+    void calculateCostMicroDollars_opusEt_inputUsesOpusRate() {
+        // OPUS rate = $5.00/MTok; 1000 tokens * 5.00 = 5000 µ$
+        TokenUsage usage = new TokenUsage(1000, 0, 0, 0);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.OPUS_ET, usage))
+                .isEqualTo(5000);
+    }
+
+    @Test
+    @DisplayName("OPUS_ET output tokens billed at Opus rate: 100 tokens = 2500 µ$")
+    void calculateCostMicroDollars_opusEt_outputUsesOpusRate() {
+        // OPUS rate = $25.00/MTok; 100 tokens * 25.00 = 2500 µ$
+        TokenUsage usage = new TokenUsage(0, 100, 0, 0);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.OPUS_ET, usage))
+                .isEqualTo(2500);
+    }
+
+    @Test
+    @DisplayName("OPUS_ET cache write billed at Opus rate: 1000 tokens = 6250 µ$")
+    void calculateCostMicroDollars_opusEt_cacheWriteUsesOpusRate() {
+        // OPUS rate = $6.25/MTok; 1000 tokens * 6.25 = 6250 µ$
+        TokenUsage usage = new TokenUsage(0, 0, 1000, 0);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.OPUS_ET, usage))
+                .isEqualTo(6250);
+    }
+
+    @Test
+    @DisplayName("SONNET_ET and SONNET produce identical costs for the same usage")
+    void calculateCostMicroDollars_sonnetEt_matchesSonnet() {
+        TokenUsage usage = new TokenUsage(500, 200, 100, 50);
+        long sonnetCost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET, usage);
+        long sonnetEtCost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET_ET, usage);
+        assertThat(sonnetEtCost).isEqualTo(sonnetCost);
+    }
+
+    @Test
+    @DisplayName("OPUS_ET and OPUS produce identical costs for the same usage")
+    void calculateCostMicroDollars_opusEt_matchesOpus() {
+        TokenUsage usage = new TokenUsage(500, 200, 100, 50);
+        long opusCost = calculator().calculateCostMicroDollars(EvaluationModel.OPUS, usage);
+        long opusEtCost = calculator().calculateCostMicroDollars(EvaluationModel.OPUS_ET, usage);
+        assertThat(opusEtCost).isEqualTo(opusCost);
+    }
+
+    @Test
+    @DisplayName("SONNET_ET is distinctly more expensive than HAIKU for the same output tokens")
+    void calculateCostMicroDollars_sonnetEt_moreExpensiveThanHaiku() {
+        // Sanity: thinking tokens billed at output rate — ET should cost more than Haiku
+        TokenUsage usage = new TokenUsage(0, 1000, 0, 0);
+        long haikuCost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage);
+        long sonnetEtCost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET_ET, usage);
+        assertThat(sonnetEtCost).isGreaterThan(haikuCost);
+    }
 }
