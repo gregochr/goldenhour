@@ -1120,8 +1120,8 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
       {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
       {dayDates.length > 0 && (
-        <div className="flex items-end justify-between gap-4 mb-1">
-          <div className="flex-1">
+        <div className="flex items-center gap-4 mb-1">
+          <div className="flex-1 min-w-0">
             <QualitySlider
               value={qualityTier}
               onChange={setQualityTier}

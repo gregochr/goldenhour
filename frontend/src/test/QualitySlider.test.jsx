@@ -3,6 +3,27 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import QualitySlider from '../components/QualitySlider.jsx';
 import { TIER_LABELS } from '../utils/tierUtils.js';
 
+// All 6 internal→visual inversion pairs. MAX_TIER = 5; visual = 5 - internal.
+const INVERSION_TABLE = [
+  { internal: 0, visual: 5 },
+  { internal: 1, visual: 4 },
+  { internal: 2, visual: 3 },
+  { internal: 3, visual: 2 },
+  { internal: 4, visual: 1 },
+  { internal: 5, visual: 0 },
+];
+
+// Drag table: same pairs plus `startFrom` — a starting internal tier whose visual
+// position differs from the drag target, ensuring fireEvent.change is a real change.
+const DRAG_TABLE = [
+  { visual: 5, expectedInternal: 0, startFrom: 1 }, // start visual=4, drag to 5
+  { visual: 4, expectedInternal: 1, startFrom: 0 }, // start visual=5, drag to 4
+  { visual: 3, expectedInternal: 2, startFrom: 0 }, // start visual=5, drag to 3
+  { visual: 2, expectedInternal: 3, startFrom: 0 }, // start visual=5, drag to 2
+  { visual: 1, expectedInternal: 4, startFrom: 0 }, // start visual=5, drag to 1
+  { visual: 0, expectedInternal: 5, startFrom: 1 }, // start visual=4, drag to 0
+];
+
 describe('QualitySlider', () => {
   it('shows Worst label on the left', () => {
     render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
@@ -85,5 +106,92 @@ describe('QualitySlider', () => {
   it('displays Everything including standdown at lowest tier', () => {
     render(<QualitySlider value={5} onChange={() => {}} showing={12} total={12} />);
     expect(screen.getByText((t) => t.includes('Everything including standdown'))).toBeInTheDocument();
+  });
+
+  // ── Full inversion table: all 6 internal → visual positions ───────────────
+  // Kills mutations on MAX_TIER (e.g. 5→4 or 5→6) and on the ± operator.
+
+  it.each(INVERSION_TABLE)(
+    'internal tier $internal renders slider at visual position $visual',
+    ({ internal, visual }) => {
+      render(<QualitySlider value={internal} onChange={() => {}} showing={1} total={10} />);
+      expect(screen.getByRole('slider')).toHaveValue(String(visual));
+    },
+  );
+
+  // ── Full drag table: all 6 visual drag positions → internal onChange value ──
+  // Each row uses a startFrom value whose visual position ≠ drag target, so
+  // fireEvent.change is a genuine state change (React suppresses no-op changes).
+  // Kills mutations on the inverse formula inside handleChange.
+
+  it.each(DRAG_TABLE)(
+    'dragging to visual $visual calls onChange with internal $expectedInternal',
+    ({ visual, expectedInternal, startFrom }) => {
+      const onChange = vi.fn();
+      render(<QualitySlider value={startFrom} onChange={onChange} showing={5} total={12} />);
+      fireEvent.change(screen.getByRole('slider'), { target: { value: String(visual) } });
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith(expectedInternal);
+    },
+  );
+
+  // ── Tier label shown in body text for every tier ──────────────────────────
+  // Kills mutations that swap TIER_LABELS[value] for TIER_LABELS[visualValue].
+
+  it.each(INVERSION_TABLE)(
+    'tier label for internal $internal matches TIER_LABELS[$internal]',
+    ({ internal }) => {
+      render(<QualitySlider value={internal} onChange={() => {}} showing={1} total={10} />);
+      expect(
+        screen.getByText((t) => t.includes(TIER_LABELS[internal])),
+      ).toBeInTheDocument();
+    },
+  );
+
+  // ── aria-valuetext follows internal tier, not visual position ─────────────
+
+  it.each(INVERSION_TABLE)(
+    'aria-valuetext is TIER_LABELS[$internal] (not the visual label) for internal $internal',
+    ({ internal }) => {
+      render(<QualitySlider value={internal} onChange={() => {}} showing={1} total={10} />);
+      expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', TIER_LABELS[internal]);
+    },
+  );
+
+  // ── Slider range attributes ───────────────────────────────────────────────
+  // Kills mutations that alter min, max, or step.
+
+  it('slider has min=0, max=5, step=1', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '0');
+    expect(slider).toHaveAttribute('max', '5');
+    expect(slider).toHaveAttribute('step', '1');
+  });
+
+  // ── Showing / total count ─────────────────────────────────────────────────
+  // Separate assertions pin each number independently — kills a swap mutation.
+
+  it('showing count is displayed independently from total', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={7} total={20} />);
+    const text = screen.getByText(/Showing 7 of 20 cells/);
+    expect(text).toBeInTheDocument();
+  });
+
+  it('showing=0 is displayed as zero, not as total', () => {
+    render(<QualitySlider value={0} onChange={() => {}} showing={0} total={15} />);
+    expect(screen.getByText(/Showing 0 of 15 cells/)).toBeInTheDocument();
+  });
+
+  it('showing equals total when all cells are visible', () => {
+    render(<QualitySlider value={5} onChange={() => {}} showing={9} total={9} />);
+    expect(screen.getByText(/Showing 9 of 9 cells/)).toBeInTheDocument();
+  });
+
+  // ── data-testid ───────────────────────────────────────────────────────────
+
+  it('root element has data-testid="quality-slider"', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
+    expect(screen.getByTestId('quality-slider')).toBeInTheDocument();
   });
 });
