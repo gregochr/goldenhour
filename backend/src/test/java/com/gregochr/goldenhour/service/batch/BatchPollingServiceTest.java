@@ -263,6 +263,172 @@ class BatchPollingServiceTest {
         verifyNoInteractions(jobRunService);
     }
 
+    @Test
+    @DisplayName("CANCELING batch is not processed and is saved with updated lastPolledAt")
+    void pollPendingBatches_canceling_doesNotProcessAndSaves() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_010");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.CANCELING);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(status.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(1L);
+        when(counts.succeeded()).thenReturn(0L);
+        when(counts.errored()).thenReturn(0L);
+        when(batchService.retrieve("msgbatch_010")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verify(resultProcessor, never()).processResults(batch);
+        verify(batchRepository).save(batch);
+        assertThat(batch.getLastPolledAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("CANCELING batch with jobRunId updates progress with exact counts")
+    void pollPendingBatches_cancelingWithJobRunId_updatesProgress() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_011");
+        batch.setJobRunId(77L);
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.CANCELING);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(status.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(3L);
+        when(counts.succeeded()).thenReturn(4L);
+        when(counts.errored()).thenReturn(1L);
+        when(batchService.retrieve("msgbatch_011")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verify(jobRunService).updateBatchRunProgress(77L, 4, 1);
+    }
+
+    @Test
+    @DisplayName("ENDED batch has lastPolledAt set before processResults is called")
+    void pollPendingBatches_ended_setsLastPolledAt() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_012");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_012")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        assertThat(batch.getLastPolledAt()).isNotNull();
+        verify(resultProcessor).processResults(batch);
+    }
+
+    @Test
+    @DisplayName("IN_PROGRESS batch has lastPolledAt set before save")
+    void pollPendingBatches_inProgress_setsLastPolledAt() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_013");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.IN_PROGRESS);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(status.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(5L);
+        when(counts.succeeded()).thenReturn(0L);
+        when(counts.errored()).thenReturn(0L);
+        when(batchService.retrieve("msgbatch_013")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        assertThat(batch.getLastPolledAt()).isNotNull();
+        verify(batchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("API error sets lastPolledAt on the batch before saving")
+    void pollPendingBatches_apiError_setsLastPolledAtBeforeSave() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_014");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        when(batchService.retrieve("msgbatch_014"))
+                .thenThrow(new RuntimeException("timeout"));
+
+        pollingService.pollPendingBatches();
+
+        assertThat(batch.getLastPolledAt()).isNotNull();
+        verify(batchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("EXPIRED batch has endedAt set before save")
+    void pollPendingBatches_expired_setsEndedAt() {
+        stubBatchService();
+        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_015", BatchType.FORECAST, 5,
+                Instant.now().minusSeconds(3600));
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_015")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.EXPIRED);
+        assertThat(captor.getValue().getEndedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Multiple pending batches are all polled in one tick")
+    void pollPendingBatches_multipleBatches_allPolled() {
+        stubBatchService();
+        ForecastBatchEntity ended = buildBatch("msgbatch_016");
+        ForecastBatchEntity inProgress = buildBatch("msgbatch_017");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(ended, inProgress));
+
+        MessageBatch endedStatus = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_016")).thenReturn(endedStatus);
+
+        MessageBatch inProgressStatus = mockBatchStatus(MessageBatch.ProcessingStatus.IN_PROGRESS);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(inProgressStatus.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(2L);
+        when(counts.succeeded()).thenReturn(1L);
+        when(counts.errored()).thenReturn(0L);
+        when(batchService.retrieve("msgbatch_017")).thenReturn(inProgressStatus);
+
+        pollingService.pollPendingBatches();
+
+        verify(batchService).retrieve("msgbatch_016");
+        verify(batchService).retrieve("msgbatch_017");
+        verify(resultProcessor).processResults(ended);
+        verify(resultProcessor, never()).processResults(inProgress);
+        verify(batchRepository).save(inProgress);
+    }
+
+    @Test
+    @DisplayName("Registered Runnable wires to pollPendingBatches")
+    void registerJobTarget_runnableInvokesPollPendingBatches() {
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of());
+
+        ArgumentCaptor<Runnable> runnableCaptor = ArgumentCaptor.forClass(Runnable.class);
+        pollingService.registerJobTarget();
+        verify(dynamicSchedulerService).registerJobTarget(
+                eq("batch_result_polling"), runnableCaptor.capture());
+
+        runnableCaptor.getValue().run();
+
+        verify(batchRepository).findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED);
+    }
+
     private ForecastBatchEntity buildBatch(String batchId) {
         return new ForecastBatchEntity(batchId, BatchType.FORECAST, 3,
                 Instant.now().plusSeconds(86400));
