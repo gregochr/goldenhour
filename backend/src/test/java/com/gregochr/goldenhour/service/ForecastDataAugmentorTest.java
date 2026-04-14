@@ -452,7 +452,7 @@ class ForecastDataAugmentorTest {
                 .dewPoint(5.5)
                 .build();
 
-        AtmosphericData result = augmentor.augmentWithInversionScore(base, 200, true);
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 199, true);
 
         assertThat(result).isSameAs(base);
     }
@@ -492,7 +492,7 @@ class ForecastDataAugmentorTest {
     }
 
     @Test
-    @DisplayName("augmentWithInversionScore() works at exact minimum elevation threshold")
+    @DisplayName("augmentWithInversionScore() works at exact minimum elevation threshold (200m)")
     void augmentWithInversionScore_exactMinElevation_addsScore() {
         AtmosphericData base = TestAtmosphericData.builder()
                 .temperature(6.0)
@@ -501,7 +501,43 @@ class ForecastDataAugmentorTest {
                 .lowCloud(25)
                 .build();
 
-        AtmosphericData result = augmentor.augmentWithInversionScore(base, 300, true);
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 200, true);
+
+        assertThat(result.inversionScore()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() at threshold elevation but no water returns original")
+    void augmentWithInversionScore_thresholdElevationNoWater_returnsOriginal() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .humidity(90)
+                .lowCloud(25)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 200, false);
+
+        assertThat(result).isSameAs(base);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() uses MIN_ELEVATION_METRES constant (200)")
+    void augmentWithInversionScore_thresholdConsistentWithConstant() {
+        assertThat(InversionScoreCalculator.MIN_ELEVATION_METRES).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("augmentWithInversionScore() at 201m above threshold adds score")
+    void augmentWithInversionScore_justAboveThreshold_addsScore() {
+        AtmosphericData base = TestAtmosphericData.builder()
+                .temperature(6.0)
+                .dewPoint(5.5)
+                .humidity(90)
+                .lowCloud(25)
+                .build();
+
+        AtmosphericData result = augmentor.augmentWithInversionScore(base, 201, true);
 
         assertThat(result.inversionScore()).isNotNull();
     }

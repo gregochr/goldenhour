@@ -16,13 +16,13 @@ import com.gregochr.goldenhour.model.WeatherData;
  *   <li>Low cloud cover (some low cloud indicates inversion already forming)</li>
  * </ul>
  *
- * <p>Only meaningful for locations with {@code elevation >= 300m} and
+ * <p>Only meaningful for locations with {@code elevation >= 200m} and
  * {@code overlooksWater = true}. The caller gates on those conditions.
  */
 public final class InversionScoreCalculator {
 
     /** Minimum elevation in metres for inversion relevance. */
-    public static final int MIN_ELEVATION_METRES = 300;
+    public static final int MIN_ELEVATION_METRES = 200;
 
     private InversionScoreCalculator() {
     }

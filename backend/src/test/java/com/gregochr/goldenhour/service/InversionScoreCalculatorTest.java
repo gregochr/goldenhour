@@ -296,4 +296,10 @@ class InversionScoreCalculatorTest {
         // gap 0.5 = 4, wind 1.0 = 3, humidity 95 = 2, cloud 5 < 20 = 0 → 9.0
         assertThat(score).isNotNull().isEqualTo(9.0);
     }
+
+    @Test
+    @DisplayName("MIN_ELEVATION_METRES is 200")
+    void minElevationMetres_is200() {
+        assertThat(InversionScoreCalculator.MIN_ELEVATION_METRES).isEqualTo(200);
+    }
 }

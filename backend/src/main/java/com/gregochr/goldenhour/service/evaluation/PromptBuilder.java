@@ -145,7 +145,7 @@ public class PromptBuilder {
             + "CLOUD INVERSION GUIDANCE:\n"
             + "A cloud inversion occurs when warm air sits above cooler air, creating a stable "
             + "boundary layer. For elevated locations overlooking water (lakes, sea, large "
-            + "reservoirs at 300m+ elevation):\n"
+            + "reservoirs at 200m+ elevation):\n"
             + "- Inversion score 7-8: MODERATE potential — visible cloud blanket below viewpoint, "
             + "typically hugging water surface. Light reflecting off cloud tops at sunrise/sunset "
             + "is spectacular.\n"

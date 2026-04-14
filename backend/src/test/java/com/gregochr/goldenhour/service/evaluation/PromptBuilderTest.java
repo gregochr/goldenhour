@@ -795,12 +795,14 @@ public class PromptBuilderTest {
     // ── Cloud Inversion Tests ───────────────────────────────────────────────
 
     @Test
-    @DisplayName("getSystemPrompt contains cloud inversion guidance")
+    @DisplayName("getSystemPrompt contains cloud inversion guidance with 200m threshold")
     void getSystemPrompt_containsInversionGuidance() {
         String prompt = promptBuilder.getSystemPrompt();
 
         assertThat(prompt)
                 .contains("CLOUD INVERSION GUIDANCE:")
+                .contains("200m+ elevation")
+                .doesNotContain("300m+ elevation")
                 .contains("Inversion score 7-8")
                 .contains("Inversion score 9-10")
                 .contains("sea of clouds");

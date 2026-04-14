@@ -28,7 +28,7 @@ import java.util.Map;
  * consumer of already-persisted data.
  */
 @Component
-public class BluebellHotTopicDetector implements HotTopicDetector {
+public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
     /** Minimum bluebell score to surface as a hot topic. */
     private static final int HOT_TOPIC_THRESHOLD = 6;
@@ -40,12 +40,12 @@ public class BluebellHotTopicDetector implements HotTopicDetector {
     private final ForecastEvaluationRepository evaluationRepository;
 
     /**
-     * Constructs a {@code BluebellHotTopicDetector}.
+     * Constructs a {@code BluebellHotTopicStrategy}.
      *
      * @param locationRepository   repository for location lookups
      * @param evaluationRepository repository for forecast evaluation lookups
      */
-    public BluebellHotTopicDetector(LocationRepository locationRepository,
+    public BluebellHotTopicStrategy(LocationRepository locationRepository,
             ForecastEvaluationRepository evaluationRepository) {
         this.locationRepository = locationRepository;
         this.evaluationRepository = evaluationRepository;

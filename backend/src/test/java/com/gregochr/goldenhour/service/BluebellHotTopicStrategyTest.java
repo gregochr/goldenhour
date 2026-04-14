@@ -19,17 +19,16 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link BluebellHotTopicDetector}.
+ * Unit tests for {@link BluebellHotTopicStrategy}.
  */
 @ExtendWith(MockitoExtension.class)
-class BluebellHotTopicDetectorTest {
+class BluebellHotTopicStrategyTest {
 
     /** A date within bluebell season. */
     private static final LocalDate IN_SEASON = LocalDate.of(2026, 4, 25);
@@ -43,17 +42,17 @@ class BluebellHotTopicDetectorTest {
     @Mock
     private ForecastEvaluationRepository evaluationRepository;
 
-    private BluebellHotTopicDetector detector;
+    private BluebellHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        detector = new BluebellHotTopicDetector(locationRepository, evaluationRepository);
+        strategy = new BluebellHotTopicStrategy(locationRepository, evaluationRepository);
     }
 
     @Test
     @DisplayName("returns empty list when called outside bluebell season")
     void detect_outsideSeason_returnsEmpty() {
-        List<HotTopic> topics = detector.detect(OUT_OF_SEASON, OUT_OF_SEASON.plusDays(3));
+        List<HotTopic> topics = strategy.detect(OUT_OF_SEASON, OUT_OF_SEASON.plusDays(3));
 
         assertThat(topics).isEmpty();
         verifyNoInteractions(locationRepository, evaluationRepository);
@@ -64,7 +63,7 @@ class BluebellHotTopicDetectorTest {
     void detect_noLocations_returnsEmpty() {
         when(locationRepository.findBluebellLocations()).thenReturn(List.of());
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON.plusDays(2));
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON.plusDays(2));
 
         assertThat(topics).isEmpty();
         verifyNoInteractions(evaluationRepository);
@@ -94,10 +93,11 @@ class BluebellHotTopicDetectorTest {
         evaluation.setBluebellSummary("Misty and still");
         evaluation.setLocation(location);
 
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         HotTopic topic = topics.get(0);
@@ -105,7 +105,7 @@ class BluebellHotTopicDetectorTest {
         assertThat(topic.label()).isEqualTo("Bluebell conditions");
         assertThat(topic.date()).isEqualTo(IN_SEASON);
         assertThat(topic.filterAction()).isEqualTo("BLUEBELL");
-        assertThat(topic.regions()).contains("Lake District");
+        assertThat(topic.regions()).containsExactly("Lake District");
     }
 
     @Test
@@ -126,10 +126,11 @@ class BluebellHotTopicDetectorTest {
         evaluation.setBluebellScore(4);
         evaluation.setLocation(location);
 
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).isEmpty();
     }
@@ -152,10 +153,11 @@ class BluebellHotTopicDetectorTest {
         evaluation.setBluebellScore(9);
         evaluation.setLocation(location);
 
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).priority()).isEqualTo(1);
@@ -179,17 +181,18 @@ class BluebellHotTopicDetectorTest {
         evaluation.setBluebellScore(6);
         evaluation.setLocation(location);
 
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).priority()).isEqualTo(3);
     }
 
     @Test
-    @DisplayName("queries the evaluation repository with correct location IDs")
+    @DisplayName("queries the evaluation repository with exact location IDs and dates")
     void detect_queriesRepositoryWithLocationIds() {
         LocationEntity location = LocationEntity.builder()
                 .id(42L)
@@ -200,14 +203,14 @@ class BluebellHotTopicDetectorTest {
                 .build();
 
         when(locationRepository.findBluebellLocations()).thenReturn(List.of(location));
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(2))))
                 .thenReturn(List.of());
 
-        detector.detect(IN_SEASON, IN_SEASON.plusDays(2));
+        strategy.detect(IN_SEASON, IN_SEASON.plusDays(2));
 
         verify(evaluationRepository).findBluebellEvaluations(
-                org.mockito.ArgumentMatchers.argThat(ids -> ids.contains(42L)),
-                any(), any());
+                eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(2)));
     }
 
     // ── HOT_TOPIC_THRESHOLD boundary ─────────────────────────────────────────
@@ -232,7 +235,7 @@ class BluebellHotTopicDetectorTest {
                 eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        assertThat(detector.detect(IN_SEASON, IN_SEASON)).isEmpty();
+        assertThat(strategy.detect(IN_SEASON, IN_SEASON)).isEmpty();
     }
 
     // ── Priority boundary tests ───────────────────────────────────────────────
@@ -257,7 +260,7 @@ class BluebellHotTopicDetectorTest {
                 eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).priority()).isEqualTo(3);
@@ -283,7 +286,7 @@ class BluebellHotTopicDetectorTest {
                 eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).priority()).isEqualTo(1);
@@ -324,10 +327,11 @@ class BluebellHotTopicDetectorTest {
         e3.setBluebellScore(6);
         e3.setLocation(loc3);
 
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L, 2L, 3L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(e1, e2, e3));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).regions()).hasSize(2);
@@ -358,10 +362,11 @@ class BluebellHotTopicDetectorTest {
         lowScore.setLocation(loc2);
 
         // deliberately supply in reverse order to confirm sorting is done by score, not input order
-        when(evaluationRepository.findBluebellEvaluations(any(), any(), any()))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(lowScore, highScore));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).regions().get(0)).isEqualTo("Northumberland");
@@ -386,10 +391,11 @@ class BluebellHotTopicDetectorTest {
         evaluation.setBluebellScore(7);
         evaluation.setBluebellSummary("Misty");
         evaluation.setLocation(location);
-        when(evaluationRepository.findBluebellEvaluations(any(), eq(IN_SEASON), eq(IN_SEASON)))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, IN_SEASON);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
         assertThat(topics.get(0).detail()).contains("today");
     }
@@ -411,10 +417,11 @@ class BluebellHotTopicDetectorTest {
         evaluation.setTargetDate(tomorrow);
         evaluation.setBluebellScore(7);
         evaluation.setLocation(location);
-        when(evaluationRepository.findBluebellEvaluations(any(), eq(IN_SEASON), eq(tomorrow)))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(tomorrow)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, tomorrow);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, tomorrow);
 
         assertThat(topics.get(0).detail()).contains("tomorrow");
     }
@@ -437,10 +444,11 @@ class BluebellHotTopicDetectorTest {
         evaluation.setTargetDate(monday);
         evaluation.setBluebellScore(7);
         evaluation.setLocation(location);
-        when(evaluationRepository.findBluebellEvaluations(any(), eq(IN_SEASON), eq(monday)))
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(monday)))
                 .thenReturn(List.of(evaluation));
 
-        List<HotTopic> topics = detector.detect(IN_SEASON, monday);
+        List<HotTopic> topics = strategy.detect(IN_SEASON, monday);
 
         assertThat(topics.get(0).detail()).contains("Monday");
     }
@@ -462,7 +470,7 @@ class BluebellHotTopicDetectorTest {
                 eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(3))))
                 .thenReturn(List.of());
 
-        detector.detect(IN_SEASON, IN_SEASON.plusDays(3));
+        strategy.detect(IN_SEASON, IN_SEASON.plusDays(3));
 
         verify(evaluationRepository).findBluebellEvaluations(
                 eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(3)));

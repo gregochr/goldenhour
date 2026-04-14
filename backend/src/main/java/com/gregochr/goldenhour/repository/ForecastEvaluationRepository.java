@@ -76,7 +76,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
 
     /**
      * Returns all evaluations for a set of locations within a date range that have a bluebell
-     * score populated. Used by {@code BluebellHotTopicDetector} to surface seasonal hot topics.
+     * score populated. Used by {@code BluebellHotTopicStrategy} to surface seasonal hot topics.
      *
      * @param locationIds the location primary keys to query
      * @param from        the start of the date range (inclusive)

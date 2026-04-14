@@ -10,11 +10,11 @@ import java.util.List;
  * Each implementation scans triage output for a specific phenomenon
  * (bluebells, tides, aurora, etc.) and emits zero or more HotTopic records.
  *
- * <p>Detectors run after forecasts have been evaluated — they are read-only
- * consumers of data that has already been fetched and persisted. They must
- * NOT make any external API calls.</p>
+ * <p>Strategies run AFTER the triage cycle completes — they are read-only
+ * consumers of data that has already been fetched. They must NOT make
+ * any external API calls.</p>
  */
-public interface HotTopicDetector {
+public interface HotTopicStrategy {
 
     /**
      * Detects hot topics for the given date range.
