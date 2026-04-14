@@ -101,8 +101,8 @@ public class BatchPollingService {
 
             MessageBatch.ProcessingStatus processingStatus = status.processingStatus();
 
-            if (processingStatus == MessageBatch.ProcessingStatus.IN_PROGRESS
-                    || processingStatus == MessageBatch.ProcessingStatus.CANCELING) {
+            if (processingStatus.equals(MessageBatch.ProcessingStatus.IN_PROGRESS)
+                    || processingStatus.equals(MessageBatch.ProcessingStatus.CANCELING)) {
                 LOG.debug("Batch {}: still {} ({} processed so far)",
                         batchId, processingStatus,
                         status.requestCounts().processing()
@@ -118,7 +118,7 @@ public class BatchPollingService {
                 return;
             }
 
-            if (processingStatus == MessageBatch.ProcessingStatus.ENDED) {
+            if (processingStatus.equals(MessageBatch.ProcessingStatus.ENDED)) {
                 LOG.info("Batch {}: ENDED — fetching results (type={})",
                         batchId, batch.getBatchType());
 
