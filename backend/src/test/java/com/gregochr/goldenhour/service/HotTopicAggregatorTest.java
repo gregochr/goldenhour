@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.HotTopic;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -17,10 +18,17 @@ class HotTopicAggregatorTest {
     private static final LocalDate FROM = LocalDate.of(2026, 4, 25);
     private static final LocalDate TO = LocalDate.of(2026, 4, 27);
 
+    private HotTopicSimulationService simulationService;
+
+    @BeforeEach
+    void setUp() {
+        simulationService = new HotTopicSimulationService();
+    }
+
     @Test
     @DisplayName("empty detector list returns empty topics")
     void getHotTopics_noDetectors_returnsEmpty() {
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of());
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(), simulationService);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -38,7 +46,8 @@ class HotTopicAggregatorTest {
         HotTopicDetector detector1 = (from, to) -> List.of(topic1);
         HotTopicDetector detector2 = (from, to) -> List.of(topic2);
 
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(detector1, detector2));
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(detector1, detector2), simulationService);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -54,7 +63,7 @@ class HotTopicAggregatorTest {
         HotTopic medPriorityLaterDate = new HotTopic("C", "C", "c", FROM.plusDays(1), 2, null, List.of());
 
         HotTopicDetector detector = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(detector));
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(detector), simulationService);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -67,10 +76,44 @@ class HotTopicAggregatorTest {
     @DisplayName("detector returning empty list is handled gracefully")
     void getHotTopics_detectorReturnsEmpty_noError() {
         HotTopicDetector emptyDetector = (from, to) -> List.of();
-        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(emptyDetector));
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(emptyDetector), simulationService);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
         assertThat(topics).isEmpty();
+    }
+
+    @Test
+    @DisplayName("simulation enabled — returns simulated topics instead of running detectors")
+    void getHotTopics_simulationEnabled_bypassesDetectors() {
+        simulationService.setEnabled(true);
+        simulationService.setTypeActive("BLUEBELL", true);
+
+        HotTopicDetector neverCalledDetector = (from, to) -> {
+            throw new IllegalStateException("detector should not be called during simulation");
+        };
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(neverCalledDetector), simulationService);
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("BLUEBELL");
+    }
+
+    @Test
+    @DisplayName("simulation disabled — runs real detectors")
+    void getHotTopics_simulationDisabled_usesRealDetectors() {
+        simulationService.setTypeActive("BLUEBELL", true); // won't be used because disabled
+
+        HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of());
+        HotTopicDetector detector = (from, to) -> List.of(realTopic);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(detector), simulationService);
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).containsExactly(realTopic);
     }
 }

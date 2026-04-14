@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import com.gregochr.goldenhour.repository.WaitlistEmailRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -80,6 +81,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected BriefingEvaluationService evaluationService;
+
+    @MockitoBean
+    protected HotTopicSimulationService hotTopicSimulationService;
 
     @MockitoBean
     protected BriefingModelTestService briefingModelTestService;

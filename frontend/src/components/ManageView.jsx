@@ -10,6 +10,7 @@ import ModelTestView from './ModelTestView.jsx';
 import BriefingModelTestView from './BriefingModelTestView.jsx';
 import PromptTestView from './PromptTestView.jsx';
 import SchedulerView from './SchedulerView.jsx';
+import HotTopicSimulation from './HotTopicSimulation.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
 
@@ -35,6 +36,7 @@ const GROUPS = [
       { value: 'briefingmodeltest', label: 'Briefing Model Test' },
       { value: 'prompttest', label: 'Prompt Test' },
       { value: 'scheduler', label: 'Scheduler' },
+      { value: 'hottopics', label: 'Hot Topics' },
     ],
   },
 ];
@@ -207,6 +209,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Scheduler</p>
             <SchedulerView />
+          </div>
+        )}
+
+        {activeTab === 'hottopics' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Hot topic simulation</p>
+            <HotTopicSimulation />
           </div>
         )}
       </div>
