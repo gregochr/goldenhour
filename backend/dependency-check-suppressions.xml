@@ -15,4 +15,16 @@
         <packageUrl regex="true">^pkg:maven/tools\.jackson\.core/jackson\-(core|databind)@.*$</packageUrl>
         <cve>CVE-2026-29062</cve>
     </suppress>
+    <suppress until="2026-06-30Z">
+        <notes>CVE-2026-34483, CVE-2026-34486, CVE-2026-34487 (CVSS 7.5): affect
+            tomcat-embed-core 11.0.20. No patched Tomcat 11.x release exists as of 2026-04-14
+            — 11.0.20 is the latest available on Maven Central. Spring Boot 4.0.5 pins this
+            version and cannot be overridden to a non-existent release.
+            Revisit when Tomcat 11.0.21+ is published; remove this suppression and update
+            tomcat.version in pom.xml.</notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-core@.*$</packageUrl>
+        <cve>CVE-2026-34483</cve>
+        <cve>CVE-2026-34486</cve>
+        <cve>CVE-2026-34487</cve>
+    </suppress>
 </suppressions>
