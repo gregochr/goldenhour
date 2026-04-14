@@ -38,6 +38,8 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.OpenMeteoService;
+import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
@@ -56,15 +58,19 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -120,6 +126,10 @@ class ScheduledBatchEvaluationServiceTest {
     private DynamicSchedulerService dynamicSchedulerService;
     @Mock
     private JobRunService jobRunService;
+    @Mock
+    private OpenMeteoService openMeteoService;
+    @Mock
+    private SolarService solarService;
 
     private ScheduledBatchEvaluationService service;
 
@@ -131,7 +141,7 @@ class ScheduledBatchEvaluationServiceTest {
                 promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
                 locationRepository, auroraProperties, metOfficeScraper, dynamicSchedulerService,
-                jobRunService);
+                jobRunService, openMeteoService, solarService);
     }
 
     private void stubBatchService() {
@@ -196,7 +206,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class)))
                 .thenReturn("user message");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
@@ -238,7 +248,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(triaged);
+                any(Boolean.class), any(), any(), any())).thenReturn(triaged);
 
         service.submitForecastBatch();
 
@@ -285,7 +295,7 @@ class ScheduledBatchEvaluationServiceTest {
                 TargetType.SUNRISE, List.of(northEastRegion, yorkshireRegion), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(es));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
-                null, null, List.of(day), null, null, null, false, false, 0, null);
+                null, null, List.of(day), null, null, null, false, false, 0, null, List.of(), List.of());
 
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
@@ -311,7 +321,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, yorkshireLoc.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("sys");
 
@@ -349,7 +359,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("sys");
 
@@ -433,7 +443,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any()))
+                any(Boolean.class), any(), any(), any()))
                 .thenThrow(new RuntimeException("Open-Meteo unavailable"));
 
         service.submitForecastBatch();
@@ -467,7 +477,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 2,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", forecastResponse);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
 
         when(stabilityClassifier.classify(
                 eq("54.7753,-1.5849"), eq(54.7753), eq(-1.5849), eq(hourly)))
@@ -506,7 +516,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 3,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", forecastResponse);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
 
         when(stabilityClassifier.classify(
                 eq("54.7753,-1.5849"), eq(54.7753), eq(-1.5849), eq(hourly)))
@@ -549,7 +559,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 2,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
 
         service.submitForecastBatch();
 
@@ -584,7 +594,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 2,
                 EvaluationModel.SONNET, loc1.getTideType(), "task-key", forecastResponse);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
 
         when(stabilityClassifier.classify(
                 eq("54.7753,-1.5849"), eq(54.7753), eq(-1.5849), eq(hourly)))
@@ -725,7 +735,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(coastalPromptBuilder.buildUserMessage(atmosphericData)).thenReturn("coastal msg");
         when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
 
@@ -763,7 +773,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(atmosphericData)).thenReturn("inland msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("inland system");
 
@@ -816,7 +826,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(coastalPromptBuilder.buildUserMessage(atmosphericData, surge, 4.85, 4.50))
                 .thenReturn("coastal surge msg");
         when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
@@ -853,7 +863,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
 
@@ -888,7 +898,7 @@ class ScheduledBatchEvaluationServiceTest {
                 LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
-                any(Boolean.class), any())).thenReturn(preEval);
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
 
@@ -921,6 +931,80 @@ class ScheduledBatchEvaluationServiceTest {
         verifyNoInteractions(jobRunService);
     }
 
+    // ── Concurrent guard ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("submitForecastBatch drops second call when batch is already running")
+    void submitForecastBatch_alreadyRunning_dropsSecondCall() throws Exception {
+        Field field = ScheduledBatchEvaluationService.class
+                .getDeclaredField("forecastBatchRunning");
+        field.setAccessible(true);
+        ((AtomicBoolean) field.get(service)).set(true);
+
+        service.submitForecastBatch();
+
+        verifyNoInteractions(briefingService, openMeteoService, batchRepository);
+    }
+
+    @Test
+    @DisplayName("submitAuroraBatch drops second call when batch is already running")
+    void submitAuroraBatch_alreadyRunning_dropsSecondCall() throws Exception {
+        Field field = ScheduledBatchEvaluationService.class
+                .getDeclaredField("auroraBatchRunning");
+        field.setAccessible(true);
+        ((AtomicBoolean) field.get(service)).set(true);
+
+        service.submitAuroraBatch();
+
+        verifyNoInteractions(noaaSwpcClient, batchRepository);
+    }
+
+    // ── Bulk weather pre-fetch ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("pre-fetch called once for two tasks sharing the same location coordinates")
+    void submitForecastBatch_twoTasksSameLocation_prefetchCalledOnceWithOneCoord() {
+        DailyBriefingResponse briefing = buildBriefingTwoSlots(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        // Both slots use the same location entity (same lat/lon → one unique coord)
+        LocationEntity loc = buildLocation("Durham UK");
+        loc.setGridLat(54.7753);
+        loc.setGridLng(-1.5849);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+
+        when(openMeteoService.prefetchWeatherBatch(any(), eq(null))).thenReturn(Map.of());
+        when(openMeteoService.computeDirectionalCloudPoints(
+                eq(54.7753), eq(-1.5849), anyInt())).thenReturn(List.of());
+        when(openMeteoService.prefetchCloudBatch(any(), eq(null)))
+                .thenReturn(mock(com.gregochr.goldenhour.model.CloudPointCache.class));
+
+        service.submitForecastBatch();
+
+        // Exactly one coord passed to the bulk fetch, not two
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<double[]>> coordCaptor = ArgumentCaptor.forClass(List.class);
+        verify(openMeteoService).prefetchWeatherBatch(coordCaptor.capture(), eq(null));
+        assertThat(coordCaptor.getValue()).hasSize(1);
+        assertThat(coordCaptor.getValue().get(0)[0]).isEqualTo(54.7753);
+        assertThat(coordCaptor.getValue().get(0)[1]).isEqualTo(-1.5849);
+    }
+
+    @Test
+    @DisplayName("pre-fetch not called when all slots are STANDDOWN (empty task list)")
+    void submitForecastBatch_allStanddown_prefetchNotCalled() {
+        DailyBriefingResponse briefing = buildBriefing(Verdict.STANDDOWN);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        service.submitForecastBatch();
+
+        verifyNoInteractions(openMeteoService);
+    }
+
     private DailyBriefingResponse buildBriefing(Verdict verdict) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
@@ -934,7 +1018,7 @@ class ScheduledBatchEvaluationServiceTest {
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, false, 0, null);
+                false, false, 0, null, List.of(), List.of());
     }
 
     private DailyBriefingResponse buildBriefingTwoSlots(Verdict verdict) {
@@ -953,7 +1037,7 @@ class ScheduledBatchEvaluationServiceTest {
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, false, 0, null);
+                false, false, 0, null, List.of(), List.of());
     }
 
     private LocationEntity buildLocation(String name) {

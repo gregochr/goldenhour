@@ -282,7 +282,7 @@ public class OpenMeteoService {
      * @param lon longitude
      * @return coordinate key string
      */
-    static String coordKey(double lat, double lon) {
+    public static String coordKey(double lat, double lon) {
         return lat + "," + lon;
     }
 

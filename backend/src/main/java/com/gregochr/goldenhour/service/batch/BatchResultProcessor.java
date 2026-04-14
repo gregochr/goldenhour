@@ -240,7 +240,8 @@ public class BatchResultProcessor {
         batch.setStatus(succeeded > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED);
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
-            jobRunService.completeBatchRun(batch.getJobRunId(), succeeded, errored);
+            jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
+                    batch.getRequestCount() - succeeded);
         }
     }
 

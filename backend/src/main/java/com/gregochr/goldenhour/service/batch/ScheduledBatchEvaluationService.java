@@ -19,11 +19,14 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
@@ -34,6 +37,8 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.OpenMeteoService;
+import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
@@ -41,16 +46,21 @@ import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
+import com.gregochr.goldenhour.util.TimeSlotUtils;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Submits forecast and aurora evaluations to the Anthropic Batch API for cost-efficient
@@ -92,6 +102,14 @@ public class ScheduledBatchEvaluationService {
     private final MetOfficeSpaceWeatherScraper metOfficeScraper;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final JobRunService jobRunService;
+    private final OpenMeteoService openMeteoService;
+    private final SolarService solarService;
+
+    /** Prevents concurrent forecast batch submissions. */
+    private final AtomicBoolean forecastBatchRunning = new AtomicBoolean(false);
+
+    /** Prevents concurrent aurora batch submissions. */
+    private final AtomicBoolean auroraBatchRunning = new AtomicBoolean(false);
 
     /**
      * Constructs the batch evaluation service.
@@ -115,6 +133,8 @@ public class ScheduledBatchEvaluationService {
      * @param metOfficeScraper            Met Office space weather narrative
      * @param dynamicSchedulerService     scheduler to register job targets
      * @param jobRunService               service for creating and updating job run records
+     * @param openMeteoService            Open-Meteo service for bulk weather pre-fetch
+     * @param solarService                solar calculation service for azimuth and event times
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -134,7 +154,9 @@ public class ScheduledBatchEvaluationService {
             AuroraProperties auroraProperties,
             MetOfficeSpaceWeatherScraper metOfficeScraper,
             DynamicSchedulerService dynamicSchedulerService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            OpenMeteoService openMeteoService,
+            SolarService solarService) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationService = locationService;
@@ -154,6 +176,8 @@ public class ScheduledBatchEvaluationService {
         this.metOfficeScraper = metOfficeScraper;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.jobRunService = jobRunService;
+        this.openMeteoService = openMeteoService;
+        this.solarService = solarService;
     }
 
     /**
@@ -170,11 +194,52 @@ public class ScheduledBatchEvaluationService {
     /**
      * Builds and submits a forecast evaluation batch to the Anthropic Batch API.
      *
-     * <p>Iterates over all GO and MARGINAL location slots from the current daily briefing.
-     * For each, fetches weather data and (if triage passes) adds a request to the batch.
-     * Skips submission if no non-triaged locations are found.
+     * <p>Guards against concurrent submissions with an {@link AtomicBoolean}. If a batch
+     * submission is already in progress (e.g. triggered simultaneously by two scheduler
+     * threads), the second call is silently dropped.
+     *
+     * <p>Weather data for all candidate locations is pre-fetched in bulk before the
+     * per-location triage loop, avoiding per-location Open-Meteo calls that would trip
+     * the minutely rate limit when processing 200+ locations.
      */
     public void submitForecastBatch() {
+        if (!forecastBatchRunning.compareAndSet(false, true)) {
+            LOG.warn("Forecast batch already running — skipping concurrent trigger");
+            return;
+        }
+        try {
+            doSubmitForecastBatch();
+        } finally {
+            forecastBatchRunning.set(false);
+        }
+    }
+
+    /**
+     * Builds and submits an aurora evaluation batch to the Anthropic Batch API.
+     *
+     * <p>Guards against concurrent submissions with an {@link AtomicBoolean}.
+     *
+     * <p>Fetches current NOAA SWPC data, derives the alert level, and runs weather triage.
+     * Submits a single batch request if any locations pass triage. Skips submission if the
+     * alert level is QUIET or no locations are viable.
+     */
+    public void submitAuroraBatch() {
+        if (!auroraBatchRunning.compareAndSet(false, true)) {
+            LOG.warn("Aurora batch already running — skipping concurrent trigger");
+            return;
+        }
+        try {
+            doSubmitAuroraBatch();
+        } finally {
+            auroraBatchRunning.set(false);
+        }
+    }
+
+    /**
+     * Core forecast batch logic: collect candidates from the briefing, pre-fetch weather
+     * in bulk, then build one Anthropic request per surviving location.
+     */
+    private void doSubmitForecastBatch() {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
         if (briefing == null) {
             LOG.info("Forecast batch skipped: no cached briefing available");
@@ -182,61 +247,67 @@ public class ScheduledBatchEvaluationService {
         }
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+
+        // First pass: collect all GO/MARGINAL tasks without fetching weather yet
+        List<ForecastTask> tasks = collectForecastTasks(briefing);
+        if (tasks.isEmpty()) {
+            LOG.info("Forecast batch: no evaluable locations found, skipping submission");
+            return;
+        }
+
+        LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather", tasks.size());
+
+        // Bulk weather pre-fetch: 2 chunked API calls instead of N individual calls
+        Map<String, WeatherExtractionResult> prefetchedWeather;
+        try {
+            prefetchedWeather = prefetchBatchWeather(tasks);
+        } catch (Exception e) {
+            LOG.error("Forecast batch: weather pre-fetch failed — aborting: {}", e.getMessage(), e);
+            return;
+        }
+
+        // Bulk cloud point pre-fetch for directional cloud and approach sampling
+        CloudPointCache cloudCache;
+        try {
+            cloudCache = prefetchBatchCloudPoints(tasks, prefetchedWeather);
+        } catch (Exception e) {
+            LOG.warn("Forecast batch: cloud pre-fetch failed — continuing without cloud cache: {}",
+                    e.getMessage());
+            cloudCache = null;
+        }
+
+        // Second pass: triage each task using the pre-fetched caches (no individual API calls)
         List<BatchCreateParams.Request> requests = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
-        for (BriefingDay day : briefing.days()) {
-            LocalDate date = day.date();
-            for (BriefingEventSummary eventSummary : day.eventSummaries()) {
-                TargetType targetType = eventSummary.targetType();
-                for (BriefingRegion region : eventSummary.regions()) {
-                    String regionName = region.regionName();
-                    String cacheKey = regionName + "|" + date + "|" + targetType;
-                    if (briefingEvaluationService.hasEvaluation(cacheKey)) {
-                        LOG.debug("Forecast batch: {} already cached, skipping region", cacheKey);
-                        continue;
-                    }
-                    for (BriefingSlot slot : region.slots()) {
-                        if (slot.verdict() != Verdict.GO && slot.verdict() != Verdict.MARGINAL) {
-                            continue;
-                        }
-                        LocationEntity location = findLocation(slot.locationName());
-                        if (location == null) {
-                            LOG.warn("Forecast batch: unknown location '{}', skipping",
-                                    slot.locationName());
-                            continue;
-                        }
-                        try {
-                            ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
-                                    location, date, targetType, location.getTideType(),
-                                    model, false, null);
-                            if (preEval.triaged()) {
-                                LOG.debug("Forecast batch: {} triaged ({}), skipping",
-                                        location.getName(), preEval.triageReason());
-                                continue;
-                            }
-                            int daysAhead = preEval.daysAhead();
-                            int maxDays = getStabilityWindowDays(location, preEval, stabilityByCell);
-                            if (daysAhead > maxDays) {
-                                LOG.debug("Forecast batch: {} T+{} skipped — beyond stability window (max={})",
-                                        location.getName(), daysAhead, maxDays);
-                                continue;
-                            }
-                            BatchCreateParams.Request request =
-                                    buildForecastRequest(date, targetType,
-                                            location, preEval.atmosphericData(), model);
-                            requests.add(request);
-                        } catch (Exception e) {
-                            LOG.warn("Forecast batch: weather fetch failed for {}: {}",
-                                    location.getName(), e.getMessage());
-                        }
-                    }
+        for (ForecastTask task : tasks) {
+            try {
+                ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
+                        task.location(), task.date(), task.targetType(),
+                        task.location().getTideType(), model, false, null,
+                        prefetchedWeather, cloudCache);
+                if (preEval.triaged()) {
+                    LOG.debug("Forecast batch: {} triaged ({}), skipping",
+                            task.location().getName(), preEval.triageReason());
+                    continue;
                 }
+                int daysAhead = preEval.daysAhead();
+                int maxDays = getStabilityWindowDays(task.location(), preEval, stabilityByCell);
+                if (daysAhead > maxDays) {
+                    LOG.debug("Forecast batch: {} T+{} skipped — beyond stability window (max={})",
+                            task.location().getName(), daysAhead, maxDays);
+                    continue;
+                }
+                requests.add(buildForecastRequest(task.date(), task.targetType(),
+                        task.location(), preEval.atmosphericData(), model));
+            } catch (Exception e) {
+                LOG.warn("Forecast batch: triage failed for {}: {}",
+                        task.location().getName(), e.getMessage());
             }
         }
 
         if (requests.isEmpty()) {
-            LOG.info("Forecast batch: no evaluable locations found, skipping submission");
+            LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
             return;
         }
 
@@ -244,13 +315,9 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Builds and submits an aurora evaluation batch to the Anthropic Batch API.
-     *
-     * <p>Fetches current NOAA SWPC data, derives the alert level, and runs weather triage.
-     * Submits a single batch request if any locations pass triage. Skips submission if the
-     * alert level is QUIET or no locations are viable.
+     * Core aurora batch logic extracted to keep the public method a thin guard wrapper.
      */
-    public void submitAuroraBatch() {
+    private void doSubmitAuroraBatch() {
         SpaceWeatherData spaceWeather;
         try {
             spaceWeather = noaaSwpcClient.fetchAll();
@@ -328,14 +395,137 @@ public class ScheduledBatchEvaluationService {
 
             ForecastBatchEntity entity = new ForecastBatchEntity(
                     batch.id(), batchType, requests.size(), expiresAt);
-            entity.setJobRunId(jobRun.getId());
+            if (jobRun != null) {
+                entity.setJobRunId(jobRun.getId());
+            }
             batchRepository.save(entity);
 
             LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}",
-                    logPrefix, batch.id(), requests.size(), expiresAt, jobRun.getId());
+                    logPrefix, batch.id(), requests.size(), expiresAt,
+                    jobRun != null ? jobRun.getId() : null);
         } catch (Exception e) {
             LOG.error("{} submission failed: {}", logPrefix, e.getMessage(), e);
         }
+    }
+
+    /**
+     * First pass over the briefing: collects all GO/MARGINAL tasks that are not already
+     * cached by the SSE evaluation path. No API calls are made here.
+     *
+     * @param briefing the current cached daily briefing
+     * @return list of candidate tasks (location, date, targetType triples)
+     */
+    private List<ForecastTask> collectForecastTasks(DailyBriefingResponse briefing) {
+        List<ForecastTask> tasks = new ArrayList<>();
+        for (BriefingDay day : briefing.days()) {
+            LocalDate date = day.date();
+            for (BriefingEventSummary eventSummary : day.eventSummaries()) {
+                TargetType targetType = eventSummary.targetType();
+                for (BriefingRegion region : eventSummary.regions()) {
+                    String cacheKey = region.regionName() + "|" + date + "|" + targetType;
+                    if (briefingEvaluationService.hasEvaluation(cacheKey)) {
+                        LOG.debug("Forecast batch: {} already cached, skipping region", cacheKey);
+                        continue;
+                    }
+                    for (BriefingSlot slot : region.slots()) {
+                        if (slot.verdict() != Verdict.GO && slot.verdict() != Verdict.MARGINAL) {
+                            continue;
+                        }
+                        LocationEntity location = findLocation(slot.locationName());
+                        if (location == null) {
+                            LOG.warn("Forecast batch: unknown location '{}', skipping",
+                                    slot.locationName());
+                            continue;
+                        }
+                        tasks.add(new ForecastTask(location, date, targetType));
+                    }
+                }
+            }
+        }
+        return tasks;
+    }
+
+    /**
+     * Bulk-fetches weather (forecast + air quality) for all unique location coordinates
+     * in the task list. Uses the same chunked approach as {@code ForecastCommandExecutor},
+     * with 3-second inter-chunk delays to stay within Open-Meteo's rate limit.
+     *
+     * @param tasks candidate tasks collected from the briefing
+     * @return map from coordinate key to pre-fetched weather extraction result
+     */
+    private Map<String, WeatherExtractionResult> prefetchBatchWeather(List<ForecastTask> tasks) {
+        Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
+        for (ForecastTask task : tasks) {
+            String key = OpenMeteoService.coordKey(task.location().getLat(),
+                    task.location().getLon());
+            uniqueCoords.putIfAbsent(key,
+                    new double[]{task.location().getLat(), task.location().getLon()});
+        }
+        LOG.info("Forecast batch: weather pre-fetch for {} unique location(s) (from {} tasks)",
+                uniqueCoords.size(), tasks.size());
+        return openMeteoService.prefetchWeatherBatch(new ArrayList<>(uniqueCoords.values()), null);
+    }
+
+    /**
+     * Bulk-fetches cloud-only data for all directional cloud and cloud-approach sampling
+     * points across every task. Mirrors the pre-fetch logic in {@code ForecastCommandExecutor}.
+     *
+     * @param tasks             candidate tasks
+     * @param prefetchedWeather pre-fetched weather (used to compute upwind points)
+     * @return cloud point cache for use in per-location triage
+     */
+    private CloudPointCache prefetchBatchCloudPoints(List<ForecastTask> tasks,
+            Map<String, WeatherExtractionResult> prefetchedWeather) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        List<double[]> allPoints = new ArrayList<>();
+
+        for (ForecastTask task : tasks) {
+            double lat = task.location().getLat();
+            double lon = task.location().getLon();
+            LocalDate date = task.date();
+            TargetType targetType = task.targetType();
+
+            int azimuth = targetType == TargetType.SUNRISE
+                    ? solarService.sunriseAzimuthDeg(lat, lon, date)
+                    : solarService.sunsetAzimuthDeg(lat, lon, date);
+
+            // 5 directional cloud points (cone + antisolar + far-solar)
+            allPoints.addAll(openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth));
+
+            // Upwind point for cloud approach trend (requires wind from pre-fetched weather)
+            if (prefetchedWeather != null) {
+                String coordKey = OpenMeteoService.coordKey(lat, lon);
+                WeatherExtractionResult cached = prefetchedWeather.get(coordKey);
+                if (cached != null && cached.forecastResponse() != null
+                        && cached.forecastResponse().getHourly() != null) {
+                    LocalDateTime eventTime = targetType == TargetType.SUNRISE
+                            ? solarService.sunriseUtc(lat, lon, date)
+                            : solarService.sunsetUtc(lat, lon, date);
+                    OpenMeteoForecastResponse.Hourly h = cached.forecastResponse().getHourly();
+                    List<String> times = h.getTime();
+                    if (times != null && h.getWindDirection10m() != null
+                            && h.getWindSpeed10m() != null) {
+                        int idx = TimeSlotUtils.findNearestIndex(times, eventTime);
+                        if (idx < h.getWindDirection10m().size()
+                                && idx < h.getWindSpeed10m().size()) {
+                            Integer windDir = h.getWindDirection10m().get(idx);
+                            Double windSpeed = h.getWindSpeed10m().get(idx);
+                            if (windDir != null && windSpeed != null) {
+                                double[] upwind = openMeteoService.computeUpwindPoint(
+                                        lat, lon, windDir, windSpeed, now, eventTime);
+                                if (upwind != null) {
+                                    allPoints.add(upwind);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        LOG.info("Forecast batch: cloud point pre-fetch — {} raw points from {} tasks",
+                allPoints.size(), tasks.size());
+        return openMeteoService.prefetchCloudBatch(allPoints, null);
     }
 
     /**
@@ -408,4 +598,13 @@ public class ScheduledBatchEvaluationService {
                 .findFirst()
                 .orElse(null);
     }
+
+    /**
+     * Lightweight task descriptor for the first-pass briefing scan.
+     *
+     * @param location   the location entity
+     * @param date       the target date
+     * @param targetType SUNRISE or SUNSET
+     */
+    private record ForecastTask(LocationEntity location, LocalDate date, TargetType targetType) {}
 }
