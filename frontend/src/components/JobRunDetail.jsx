@@ -93,27 +93,37 @@ const JobRunDetail = ({ jobRun }) => {
   return (
     <div className="mt-4 space-y-3 bg-plex-bg p-4 rounded-lg border border-plex-border">
       {/* Evaluation Summary */}
-      {(locationsProcessed > 0 || daysCount > 0) && (
-        <div className="mb-4 pb-4 border-b border-plex-border">
-          <h4 className="font-semibold text-plex-text text-sm mb-2">Evaluation Summary</h4>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            {locationsProcessed > 0 && (
-              <div className="bg-plex-surface p-2 rounded border border-plex-border">
-                <div className="text-plex-text-muted text-xs">Locations</div>
-                <div className="font-semibold text-plex-text">{locationsProcessed}</div>
+      <div className="mb-4 pb-4 border-b border-plex-border">
+        <h4 className="font-semibold text-plex-text text-sm mb-2">Evaluation Summary</h4>
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          {locationsProcessed > 0 && (
+            <div className="bg-plex-surface p-2 rounded border border-plex-border">
+              <div className="text-plex-text-muted text-xs">Locations</div>
+              <div className="font-semibold text-plex-text">{locationsProcessed}</div>
+            </div>
+          )}
+          {daysCount > 0 && (
+            <div className="bg-plex-surface p-2 rounded border border-plex-border">
+              <div className="text-plex-text-muted text-xs">Days</div>
+              <div className="font-semibold text-plex-text">
+                {daysCount} <span className="text-plex-text-muted text-xs">({minDate} to {maxDate})</span>
               </div>
-            )}
-            {daysCount > 0 && (
-              <div className="bg-plex-surface p-2 rounded border border-plex-border">
-                <div className="text-plex-text-muted text-xs">Days</div>
-                <div className="font-semibold text-plex-text">
-                  {daysCount} <span className="text-plex-text-muted text-xs">({minDate} to {maxDate})</span>
-                </div>
-              </div>
-            )}
+            </div>
+          )}
+          <div className="bg-plex-surface p-2 rounded border border-plex-border">
+            <div className="text-plex-text-muted text-xs">Job Run ID</div>
+            <div className="font-semibold text-plex-text">{jobRun.id}</div>
           </div>
+          {jobRun.runType === 'SCHEDULED_BATCH' && jobRun.notes && (
+            <div className="bg-plex-surface p-2 rounded border border-plex-border col-span-2">
+              <div className="text-plex-text-muted text-xs">Anthropic Batch ID</div>
+              <div className="font-semibold text-plex-text" style={{ fontFamily: 'monospace' }}>
+                {jobRun.notes.replace('Anthropic batch: ', '')}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       <h4 className="font-semibold text-plex-text text-sm">API Call Breakdown</h4>
 
@@ -288,6 +298,8 @@ const JobRunDetail = ({ jobRun }) => {
 JobRunDetail.propTypes = {
   jobRun: PropTypes.shape({
     id: PropTypes.number.isRequired,
+    runType: PropTypes.string.isRequired,
+    notes: PropTypes.string,
     locationsProcessed: PropTypes.number,
     minTargetDate: PropTypes.string,
     maxTargetDate: PropTypes.string,
