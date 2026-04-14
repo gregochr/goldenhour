@@ -31,7 +31,14 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
     }
   });
 
+  const isBatchInProgress = (run) =>
+    run.runType === 'SCHEDULED_BATCH' && !run.completedAt;
+
   const getStatusBadge = (run) => {
+    if (isBatchInProgress(run)) {
+      return <span className="inline-block px-2 py-1 rounded-full bg-amber-900/30 text-amber-400 text-xs font-medium">In Progress</span>;
+    }
+
     const total = (run.succeeded || 0) + (run.failed || 0);
     if (total === 0) return null;
 
@@ -119,6 +126,11 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                           })}
                         </div>
                       )}
+                      {run.notes && (
+                        <div className="text-xs text-plex-text-muted mt-1" data-testid={`notes-${run.id}`}>
+                          {run.notes}
+                        </div>
+                      )}
                       {(run.totalCostMicroDollars > 0 || run.totalCostPence > 0) && (
                         <div className="text-xs text-plex-gold mt-1 font-semibold">
                           Cost: {formatCostGbp(run.totalCostMicroDollars, run.exchangeRateGbpPerUsd, run.totalCostPence)}
@@ -129,9 +141,15 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                       )}
                     </div>
                     <div className="text-right flex-shrink-0 ml-4">
-                      <div className="text-sm font-semibold text-plex-text">
-                        {run.succeeded}/{(run.succeeded || 0) + (run.failed || 0)}
-                      </div>
+                      {isBatchInProgress(run) ? (
+                        <div className="text-sm font-semibold text-plex-text" data-testid={`batch-progress-${run.id}`}>
+                          {run.succeeded || 0} / {run.locationsProcessed || '?'} succeeded
+                        </div>
+                      ) : (
+                        <div className="text-sm font-semibold text-plex-text">
+                          {run.succeeded}/{(run.succeeded || 0) + (run.failed || 0)}
+                        </div>
+                      )}
                       <div className="text-xs text-plex-text-muted">
                         {run.failed > 0 && <span className="text-red-400">{run.failed} failed</span>}
                       </div>

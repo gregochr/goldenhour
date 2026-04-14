@@ -102,6 +102,28 @@ class ModelsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/models carries extendedThinkingConfigs.BRIEFING_BEST_BET=true when set")
+    void getAvailableModels_carriesExtendedThinkingTrueForBriefing() throws Exception {
+        String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+        Map<RunType, Boolean> etConfigs = new EnumMap<>(RunType.class);
+        for (RunType rt : RunType.values()) {
+            etConfigs.put(rt, false);
+        }
+        etConfigs.put(RunType.BRIEFING_BEST_BET, true);
+        when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(etConfigs);
+        when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
+
+        mockMvc.perform(get("/api/models")
+                .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.extendedThinkingConfigs.BRIEFING_BEST_BET").value(true))
+                .andExpect(jsonPath("$.extendedThinkingConfigs.AURORA_EVALUATION").value(false));
+
+        verify(modelSelectionService).getAllExtendedThinkingConfigs();
+    }
+
+    @Test
     @DisplayName("GET /api/models does not include WILDLIFE in available models")
     void getAvailableModels_excludesWildlife() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);

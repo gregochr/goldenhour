@@ -24,12 +24,15 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -506,6 +509,257 @@ class JobRunServiceTest {
             List<ApiCallLogEntity> result = jobRunService.getApiCallsForRun(99L);
 
             assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("startBatchRun()")
+    class StartBatchRunTests {
+
+        @Test
+        @DisplayName("creates job run with SCHEDULED_BATCH run type")
+        void startBatchRun_setsScheduledBatchRunType() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(10, "msgbatch_test01");
+
+            assertThat(captor.getValue().getRunType()).isEqualTo(RunType.SCHEDULED_BATCH);
+        }
+
+        @Test
+        @DisplayName("sets locationsProcessed to the request count")
+        void startBatchRun_setsLocationsProcessedToRequestCount() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(42, "msgbatch_test01");
+
+            assertThat(captor.getValue().getLocationsProcessed()).isEqualTo(42);
+        }
+
+        @Test
+        @DisplayName("embeds the Anthropic batch ID in the notes field")
+        void startBatchRun_setsNotesWithBatchId() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(5, "msgbatch_abc123");
+
+            assertThat(captor.getValue().getNotes()).isEqualTo("Anthropic batch: msgbatch_abc123");
+        }
+
+        @Test
+        @DisplayName("leaves completedAt null so run appears in-progress")
+        void startBatchRun_completedAtIsNull() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(3, "msgbatch_test01");
+
+            assertThat(captor.getValue().getCompletedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("initialises succeeded and failed counters to zero")
+        void startBatchRun_initialCountersAreZero() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(7, "msgbatch_test01");
+
+            assertThat(captor.getValue().getSucceeded()).isEqualTo(0);
+            assertThat(captor.getValue().getFailed()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("marks run as scheduler-triggered (not manual)")
+        void startBatchRun_triggeredManuallyIsFalse() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(1, "msgbatch_test01");
+
+            assertThat(captor.getValue().getTriggeredManually()).isFalse();
+        }
+
+        @Test
+        @DisplayName("stores null exchange rate and still saves when rate fetch fails")
+        void startBatchRun_exchangeRateFails_savesNullRate() {
+            when(exchangeRateService.getCurrentRate()).thenThrow(new RuntimeException("timeout"));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(5, "msgbatch_test01");
+
+            assertThat(captor.getValue().getExchangeRateGbpPerUsd()).isNull();
+            assertThat(captor.getValue().getRunType()).isEqualTo(RunType.SCHEDULED_BATCH);
+        }
+
+        @Test
+        @DisplayName("stamps app version on the entity")
+        void startBatchRun_stampsAppVersion() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startBatchRun(3, "msgbatch_test01");
+
+            assertThat(captor.getValue().getAppVersion()).isEqualTo("v2.8.19");
+        }
+    }
+
+    @Nested
+    @DisplayName("updateBatchRunProgress()")
+    class UpdateBatchRunProgressTests {
+
+        @Test
+        @DisplayName("updates succeeded and failed counts when entity found")
+        void updateBatchRunProgress_entityFound_updatesCountsAndSaves() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(30);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(10L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .succeeded(0)
+                    .failed(0)
+                    .build();
+            when(jobRunRepository.findById(10L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.updateBatchRunProgress(10L, 7, 2);
+
+            verify(jobRunRepository).save(captor.capture());
+            JobRunEntity saved = captor.getValue();
+            assertThat(saved.getSucceeded()).isEqualTo(7);
+            assertThat(saved.getFailed()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("does not set completedAt during a progress update")
+        void updateBatchRunProgress_doesNotSetCompletedAt() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(30);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(11L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .build();
+            when(jobRunRepository.findById(11L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.updateBatchRunProgress(11L, 3, 0);
+
+            assertThat(captor.getValue().getCompletedAt()).isNull();
+        }
+
+        @Test
+        @DisplayName("does not save when entity not found")
+        void updateBatchRunProgress_entityNotFound_doesNotSave() {
+            when(jobRunRepository.findById(999L)).thenReturn(Optional.empty());
+
+            jobRunService.updateBatchRunProgress(999L, 5, 1);
+
+            verify(jobRunRepository, never()).save(any(JobRunEntity.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("completeBatchRun()")
+    class CompleteBatchRunTests {
+
+        @Test
+        @DisplayName("sets completedAt to a time close to now")
+        void completeBatchRun_setsCompletedAtCloseToNow() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(20L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .build();
+            when(jobRunRepository.findById(20L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
+
+            jobRunService.completeBatchRun(20L, 10, 2);
+
+            LocalDateTime completedAt = captor.getValue().getCompletedAt();
+            assertThat(completedAt).isAfterOrEqualTo(before);
+            assertThat(completedAt).isBeforeOrEqualTo(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(1));
+        }
+
+        @Test
+        @DisplayName("sets the final succeeded and failed counts")
+        void completeBatchRun_setsFinalCounts() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(21L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .succeeded(3)
+                    .failed(0)
+                    .build();
+            when(jobRunRepository.findById(21L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.completeBatchRun(21L, 18, 4);
+
+            assertThat(captor.getValue().getSucceeded()).isEqualTo(18);
+            assertThat(captor.getValue().getFailed()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("sets a positive durationMs calculated from startedAt")
+        void completeBatchRun_setPositiveDurationMs() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(10);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(22L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .build();
+            when(jobRunRepository.findById(22L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.completeBatchRun(22L, 5, 0);
+
+            assertThat(captor.getValue().getDurationMs()).isGreaterThan(0L);
+        }
+
+        @Test
+        @DisplayName("does not query apiCallLogRepository (batch runs have no individual call logs)")
+        void completeBatchRun_doesNotQueryApiCallLog() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(23L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .build();
+            when(jobRunRepository.findById(23L)).thenReturn(Optional.of(jobRun));
+            when(jobRunRepository.save(jobRun)).thenReturn(jobRun);
+
+            jobRunService.completeBatchRun(23L, 5, 0);
+
+            verifyNoInteractions(apiCallLogRepository);
+        }
+
+        @Test
+        @DisplayName("does not save when entity not found")
+        void completeBatchRun_entityNotFound_doesNotSave() {
+            when(jobRunRepository.findById(999L)).thenReturn(Optional.empty());
+
+            jobRunService.completeBatchRun(999L, 5, 0);
+
+            verify(jobRunRepository, never()).save(any(JobRunEntity.class));
         }
     }
 

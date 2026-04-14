@@ -12,10 +12,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -320,7 +324,8 @@ class ModelSelectionServiceTest {
         assertThat(saved.isExtendedThinking()).isTrue();
         assertThat(saved.getRunType()).isEqualTo(RunType.BRIEFING_BEST_BET);
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.SONNET);
-        assertThat(saved.getUpdatedAt()).isNotNull();
+        assertThat(saved.getUpdatedAt())
+                .isCloseTo(LocalDateTime.now(ZoneOffset.UTC), within(5, ChronoUnit.SECONDS));
     }
 
     @Test
@@ -338,6 +343,8 @@ class ModelSelectionServiceTest {
         assertThat(saved.isExtendedThinking()).isTrue();
         assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(saved.getRunType()).isEqualTo(RunType.BRIEFING_BEST_BET);
+        assertThat(saved.getUpdatedAt())
+                .isCloseTo(LocalDateTime.now(ZoneOffset.UTC), within(5, ChronoUnit.SECONDS));
     }
 
     @Test
@@ -398,5 +405,40 @@ class ModelSelectionServiceTest {
         assertThat(result.get(RunType.BRIEFING_BEST_BET)).isTrue();
         assertThat(result.get(RunType.VERY_SHORT_TERM)).isFalse();
         assertThat(result.get(RunType.AURORA_EVALUATION)).isFalse();
+    }
+
+    @Test
+    @DisplayName("setExtendedThinking works for AURORA_EVALUATION (not hardcoded to BRIEFING_BEST_BET)")
+    void setExtendedThinking_auroraEvaluation_savesCorrectRunType() {
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
+                .thenReturn(Optional.empty());
+
+        boolean result = modelSelectionService.setExtendedThinking(RunType.AURORA_EVALUATION, true);
+
+        assertThat(result).isTrue();
+        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.AURORA_EVALUATION);
+        assertThat(captor.getValue().isExtendedThinking()).isTrue();
+    }
+
+    @Test
+    @DisplayName("isExtendedThinking for two run types independently respects each row")
+    void isExtendedThinking_twoRunTypesAreIndependent() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BRIEFING_BEST_BET)
+                        .activeModel(EvaluationModel.SONNET)
+                        .extendedThinking(true)
+                        .build()));
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.AURORA_EVALUATION)
+                        .activeModel(EvaluationModel.HAIKU)
+                        .extendedThinking(false)
+                        .build()));
+
+        assertThat(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)).isTrue();
+        assertThat(modelSelectionService.isExtendedThinking(RunType.AURORA_EVALUATION)).isFalse();
     }
 }

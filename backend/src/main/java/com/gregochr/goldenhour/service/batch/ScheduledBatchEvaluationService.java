@@ -30,6 +30,7 @@ import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -90,6 +91,7 @@ public class ScheduledBatchEvaluationService {
     private final AuroraProperties auroraProperties;
     private final MetOfficeSpaceWeatherScraper metOfficeScraper;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs the batch evaluation service.
@@ -112,6 +114,7 @@ public class ScheduledBatchEvaluationService {
      * @param auroraProperties            aurora configuration (Bortle thresholds)
      * @param metOfficeScraper            Met Office space weather narrative
      * @param dynamicSchedulerService     scheduler to register job targets
+     * @param jobRunService               service for creating and updating job run records
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -130,7 +133,8 @@ public class ScheduledBatchEvaluationService {
             LocationRepository locationRepository,
             AuroraProperties auroraProperties,
             MetOfficeSpaceWeatherScraper metOfficeScraper,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService,
+            JobRunService jobRunService) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationService = locationService;
@@ -149,6 +153,7 @@ public class ScheduledBatchEvaluationService {
         this.auroraProperties = auroraProperties;
         this.metOfficeScraper = metOfficeScraper;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -301,6 +306,10 @@ public class ScheduledBatchEvaluationService {
 
     /**
      * Submits a list of requests to the Anthropic Batch API and persists the tracking entity.
+     *
+     * <p>Creates a {@link com.gregochr.goldenhour.entity.JobRunEntity} with status
+     * IN_PROGRESS (completedAt = null) so the batch appears in the Job Runs screen.
+     * The job run ID is stored on the batch entity so the poller can update progress.
      */
     private void submitBatch(List<BatchCreateParams.Request> requests,
             BatchType batchType, String logPrefix) {
@@ -313,12 +322,17 @@ public class ScheduledBatchEvaluationService {
 
             java.time.Instant expiresAt = batch.expiresAt().toInstant();
 
+            // Create the job run first so we can link the batch entity to it
+            com.gregochr.goldenhour.entity.JobRunEntity jobRun =
+                    jobRunService.startBatchRun(requests.size(), batch.id());
+
             ForecastBatchEntity entity = new ForecastBatchEntity(
                     batch.id(), batchType, requests.size(), expiresAt);
+            entity.setJobRunId(jobRun.getId());
             batchRepository.save(entity);
 
-            LOG.info("{} submitted: batchId={}, {} request(s), expires={}",
-                    logPrefix, batch.id(), requests.size(), expiresAt);
+            LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}",
+                    logPrefix, batch.id(), requests.size(), expiresAt, jobRun.getId());
         } catch (Exception e) {
             LOG.error("{} submission failed: {}", logPrefix, e.getMessage(), e);
         }

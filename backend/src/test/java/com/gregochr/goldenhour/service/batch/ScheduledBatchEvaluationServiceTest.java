@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -33,6 +34,7 @@ import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -116,6 +118,8 @@ class ScheduledBatchEvaluationServiceTest {
     private MetOfficeSpaceWeatherScraper metOfficeScraper;
     @Mock
     private DynamicSchedulerService dynamicSchedulerService;
+    @Mock
+    private JobRunService jobRunService;
 
     private ScheduledBatchEvaluationService service;
 
@@ -126,7 +130,8 @@ class ScheduledBatchEvaluationServiceTest {
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
-                locationRepository, auroraProperties, metOfficeScraper, dynamicSchedulerService);
+                locationRepository, auroraProperties, metOfficeScraper, dynamicSchedulerService,
+                jobRunService);
     }
 
     private void stubBatchService() {
@@ -826,6 +831,94 @@ class ScheduledBatchEvaluationServiceTest {
         verify(coastalPromptBuilder).buildUserMessage(atmosphericData, surge, 4.85, 4.50);
         verify(coastalPromptBuilder).getSystemPrompt();
         verifyNoInteractions(promptBuilder);
+    }
+
+    // ── Job run tracking ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("submitForecastBatch calls startBatchRun with correct requestCount and batchId")
+    void submitForecastBatch_goLocation_callsStartBatchRunWithCorrectArgs() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_jobrun01");
+        when(mockBatch.expiresAt()).thenReturn(java.time.OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        JobRunEntity createdJobRun = JobRunEntity.builder().id(55L).build();
+        when(jobRunService.startBatchRun(1, "msgbatch_jobrun01")).thenReturn(createdJobRun);
+
+        service.submitForecastBatch();
+
+        verify(jobRunService).startBatchRun(1, "msgbatch_jobrun01");
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch stores the jobRunId on the saved batch entity")
+    void submitForecastBatch_goLocation_storesJobRunIdOnBatchEntity() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_jobrun02");
+        when(mockBatch.expiresAt()).thenReturn(java.time.OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        JobRunEntity createdJobRun = JobRunEntity.builder().id(66L).build();
+        when(jobRunService.startBatchRun(1, "msgbatch_jobrun02")).thenReturn(createdJobRun);
+
+        service.submitForecastBatch();
+
+        ArgumentCaptor<ForecastBatchEntity> entityCaptor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getJobRunId()).isEqualTo(66L);
+    }
+
+    @Test
+    @DisplayName("no jobRunService interaction when no GO/MARGINAL slots")
+    void submitForecastBatch_allStanddown_doesNotCallJobRunService() {
+        DailyBriefingResponse briefing = buildBriefing(Verdict.STANDDOWN);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        service.submitForecastBatch();
+
+        verifyNoInteractions(jobRunService);
     }
 
     private DailyBriefingResponse buildBriefing(Verdict verdict) {

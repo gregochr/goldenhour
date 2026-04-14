@@ -105,6 +105,10 @@ public class JobRunEntity {
     @Column(name = "app_version", length = 20)
     private String appVersion;
 
+    /** Free-text notes for this run (e.g. Anthropic batch ID for SCHEDULED_BATCH runs). */
+    @Column(name = "notes", length = 500)
+    private String notes;
+
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;

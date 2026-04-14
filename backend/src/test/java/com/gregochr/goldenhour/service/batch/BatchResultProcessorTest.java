@@ -20,6 +20,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
@@ -83,6 +84,8 @@ class BatchResultProcessorTest {
     private NoaaSwpcClient noaaSwpcClient;
     @Mock
     private ObjectMapper objectMapper;
+    @Mock
+    private JobRunService jobRunService;
 
     private BatchResultProcessor processor;
 
@@ -92,7 +95,7 @@ class BatchResultProcessorTest {
                 anthropicClient, batchRepository, briefingEvaluationService,
                 evaluationStrategies, modelSelectionService, claudeAuroraInterpreter,
                 auroraStateCache, weatherTriageService, locationRepository,
-                auroraProperties, noaaSwpcClient, objectMapper);
+                auroraProperties, noaaSwpcClient, objectMapper, jobRunService);
     }
 
     private void stubBatchService() {
@@ -946,6 +949,145 @@ class BatchResultProcessorTest {
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // ── Job run tracking: FORECAST ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("stream exception: markFailed calls completeBatchRun with (0, requestCount) when jobRunId set")
+    void processResults_streamThrows_completesJobRunAsFailed() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_jrt01", 8, 77L);
+        when(batchService.resultsStreaming("msgbatch_jrt01"))
+                .thenThrow(new RuntimeException("timeout"));
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(77L, 0, 8);
+    }
+
+    @Test
+    @DisplayName("stream exception: no jobRunId → jobRunService not called")
+    void processResults_streamThrows_noJobRunId_doesNotCallJobRunService() {
+        stubBatchService();
+        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_jrt02", BatchType.FORECAST, 3,
+                Instant.now().plusSeconds(86400));
+        when(batchService.resultsStreaming("msgbatch_jrt02"))
+                .thenThrow(new RuntimeException("timeout"));
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("all-errored forecast: markFailed calls completeBatchRun(jobRunId, 0, requestCount)")
+    void processResults_allErrored_completesJobRunAsFailed() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_jrt03", 4, 88L);
+
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn("fc-42-2026-04-07-SUNRISE");
+        when(result.isSucceeded()).thenReturn(false);
+
+        StreamResponse<MessageBatchIndividualResponse> streamResponse =
+                mock(StreamResponse.class);
+        when(streamResponse.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_jrt03")).thenReturn(streamResponse);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(88L, 0, 4);
+    }
+
+    // ── Job run tracking: AURORA ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("aurora stream exception: completeBatchRun called with (0, requestCount)")
+    void processResults_auroraStreamThrows_completesJobRunAsFailed() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_jrt04", 1, 101L);
+        when(batchService.resultsStreaming("msgbatch_jrt04"))
+                .thenThrow(new RuntimeException("aurora error"));
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(101L, 0, 1);
+    }
+
+    @Test
+    @DisplayName("aurora no viable locations: completeBatchRun called with failed counts")
+    void processResults_auroraNoViableLocations_completesJobRunAsFailed() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_jrt05", 1, 102L);
+
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+        com.anthropic.models.messages.TextBlock textBlock =
+                mock(com.anthropic.models.messages.TextBlock.class);
+        com.anthropic.models.messages.ContentBlock contentBlock =
+                mock(com.anthropic.models.messages.ContentBlock.class);
+
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn("au-MODERATE-2026-04-14");
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.content()).thenReturn(List.of(contentBlock));
+        when(contentBlock.isText()).thenReturn(true);
+        when(contentBlock.asText()).thenReturn(textBlock);
+        when(textBlock.text()).thenReturn("aurora response text");
+
+        StreamResponse<MessageBatchIndividualResponse> streamResponse =
+                mock(StreamResponse.class);
+        when(streamResponse.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_jrt05")).thenReturn(streamResponse);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getModerate()).thenReturn(4);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4)).thenReturn(List.of());
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(102L, 0, 1);
+    }
+
+    // ── Job run tracking: markFailed partial success ─────────────────────────
+
+    @Test
+    @DisplayName("markFailed with partial succeeded count passes correct values to completeBatchRun")
+    void processResults_markFailedWithPartialSuccess_usesCorrectCounts() {
+        stubBatchService();
+        // batch has 6 requests, and suppose 2 succeeded before the failure
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_jrt06", 6, 103L);
+        batch.setSucceededCount(2);
+        when(batchService.resultsStreaming("msgbatch_jrt06"))
+                .thenThrow(new RuntimeException("partial failure"));
+
+        processor.processResults(batch);
+
+        // markFailed is called: succeeded=2 (from entity), failed=6-2=4
+        verify(jobRunService).completeBatchRun(103L, 2, 4);
+    }
+
+    /**
+     * Builds a {@link ForecastBatchEntity} pre-populated with a job run ID.
+     */
+    private ForecastBatchEntity buildBatchWithJobRun(BatchType type, String batchId,
+            int requestCount, long jobRunId) {
+        ForecastBatchEntity batch = new ForecastBatchEntity(batchId, type, requestCount,
+                Instant.now().plusSeconds(86400));
+        batch.setJobRunId(jobRunId);
+        return batch;
+    }
 
     /**
      * Builds a minimal succeeded {@link MessageBatchIndividualResponse} returning the given text.

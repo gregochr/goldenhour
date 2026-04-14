@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
@@ -66,6 +67,7 @@ public class BatchResultProcessor {
     private final AuroraProperties auroraProperties;
     private final NoaaSwpcClient noaaSwpcClient;
     private final ObjectMapper objectMapper;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs the batch result processor.
@@ -82,6 +84,7 @@ public class BatchResultProcessor {
      * @param auroraProperties            aurora config (Bortle thresholds)
      * @param noaaSwpcClient              NOAA SWPC client for aurora re-triage
      * @param objectMapper                Jackson mapper for JSON parsing
+     * @param jobRunService               service for completing the linked job run record
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -94,7 +97,8 @@ public class BatchResultProcessor {
             LocationRepository locationRepository,
             AuroraProperties auroraProperties,
             NoaaSwpcClient noaaSwpcClient,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            JobRunService jobRunService) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.briefingEvaluationService = briefingEvaluationService;
@@ -107,6 +111,7 @@ public class BatchResultProcessor {
         this.auroraProperties = auroraProperties;
         this.noaaSwpcClient = noaaSwpcClient;
         this.objectMapper = objectMapper;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -234,6 +239,9 @@ public class BatchResultProcessor {
         batch.setEndedAt(Instant.now());
         batch.setStatus(succeeded > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED);
         batchRepository.save(batch);
+        if (batch.getJobRunId() != null) {
+            jobRunService.completeBatchRun(batch.getJobRunId(), succeeded, errored);
+        }
     }
 
     /**
@@ -337,6 +345,9 @@ public class BatchResultProcessor {
             batch.setEndedAt(Instant.now());
             batch.setStatus(BatchStatus.COMPLETED);
             batchRepository.save(batch);
+            if (batch.getJobRunId() != null) {
+                jobRunService.completeBatchRun(batch.getJobRunId(), allScores.size(), 0);
+            }
 
         } catch (Exception e) {
             LOG.error("Aurora batch: score parsing/caching failed: {}", e.getMessage(), e);
@@ -363,5 +374,10 @@ public class BatchResultProcessor {
         batch.setErrorMessage(reason);
         batch.setEndedAt(Instant.now());
         batchRepository.save(batch);
+        if (batch.getJobRunId() != null) {
+            int succeeded = batch.getSucceededCount() != null ? batch.getSucceededCount() : 0;
+            jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
+                    batch.getRequestCount() - succeeded);
+        }
     }
 }

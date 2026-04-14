@@ -742,9 +742,45 @@ class BriefingBestBetAdvisorTest {
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);
             verify(anthropicApiClient).createMessage(captor.capture());
-            assertThat(captor.getValue()._body().thinking()).isPresent();
-            assertThat(captor.getValue()._body().thinking().get().asEnabled().budgetTokens())
-                    .isEqualTo(10000L);
+            MessageCreateParams params = captor.getValue();
+            assertThat(params._body().maxTokens()).isEqualTo(16000L);
+            assertThat(params._body().thinking()).isPresent();
+            assertThat(params._body().thinking().get().asEnabled().budgetTokens()).isEqualTo(10000L);
+            assertThat(params.model().toString()).isEqualTo(EvaluationModel.OPUS.getModelId());
+        }
+
+        @Test
+        @DisplayName("ET enabled: SONNET model ID is sent to the API unchanged")
+        void etEnabled_sonnet_modelIdUnchanged() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(true);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            stubCreateMessageToThrow();
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            assertThat(captor.getValue().model().toString())
+                    .isEqualTo(EvaluationModel.SONNET.getModelId());
+        }
+
+        @Test
+        @DisplayName("ET reads from BRIEFING_BEST_BET run type, not a hardcoded alternative")
+        void etEnabled_readsFromBriefingBestBetRunType() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(true);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            stubCreateMessageToThrow();
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            verify(modelSelectionService).isExtendedThinking(RunType.BRIEFING_BEST_BET);
         }
 
         @Test

@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.JobRunService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,7 @@ public class BatchPollingService {
     private final ForecastBatchRepository batchRepository;
     private final BatchResultProcessor resultProcessor;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final JobRunService jobRunService;
 
     /**
      * Constructs the batch polling service.
@@ -45,15 +47,18 @@ public class BatchPollingService {
      * @param batchRepository         repository for reading and updating batch records
      * @param resultProcessor         processes results for completed batches
      * @param dynamicSchedulerService scheduler to register the polling job target
+     * @param jobRunService           service for updating job run progress records
      */
     public BatchPollingService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
             BatchResultProcessor resultProcessor,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService,
+            JobRunService jobRunService) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.resultProcessor = resultProcessor;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.jobRunService = jobRunService;
     }
 
     /**
@@ -103,6 +108,12 @@ public class BatchPollingService {
                         status.requestCounts().processing()
                                 + status.requestCounts().succeeded()
                                 + status.requestCounts().errored());
+                if (batch.getJobRunId() != null) {
+                    jobRunService.updateBatchRunProgress(
+                            batch.getJobRunId(),
+                            (int) status.requestCounts().succeeded(),
+                            (int) status.requestCounts().errored());
+                }
                 batchRepository.save(batch);
                 return;
             }
@@ -118,6 +129,9 @@ public class BatchPollingService {
                     batch.setStatus(BatchStatus.EXPIRED);
                     batch.setEndedAt(Instant.now());
                     batchRepository.save(batch);
+                    if (batch.getJobRunId() != null) {
+                        jobRunService.completeBatchRun(batch.getJobRunId(), 0, batch.getRequestCount());
+                    }
                     return;
                 }
 

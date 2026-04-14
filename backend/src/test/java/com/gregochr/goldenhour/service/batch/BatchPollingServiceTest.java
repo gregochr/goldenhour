@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.JobRunService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -47,13 +49,16 @@ class BatchPollingServiceTest {
     private BatchResultProcessor resultProcessor;
     @Mock
     private DynamicSchedulerService dynamicSchedulerService;
+    @Mock
+    private JobRunService jobRunService;
 
     private BatchPollingService pollingService;
 
     @BeforeEach
     void setUp() {
         pollingService = new BatchPollingService(
-                anthropicClient, batchRepository, resultProcessor, dynamicSchedulerService);
+                anthropicClient, batchRepository, resultProcessor,
+                dynamicSchedulerService, jobRunService);
     }
 
     private void stubBatchService() {
@@ -160,6 +165,102 @@ class BatchPollingServiceTest {
 
         verify(resultProcessor, never()).processResults(any());
         verify(batchRepository).save(batch);
+    }
+
+    @Test
+    @DisplayName("IN_PROGRESS with jobRunId updates progress counts with exact succeeded/errored values")
+    void pollPendingBatches_inProgressWithJobRunId_updatesProgressCounts() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_005");
+        batch.setJobRunId(42L);
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.IN_PROGRESS);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(status.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(0L);
+        when(counts.succeeded()).thenReturn(7L);
+        when(counts.errored()).thenReturn(2L);
+        when(batchService.retrieve("msgbatch_005")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verify(jobRunService).updateBatchRunProgress(42L, 7, 2);
+    }
+
+    @Test
+    @DisplayName("IN_PROGRESS without jobRunId does not call jobRunService")
+    void pollPendingBatches_inProgressNoJobRunId_doesNotCallJobRunService() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_006");
+        // jobRunId is null by default
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.IN_PROGRESS);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(status.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(1L);
+        when(counts.succeeded()).thenReturn(0L);
+        when(counts.errored()).thenReturn(0L);
+        when(batchService.retrieve("msgbatch_006")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("EXPIRED with jobRunId calls completeBatchRun with (0, requestCount)")
+    void pollPendingBatches_expiredWithJobRunId_completesJobRunAsFailed() {
+        stubBatchService();
+        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_007", BatchType.FORECAST, 5,
+                Instant.now().minusSeconds(3600));
+        batch.setJobRunId(99L);
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_007")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verify(jobRunService).completeBatchRun(99L, 0, 5);
+    }
+
+    @Test
+    @DisplayName("EXPIRED without jobRunId does not call jobRunService")
+    void pollPendingBatches_expiredNoJobRunId_doesNotCallJobRunService() {
+        stubBatchService();
+        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_008", BatchType.FORECAST, 5,
+                Instant.now().minusSeconds(3600));
+        // jobRunId is null by default
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_008")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("API error does not call jobRunService (retry next poll)")
+    void pollPendingBatches_apiError_doesNotCallJobRunService() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_009");
+        batch.setJobRunId(55L);
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        when(batchService.retrieve("msgbatch_009"))
+                .thenThrow(new RuntimeException("Network timeout"));
+
+        pollingService.pollPendingBatches();
+
+        verifyNoInteractions(jobRunService);
     }
 
     private ForecastBatchEntity buildBatch(String batchId) {

@@ -312,6 +312,78 @@ public class JobRunService {
     }
 
     /**
+     * Creates a job run for an Anthropic Batch API submission.
+     *
+     * <p>The returned entity has {@code completedAt = null} (in progress).
+     * Call {@link #updateBatchRunProgress} on each poll and {@link #completeBatchRun}
+     * when the batch reaches a terminal state.
+     *
+     * @param requestCount total number of requests submitted in this batch
+     * @param batchId      the Anthropic batch ID (e.g. {@code "msgbatch_01..."})
+     * @return the newly created job run entity
+     */
+    public JobRunEntity startBatchRun(int requestCount, String batchId) {
+        Double exchangeRate = null;
+        try {
+            exchangeRate = exchangeRateService.getCurrentRate();
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch exchange rate for batch job run: {}", e.getMessage());
+        }
+
+        JobRunEntity jobRun = JobRunEntity.builder()
+                .runType(RunType.SCHEDULED_BATCH)
+                .startedAt(LocalDateTime.now(ZoneOffset.UTC))
+                .locationsProcessed(requestCount)
+                .succeeded(0)
+                .failed(0)
+                .totalCostPence(0)
+                .triggeredManually(false)
+                .exchangeRateGbpPerUsd(exchangeRate)
+                .notes("Anthropic batch: " + batchId)
+                .appVersion(appVersion)
+                .build();
+        return jobRunRepository.save(jobRun);
+    }
+
+    /**
+     * Updates the progress counters on an in-progress batch job run.
+     *
+     * <p>Called on each poll while the batch is still processing.
+     *
+     * @param jobRunId  the job run ID
+     * @param succeeded number of requests that have succeeded so far
+     * @param failed    number of requests that have errored so far
+     */
+    public void updateBatchRunProgress(Long jobRunId, int succeeded, int failed) {
+        jobRunRepository.findById(jobRunId).ifPresent(jobRun -> {
+            jobRun.setSucceeded(succeeded);
+            jobRun.setFailed(failed);
+            jobRunRepository.save(jobRun);
+        });
+    }
+
+    /**
+     * Completes a batch job run with final success and failure counts.
+     *
+     * <p>Sets {@code completedAt} and {@code durationMs}. Does not query
+     * {@code api_call_log} — batch runs do not log individual API calls.
+     *
+     * @param jobRunId  the job run ID
+     * @param succeeded number of requests that succeeded
+     * @param failed    number of requests that errored or were skipped
+     */
+    public void completeBatchRun(Long jobRunId, int succeeded, int failed) {
+        jobRunRepository.findById(jobRunId).ifPresent(jobRun -> {
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+            jobRun.setCompletedAt(now);
+            jobRun.setDurationMs(ChronoUnit.MILLIS.between(jobRun.getStartedAt(), now));
+            jobRun.setSucceeded(succeeded);
+            jobRun.setFailed(failed);
+            jobRunRepository.save(jobRun);
+        });
+    }
+
+    /**
      * Retrieves recent job runs for a given run type, ordered by start time descending.
      *
      * @param runType the run type to filter by

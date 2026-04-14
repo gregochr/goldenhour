@@ -87,6 +87,13 @@ public class ForecastBatchEntity {
     @Column(name = "error_message", length = 1000)
     private String errorMessage;
 
+    /**
+     * ID of the {@link com.gregochr.goldenhour.entity.JobRunEntity} tracking this batch
+     * in the Job Runs screen. Null for batches submitted before V85.
+     */
+    @Column(name = "job_run_id")
+    private Long jobRunId;
+
     /** Default constructor for JPA. */
     public ForecastBatchEntity() {
     }
@@ -177,5 +184,13 @@ public class ForecastBatchEntity {
 
     public void setErrorMessage(String errorMessage) {
         this.errorMessage = errorMessage;
+    }
+
+    public Long getJobRunId() {
+        return jobRunId;
+    }
+
+    public void setJobRunId(Long jobRunId) {
+        this.jobRunId = jobRunId;
     }
 }

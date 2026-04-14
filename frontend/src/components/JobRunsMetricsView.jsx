@@ -174,6 +174,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [allLocations, setAllLocations] = useState([]);
   const [dateRange, setDateRange] = useState('7d');
   const [showBriefingRuns, setShowBriefingRuns] = useState(false);
+  const [showBatchRuns, setShowBatchRuns] = useState(true);
   const [strategies, setStrategies] = useState({});
   const PAGE_SIZE = 20;
 
@@ -394,13 +395,27 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     if (!showBriefingRuns) {
       filtered = filtered.filter((r) => r.runType !== 'BRIEFING');
     }
+    if (!showBatchRuns) {
+      filtered = filtered.filter((r) => r.runType !== 'SCHEDULED_BATCH');
+    }
     if (dateRange === 'today') {
       return filtered.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
     }
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
     return filtered.filter((r) => r.startedAt && new Date(r.startedAt) >= cutoff);
-  }, [runs, dateRange, todayStr, showBriefingRuns]);
+  }, [runs, dateRange, todayStr, showBriefingRuns, showBatchRuns]);
+
+  // Auto-refresh every 60 s while any batch run is still in progress
+  const hasInProgressBatch = useMemo(
+    () => runs.some((r) => r.runType === 'SCHEDULED_BATCH' && !r.completedAt),
+    [runs],
+  );
+  useEffect(() => {
+    if (!hasInProgressBatch) return undefined;
+    const timer = setInterval(() => loadJobRuns(0), 60000);
+    return () => clearInterval(timer);
+  }, [hasInProgressBatch, loadJobRuns]);
 
   return (
     <div className="space-y-6">
@@ -536,17 +551,30 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           <option value="WEATHER">Weather</option>
           <option value="TIDE">Tide</option>
           <option value="BRIEFING">Briefing</option>
+          <option value="SCHEDULED_BATCH">Batch</option>
         </select>
-        <label className="flex items-center gap-2 mt-2 text-sm text-plex-text-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showBriefingRuns}
-            onChange={(e) => setShowBriefingRuns(e.target.checked)}
-            data-testid="show-briefing-checkbox"
-            className="rounded border-plex-border"
-          />
-          Show briefing runs
-        </label>
+        <div className="flex flex-wrap gap-4 mt-2">
+          <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showBriefingRuns}
+              onChange={(e) => setShowBriefingRuns(e.target.checked)}
+              data-testid="show-briefing-checkbox"
+              className="rounded border-plex-border"
+            />
+            Show briefing runs
+          </label>
+          <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showBatchRuns}
+              onChange={(e) => setShowBatchRuns(e.target.checked)}
+              data-testid="show-batch-checkbox"
+              className="rounded border-plex-border"
+            />
+            Show batch runs
+          </label>
+        </div>
       </div>
 
       {/* Job runs grid — filtered by the same date range as the summary */}
