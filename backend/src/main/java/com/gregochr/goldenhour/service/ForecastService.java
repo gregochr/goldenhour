@@ -189,8 +189,10 @@ public class ForecastService {
             AtmosphericData withSurge = augmentor.augmentWithStormSurge(
                     withOrientation, location.toCoastalParameters(), locationId, locationName,
                     forecastResponse);
-            AtmosphericData forecastData = augmentor.augmentWithInversionScore(
+            AtmosphericData withInversion = augmentor.augmentWithInversionScore(
                     withSurge, location.getElevationMetres(), location.isOverlooksWater());
+            AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
+                    withInversion, location.getLocationType(), location.getBluebellExposure(), date);
 
             publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
                     LocationTaskState.EVALUATING);
@@ -341,8 +343,10 @@ public class ForecastService {
         AtmosphericData withSurge = augmentor.augmentWithStormSurge(
                 withOrientation, location.toCoastalParameters(), locationId, locationName,
                 forecastResponse);
-        AtmosphericData forecastData = augmentor.augmentWithInversionScore(
+        AtmosphericData withInversion = augmentor.augmentWithInversionScore(
                 withSurge, location.getElevationMetres(), location.isOverlooksWater());
+        AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
+                withInversion, location.getLocationType(), location.getBluebellExposure(), date);
 
         // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
@@ -642,6 +646,10 @@ public class ForecastService {
                         ? evaluation.inversionScore() : null)
                 .inversionPotential(data.inversionScore() != null
                         ? evaluation.inversionPotential() : null)
+                .bluebellScore(data.bluebellConditionScore() != null
+                        ? evaluation.bluebellScore() : null)
+                .bluebellSummary(data.bluebellConditionScore() != null
+                        ? evaluation.bluebellSummary() : null)
                 .build();
     }
 }

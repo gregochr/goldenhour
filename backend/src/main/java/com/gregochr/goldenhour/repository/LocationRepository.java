@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -70,4 +71,17 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
      * @return enabled locations with a non-null {@code bortle_class}
      */
     List<LocationEntity> findByBortleClassIsNotNullAndEnabledTrue();
+
+    /**
+     * Returns all enabled locations that have the {@code BLUEBELL} location type.
+     *
+     * <p>Used by the bluebell hot topic detector to find candidate locations
+     * during bluebell season.
+     *
+     * @return enabled bluebell locations
+     */
+    @Query("SELECT l FROM LocationEntity l JOIN l.locationType lt"
+            + " WHERE lt = com.gregochr.goldenhour.entity.LocationType.BLUEBELL"
+            + " AND l.enabled = true")
+    List<LocationEntity> findBluebellLocations();
 }

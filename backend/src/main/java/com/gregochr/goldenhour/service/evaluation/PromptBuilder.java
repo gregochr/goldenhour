@@ -5,9 +5,11 @@ import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.OutputConfig;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
@@ -158,6 +160,19 @@ public class PromptBuilder {
             + "rating 5, emphasise in summary.\n"
             + "Non-water or low elevation: inversions have no photographic value; ignore "
             + "inversion score.\n\n"
+            + "BLUEBELL CONDITIONS (seasonal \u2014 only present during bluebell season, April\u2013May):\n"
+            + "When a BLUEBELL CONDITIONS block is present in the data, this location is a\n"
+            + "known bluebell site. Factor the conditions into your summary \u2014 photographers\n"
+            + "will want to know whether it is worth visiting specifically for bluebells.\n"
+            + "- Score 8-10: Excellent conditions. Mention bluebells prominently in summary.\n"
+            + "  Boost rating by 1 if current < 5 (bluebell photography works even on\n"
+            + "  overcast days when sunrise/sunset colour is poor).\n"
+            + "- Score 6-7: Good conditions. Mention bluebells in summary.\n"
+            + "- Score < 6: Poor bluebell conditions. Do not mention bluebells.\n"
+            + "- WOODLAND exposure: soft diffused light under the canopy is positive.\n"
+            + "- OPEN_FELL exposure: golden hour light across the hillside is positive.\n"
+            + "- Key phrases when relevant: 'misty morning in the bluebell wood',\n"
+            + "  'still air \u2014 no motion blur on flowers', 'post-rain freshness'.\n\n"
             + "Summaries must be exactly one sentence. Do not write two sentences even if "
             + "separated by a semicolon, dash, or conjunction.\n\n"
             + "Output your evaluation as JSON with these fields: "
@@ -449,6 +464,25 @@ public class PromptBuilder {
                             : "Visible cloud layer below; light touching cloud tops"));
         }
 
+        // Bluebell conditions — bluebell season only, bluebell sites only
+        BluebellConditionScore bb = data.bluebellConditionScore();
+        if (bb != null && SeasonalWindow.BLUEBELL.isActive(
+                data.solarEventTime().toLocalDate())) {
+            sb.append(String.format(
+                    "%nBLUEBELL CONDITIONS:%n"
+                    + "Score: %d/10 (%s)%n"
+                    + "Exposure: %s%n"
+                    + "Conditions: %s%n"
+                    + "Details: misty=%s, calm=%s, softLight=%s, goldenHourLight=%s,"
+                    + " postRain=%s, dryNow=%s",
+                    bb.overall(),
+                    bb.qualityLabel(),
+                    bb.exposure().name(),
+                    bb.summary(),
+                    bb.misty(), bb.calm(), bb.softLight(), bb.goldenHourLight(),
+                    bb.postRain(), bb.dryNow()));
+        }
+
         sb.append("\n").append(getPromptSuffix());
         return sb.toString();
     }
@@ -475,7 +509,9 @@ public class PromptBuilder {
                                         Map.entry("inversion_score", Map.of("type", "integer")),
                                         Map.entry("inversion_potential", Map.of(
                                                 "type", "string",
-                                                "enum", List.of("NONE", "MODERATE", "STRONG"))))))
+                                                "enum", List.of("NONE", "MODERATE", "STRONG"))),
+                                        Map.entry("bluebell_score", Map.of("type", "integer")),
+                                        Map.entry("bluebell_summary", Map.of("type", "string")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties", JsonValue.from(false))

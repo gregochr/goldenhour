@@ -123,6 +123,8 @@ class ForecastServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithInversionScore(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
         // Tide alignment passes by default (non-SEASCAPE locations in most tests)
         lenient().when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());

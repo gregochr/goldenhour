@@ -14,6 +14,8 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -67,6 +69,7 @@ public class BriefingService {
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
     private final ApplicationEventPublisher eventPublisher;
+    private final HotTopicAggregator hotTopicAggregator;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -98,6 +101,7 @@ public class BriefingService {
      * @param hierarchyBuilder        builder for the day/event/region hierarchy
      * @param slotBuilder             builder for individual briefing slots
      * @param eventPublisher          Spring event publisher for cache invalidation
+     * @param hotTopicAggregator      aggregator for seasonal and special-interest hot topics
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -109,7 +113,8 @@ public class BriefingService {
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
             BriefingHierarchyBuilder hierarchyBuilder,
             BriefingSlotBuilder slotBuilder,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            HotTopicAggregator hotTopicAggregator) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -123,6 +128,7 @@ public class BriefingService {
         this.hierarchyBuilder = hierarchyBuilder;
         this.slotBuilder = slotBuilder;
         this.eventPublisher = eventPublisher;
+        this.hotTopicAggregator = hotTopicAggregator;
     }
 
     /**
@@ -170,7 +176,8 @@ public class BriefingService {
             return new DailyBriefingResponse(
                     cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
                     liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
-                    cached.failedLocationCount(), cached.bestBetModel());
+                    cached.failedLocationCount(), cached.bestBetModel(),
+                    cached.hotTopics(), cached.seasonalFeatures());
         } catch (Exception e) {
             LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
                     e.getMessage());
@@ -260,11 +267,15 @@ public class BriefingService {
         long totalMs = System.currentTimeMillis() - briefingStart;
         String circuit = circuitState();
 
+        List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
+        List<String> seasonalFeatures = SeasonalWindow.BLUEBELL.isActive(today)
+                ? List.of("BLUEBELL") : List.of();
+
         if (aboveThreshold) {
             DailyBriefingResponse response = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                     auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                    bestBetAdvisor.getModelDisplayName());
+                    bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures);
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
@@ -278,7 +289,7 @@ public class BriefingService {
                 DailyBriefingResponse staleResponse = new DailyBriefingResponse(
                         lkg.generatedAt(), lkg.headline(), lkg.days(), lkg.bestBets(),
                         auroraTonight, auroraTomorrow, true, true, failed,
-                        lkg.bestBetModel());
+                        lkg.bestBetModel(), hotTopics, seasonalFeatures);
                 cache.set(staleResponse);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below 50% threshold, "
                         + "serving stale=true (LKG from {}), circuit={}, duration={}ms",
@@ -287,7 +298,7 @@ public class BriefingService {
                 DailyBriefingResponse response = new DailyBriefingResponse(
                         LocalDateTime.now(ZoneOffset.UTC), headline, days, bestBets,
                         auroraTonight, auroraTomorrow, false, partialFailure, failed,
-                        bestBetAdvisor.getModelDisplayName());
+                        bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures);
                 cache.set(response);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, "
                         + "no LKG; using partial, circuit={}, duration={}ms",

@@ -19,5 +19,8 @@ public enum LocationType {
     SEASCAPE,
 
     /** Good for waterfall photography — colour forecasts, no tidal data. */
-    WATERFALL
+    WATERFALL,
+
+    /** Known bluebell site — scored for bluebell conditions during season (April–May). */
+    BLUEBELL
 }

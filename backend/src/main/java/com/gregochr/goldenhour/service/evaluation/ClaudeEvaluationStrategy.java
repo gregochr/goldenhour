@@ -71,6 +71,14 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     static final Pattern INVERSION_POTENTIAL_PATTERN =
             Pattern.compile("\"inversion_potential\"\\s*:\\s*\"(\\w+)\"");
 
+    /** Extracts the bluebell condition score (0-10) from Claude's response. */
+    static final Pattern BLUEBELL_SCORE_PATTERN =
+            Pattern.compile("\"bluebell_score\"\\s*:\\s*(\\d{1,2})");
+
+    /** Extracts the bluebell condition summary from Claude's response. */
+    static final Pattern BLUEBELL_SUMMARY_PATTERN =
+            Pattern.compile("\"bluebell_summary\"\\s*:\\s*\"([^\"]+)\"");
+
     private final AnthropicApiClient anthropicApiClient;
     private final PromptBuilder promptBuilder;
     private final CoastalPromptBuilder coastalPromptBuilder;
@@ -181,9 +189,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String inversionPotential = node.has("inversion_potential")
                     ? sanitiseInversionPotential(node.get("inversion_potential").stringValue())
                     : null;
+            Integer bluebellScore = node.has("bluebell_score")
+                    ? node.get("bluebell_score").asInt() : null;
+            String bluebellSummary = node.has("bluebell_summary")
+                    ? node.get("bluebell_summary").textValue() : null;
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential);
+                    inversionScore, inversionPotential, bluebellScore, bluebellSummary);
         } catch (Exception jsonException) {
             return parseWithRegexFallback(text, jsonException);
         }
@@ -267,9 +279,16 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String inversionPotential = inversionPotentialMatcher.find()
                     ? sanitiseInversionPotential(inversionPotentialMatcher.group(1)) : null;
 
+            Matcher bluebellScoreMatcher = BLUEBELL_SCORE_PATTERN.matcher(text);
+            Matcher bluebellSummaryMatcher = BLUEBELL_SUMMARY_PATTERN.matcher(text);
+            Integer bluebellScore = bluebellScoreMatcher.find()
+                    ? Integer.parseInt(bluebellScoreMatcher.group(1)) : null;
+            String bluebellSummary = bluebellSummaryMatcher.find()
+                    ? bluebellSummaryMatcher.group(1) : null;
+
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential);
+                    inversionScore, inversionPotential, bluebellScore, bluebellSummary);
         }
 
         throw new IllegalArgumentException(

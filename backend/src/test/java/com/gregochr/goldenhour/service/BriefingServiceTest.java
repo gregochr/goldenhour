@@ -76,6 +76,8 @@ class BriefingServiceTest {
     private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     @Mock
     private ApplicationEventPublisher eventPublisher;
+    @Mock
+    private HotTopicAggregator hotTopicAggregator;
 
     private BriefingService briefingService;
 
@@ -110,7 +112,7 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher);
+                slotBuilder, eventPublisher, hotTopicAggregator);
     }
 
     @Nested
@@ -399,7 +401,7 @@ class BriefingServiceTest {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         DailyBriefingResponse persisted = new DailyBriefingResponse(
                 LocalDateTime.now(ZoneOffset.UTC), "Test headline", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
         entity.setId(1);
         entity.setGeneratedAt(persisted.generatedAt());
@@ -418,7 +420,7 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher);
+                slotBuilder, eventPublisher, hotTopicAggregator);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -447,7 +449,7 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher);
+                slotBuilder, eventPublisher, hotTopicAggregator);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -469,7 +471,7 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher);
+                slotBuilder, eventPublisher, hotTopicAggregator);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -987,7 +989,7 @@ class BriefingServiceTest {
             ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
             DailyBriefingResponse persisted = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), "Loaded headline", List.of(), List.of(),
-                    null, null, false, false, 0, "Haiku");
+                    null, null, false, false, 0, "Haiku", List.of(), List.of());
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
             entity.setGeneratedAt(persisted.generatedAt());
@@ -1004,7 +1006,7 @@ class BriefingServiceTest {
                     jobRunService, briefingCacheRepository, locationRepository, mapper,
                     new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                     auroraSummaryBuilder, new BriefingHierarchyBuilder(verdictEvaluator),
-                    slotBuilder, eventPublisher);
+                    slotBuilder, eventPublisher, hotTopicAggregator);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1

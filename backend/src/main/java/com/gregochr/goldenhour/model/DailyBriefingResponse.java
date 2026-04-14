@@ -16,6 +16,9 @@ import java.util.List;
  * @param partialFailure     true when some (but not all) location fetches failed this run
  * @param failedLocationCount number of locations that failed to fetch weather data this run
  * @param bestBetModel       display name of the Claude model used for best-bet picks (e.g. "Opus")
+ * @param hotTopics          seasonal and special-interest hot topics for the forecast window
+ * @param seasonalFeatures   active seasonal feature keys (e.g. "BLUEBELL") — used by frontend
+ *                           to conditionally render seasonal filter chips
  */
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
@@ -27,11 +30,15 @@ public record DailyBriefingResponse(
         boolean stale,
         boolean partialFailure,
         int failedLocationCount,
-        String bestBetModel) {
+        String bestBetModel,
+        List<HotTopic> hotTopics,
+        List<String> seasonalFeatures) {
 
     /** Null-safe compact constructor — defensive copies for list fields only. */
     public DailyBriefingResponse {
         days = List.copyOf(days);
         bestBets = bestBets == null ? List.of() : List.copyOf(bestBets);
+        hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
+        seasonalFeatures = seasonalFeatures == null ? List.of() : List.copyOf(seasonalFeatures);
     }
 }

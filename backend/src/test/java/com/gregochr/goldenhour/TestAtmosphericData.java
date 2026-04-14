@@ -227,6 +227,6 @@ public final class TestAtmosphericData {
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,
-                locationOrientation, null, null, null, inversionScore);
+                locationOrientation, null, null, null, inversionScore, null);
     }
 }

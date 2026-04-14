@@ -10,22 +10,23 @@ import java.time.LocalDateTime;
  * <p>Populated from the Open-Meteo Forecast and Air Quality APIs and passed to
  * {@code EvaluationService} for Claude's colour-potential rating.
  *
- * @param locationName     human-readable location name (e.g. "Durham UK")
- * @param solarEventTime   UTC time of the sunrise or sunset being evaluated
- * @param targetType       SUNRISE or SUNSET
- * @param cloud            observer-point cloud cover at three altitude layers
- * @param weather          core weather observations (wind, visibility, precip, etc.)
- * @param aerosol          aerosol and boundary layer measurements
- * @param comfort          human comfort metrics (temperature, feels-like, precip probability)
- * @param directionalCloud cloud cover at solar/antisolar horizon points, or null if unavailable
- * @param tide             tide state snapshot, or null for inland locations
- * @param cloudApproach       cloud approach risk signals, or null if unavailable
- * @param mistTrend           hourly visibility and dew point trend around the event, or null
- * @param locationOrientation orientation hint (e.g. "sunrise-optimised"), or null for both/allday
- * @param surge               storm surge breakdown, or null for inland/non-coastal locations
+ * @param locationName            human-readable location name (e.g. "Durham UK")
+ * @param solarEventTime          UTC time of the sunrise or sunset being evaluated
+ * @param targetType              SUNRISE or SUNSET
+ * @param cloud                   observer-point cloud cover at three altitude layers
+ * @param weather                 core weather observations (wind, visibility, precip, etc.)
+ * @param aerosol                 aerosol and boundary layer measurements
+ * @param comfort                 human comfort metrics (temperature, feels-like, precip probability)
+ * @param directionalCloud        cloud cover at solar/antisolar horizon points, or null if unavailable
+ * @param tide                    tide state snapshot, or null for inland locations
+ * @param cloudApproach           cloud approach risk signals, or null if unavailable
+ * @param mistTrend               hourly visibility and dew point trend around the event, or null
+ * @param locationOrientation     orientation hint (e.g. "sunrise-optimised"), or null for both/allday
+ * @param surge                   storm surge breakdown, or null for inland/non-coastal locations
  * @param adjustedRangeMetres     tidal range adjusted for surge (upper bound), or null
  * @param astronomicalRangeMetres predicted astronomical tidal range, or null
  * @param inversionScore          cloud inversion likelihood score (0–10), or null if not applicable
+ * @param bluebellConditionScore  bluebell photography conditions, or null outside season/non-bluebell
  */
 public record AtmosphericData(
         String locationName,
@@ -43,7 +44,8 @@ public record AtmosphericData(
         StormSurgeBreakdown surge,
         Double adjustedRangeMetres,
         Double astronomicalRangeMetres,
-        Double inversionScore) {
+        Double inversionScore,
+        BluebellConditionScore bluebellConditionScore) {
 
     /**
      * Backward-compatible constructor for callers that don't supply surge or orientation data.
@@ -66,7 +68,7 @@ public record AtmosphericData(
             DirectionalCloudData directionalCloud, TideSnapshot tide,
             CloudApproachData cloudApproach, MistTrend mistTrend) {
         this(locationName, solarEventTime, targetType, cloud, weather, aerosol, comfort,
-                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null, null);
+                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null, null, null);
     }
 
     /**
@@ -79,7 +81,7 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore);
+                inversionScore, bluebellConditionScore);
     }
 
     /**
@@ -92,7 +94,7 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore);
+                inversionScore, bluebellConditionScore);
     }
 
     /**
@@ -105,7 +107,7 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore);
+                inversionScore, bluebellConditionScore);
     }
 
     /**
@@ -118,15 +120,15 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, orientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore);
+                inversionScore, bluebellConditionScore);
     }
 
     /**
      * Returns a copy with storm surge data set.
      *
-     * @param surgeBreakdown      the storm surge breakdown
-     * @param adjustedRange       tidal range adjusted for surge (upper bound), or null
-     * @param astronomicalRange   predicted astronomical tidal range, or null
+     * @param surgeBreakdown    the storm surge breakdown
+     * @param adjustedRange     tidal range adjusted for surge (upper bound), or null
+     * @param astronomicalRange predicted astronomical tidal range, or null
      * @return a new instance with the surge data populated
      */
     public AtmosphericData withSurge(StormSurgeBreakdown surgeBreakdown,
@@ -134,7 +136,7 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surgeBreakdown, adjustedRange, astronomicalRange,
-                inversionScore);
+                inversionScore, bluebellConditionScore);
     }
 
     /**
@@ -147,6 +149,19 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
-                astronomicalRangeMetres, score);
+                astronomicalRangeMetres, score, bluebellConditionScore);
+    }
+
+    /**
+     * Returns a copy with bluebell condition score set.
+     *
+     * @param score the bluebell condition score, or null
+     * @return a new instance with the bluebell score populated
+     */
+    public AtmosphericData withBluebellConditionScore(BluebellConditionScore score) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
+                mistTrend, locationOrientation, surge, adjustedRangeMetres,
+                astronomicalRangeMetres, inversionScore, score);
     }
 }

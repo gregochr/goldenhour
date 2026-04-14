@@ -7,6 +7,7 @@ import { getDriveTimes } from '../api/settingsApi.js';
 import { getAvailableModels } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
+import HotTopicStrip from './HotTopicStrip.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
@@ -712,7 +713,7 @@ const DISMISSED_AT_KEY = 'briefing-dismissed-at';
  */
 /* eslint-enable react/prop-types */
 
-export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange }) {
+export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange }) {
   const { role } = useAuth();
   const canSeeBestBets = role === 'ADMIN' || role === 'PRO_USER';
   const canRunEvaluation = role === 'ADMIN' || role === 'PRO_USER';
@@ -805,6 +806,11 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   useEffect(() => {
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
+
+  // Lift seasonal features to parent whenever briefing loads
+  useEffect(() => {
+    onSeasonalFeaturesChange?.(briefing?.seasonalFeatures ?? []);
+  }, [briefing?.seasonalFeatures, onSeasonalFeaturesChange]);
 
   /** Per-user drive times: locationId → minutes from the user_drive_time table. */
   const [userDriveTimes, setUserDriveTimes] = useState({});
@@ -918,6 +924,12 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const handlePickClick = useCallback(() => {
     setIsExpanded(true);
   }, []);
+
+  const handleHotTopicTap = useCallback((topic) => {
+    if (topic.filterAction && onShowOnMap) {
+      onShowOnMap({ filterAction: topic.filterAction });
+    }
+  }, [onShowOnMap]);
 
   // Upcoming events — computed before early returns (Rules of Hooks).
   const upcomingEvents = useMemo(() => {
@@ -1117,6 +1129,15 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       ) : !canSeeBestBets && briefing.bestBets?.length > 0 ? (
         <BestBetPlaceholder />
       ) : null}
+
+      {/* ── Hot Topics strip — seasonal conditions between Best Bet and slider ── */}
+      {briefing.hotTopics?.length > 0 && (
+        <HotTopicStrip
+          hotTopics={briefing.hotTopics}
+          isLiteUser={role === 'LITE_USER'}
+          onTopicTap={handleHotTopicTap}
+        />
+      )}
 
       {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
       {dayDates.length > 0 && (
@@ -1355,4 +1376,5 @@ DailyBriefing.propTypes = {
   ),
   onShowOnMap: PropTypes.func,
   onEvaluationScoresChange: PropTypes.func,
+  onSeasonalFeaturesChange: PropTypes.func,
 };

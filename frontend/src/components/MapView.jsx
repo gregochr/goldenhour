@@ -253,7 +253,7 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map(), onForecastRun }) {
+function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -596,6 +596,25 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
               <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
             </button>
           ))}
+          {/* Bluebell seasonal chip — only shown during bluebell season */}
+          {!isAuroraMode && !isAstroMode && seasonalFeatures.includes('BLUEBELL') && (
+            <button
+              key="BLUEBELL"
+              data-testid="location-type-filter-BLUEBELL"
+              onClick={() => role !== 'LITE_USER' ? toggleTypeFilter('BLUEBELL') : undefined}
+              disabled={role === 'LITE_USER'}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                role === 'LITE_USER'
+                  ? 'opacity-45 cursor-default bg-plex-surface border-plex-border text-plex-text-secondary'
+                  : activeTypeFilters.has('BLUEBELL')
+                    ? 'bg-plex-border border-plex-border-light text-plex-text'
+                    : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+              }`}
+              title={role === 'LITE_USER' ? 'Upgrade to Pro to filter by Bluebell sites' : undefined}
+            >
+              🌸 Bluebell
+            </button>
+          )}
           {!isAuroraMode && !isAstroMode && <span className="text-plex-border mx-1">|</span>}
           {[1, 2, 3, 4, 5].map((star) => (
             <button

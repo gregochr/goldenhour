@@ -69,7 +69,7 @@ class BriefingModelTestServiceTest {
     void successCase() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test headline", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -124,7 +124,7 @@ class BriefingModelTestServiceTest {
     void oneModelFailure() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -171,7 +171,7 @@ class BriefingModelTestServiceTest {
     void validationStatsPersisted() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -227,7 +227,7 @@ class BriefingModelTestServiceTest {
     void rollupJsonPersisted() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
@@ -265,7 +265,7 @@ class BriefingModelTestServiceTest {
     void allModelsFail_zeroCost() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 
@@ -307,7 +307,7 @@ class BriefingModelTestServiceTest {
     void totalCostAggregated() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 
@@ -343,7 +343,7 @@ class BriefingModelTestServiceTest {
     void compareModelsThrows_wrappedInIllegalState() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
 
         when(bestBetAdvisor.compareModels(any(), any()))
@@ -360,7 +360,7 @@ class BriefingModelTestServiceTest {
     void tokenUsageFieldsPersisted() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.now(), "Test", List.of(), List.of(),
-                null, null, false, false, 0, "Opus");
+                null, null, false, false, 0, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
 

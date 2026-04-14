@@ -1,13 +1,17 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.CloudApproachData;
+import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -20,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +49,7 @@ public class ForecastDataAugmentor {
     private final LunarPhaseService lunarPhaseService;
     private final WeatherAugmentedTideService weatherAugmentedTideService;
     private final SurgeCalibrationLogger surgeCalibrationLogger;
+    private final BluebellConditionService bluebellConditionService;
 
     /**
      * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment.
@@ -54,18 +60,21 @@ public class ForecastDataAugmentor {
      * @param lunarPhaseService            computes lunar tide classification and moon phase
      * @param weatherAugmentedTideService  storm surge calculation service
      * @param surgeCalibrationLogger       structured logging for surge calibration
+     * @param bluebellConditionService     scores bluebell photography conditions
      */
     public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
             TideService tideService,
             LunarPhaseService lunarPhaseService,
             WeatherAugmentedTideService weatherAugmentedTideService,
-            SurgeCalibrationLogger surgeCalibrationLogger) {
+            SurgeCalibrationLogger surgeCalibrationLogger,
+            BluebellConditionService bluebellConditionService) {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.tideService = tideService;
         this.lunarPhaseService = lunarPhaseService;
         this.weatherAugmentedTideService = weatherAugmentedTideService;
         this.surgeCalibrationLogger = surgeCalibrationLogger;
+        this.bluebellConditionService = bluebellConditionService;
     }
 
     /**
@@ -371,6 +380,41 @@ public class ForecastDataAugmentor {
         }
         LOG.debug("Inversion score for {}: {}/10", base.locationName(), score);
         return base.withInversionScore(score);
+    }
+
+    /**
+     * Augments {@code base} with bluebell photography condition scoring when applicable.
+     *
+     * <p>Only augments when:
+     * <ul>
+     *   <li>the target date falls within {@link SeasonalWindow#BLUEBELL}</li>
+     *   <li>the location has {@code BLUEBELL} in its location types</li>
+     *   <li>a {@link BluebellExposure} is set on the location</li>
+     * </ul>
+     * Returns {@code base} unchanged when any condition is not met.
+     *
+     * @param base          atmospheric data to augment
+     * @param locationTypes the location's type set
+     * @param exposure      the location's bluebell exposure type, or null
+     * @param targetDate    the calendar date being evaluated
+     * @return a new {@link AtmosphericData} with bluebell score populated where applicable
+     */
+    public AtmosphericData augmentWithBluebellConditions(AtmosphericData base,
+            Set<LocationType> locationTypes, BluebellExposure exposure,
+            LocalDate targetDate) {
+        if (!SeasonalWindow.BLUEBELL.isActive(targetDate)) {
+            return base;
+        }
+        if (locationTypes == null || !locationTypes.contains(LocationType.BLUEBELL)) {
+            return base;
+        }
+        if (exposure == null) {
+            return base;
+        }
+        BluebellConditionScore score = bluebellConditionService.score(base, exposure);
+        LOG.debug("Bluebell score for {}: {}/10 ({})", base.locationName(), score.overall(),
+                score.qualityLabel());
+        return base.withBluebellConditionScore(score);
     }
 
     /**

@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.LunarPhaseService;
@@ -105,6 +107,22 @@ public class ForecastDtoMapper {
             }
         }
 
+        // Bluebell fields — only populated during season for bluebell sites
+        Integer bluebellScore = null;
+        String bluebellSummary = null;
+        String bluebellExposure = null;
+        LocationEntity loc = entity.getLocation();
+        if (loc != null && loc.getLocationType() != null
+                && loc.getLocationType().contains(LocationType.BLUEBELL)
+                && entity.getTargetDate() != null
+                && SeasonalWindow.BLUEBELL.isActive(entity.getTargetDate())) {
+            bluebellScore = entity.getBluebellScore();
+            bluebellSummary = entity.getBluebellSummary();
+            if (loc.getBluebellExposure() != null) {
+                bluebellExposure = loc.getBluebellExposure().name();
+            }
+        }
+
         return new ForecastEvaluationDto(
                 entity.getId(),
                 entity.getLocationName(),
@@ -170,6 +188,9 @@ public class ForecastDtoMapper {
                 goldenHourStart,
                 goldenHourEnd,
                 blueHourStart,
-                blueHourEnd);
+                blueHourEnd,
+                bluebellScore,
+                bluebellSummary,
+                bluebellExposure);
     }
 }

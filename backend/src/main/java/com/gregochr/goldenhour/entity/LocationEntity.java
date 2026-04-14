@@ -185,6 +185,17 @@ public class LocationEntity {
     private Double gridLng;
 
     /**
+     * Bluebell exposure type — WOODLAND or OPEN_FELL.
+     *
+     * <p>Only set for locations that have {@code BLUEBELL} in their location types.
+     * Determines which weather conditions are considered ideal: WOODLAND prefers
+     * soft diffused light and mist; OPEN_FELL prefers golden hour light and calm wind.</p>
+     */
+    @Column(name = "bluebell_exposure")
+    @Enumerated(EnumType.STRING)
+    private BluebellExposure bluebellExposure;
+
+    /**
      * Returns whether this location supports the given target type based on its solar event preferences.
      *
      * <p>A location with null, empty, or {@code ALLDAY} solar event types supports all target types.

@@ -296,6 +296,14 @@ public class ForecastEvaluationEntity {
     @Column(name = "inversion_potential", length = 10)
     private String inversionPotential;
 
+    /** Bluebell photography condition score (0–10), populated by Claude during bluebell season. */
+    @Column(name = "bluebell_score")
+    private Integer bluebellScore;
+
+    /** Bluebell photography condition summary from Claude, or null. */
+    @Column(name = "bluebell_summary", columnDefinition = "TEXT")
+    private String bluebellSummary;
+
     /**
      * Returns the location name for JSON serialisation, preserving the API contract.
      *

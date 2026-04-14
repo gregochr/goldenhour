@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -82,6 +83,9 @@ import java.time.LocalDateTime;
  * @param goldenHourEnd                  UTC end of the elevation-based golden hour window (nullable)
  * @param blueHourStart                  UTC start of the elevation-based blue hour window (nullable)
  * @param blueHourEnd                    UTC end of the elevation-based blue hour window (nullable)
+ * @param bluebellScore                  bluebell photography score 0–10 (nullable — season + site only)
+ * @param bluebellSummary                bluebell condition summary from Claude (nullable)
+ * @param bluebellExposure               WOODLAND or OPEN_FELL (nullable — bluebell sites only)
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -148,5 +152,8 @@ public record ForecastEvaluationDto(
         LocalDateTime goldenHourStart,
         LocalDateTime goldenHourEnd,
         LocalDateTime blueHourStart,
-        LocalDateTime blueHourEnd) {
+        LocalDateTime blueHourEnd,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer bluebellScore,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellSummary,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellExposure) {
 }

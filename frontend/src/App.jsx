@@ -94,6 +94,10 @@ function AppInner() {
   const [briefingScores, setBriefingScores] = useState(new Map());
   const handleEvaluationScoresChange = useCallback((scores) => setBriefingScores(scores), []);
 
+  /** Seasonal features lifted from DailyBriefing, passed to MapView. */
+  const [seasonalFeatures, setSeasonalFeatures] = useState([]);
+  const handleSeasonalFeaturesChange = useCallback((features) => setSeasonalFeatures(features), []);
+
   /** Update viewMode and sync to URL hash. */
   const setViewMode = (mode) => {
     setViewModeState(mode);
@@ -301,7 +305,7 @@ function AppInner() {
             </div>
 
             {viewMode === 'plan' && (
-              <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} />
+              <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} />
             )}
 
             {viewMode === 'map' && allDates.length > 0 && effectiveDate && (
@@ -320,6 +324,7 @@ function AppInner() {
                 handoffEventType={mapHandoff?.eventType ?? null}
                 briefingScores={briefingScores}
                 onForecastRun={refresh}
+                seasonalFeatures={seasonalFeatures}
               />
             )}
 
