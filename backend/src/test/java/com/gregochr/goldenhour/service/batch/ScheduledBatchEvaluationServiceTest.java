@@ -325,15 +325,15 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("submitForecastBatch: customId encodes regionName|date|targetType|locationName")
-    void submitForecastBatch_customIdFormat_matchesBatchResultProcessorContract() {
+    @DisplayName("submitForecastBatch: customId matches ^[a-zA-Z0-9_-]{1,64}$ and encodes locationId/date/targetType")
+    void submitForecastBatch_customIdFormat_matchesAnthropicPatternAndBatchResultProcessorContract() {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
                 .thenReturn(EvaluationModel.SONNET);
 
-        LocationEntity location = buildLocation("Durham UK");
+        LocationEntity location = buildLocation("Durham UK"); // id=42, region="North East"
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -361,9 +361,81 @@ class ScheduledBatchEvaluationServiceTest {
 
         BatchCreateParams params = paramsCaptor.getValue();
         assertThat(params.requests()).hasSize(1);
-        // customId must match the format BatchResultProcessor.parseResults() depends on
-        assertThat(params.requests().get(0).customId())
-                .isEqualTo("North East|2026-04-07|SUNRISE|Durham UK");
+        String customId = params.requests().get(0).customId();
+
+        // Must satisfy the Anthropic pattern ^[a-zA-Z0-9_-]{1,64}$
+        assertThat(customId).matches("[a-zA-Z0-9_-]{1,64}");
+        // Must encode enough for BatchResultProcessor to reconstruct the cache key
+        assertThat(customId).isEqualTo("fc-42-2026-04-07-SUNRISE");
+    }
+
+    @Test
+    @DisplayName("submitAuroraBatch: customId matches ^[a-zA-Z0-9_-]{1,64}$ and encodes alert level")
+    void submitAuroraBatch_customIdFormat_matchesAnthropicPattern() {
+        stubBatchService();
+        SpaceWeatherData spaceWeather = mock(SpaceWeatherData.class);
+        when(noaaSwpcClient.fetchAll()).thenReturn(spaceWeather);
+        when(auroraOrchestrator.deriveAlertLevel(spaceWeather)).thenReturn(AlertLevel.MODERATE);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getModerate()).thenReturn(4);
+
+        LocationEntity loc = buildLocation("Dark Sky Site");
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(loc));
+
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(loc), List.of(), java.util.Map.of());
+        when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
+
+        when(metOfficeScraper.getForecastText()).thenReturn("Met Office narrative");
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any(),
+                any())).thenReturn("aurora user message");
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_aurora_fmt");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitAuroraBatch();
+
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(paramsCaptor.capture());
+
+        BatchCreateParams params = paramsCaptor.getValue();
+        assertThat(params.requests()).hasSize(1);
+        String customId = params.requests().get(0).customId();
+
+        // Must satisfy the Anthropic pattern ^[a-zA-Z0-9_-]{1,64}$
+        assertThat(customId).matches("[a-zA-Z0-9_-]{1,64}");
+        // Must start with "au-" and encode the alert level
+        assertThat(customId).startsWith("au-MODERATE-");
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch skips batch when all weather fetches throw exceptions")
+    void submitForecastBatch_allWeatherFetchesThrow_noBatchSubmitted() {
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any()))
+                .thenThrow(new RuntimeException("Open-Meteo unavailable"));
+
+        service.submitForecastBatch();
+
+        // Empty request list → guard fires, submitBatch never called
+        verifyNoInteractions(batchRepository);
+        verify(batchService, never()).create(any());
     }
 
     @Test
@@ -793,6 +865,7 @@ class ScheduledBatchEvaluationServiceTest {
 
     private LocationEntity buildLocation(String name) {
         LocationEntity location = new LocationEntity();
+        location.setId(42L);
         location.setName(name);
         location.setLat(54.7753);
         location.setLon(-1.5849);

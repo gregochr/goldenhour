@@ -39,11 +39,13 @@ import java.util.Map;
 /**
  * Fetches completed Anthropic Batch API results and writes them to the appropriate cache.
  *
- * <p>For FORECAST batches: parses each per-location response, groups results by their
- * {@code "regionName|date|targetType"} cache key, and writes to {@link BriefingEvaluationService}.
+ * <p>For FORECAST batches: parses each per-location response, looks up the location by the ID
+ * encoded in the {@code customId} ({@code "fc-{locationId}-{date}-{targetType}"}), reconstructs
+ * the {@code "regionName|date|targetType"} cache key, and writes to {@link BriefingEvaluationService}.
  *
  * <p>For AURORA batches: re-runs weather triage to obtain current cloud data, parses the
  * single-response aurora evaluation, and writes scored results to {@link AuroraStateCache}.
+ * The {@code customId} format is {@code "au-{alertLevel}-{date}"}.
  *
  * <p>Called by {@link BatchPollingService} once a batch transitions to {@code ENDED}.
  */
@@ -159,16 +161,39 @@ public class BatchResultProcessor {
                     continue;
                 }
 
-                // customId format: "regionName|date|targetType|locationName"
-                String[] parts = customId.split("\\|", 4);
-                if (parts.length < 4) {
+                // customId format: "fc-{locationId}-{date}-{targetType}"
+                // e.g. "fc-42-2026-04-16-SUNRISE" → split on "-" gives
+                // ["fc","42","2026","04","16","SUNRISE"]
+                String[] parts = customId.split("-");
+                if (parts.length < 6 || !"fc".equals(parts[0])) {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
                     continue;
                 }
 
-                String cacheKey = parts[0] + "|" + parts[1] + "|" + parts[2];
-                String locationName = parts[3];
+                long locationId;
+                try {
+                    locationId = Long.parseLong(parts[1]);
+                } catch (NumberFormatException e) {
+                    LOG.warn("Forecast batch: non-numeric locationId in '{}', skipping", customId);
+                    errored++;
+                    continue;
+                }
+
+                LocationEntity location = locationRepository.findById(locationId).orElse(null);
+                if (location == null) {
+                    LOG.warn("Forecast batch: location {} not found for customId '{}', skipping",
+                            locationId, customId);
+                    errored++;
+                    continue;
+                }
+
+                String date = parts[2] + "-" + parts[3] + "-" + parts[4];
+                String targetTypePart = parts[5];
+                String regionName = location.getRegion() != null
+                        ? location.getRegion().getName() : location.getName();
+                String cacheKey = regionName + "|" + date + "|" + targetTypePart;
+                String locationName = location.getName();
 
                 try {
                     EvaluationModel model =
@@ -235,8 +260,10 @@ public class BatchResultProcessor {
 
                 rawResponse = extractText(response);
 
-                // customId format: "aurora|<alertLevel>"
-                String[] parts = customId.split("\\|", 2);
+                // customId format: "au-{alertLevel}-{date}"
+                // e.g. "au-MODERATE-2026-04-16" → split on "-" limit 3 gives
+                // ["au", "MODERATE", "2026-04-16"]
+                String[] parts = customId.split("-", 3);
                 if (parts.length >= 2) {
                     try {
                         level = AlertLevel.valueOf(parts[1]);

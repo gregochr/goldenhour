@@ -56,12 +56,13 @@ import java.util.Map;
  * asynchronous processing.
  *
  * <p>FORECAST batch: one request per GO/MARGINAL location in the current daily briefing.
- * The {@code customId} encodes {@code "regionName|date|targetType|locationName"} so
- * {@link BatchResultProcessor} can route results to the correct evaluation cache entry.
+ * The {@code customId} uses the safe format {@code "fc-{locationId}-{date}-{targetType}"}
+ * (e.g. {@code "fc-42-2026-04-16-SUNRISE"}) so {@link BatchResultProcessor} can look up
+ * the location by ID and route results to the correct evaluation cache entry.
  *
  * <p>AURORA batch: a single request containing the full multi-location aurora prompt
- * (identical structure to the real-time path). The {@code customId} is
- * {@code "aurora|<alertLevel>"}.
+ * (identical structure to the real-time path). The {@code customId} uses the format
+ * {@code "au-{alertLevel}-{date}"} (e.g. {@code "au-MODERATE-2026-04-16"}).
  *
  * <p>Both jobs are registered with {@link DynamicSchedulerService} and controlled via
  * the Scheduler admin UI.
@@ -217,7 +218,7 @@ public class ScheduledBatchEvaluationService {
                                 continue;
                             }
                             BatchCreateParams.Request request =
-                                    buildForecastRequest(regionName, date, targetType,
+                                    buildForecastRequest(date, targetType,
                                             location, preEval.atmosphericData(), model);
                             requests.add(request);
                         } catch (Exception e) {
@@ -284,7 +285,7 @@ public class ScheduledBatchEvaluationService {
 
         EvaluationModel model =
                 modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
-        String customId = "aurora|" + level.name();
+        String customId = String.format("au-%s-%s", level.name(), LocalDate.now());
 
         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                 .customId(customId)
@@ -326,10 +327,12 @@ public class ScheduledBatchEvaluationService {
     /**
      * Builds a single batch request for a forecast location.
      *
-     * <p>The {@code customId} format is {@code "regionName|date|targetType|locationName"},
-     * which {@link BatchResultProcessor} uses to write results to the correct cache entry.
+     * <p>The {@code customId} format is {@code "fc-{locationId}-{date}-{targetType}"}
+     * (e.g. {@code "fc-42-2026-04-16-SUNRISE"}), which satisfies the Anthropic pattern
+     * {@code ^[a-zA-Z0-9_-]{1,64}$}. {@link BatchResultProcessor} reconstructs the region
+     * name by looking up the location by ID.
      */
-    private BatchCreateParams.Request buildForecastRequest(String regionName, LocalDate date,
+    private BatchCreateParams.Request buildForecastRequest(LocalDate date,
             TargetType targetType, LocationEntity location, AtmosphericData data,
             EvaluationModel model) {
         PromptBuilder builder = data.tide() != null
@@ -340,7 +343,8 @@ public class ScheduledBatchEvaluationService {
                         data.adjustedRangeMetres(), data.astronomicalRangeMetres())
                 : builder.buildUserMessage(data);
 
-        String customId = regionName + "|" + date + "|" + targetType + "|" + location.getName();
+        String customId = String.format("fc-%s-%s-%s",
+                location.getId(), date, targetType.name());
 
         return BatchCreateParams.Request.builder()
                 .customId(customId)

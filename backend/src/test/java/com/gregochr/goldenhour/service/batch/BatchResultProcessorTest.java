@@ -7,13 +7,16 @@ import com.anthropic.core.http.StreamResponse;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
@@ -33,7 +36,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -95,6 +100,8 @@ class BatchResultProcessorTest {
         when(messageService.batches()).thenReturn(batchService);
     }
 
+    // ── FORECAST: stream failure ─────────────────────────────────────────────
+
     @Test
     @DisplayName("processResults marks FAILED when stream throws exception")
     void processResults_streamThrows_marksFailed() {
@@ -112,6 +119,8 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getErrorMessage()).contains("Network error");
     }
 
+    // ── FORECAST: non-succeeded response ────────────────────────────────────
+
     @Test
     @DisplayName("processResults for FORECAST marks FAILED when all responses errored")
     void processResults_allErrored_marksFailed() {
@@ -122,7 +131,7 @@ class BatchResultProcessorTest {
         com.anthropic.models.messages.batches.MessageBatchResult result =
                 mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
         when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE|Durham UK");
+        when(response.customId()).thenReturn("fc-42-2026-04-07-SUNRISE");
         when(result.isSucceeded()).thenReturn(false);
 
         @SuppressWarnings("unchecked")
@@ -139,6 +148,8 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getSucceededCount()).isEqualTo(0);
     }
 
+    // ── FORECAST: success path ───────────────────────────────────────────────
+
     @Test
     @DisplayName("processResults for FORECAST writes results to evaluation cache")
     void processResults_forecastBatch_writesResultsToCache() throws Exception {
@@ -148,34 +159,19 @@ class BatchResultProcessorTest {
         String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
                 + "\"summary\":\"Good conditions\"}";
 
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        com.anthropic.models.messages.batches.MessageBatchResult result =
-                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
-        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
-                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
-        com.anthropic.models.messages.Message message =
-                mock(com.anthropic.models.messages.Message.class);
-        com.anthropic.models.messages.TextBlock textBlock =
-                mock(com.anthropic.models.messages.TextBlock.class);
-        com.anthropic.models.messages.ContentBlock contentBlock =
-                mock(com.anthropic.models.messages.ContentBlock.class);
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
 
-        when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE|Durham UK");
-        when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
-        when(succeeded.message()).thenReturn(message);
-        when(message.content()).thenReturn(java.util.List.of(contentBlock));
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(textBlock.text()).thenReturn(responseText);
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", responseText);
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
         when(streamResp.stream()).thenReturn(Stream.of(response));
         when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
 
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
         ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
         when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
         when(strategy.parseEvaluation(responseText, objectMapper))
@@ -184,10 +180,13 @@ class BatchResultProcessorTest {
 
         processor.processResults(batch);
 
-        ArgumentCaptor<String> cacheKeyCaptor = ArgumentCaptor.forClass(String.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
         verify(briefingEvaluationService).writeFromBatch(
-                cacheKeyCaptor.capture(), any());
-        assertThat(cacheKeyCaptor.getValue()).isEqualTo("North East|2026-04-07|SUNRISE");
+                eq("North East|2026-04-07|SUNRISE"), resultsCaptor.capture());
+        assertThat(resultsCaptor.getValue()).hasSize(1);
+        assertThat(resultsCaptor.getValue().get(0).locationName()).isEqualTo("Durham UK");
 
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -195,7 +194,107 @@ class BatchResultProcessorTest {
         assertThat(entityCaptor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(entityCaptor.getValue().getSucceededCount()).isEqualTo(1);
         assertThat(entityCaptor.getValue().getErroredCount()).isEqualTo(0);
+        assertThat(entityCaptor.getValue().getEndedAt()).isNotNull();
     }
+
+    @Test
+    @DisplayName("writeFromBatch receives BriefingEvaluationResult with correct location name and scores")
+    void processResults_forecastBatch_resultContainsCorrectLocationNameAndScores() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,"
+                + "\"summary\":\"Decent chance\"}";
+
+        LocationEntity location = buildLocationWithRegion(7L, "Bamburgh Castle", "North East");
+        when(locationRepository.findById(7L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-7-2026-04-10-SUNSET", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        3, 55, 60, "Decent chance"));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North East|2026-04-10|SUNSET"), resultsCaptor.capture());
+
+        List<BriefingEvaluationResult> results = resultsCaptor.getValue();
+        assertThat(results).hasSize(1);
+        BriefingEvaluationResult result = results.get(0);
+        assertThat(result.locationName()).isEqualTo("Bamburgh Castle");
+        assertThat(result.rating()).isEqualTo(3);
+        assertThat(result.fierySkyPotential()).isEqualTo(55);
+        assertThat(result.goldenHourPotential()).isEqualTo(60);
+        assertThat(result.summary()).isEqualTo("Decent chance");
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST groups two responses under the same cache key")
+    void processResults_forecastBatch_twoLocationsOneRegion_groupedUnderSameKey() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String text1 = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"Good\"}";
+        String text2 = "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":50,\"summary\":\"OK\"}";
+
+        LocationEntity loc1 = buildLocationWithRegion(10L, "Durham UK", "North East");
+        LocationEntity loc2 = buildLocationWithRegion(11L, "Sunderland", "North East");
+        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc1));
+        when(locationRepository.findById(11L)).thenReturn(Optional.of(loc2));
+
+        // Build responses before the outer when() to avoid Mockito unfinished-stubbing issues
+        MessageBatchIndividualResponse resp1 = succeededResponse("fc-10-2026-04-07-SUNRISE", text1);
+        MessageBatchIndividualResponse resp2 = succeededResponse("fc-11-2026-04-07-SUNRISE", text2);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(resp1, resp2));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(text1, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(4, 70, 65, "Good"));
+        when(strategy.parseEvaluation(text2, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(3, 55, 50, "OK"));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North East|2026-04-07|SUNRISE"), resultsCaptor.capture());
+        List<BriefingEvaluationResult> results = resultsCaptor.getValue();
+        assertThat(results).hasSize(2);
+        assertThat(results).extracting(BriefingEvaluationResult::locationName)
+                .containsExactlyInAnyOrder("Durham UK", "Sunderland");
+
+        ArgumentCaptor<ForecastBatchEntity> entityCaptor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getSucceededCount()).isEqualTo(2);
+        assertThat(entityCaptor.getValue().getErroredCount()).isEqualTo(0);
+    }
+
+    // ── FORECAST: null text ──────────────────────────────────────────────────
 
     @Test
     @DisplayName("processResults for FORECAST increments errored when response has no text content")
@@ -212,12 +311,12 @@ class BatchResultProcessorTest {
                 mock(com.anthropic.models.messages.Message.class);
 
         when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE|Durham UK");
+        when(response.customId()).thenReturn("fc-42-2026-04-07-SUNRISE");
         when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
         when(succeeded.message()).thenReturn(message);
         // Empty content — extractText returns null
-        when(message.content()).thenReturn(java.util.List.of());
+        when(message.content()).thenReturn(List.of());
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
@@ -235,34 +334,17 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getSucceededCount()).isEqualTo(0);
     }
 
+    // ── FORECAST: malformed customId ─────────────────────────────────────────
+
     @Test
-    @DisplayName("processResults for FORECAST increments errored when customId has fewer than 4 parts")
-    void processResults_forecastBatch_malformedCustomId_incrementsErrored() {
+    @DisplayName("processResults for FORECAST increments errored when customId has wrong prefix")
+    void processResults_forecastBatch_wrongPrefix_incrementsErrored() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
 
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        com.anthropic.models.messages.batches.MessageBatchResult result =
-                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
-        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
-                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
-        com.anthropic.models.messages.Message message =
-                mock(com.anthropic.models.messages.Message.class);
-        com.anthropic.models.messages.TextBlock textBlock =
-                mock(com.anthropic.models.messages.TextBlock.class);
-        com.anthropic.models.messages.ContentBlock contentBlock =
-                mock(com.anthropic.models.messages.ContentBlock.class);
-
-        when(response.result()).thenReturn(result);
-        // Only 3 parts — missing locationName
-        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE");
-        when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
-        when(succeeded.message()).thenReturn(message);
-        when(message.content()).thenReturn(java.util.List.of(contentBlock));
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(textBlock.text()).thenReturn("{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+        MessageBatchIndividualResponse response = succeededResponse(
+                "xx-42-2026-04-07-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
@@ -280,33 +362,135 @@ class BatchResultProcessorTest {
     }
 
     @Test
+    @DisplayName("processResults for FORECAST increments errored when customId has too few parts")
+    void processResults_forecastBatch_tooFewParts_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        // Only 4 parts when split on "-" (missing targetType segment)
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST increments errored when locationId is non-numeric")
+    void processResults_forecastBatch_nonNumericLocationId_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-abc-2026-04-07-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        verifyNoInteractions(locationRepository);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST increments errored when location no longer exists")
+    void processResults_forecastBatch_locationNotFound_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        when(locationRepository.findById(999L)).thenReturn(Optional.empty());
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-999-2026-04-07-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST falls back to location name when region is null")
+    void processResults_forecastBatch_noRegion_usesLocationNameAsCacheKeyPrefix() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":2,\"fiery_sky\":30,\"golden_hour\":25,\"summary\":\"Poor\"}";
+
+        // Location with no region set
+        LocationEntity location = new LocationEntity();
+        location.setId(55L);
+        location.setName("Isolated Viewpoint");
+        // region intentionally null
+        when(locationRepository.findById(55L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-55-2026-04-07-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(2, 30, 25, "Poor"));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<String> cacheKeyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(briefingEvaluationService).writeFromBatch(cacheKeyCaptor.capture(), any());
+        // Falls back to location name when region is null
+        assertThat(cacheKeyCaptor.getValue())
+                .isEqualTo("Isolated Viewpoint|2026-04-07|SUNRISE");
+    }
+
+    // ── FORECAST: parse exception ────────────────────────────────────────────
+
+    @Test
     @DisplayName("processResults for FORECAST increments errored when response JSON cannot be parsed")
     void processResults_forecastBatch_parseException_incrementsErrored() throws Exception {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
 
         String malformedText = "not valid json at all";
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        com.anthropic.models.messages.batches.MessageBatchResult result =
-                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
-        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
-                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
-        com.anthropic.models.messages.Message message =
-                mock(com.anthropic.models.messages.Message.class);
-        com.anthropic.models.messages.TextBlock textBlock =
-                mock(com.anthropic.models.messages.TextBlock.class);
-        com.anthropic.models.messages.ContentBlock contentBlock =
-                mock(com.anthropic.models.messages.ContentBlock.class);
 
-        when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("North East|2026-04-07|SUNRISE|Durham UK");
-        when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
-        when(succeeded.message()).thenReturn(message);
-        when(message.content()).thenReturn(java.util.List.of(contentBlock));
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(textBlock.text()).thenReturn(malformedText);
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", malformedText);
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
@@ -330,6 +514,8 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
     }
 
+    // ── Unknown batch type ───────────────────────────────────────────────────
+
     @Test
     @DisplayName("processResults marks FAILED for unknown batch type")
     void processResults_unknownBatchType_marksFailed() {
@@ -342,33 +528,16 @@ class BatchResultProcessorTest {
         verify(batchRepository).save(batch);
     }
 
+    // ── AURORA: no Bortle locations ──────────────────────────────────────────
+
     @Test
     @DisplayName("processResults for AURORA marks FAILED when no Bortle locations")
     void processResults_auroraBatch_noBortleLocations_marksFailed() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
 
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        com.anthropic.models.messages.batches.MessageBatchResult result =
-                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
-        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
-                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
-        com.anthropic.models.messages.Message message =
-                mock(com.anthropic.models.messages.Message.class);
-        com.anthropic.models.messages.TextBlock textBlock =
-                mock(com.anthropic.models.messages.TextBlock.class);
-        com.anthropic.models.messages.ContentBlock contentBlock =
-                mock(com.anthropic.models.messages.ContentBlock.class);
-
-        when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("aurora|MODERATE");
-        when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
-        when(succeeded.message()).thenReturn(message);
-        when(message.content()).thenReturn(java.util.List.of(contentBlock));
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(textBlock.text()).thenReturn("[{\"name\":\"Dark Sky\",\"stars\":3}]");
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", "[{\"name\":\"Dark Sky\",\"stars\":3}]");
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
@@ -379,7 +548,7 @@ class BatchResultProcessorTest {
         when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
         when(threshold.getModerate()).thenReturn(4);
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
-                .thenReturn(java.util.List.of());
+                .thenReturn(List.of());
 
         processor.processResults(batch);
 
@@ -388,6 +557,64 @@ class BatchResultProcessorTest {
         verify(batchRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
     }
+
+    // ── AURORA: alert level parsed from new customId format ─────────────────
+
+    @Test
+    @DisplayName("processResults for AURORA parses MODERATE alert level from new customId format")
+    void processResults_auroraBatch_alertLevelParsedFromCustomId() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", "[{\"name\":\"Dark Sky\",\"stars\":3}]");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        // MODERATE → getModerate(), NOT getStrong()
+        when(threshold.getModerate()).thenReturn(4);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of());
+
+        processor.processResults(batch);
+
+        // getStrong() must never be called — the level was MODERATE, not STRONG
+        verify(threshold).getModerate();
+        verify(threshold, org.mockito.Mockito.never()).getStrong();
+    }
+
+    @Test
+    @DisplayName("processResults for AURORA uses STRONG Bortle threshold when customId encodes STRONG")
+    void processResults_auroraBatch_strongAlertLevel_usesStrongBortleThreshold() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-STRONG-2026-04-14", "[{\"name\":\"Dark Sky\",\"stars\":5}]");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getStrong()).thenReturn(6);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(6))
+                .thenReturn(List.of());
+
+        processor.processResults(batch);
+
+        verify(threshold).getStrong();
+        verify(threshold, org.mockito.Mockito.never()).getModerate();
+    }
+
+    // ── AURORA: success path ─────────────────────────────────────────────────
 
     @Test
     @DisplayName("processResults for AURORA writes scores to state cache on success")
@@ -396,27 +623,8 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
 
         String rawResponse = "[{\"name\":\"Dark Sky\",\"stars\":3}]";
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        com.anthropic.models.messages.batches.MessageBatchResult result =
-                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
-        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
-                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
-        com.anthropic.models.messages.Message message =
-                mock(com.anthropic.models.messages.Message.class);
-        com.anthropic.models.messages.TextBlock textBlock =
-                mock(com.anthropic.models.messages.TextBlock.class);
-        com.anthropic.models.messages.ContentBlock contentBlock =
-                mock(com.anthropic.models.messages.ContentBlock.class);
-
-        when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("aurora|MODERATE");
-        when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
-        when(succeeded.message()).thenReturn(message);
-        when(message.content()).thenReturn(java.util.List.of(contentBlock));
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(textBlock.text()).thenReturn(rawResponse);
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", rawResponse);
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
@@ -430,25 +638,74 @@ class BatchResultProcessorTest {
         LocationEntity loc = new LocationEntity();
         loc.setName("Dark Sky Site");
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
-                .thenReturn(java.util.List.of(loc));
+                .thenReturn(List.of(loc));
 
         WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
-                java.util.List.of(loc), java.util.List.of(), java.util.Map.of());
-        when(weatherTriageService.triage(java.util.List.of(loc))).thenReturn(triage);
+                List.of(loc), List.of(), Map.of());
+        when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
 
         AuroraForecastScore score = mock(AuroraForecastScore.class);
-        when(claudeAuroraInterpreter.parseBatchResponse(any(), any(), any(), any()))
-                .thenReturn(java.util.List.of(score));
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq(rawResponse), eq(AlertLevel.MODERATE), eq(List.of(loc)), eq(Map.of())))
+                .thenReturn(List.of(score));
 
         processor.processResults(batch);
 
-        verify(auroraStateCache).updateScores(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastScore>> scoresCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(auroraStateCache).updateScores(scoresCaptor.capture());
+        assertThat(scoresCaptor.getValue()).containsExactly(score);
+
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(captor.getValue().getSucceededCount()).isEqualTo(1);
+        assertThat(captor.getValue().getEndedAt()).isNotNull();
     }
+
+    @Test
+    @DisplayName("processResults for AURORA passes correct AlertLevel to parseBatchResponse")
+    void processResults_auroraBatch_correctAlertLevelPassedToParseBatchResponse() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+
+        String rawResponse = "[{\"name\":\"Dark Sky\",\"stars\":4}]";
+        // STRONG alert level in customId
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-STRONG-2026-04-14", rawResponse);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getStrong()).thenReturn(6);
+
+        LocationEntity loc = new LocationEntity();
+        loc.setName("Dark Sky Site");
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(6))
+                .thenReturn(List.of(loc));
+
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(loc), List.of(), Map.of());
+        when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
+
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq(rawResponse), eq(AlertLevel.STRONG), any(), any()))
+                .thenReturn(List.of(mock(AuroraForecastScore.class)));
+
+        processor.processResults(batch);
+
+        // Verify STRONG was passed — not MODERATE or QUIET
+        verify(claudeAuroraInterpreter).parseBatchResponse(
+                eq(rawResponse), eq(AlertLevel.STRONG), any(), any());
+    }
+
+    // ── AURORA: triage failures ──────────────────────────────────────────────
 
     @Test
     @DisplayName("processResults for AURORA marks FAILED when triage throws")
@@ -456,28 +713,8 @@ class BatchResultProcessorTest {
         stubBatchService();
         ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
 
-        String rawResponse = "[{\"name\":\"Dark Sky\",\"stars\":3}]";
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        com.anthropic.models.messages.batches.MessageBatchResult result =
-                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
-        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
-                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
-        com.anthropic.models.messages.Message message =
-                mock(com.anthropic.models.messages.Message.class);
-        com.anthropic.models.messages.TextBlock textBlock =
-                mock(com.anthropic.models.messages.TextBlock.class);
-        com.anthropic.models.messages.ContentBlock contentBlock =
-                mock(com.anthropic.models.messages.ContentBlock.class);
-
-        when(response.result()).thenReturn(result);
-        when(response.customId()).thenReturn("aurora|MODERATE");
-        when(result.isSucceeded()).thenReturn(true);
-        when(result.succeeded()).thenReturn(java.util.Optional.of(succeeded));
-        when(succeeded.message()).thenReturn(message);
-        when(message.content()).thenReturn(java.util.List.of(contentBlock));
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(textBlock.text()).thenReturn(rawResponse);
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", "[{\"name\":\"Dark Sky\",\"stars\":3}]");
 
         @SuppressWarnings("unchecked")
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
@@ -491,9 +728,9 @@ class BatchResultProcessorTest {
         LocationEntity loc = new LocationEntity();
         loc.setName("Dark Sky Site");
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
-                .thenReturn(java.util.List.of(loc));
+                .thenReturn(List.of(loc));
 
-        when(weatherTriageService.triage(java.util.List.of(loc)))
+        when(weatherTriageService.triage(List.of(loc)))
                 .thenThrow(new RuntimeException("Weather API down"));
 
         processor.processResults(batch);
@@ -502,6 +739,251 @@ class BatchResultProcessorTest {
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+    }
+
+    // ── FORECAST: mixed success/error ───────────────────────────────────────
+
+    @Test
+    @DisplayName("processResults for FORECAST: one succeeds and one has wrong prefix → COMPLETED with counts 1/1")
+    void processResults_forecastBatch_mixedSuccessAndError_countsAndStatusCompleted()
+            throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"Good\"}";
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        // valid response first, then a response with wrong prefix
+        MessageBatchIndividualResponse valid = succeededResponse("fc-42-2026-04-07-SUNRISE",
+                responseText);
+        MessageBatchIndividualResponse malformed = succeededResponse("xx-99-2026-04-07-SUNRISE",
+                responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(valid, malformed));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(4, 70, 65, "Good"));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        // succeeded > 0 → COMPLETED even when there are also errors
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(1);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST: two responses in different regions write two separate cache entries")
+    void processResults_forecastBatch_twoRegions_writesTwoCacheEntries() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String text1 = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"Good\"}";
+        String text2 = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":45,\"summary\":\"OK\"}";
+
+        LocationEntity loc1 = buildLocationWithRegion(10L, "Durham UK", "North East");
+        LocationEntity loc2 = buildLocationWithRegion(20L, "Malham Cove", "Yorkshire");
+        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc1));
+        when(locationRepository.findById(20L)).thenReturn(Optional.of(loc2));
+
+        MessageBatchIndividualResponse resp1 = succeededResponse("fc-10-2026-04-07-SUNRISE", text1);
+        MessageBatchIndividualResponse resp2 = succeededResponse("fc-20-2026-04-07-SUNRISE", text2);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(resp1, resp2));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(text1, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(4, 70, 65, "Good"));
+        when(strategy.parseEvaluation(text2, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(3, 50, 45, "OK"));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> captor1 =
+                ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> captor2 =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North East|2026-04-07|SUNRISE"), captor1.capture());
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("Yorkshire|2026-04-07|SUNRISE"), captor2.capture());
+
+        assertThat(captor1.getValue()).hasSize(1);
+        assertThat(captor1.getValue().get(0).locationName()).isEqualTo("Durham UK");
+        assertThat(captor2.getValue()).hasSize(1);
+        assertThat(captor2.getValue().get(0).locationName()).isEqualTo("Malham Cove");
+    }
+
+    // ── AURORA: rejected locations ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("processResults for AURORA adds 1-star score for each rejected location")
+    void processResults_auroraBatch_rejectedLocationsAddedWithOneStarScore() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+
+        String rawResponse = "[{\"name\":\"Dark Sky\",\"stars\":4}]";
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", rawResponse);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getModerate()).thenReturn(4);
+
+        LocationEntity viable = new LocationEntity();
+        viable.setName("Clear Skies");
+        LocationEntity rejected = new LocationEntity();
+        rejected.setName("Overcast Hill");
+
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(viable, rejected));
+
+        Map<LocationEntity, Integer> cloudByLocation = Map.of(viable, 10, rejected, 95);
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(viable), List.of(rejected), cloudByLocation);
+        when(weatherTriageService.triage(List.of(viable, rejected))).thenReturn(triage);
+
+        AuroraForecastScore viableScore = mock(AuroraForecastScore.class);
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq(rawResponse), eq(AlertLevel.MODERATE),
+                eq(List.of(viable)), eq(cloudByLocation)))
+                .thenReturn(List.of(viableScore));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastScore>> scoresCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(auroraStateCache).updateScores(scoresCaptor.capture());
+
+        List<AuroraForecastScore> allScores = scoresCaptor.getValue();
+        assertThat(allScores).hasSize(2);
+        // The viable location's score comes from Claude
+        assertThat(allScores).contains(viableScore);
+        // The rejected location always gets 1-star (cloud cover override)
+        AuroraForecastScore rejectedScore = allScores.stream()
+                .filter(s -> s != viableScore)
+                .findFirst()
+                .orElseThrow();
+        assertThat(rejectedScore.stars()).isEqualTo(1);
+        assertThat(rejectedScore.location()).isEqualTo(rejected);
+        assertThat(rejectedScore.cloudPercent()).isEqualTo(95);
+    }
+
+    @Test
+    @DisplayName("processResults for AURORA succeededCount equals total scores written (viable + rejected)")
+    void processResults_auroraBatch_succeededCountIncludesRejectedLocations() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+
+        String rawResponse = "[{\"name\":\"Dark Sky\",\"stars\":3}]";
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", rawResponse);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getModerate()).thenReturn(4);
+
+        LocationEntity viable = new LocationEntity();
+        viable.setName("Clear Skies");
+        LocationEntity rejected1 = new LocationEntity();
+        rejected1.setName("Cloudy A");
+        LocationEntity rejected2 = new LocationEntity();
+        rejected2.setName("Cloudy B");
+
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(viable, rejected1, rejected2));
+
+        Map<LocationEntity, Integer> cloudByLocation =
+                Map.of(viable, 20, rejected1, 90, rejected2, 85);
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(viable), List.of(rejected1, rejected2), cloudByLocation);
+        when(weatherTriageService.triage(List.of(viable, rejected1, rejected2))).thenReturn(triage);
+
+        AuroraForecastScore score = mock(AuroraForecastScore.class);
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq(rawResponse), eq(AlertLevel.MODERATE),
+                eq(List.of(viable)), eq(cloudByLocation)))
+                .thenReturn(List.of(score));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        // 1 viable + 2 rejected = 3 total scores
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(3);
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Builds a minimal succeeded {@link MessageBatchIndividualResponse} returning the given text.
+     */
+    private MessageBatchIndividualResponse succeededResponse(String customId, String text) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+        com.anthropic.models.messages.TextBlock textBlock =
+                mock(com.anthropic.models.messages.TextBlock.class);
+        com.anthropic.models.messages.ContentBlock contentBlock =
+                mock(com.anthropic.models.messages.ContentBlock.class);
+
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn(customId);
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.content()).thenReturn(List.of(contentBlock));
+        when(contentBlock.isText()).thenReturn(true);
+        when(contentBlock.asText()).thenReturn(textBlock);
+        when(textBlock.text()).thenReturn(text);
+
+        return response;
+    }
+
+    private LocationEntity buildLocationWithRegion(long id, String name, String regionName) {
+        LocationEntity location = new LocationEntity();
+        location.setId(id);
+        location.setName(name);
+        RegionEntity region = new RegionEntity();
+        region.setName(regionName);
+        location.setRegion(region);
+        return location;
     }
 
     private ForecastBatchEntity buildBatch(BatchType type) {
