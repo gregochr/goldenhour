@@ -261,4 +261,142 @@ class ModelSelectionServiceTest {
         assertThat(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
                 .isEqualTo(EvaluationModel.HAIKU);
     }
+
+    // ── Extended thinking flag ──
+
+    @Test
+    @DisplayName("isExtendedThinking returns false when no row exists")
+    void isExtendedThinking_noRow_returnsFalse() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.empty());
+
+        assertThat(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)).isFalse();
+    }
+
+    @Test
+    @DisplayName("isExtendedThinking returns false when row has flag off")
+    void isExtendedThinking_flagOff_returnsFalse() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BRIEFING_BEST_BET)
+                        .activeModel(EvaluationModel.SONNET)
+                        .extendedThinking(false)
+                        .build()));
+
+        assertThat(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)).isFalse();
+    }
+
+    @Test
+    @DisplayName("isExtendedThinking returns true when row has flag on")
+    void isExtendedThinking_flagOn_returnsTrue() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BRIEFING_BEST_BET)
+                        .activeModel(EvaluationModel.SONNET)
+                        .extendedThinking(true)
+                        .build()));
+
+        assertThat(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)).isTrue();
+    }
+
+    @Test
+    @DisplayName("setExtendedThinking(BRIEFING_BEST_BET, true) saves flag on existing row")
+    void setExtendedThinking_existingRow_savesFlag() {
+        ModelSelectionEntity existing = ModelSelectionEntity.builder()
+                .id(1L)
+                .runType(RunType.BRIEFING_BEST_BET)
+                .activeModel(EvaluationModel.SONNET)
+                .extendedThinking(false)
+                .build();
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(existing));
+
+        boolean result = modelSelectionService.setExtendedThinking(RunType.BRIEFING_BEST_BET, true);
+
+        assertThat(result).isTrue();
+        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        ModelSelectionEntity saved = captor.getValue();
+        assertThat(saved.isExtendedThinking()).isTrue();
+        assertThat(saved.getRunType()).isEqualTo(RunType.BRIEFING_BEST_BET);
+        assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.SONNET);
+        assertThat(saved.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("setExtendedThinking creates new row with HAIKU default when none exists")
+    void setExtendedThinking_noRow_createsWithHaikuDefault() {
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.empty());
+
+        boolean result = modelSelectionService.setExtendedThinking(RunType.BRIEFING_BEST_BET, true);
+
+        assertThat(result).isTrue();
+        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        ModelSelectionEntity saved = captor.getValue();
+        assertThat(saved.isExtendedThinking()).isTrue();
+        assertThat(saved.getActiveModel()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(saved.getRunType()).isEqualTo(RunType.BRIEFING_BEST_BET);
+    }
+
+    @Test
+    @DisplayName("setExtendedThinking(false) clears flag on existing row")
+    void setExtendedThinking_existingRow_clearsFlag() {
+        ModelSelectionEntity existing = ModelSelectionEntity.builder()
+                .id(1L)
+                .runType(RunType.BRIEFING_BEST_BET)
+                .activeModel(EvaluationModel.OPUS)
+                .extendedThinking(true)
+                .build();
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(existing));
+
+        boolean result = modelSelectionService.setExtendedThinking(RunType.BRIEFING_BEST_BET, false);
+
+        assertThat(result).isFalse();
+        ArgumentCaptor<ModelSelectionEntity> captor = ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        assertThat(captor.getValue().isExtendedThinking()).isFalse();
+    }
+
+    @Test
+    @DisplayName("getAllExtendedThinkingConfigs returns false for all run types by default")
+    void getAllExtendedThinkingConfigs_allFalseByDefault() {
+        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS)).thenReturn(Optional.empty());
+
+        var result = modelSelectionService.getAllExtendedThinkingConfigs();
+
+        assertThat(result).hasSize(7);
+        assertThat(result).allSatisfy((runType, flag) -> assertThat(flag).isFalse());
+    }
+
+    @Test
+    @DisplayName("getAllExtendedThinkingConfigs returns true for BRIEFING_BEST_BET when set")
+    void getAllExtendedThinkingConfigs_briefingEnabled_returnsTrue() {
+        when(modelSelectionRepository.findByRunType(RunType.VERY_SHORT_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.SHORT_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.LONG_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_BEST_BET))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BRIEFING_BEST_BET)
+                        .activeModel(EvaluationModel.SONNET)
+                        .extendedThinking(true)
+                        .build()));
+        when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS)).thenReturn(Optional.empty());
+
+        var result = modelSelectionService.getAllExtendedThinkingConfigs();
+
+        assertThat(result.get(RunType.BRIEFING_BEST_BET)).isTrue();
+        assertThat(result.get(RunType.VERY_SHORT_TERM)).isFalse();
+        assertThat(result.get(RunType.AURORA_EVALUATION)).isFalse();
+    }
 }

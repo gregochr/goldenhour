@@ -264,18 +264,25 @@ public class BriefingBestBetAdvisor {
             Map<String, Integer> driveMap) {
         try {
             EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
+            boolean useExtendedThinking = modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)
+                    && model != EvaluationModel.HAIKU;
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             RollupResult rollup = buildRollupJson(days, now);
             long startMs = System.currentTimeMillis();
 
-            Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
-                            .model(model.getModelId())
-                            .maxTokens(MAX_TOKENS)
-                            .systemOfTextBlockParams(List.of(
-                                    TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
-                            .addUserMessage(rollup.json())
-                            .build());
+            MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
+                    .model(model.getModelId())
+                    .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : MAX_TOKENS)
+                    .systemOfTextBlockParams(List.of(
+                            TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
+                    .addUserMessage(rollup.json());
+            if (useExtendedThinking) {
+                paramsBuilder.thinking(ThinkingConfigEnabled.builder()
+                        .budgetTokens(THINKING_BUDGET_TOKENS)
+                        .build());
+            }
+
+            Message response = anthropicApiClient.createMessage(paramsBuilder.build());
 
             long durationMs = System.currentTimeMillis() - startMs;
             String raw = response.content().stream()

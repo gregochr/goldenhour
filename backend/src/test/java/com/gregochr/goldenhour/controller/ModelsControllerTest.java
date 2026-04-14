@@ -48,11 +48,20 @@ class ModelsControllerTest extends AbstractControllerTest {
         return configs;
     }
 
+    private Map<RunType, Boolean> buildDefaultEtConfigs() {
+        Map<RunType, Boolean> configs = new EnumMap<>(RunType.class);
+        for (RunType rt : RunType.values()) {
+            configs.put(rt, false);
+        }
+        return configs;
+    }
+
     @Test
     @DisplayName("GET /api/models returns available models, configs, and optimisation strategies")
     void getAvailableModels_returnsConfigsMap() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
         when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         mockMvc.perform(get("/api/models")
@@ -67,9 +76,11 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.configs.LONG_TERM").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.BRIEFING_BEST_BET").value("HAIKU"))
                 .andExpect(jsonPath("$.configs.AURORA_EVALUATION").value("HAIKU"))
+                .andExpect(jsonPath("$.extendedThinkingConfigs.BRIEFING_BEST_BET").value(false))
                 .andExpect(jsonPath("$.optimisationStrategies").exists());
 
         verify(modelSelectionService).getAllConfigs();
+        verify(modelSelectionService).getAllExtendedThinkingConfigs();
         verify(optimisationStrategyService).getAllConfigs();
     }
 
@@ -78,6 +89,7 @@ class ModelsControllerTest extends AbstractControllerTest {
     void getAvailableModels_includesVersions() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
         when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         mockMvc.perform(get("/api/models")
@@ -94,6 +106,7 @@ class ModelsControllerTest extends AbstractControllerTest {
     void getAvailableModels_excludesWildlife() throws Exception {
         String token = jwtService.generateAccessToken("user", UserRole.LITE_USER);
         when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
         when(optimisationStrategyService.getAllConfigs()).thenReturn(new EnumMap<>(RunType.class));
 
         String body = mockMvc.perform(get("/api/models")
@@ -284,6 +297,76 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
                 .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"EVALUATE_ALL\",\"enabled\":true}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ── Extended thinking endpoint ──
+
+    @Test
+    @DisplayName("PUT /api/models/extended-thinking enables ET for BRIEFING_BEST_BET")
+    void setExtendedThinking_admin_enablesBriefingBestBet() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setExtendedThinking(RunType.BRIEFING_BEST_BET, true))
+                .thenReturn(true);
+
+        mockMvc.perform(put("/api/models/extended-thinking")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BRIEFING_BEST_BET\",\"enabled\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runType").value("BRIEFING_BEST_BET"))
+                .andExpect(jsonPath("$.extendedThinking").value(true));
+
+        verify(modelSelectionService).setExtendedThinking(RunType.BRIEFING_BEST_BET, true);
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/extended-thinking disables ET for BRIEFING_BEST_BET")
+    void setExtendedThinking_admin_disablesBriefingBestBet() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setExtendedThinking(RunType.BRIEFING_BEST_BET, false))
+                .thenReturn(false);
+
+        mockMvc.perform(put("/api/models/extended-thinking")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BRIEFING_BEST_BET\",\"enabled\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.extendedThinking").value(false));
+
+        verify(modelSelectionService).setExtendedThinking(RunType.BRIEFING_BEST_BET, false);
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/extended-thinking without ADMIN returns 403")
+    void setExtendedThinking_nonAdmin_forbidden() throws Exception {
+        String userToken = jwtService.generateAccessToken("user", UserRole.LITE_USER);
+
+        mockMvc.perform(put("/api/models/extended-thinking")
+                .header("Authorization", "Bearer " + userToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BRIEFING_BEST_BET\",\"enabled\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/extended-thinking without token returns 401")
+    void setExtendedThinking_noToken_unauthorized() throws Exception {
+        mockMvc.perform(put("/api/models/extended-thinking")
+                .contentType("application/json")
+                .content("{\"runType\":\"BRIEFING_BEST_BET\",\"enabled\":true}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/extended-thinking with invalid runType returns 400")
+    void setExtendedThinking_invalidRunType_badRequest() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        mockMvc.perform(put("/api/models/extended-thinking")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"NOT_A_RUN_TYPE\",\"enabled\":true}"))
                 .andExpect(status().isBadRequest());
     }
 }

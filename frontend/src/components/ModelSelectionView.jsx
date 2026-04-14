@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getAvailableModels, setActiveModel, updateOptimisationStrategy } from '../api/modelsApi.js';
+import { getAvailableModels, setActiveModel, setExtendedThinking, updateOptimisationStrategy } from '../api/modelsApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import InfoTip from './InfoTip.jsx';
@@ -147,6 +147,7 @@ export default function ModelSelectionView() {
   const { isAdmin } = useAuth();
   const [availableModels, setAvailableModels] = useState([]);
   const [configs, setConfigs] = useState({});
+  const [extendedThinkingConfig, setExtendedThinkingConfig] = useState({});
   const [strategies, setStrategies] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -168,6 +169,7 @@ export default function ModelSelectionView() {
       const available = (data.available || []).map((m) => (typeof m === 'string' ? m : m.name));
       setAvailableModels(available);
       setConfigs(data.configs || {});
+      setExtendedThinkingConfig(data.extendedThinkingConfigs || {});
       setStrategies(data.optimisationStrategies || {});
       // Count enabled non-wildlife locations (wildlife doesn't use Claude)
       const evalLocations = (locations || []).filter(
@@ -242,6 +244,22 @@ export default function ModelSelectionView() {
       });
     } catch (err) {
       setError(`Failed to update parameter for ${strategyType}`);
+      console.error(err);
+    }
+  };
+
+  const handleExtendedThinkingToggle = async (runType) => {
+    const current = !!extendedThinkingConfig[runType];
+    const next = !current;
+    try {
+      setError(null);
+      setSuccess(null);
+      await setExtendedThinking(runType, next);
+      setExtendedThinkingConfig((prev) => ({ ...prev, [runType]: next }));
+      setSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError('Failed to update extended thinking setting');
       console.error(err);
     }
   };
@@ -386,6 +404,42 @@ export default function ModelSelectionView() {
           );
         })}
       </div>
+
+      {/* Extended Thinking toggle — Briefing tab only */}
+      {activeTab === 'BRIEFING_BEST_BET' && (
+        <div className="card border border-plex-border" data-testid="extended-thinking-panel">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-plex-text">Extended Thinking</p>
+              <p className="text-xs text-plex-text-secondary mt-1">
+                Enables Claude&apos;s internal reasoning chain for deeper best-bet analysis
+                (budgets up to 10 000 thinking tokens per call).
+                {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'HAIKU' && (
+                  <span className="text-yellow-400 ml-1">
+                    ⚠ Haiku does not support extended thinking — switch to Sonnet or Opus.
+                  </span>
+                )}
+              </p>
+              {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab !== 'HAIKU' && (
+                <p className="text-xs text-violet-400 mt-1">
+                  Active — adds ~10 000 thinking tokens per call (Sonnet: +~£0.12, Opus: +~£0.40).
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => handleExtendedThinkingToggle('BRIEFING_BEST_BET')}
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                extendedThinkingConfig['BRIEFING_BEST_BET']
+                  ? 'bg-violet-600/30 text-violet-300 hover:bg-violet-600/50'
+                  : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'
+              }`}
+              data-testid="toggle-extended-thinking"
+            >
+              {extendedThinkingConfig['BRIEFING_BEST_BET'] ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Scheduled Batch: informational panel */}
       {activeTab === 'SCHEDULED_BATCH' && (

@@ -103,4 +103,56 @@ public class ModelSelectionService {
         }
         return configs;
     }
+
+    /**
+     * Return whether extended thinking is enabled for a specific run type.
+     * Defaults to {@code false} if no row exists.
+     *
+     * @param runType which run type to look up
+     * @return {@code true} when extended thinking is enabled for that run type
+     */
+    @Transactional(readOnly = true)
+    public boolean isExtendedThinking(RunType runType) {
+        return modelSelectionRepository
+                .findByRunType(runType)
+                .map(ModelSelectionEntity::isExtendedThinking)
+                .orElse(false);
+    }
+
+    /**
+     * Enable or disable extended thinking for a specific run type.
+     * Creates the row (defaulting to HAIKU) if it does not yet exist.
+     *
+     * @param runType which run type to update
+     * @param enabled whether to enable extended thinking
+     * @return the new extended-thinking state
+     */
+    @Transactional
+    public boolean setExtendedThinking(RunType runType, boolean enabled) {
+        ModelSelectionEntity selection = modelSelectionRepository
+                .findByRunType(runType)
+                .orElse(ModelSelectionEntity.builder()
+                        .runType(runType)
+                        .activeModel(EvaluationModel.HAIKU)
+                        .build());
+        selection.setExtendedThinking(enabled);
+        selection.setUpdatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        modelSelectionRepository.save(selection);
+        log.info("Extended thinking for {} set to: {}", runType, enabled);
+        return enabled;
+    }
+
+    /**
+     * Get extended-thinking flags for all configurable run types.
+     *
+     * @return map of configurable run type to extended-thinking enabled flag
+     */
+    @Transactional(readOnly = true)
+    public Map<RunType, Boolean> getAllExtendedThinkingConfigs() {
+        Map<RunType, Boolean> configs = new EnumMap<>(RunType.class);
+        for (RunType type : CONFIGURABLE_RUN_TYPES) {
+            configs.put(type, isExtendedThinking(type));
+        }
+        return configs;
+    }
 }

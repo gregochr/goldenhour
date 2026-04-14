@@ -32,9 +32,10 @@ public class ModelsController {
     private final OptimisationStrategyService optimisationStrategyService;
 
     /**
-     * Get available evaluation models, per-run-type active models, and optimisation strategies.
+     * Get available evaluation models, per-run-type active models, extended-thinking flags,
+     * and optimisation strategies.
      *
-     * @return response containing available models, configs, and optimisation strategies
+     * @return response containing available models, configs, extended-thinking config, and strategies
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
@@ -47,6 +48,7 @@ public class ModelsController {
         return ResponseEntity.ok(Map.of(
                 "available", availableWithVersions,
                 "configs", modelSelectionService.getAllConfigs(),
+                "extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs(),
                 "optimisationStrategies", optimisationStrategyService.getAllConfigs()
         ));
     }
@@ -71,6 +73,28 @@ public class ModelsController {
         RunType runType = RunType.valueOf(runTypeName.toUpperCase());
         EvaluationModel active = modelSelectionService.setActiveModel(runType, model);
         return ResponseEntity.ok(Map.of("runType", runType, "active", active));
+    }
+
+    /**
+     * Enable or disable extended thinking for a specific run type (ADMIN only).
+     *
+     * <p>Extended thinking adds a {@code ThinkingConfigEnabled} block to the Claude API call,
+     * allowing Claude to reason internally before responding. Currently surfaced in the UI
+     * for {@code BRIEFING_BEST_BET} only; silently ignored for HAIKU (which does not
+     * support extended thinking).
+     *
+     * @param request body containing {@code "runType"} and {@code "enabled"} (boolean) fields
+     * @return response containing the updated {@code runType} and {@code extendedThinking} state
+     */
+    @PutMapping("/extended-thinking")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> setExtendedThinking(
+            @RequestBody Map<String, Object> request) {
+        String runTypeName = (String) request.get("runType");
+        boolean enabled = Boolean.TRUE.equals(request.get("enabled"));
+        RunType runType = RunType.valueOf(runTypeName.toUpperCase());
+        boolean result = modelSelectionService.setExtendedThinking(runType, enabled);
+        return ResponseEntity.ok(Map.of("runType", runType, "extendedThinking", result));
     }
 
     /**

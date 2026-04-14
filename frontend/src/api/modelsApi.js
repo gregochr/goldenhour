@@ -34,6 +34,23 @@ export async function setActiveModel(runType, model) {
 }
 
 /**
+ * Enable or disable extended thinking for a specific run type (admin only).
+ *
+ * @param {string} runType - run type (e.g. BRIEFING_BEST_BET)
+ * @param {boolean} enabled - whether to enable extended thinking
+ * @returns {Promise<{runType: string, extendedThinking: boolean}>} the updated config
+ */
+export async function setExtendedThinking(runType, enabled) {
+  try {
+    const response = await axios.put('/api/models/extended-thinking', { runType, enabled });
+    return response.data;
+  } catch (error) {
+    console.error('Failed to set extended thinking:', error);
+    throw error;
+  }
+}
+
+/**
  * Toggle an optimisation strategy for a specific run type (admin only).
  *
  * @param {string} runType - run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM)

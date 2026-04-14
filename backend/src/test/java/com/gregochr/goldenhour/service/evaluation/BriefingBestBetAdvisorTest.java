@@ -690,6 +690,103 @@ class BriefingBestBetAdvisorTest {
         }
     }
 
+    // ── advise — extended thinking path ──
+
+    @Nested
+    @DisplayName("advise extended thinking")
+    class AdviseExtendedThinkingTests {
+
+        /**
+         * Stubs createMessage() to throw (caught by advise()) so the ArgumentCaptor can still
+         * inspect the params that were passed before the throw.
+         */
+        private void stubCreateMessageToThrow() {
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("ET param-inspection stub"));
+        }
+
+        @Test
+        @DisplayName("ET enabled + SONNET: adds ThinkingConfigEnabled with budget=10000 and maxTokens=16000")
+        void etEnabled_sonnet_addsThinkingBlock() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(true);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            stubCreateMessageToThrow();
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            MessageCreateParams params = captor.getValue();
+            assertThat(params._body().maxTokens()).isEqualTo(16000L);
+            assertThat(params._body().thinking()).isPresent();
+            assertThat(params._body().thinking().get().isEnabled()).isTrue();
+            assertThat(params._body().thinking().get().asEnabled().budgetTokens()).isEqualTo(10000L);
+        }
+
+        @Test
+        @DisplayName("ET enabled + OPUS: adds ThinkingConfigEnabled with budget=10000 and maxTokens=16000")
+        void etEnabled_opus_addsThinkingBlock() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.OPUS);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(true);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            stubCreateMessageToThrow();
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            assertThat(captor.getValue()._body().thinking()).isPresent();
+            assertThat(captor.getValue()._body().thinking().get().asEnabled().budgetTokens())
+                    .isEqualTo(10000L);
+        }
+
+        @Test
+        @DisplayName("ET enabled + HAIKU: no thinking block (HAIKU guard), maxTokens=1024")
+        void etEnabled_haiku_noThinkingBlock() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(true);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            stubCreateMessageToThrow();
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            MessageCreateParams params = captor.getValue();
+            assertThat(params._body().thinking()).isEmpty();
+            assertThat(params._body().maxTokens()).isEqualTo(1024L);
+        }
+
+        @Test
+        @DisplayName("ET disabled + SONNET: no thinking block, maxTokens=1024")
+        void etDisabled_noThinkingBlock() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            stubCreateMessageToThrow();
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            assertThat(captor.getValue()._body().thinking()).isEmpty();
+            assertThat(captor.getValue()._body().maxTokens()).isEqualTo(1024L);
+        }
+    }
+
     // ── validateAndFilterPicks ──
 
     @Nested

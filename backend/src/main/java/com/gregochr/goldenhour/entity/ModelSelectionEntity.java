@@ -17,7 +17,7 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * Stores the active evaluation model for a specific run type.
+ * Stores the active evaluation model and extended-thinking flag for a specific run type.
  * One row per forecast run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM).
  */
 @Entity
@@ -43,6 +43,15 @@ public class ModelSelectionEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "run_type", nullable = false, length = 20)
     private RunType runType;
+
+    /**
+     * Whether extended thinking is enabled for this run type.
+     * Currently only surfaced in the UI for BRIEFING_BEST_BET.
+     * Silently ignored if the active model does not support extended thinking (e.g. HAIKU).
+     */
+    @Builder.Default
+    @Column(name = "extended_thinking", nullable = false)
+    private boolean extendedThinking = false;
 
     /** UTC timestamp when this selection was last updated. */
     @Column(name = "updated_at", nullable = false)
