@@ -108,15 +108,15 @@ class HotTopicSimulationServiceTest {
     }
 
     @Test
-    @DisplayName("getAllTypes returns all 13 simulatable types")
-    void getAllTypes_returnsAllThirteenTypes() {
+    @DisplayName("getAllTypes returns all 15 simulatable types")
+    void getAllTypes_returnsAllFifteenTypes() {
         List<HotTopicSimulationService.SimulatableType> types = service.getAllTypes();
 
-        assertThat(types).hasSize(13);
+        assertThat(types).hasSize(15);
         assertThat(types).extracting(HotTopicSimulationService.SimulatableType::type)
                 .containsExactlyInAnyOrder(
-                        "BLUEBELL", "SPRING_TIDE", "STORM_SURGE", "AURORA", "DUST",
-                        "INVERSION", "SUPERMOON", "SNOW_FRESH", "SNOW_TOPS",
+                        "BLUEBELL", "KING_TIDE", "SPRING_TIDE", "STORM_SURGE", "AURORA", "DUST",
+                        "INVERSION", "SUPERMOON", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS",
                         "NLC", "METEOR", "EQUINOX", "CLEARANCE");
     }
 

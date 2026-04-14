@@ -18,6 +18,7 @@ import java.util.List;
  * @param priority     lower = more important; used for ordering (ties broken by date)
  * @param filterAction optional map filter key to apply on tap, e.g. "BLUEBELL"; may be null
  * @param regions      region names where conditions are best; may be empty
+ * @param description  1–2 sentence explanation of the phenomenon for photographers; may be null
  */
 public record HotTopic(
         String type,
@@ -26,7 +27,8 @@ public record HotTopic(
         LocalDate date,
         int priority,
         String filterAction,
-        List<String> regions) implements Comparable<HotTopic> {
+        List<String> regions,
+        String description) implements Comparable<HotTopic> {
 
     /**
      * Orders topics by priority ascending, then by date ascending.

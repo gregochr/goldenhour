@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import InfoTip from './InfoTip.jsx';
 
 /** Accent colours keyed by topic type. */
 const TOPIC_ACCENT = {
@@ -42,48 +43,58 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
       {hotTopics.map((topic) => {
         const accent = TOPIC_ACCENT[topic.type] ?? DEFAULT_ACCENT;
         return (
-          <button
+          <div
             key={`${topic.type}-${topic.date}`}
-            data-testid={`hot-topic-pill-${topic.type}`}
-            onClick={() => !isLiteUser && onTopicTap && onTopicTap(topic)}
-            disabled={isLiteUser}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '2px',
-              padding: '8px 14px',
-              borderRadius: '8px',
-              border: `1px solid ${accent.border}`,
-              background: accent.background,
-              cursor: isLiteUser ? 'default' : 'pointer',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              opacity: isLiteUser ? 0.45 : 1,
-              pointerEvents: isLiteUser ? 'none' : 'auto',
-              textAlign: 'left',
-              transition: 'background 0.15s',
-            }}
+            style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}
           >
-            <span
+            <button
+              data-testid={`hot-topic-pill-${topic.type}`}
+              onClick={() => !isLiteUser && onTopicTap && onTopicTap(topic)}
+              disabled={isLiteUser}
               style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                color: accent.labelColor,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: `1px solid ${accent.border}`,
+                background: accent.background,
+                cursor: isLiteUser ? 'default' : 'pointer',
+                whiteSpace: 'nowrap',
+                opacity: isLiteUser ? 0.45 : 1,
+                pointerEvents: isLiteUser ? 'none' : 'auto',
+                textAlign: 'left',
+                transition: 'background 0.15s',
               }}
             >
-              {topic.label}
-            </span>
-            <span
-              style={{
-                fontSize: '12px',
-                color: 'rgba(255, 255, 255, 0.55)',
-              }}
-            >
-              {topic.detail}
-            </span>
-          </button>
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  color: accent.labelColor,
+                }}
+              >
+                {topic.label}
+              </span>
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'rgba(255, 255, 255, 0.55)',
+                }}
+              >
+                {topic.detail}
+              </span>
+            </button>
+            {topic.description && (
+              <InfoTip
+                text={topic.description}
+                position="above"
+                className="absolute top-1 right-1"
+              />
+            )}
+          </div>
         );
       })}
       {isLiteUser && (
@@ -117,6 +128,7 @@ HotTopicStrip.propTypes = {
       priority: PropTypes.number,
       filterAction: PropTypes.string,
       regions: PropTypes.arrayOf(PropTypes.string),
+      description: PropTypes.string,
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,

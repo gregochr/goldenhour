@@ -39,9 +39,9 @@ class HotTopicAggregatorTest {
     @DisplayName("aggregates topics from multiple detectors")
     void getHotTopics_multipleDetectors_aggregatesAll() {
         HotTopic topic1 = new HotTopic("BLUEBELL", "Bluebell conditions", "detail1",
-                FROM, 3, "BLUEBELL", List.of());
+                FROM, 3, "BLUEBELL", List.of(), null);
         HotTopic topic2 = new HotTopic("SPRING_TIDE", "Spring tide", "detail2",
-                FROM.plusDays(1), 2, null, List.of());
+                FROM.plusDays(1), 2, null, List.of(), null);
 
         HotTopicDetector detector1 = (from, to) -> List.of(topic1);
         HotTopicDetector detector2 = (from, to) -> List.of(topic2);
@@ -58,9 +58,9 @@ class HotTopicAggregatorTest {
     @Test
     @DisplayName("topics are sorted by priority ascending then date")
     void getHotTopics_multiplePriorities_sortedCorrectly() {
-        HotTopic lowPriority = new HotTopic("A", "A", "a", FROM, 3, null, List.of());
-        HotTopic highPriority = new HotTopic("B", "B", "b", FROM, 1, null, List.of());
-        HotTopic medPriorityLaterDate = new HotTopic("C", "C", "c", FROM.plusDays(1), 2, null, List.of());
+        HotTopic lowPriority = new HotTopic("A", "A", "a", FROM, 3, null, List.of(), null);
+        HotTopic highPriority = new HotTopic("B", "B", "b", FROM, 1, null, List.of(), null);
+        HotTopic medPriorityLaterDate = new HotTopic("C", "C", "c", FROM.plusDays(1), 2, null, List.of(), null);
 
         HotTopicDetector detector = (from, to) -> List.of(lowPriority, medPriorityLaterDate, highPriority);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(detector), simulationService);
@@ -108,7 +108,7 @@ class HotTopicAggregatorTest {
     void getHotTopics_simulationDisabled_usesRealDetectors() {
         simulationService.setTypeActive("BLUEBELL", true); // won't be used because disabled
 
-        HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of());
+        HotTopic realTopic = new HotTopic("SPRING_TIDE", "Spring tide", "real", FROM, 1, null, List.of(), null);
         HotTopicDetector detector = (from, to) -> List.of(realTopic);
         HotTopicAggregator aggregator = new HotTopicAggregator(List.of(detector), simulationService);
 

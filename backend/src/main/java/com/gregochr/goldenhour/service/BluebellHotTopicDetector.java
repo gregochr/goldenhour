@@ -131,7 +131,10 @@ public class BluebellHotTopicDetector implements HotTopicDetector {
                     date,
                     priority,
                     "BLUEBELL",
-                    topRegions));
+                    topRegions,
+                    "Bluebell season runs mid-April to mid-May. We score mist, wind, light and"
+                            + " recent rain to find the best mornings for woodland and"
+                            + " open-fell bluebell photography."));
         }
 
         return topics;
