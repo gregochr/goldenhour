@@ -182,6 +182,26 @@ class AuthControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/auth/refresh returns 401 for expired refresh token")
+    void refresh_expiredToken_returns401() throws Exception {
+        String rawRefresh = jwtService.generateRefreshToken();
+        String hash = jwtService.hashToken(rawRefresh);
+        RefreshTokenEntity expired = RefreshTokenEntity.builder()
+                .id(3L)
+                .tokenHash(hash)
+                .userId(1L)
+                .expiresAt(LocalDateTime.now().minusDays(1))
+                .revoked(false)
+                .build();
+        when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(expired));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"" + rawRefresh + "\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("POST /api/auth/refresh returns 401 for revoked refresh token")
     void refresh_revokedToken_returns401() throws Exception {
         String rawRefresh = jwtService.generateRefreshToken();

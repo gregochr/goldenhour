@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import LoginPage from '../components/LoginPage.jsx';
@@ -105,6 +105,18 @@ describe('LoginPage', () => {
     };
     renderWithAuth(<LoginPage />);
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  });
+
+  it('shows session expired message after goldenhour:session-expired event', () => {
+    renderWithAuth(<LoginPage />);
+    expect(screen.queryByTestId('session-expired-message')).not.toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(new Event('goldenhour:session-expired'));
+    });
+
+    expect(screen.getByTestId('session-expired-message')).toBeInTheDocument();
+    expect(screen.getByText('Your session expired. Please sign in again.')).toBeInTheDocument();
   });
 
   describe('when Turnstile fails to render (e.g. domain not whitelisted)', () => {

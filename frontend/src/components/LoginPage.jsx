@@ -7,7 +7,7 @@ import TurnstileWidget from './TurnstileWidget.jsx';
  * Full-page login form rendered when the user has no valid session.
  */
 export default function LoginPage({ onRegister = null }) {
-  const { login } = useAuth();
+  const { login, sessionExpired } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
@@ -37,6 +37,12 @@ export default function LoginPage({ onRegister = null }) {
           </h1>
           <p className="text-base text-plex-text-secondary mt-2">AI sunrise, sunset, and aurora forecasting</p>
         </div>
+
+        {sessionExpired && (
+          <p className="text-sm text-amber-400 text-center mb-2" data-testid="session-expired-message">
+            Your session expired. Please sign in again.
+          </p>
+        )}
 
         <form
           action={submitAction}

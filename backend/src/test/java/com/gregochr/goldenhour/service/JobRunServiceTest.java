@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -132,6 +133,48 @@ class JobRunServiceTest {
 
             assertThat(captor.getValue().getTriggeredManually()).isTrue();
         }
+
+        @Test
+        @DisplayName("startedAt is set to a time close to now (UTC)")
+        void startRun_setsStartedAtCloseToNow() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
+
+            jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.HAIKU);
+
+            LocalDateTime startedAt = captor.getValue().getStartedAt();
+            assertThat(startedAt).isAfterOrEqualTo(before);
+            assertThat(startedAt).isBeforeOrEqualTo(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(1));
+        }
+
+        @Test
+        @DisplayName("succeeded and failed counters are initialised to zero")
+        void startRun_initialCountersAreZero() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startRun(RunType.WEATHER, false, null);
+
+            JobRunEntity saved = captor.getValue();
+            assertThat(saved.getSucceeded()).isEqualTo(0);
+            assertThat(saved.getFailed()).isEqualTo(0);
+            assertThat(saved.getTotalCostPence()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("null evaluationModel is stored as null on the entity")
+        void startRun_nullModel_storesTooNull() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startRun(RunType.WEATHER, false, null);
+
+            assertThat(captor.getValue().getEvaluationModel()).isNull();
+        }
     }
 
     @Nested
@@ -182,7 +225,8 @@ class JobRunServiceTest {
                     .runType(RunType.SHORT_TERM)
                     .startedAt(startTime)
                     .build();
-            when(jobRunRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
             when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(1L)).thenReturn(List.of(
                     ApiCallLogEntity.builder().costPence(13).costMicroDollars(5400L).build(),
                     ApiCallLogEntity.builder().costPence(13).costMicroDollars(5400L).build()
@@ -190,7 +234,6 @@ class JobRunServiceTest {
 
             jobRunService.completeRun(jobRun, 5, 2);
 
-            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             verify(jobRunRepository, times(1)).save(captor.capture());
             JobRunEntity completed = captor.getValue();
             assertThat(completed.getCompletedAt()).isNotNull();
@@ -199,6 +242,108 @@ class JobRunServiceTest {
             assertThat(completed.getFailed()).isEqualTo(2);
             assertThat(completed.getTotalCostPence()).isEqualTo(26);
             assertThat(completed.getTotalCostMicroDollars()).isEqualTo(10800L);
+        }
+
+        @Test
+        @DisplayName("with date list sets minTargetDate and maxTargetDate correctly")
+        void completeRun_withDates_setsMinAndMaxTargetDate() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(2L)
+                    .runType(RunType.LONG_TERM)
+                    .startedAt(startTime)
+                    .build();
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(2L)).thenReturn(List.of());
+
+            jobRunService.completeRun(jobRun, 3, 0,
+                    List.of(LocalDate.of(2026, 4, 15),
+                            LocalDate.of(2026, 4, 12),
+                            LocalDate.of(2026, 4, 20)));
+
+            JobRunEntity completed = captor.getValue();
+            assertThat(completed.getMinTargetDate()).isEqualTo(LocalDate.of(2026, 4, 12));
+            assertThat(completed.getMaxTargetDate()).isEqualTo(LocalDate.of(2026, 4, 20));
+        }
+
+        @Test
+        @DisplayName("with empty date list does not set target date fields")
+        void completeRun_withEmptyDateList_doesNotSetTargetDates() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(3L)
+                    .runType(RunType.SHORT_TERM)
+                    .startedAt(startTime)
+                    .build();
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(3L)).thenReturn(List.of());
+
+            jobRunService.completeRun(jobRun, 0, 0, List.of());
+
+            JobRunEntity completed = captor.getValue();
+            assertThat(completed.getMinTargetDate()).isNull();
+            assertThat(completed.getMaxTargetDate()).isNull();
+        }
+
+        @Test
+        @DisplayName("with null date list does not set target date fields")
+        void completeRun_withNullDateList_doesNotSetTargetDates() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(4L)
+                    .runType(RunType.WEATHER)
+                    .startedAt(startTime)
+                    .build();
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(4L)).thenReturn(List.of());
+
+            jobRunService.completeRun(jobRun, 0, 0, null);
+
+            JobRunEntity completed = captor.getValue();
+            assertThat(completed.getMinTargetDate()).isNull();
+            assertThat(completed.getMaxTargetDate()).isNull();
+        }
+
+        @Test
+        @DisplayName("completedAt is set to a time close to now")
+        void completeRun_setsCompletedAtCloseToNow() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(1, ChronoUnit.SECONDS);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(5L)
+                    .runType(RunType.SHORT_TERM)
+                    .startedAt(startTime)
+                    .build();
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(5L)).thenReturn(List.of());
+            LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
+
+            jobRunService.completeRun(jobRun, 1, 0);
+
+            LocalDateTime completedAt = captor.getValue().getCompletedAt();
+            assertThat(completedAt).isAfterOrEqualTo(before);
+            assertThat(completedAt).isBeforeOrEqualTo(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(1));
+        }
+
+        @Test
+        @DisplayName("durationMs reflects elapsed time since startedAt")
+        void completeRun_durationMsReflectsElapsed() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minus(500, ChronoUnit.MILLIS);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(6L)
+                    .runType(RunType.SHORT_TERM)
+                    .startedAt(startTime)
+                    .build();
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(6L)).thenReturn(List.of());
+
+            jobRunService.completeRun(jobRun, 0, 0);
+
+            assertThat(captor.getValue().getDurationMs()).isGreaterThanOrEqualTo(500L);
         }
     }
 
@@ -223,6 +368,72 @@ class JobRunServiceTest {
             assertThat(logged.getCostMicroDollars()).isEqualTo(3000L);
             assertThat(logged.getInputTokens()).isNull();
         }
+
+        @Test
+        @DisplayName("records service, URL, method, status code and success flag correctly")
+        void logApiCall_recordsAllFields() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(costCalculator.calculateCost(ServiceName.OPEN_METEO_FORECAST, null)).thenReturn(0);
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
+
+            jobRunService.logApiCall(7L, ServiceName.OPEN_METEO_FORECAST,
+                    "GET", "https://api.open-meteo.com/v1/forecast", null,
+                    120L, 200, null, true, null);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getJobRunId()).isEqualTo(7L);
+            assertThat(logged.getService()).isEqualTo(ServiceName.OPEN_METEO_FORECAST);
+            assertThat(logged.getRequestMethod()).isEqualTo("GET");
+            assertThat(logged.getRequestUrl()).isEqualTo("https://api.open-meteo.com/v1/forecast");
+            assertThat(logged.getDurationMs()).isEqualTo(120L);
+            assertThat(logged.getStatusCode()).isEqualTo(200);
+            assertThat(logged.getSucceeded()).isTrue();
+        }
+
+        @Test
+        @DisplayName("error message longer than 500 characters is truncated to 500")
+        void logApiCall_longErrorMessage_isTruncatedTo500Chars() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(costCalculator.calculateCost(ServiceName.WORLD_TIDES, null)).thenReturn(0);
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.WORLD_TIDES)).thenReturn(0L);
+            String longError = "e".repeat(600);
+
+            jobRunService.logApiCall(1L, ServiceName.WORLD_TIDES, "GET",
+                    "https://example.com", null, 50L, 500, null, false, longError);
+
+            assertThat(captor.getValue().getErrorMessage()).hasSize(500);
+        }
+
+        @Test
+        @DisplayName("error message exactly 500 characters is not truncated")
+        void logApiCall_errorMessageExactly500Chars_isNotTruncated() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(costCalculator.calculateCost(ServiceName.WORLD_TIDES, null)).thenReturn(0);
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.WORLD_TIDES)).thenReturn(0L);
+            String exactError = "x".repeat(500);
+
+            jobRunService.logApiCall(1L, ServiceName.WORLD_TIDES, "GET",
+                    "https://example.com", null, 50L, 500, null, false, exactError);
+
+            assertThat(captor.getValue().getErrorMessage()).hasSize(500);
+        }
+
+        @Test
+        @DisplayName("null error message is stored as null (not truncated to empty string)")
+        void logApiCall_nullErrorMessage_isStoredAsNull() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            when(costCalculator.calculateCost(ServiceName.OPEN_METEO_FORECAST, null)).thenReturn(0);
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
+
+            jobRunService.logApiCall(1L, ServiceName.OPEN_METEO_FORECAST, "GET",
+                    "https://example.com", null, 50L, 200, null, true, null);
+
+            assertThat(captor.getValue().getErrorMessage()).isNull();
+        }
     }
 
     @Nested
@@ -232,7 +443,8 @@ class JobRunServiceTest {
         @Test
         @DisplayName("returns paginated results for run type")
         void getRecentRuns_returnsPaginatedResults() {
-            when(jobRunRepository.findByRunTypeOrderByStartedAtDesc(eq(RunType.WEATHER), any()))
+            when(jobRunRepository.findByRunTypeOrderByStartedAtDesc(
+                    eq(RunType.WEATHER), eq(PageRequest.of(0, 10))))
                     .thenReturn(List.of(
                             JobRunEntity.builder().id(1L).runType(RunType.WEATHER).build(),
                             JobRunEntity.builder().id(2L).runType(RunType.WEATHER).build()
@@ -243,6 +455,19 @@ class JobRunServiceTest {
             assertThat(result).hasSize(2);
             assertThat(result.get(0).getId()).isEqualTo(1L);
             assertThat(result.get(1).getId()).isEqualTo(2L);
+        }
+
+        @Test
+        @DisplayName("clamps limit to 1 when caller passes 0 to avoid invalid PageRequest")
+        void getRecentRuns_limitZero_usesPageSizeOf1() {
+            when(jobRunRepository.findByRunTypeOrderByStartedAtDesc(
+                    eq(RunType.WEATHER), eq(PageRequest.of(0, 1))))
+                    .thenReturn(List.of());
+
+            jobRunService.getRecentRuns(RunType.WEATHER, 0);
+
+            verify(jobRunRepository).findByRunTypeOrderByStartedAtDesc(
+                    eq(RunType.WEATHER), eq(PageRequest.of(0, 1)));
         }
     }
 
@@ -270,6 +495,56 @@ class JobRunServiceTest {
             assertThat(result).hasSize(2);
             assertThat(result.get(0).getService()).isEqualTo(ServiceName.OPEN_METEO_FORECAST);
             assertThat(result.get(1).getService()).isEqualTo(ServiceName.ANTHROPIC);
+        }
+
+        @Test
+        @DisplayName("returns empty list when no calls exist for the job run")
+        void getApiCallsForRun_noCallsExist_returnsEmptyList() {
+            when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(99L))
+                    .thenReturn(List.of());
+
+            List<ApiCallLogEntity> result = jobRunService.getApiCallsForRun(99L);
+
+            assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("getRecentRunsAllTypes()")
+    class GetRecentRunsAllTypesTests {
+
+        @Test
+        @DisplayName("returns up to the limit from results found within the last 7 days")
+        void getRecentRunsAllTypes_returnsUpToLimit() {
+            List<JobRunEntity> allRuns = List.of(
+                    JobRunEntity.builder().id(1L).build(),
+                    JobRunEntity.builder().id(2L).build(),
+                    JobRunEntity.builder().id(3L).build()
+            );
+            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDesc(any()))
+                    .thenReturn(allRuns);
+
+            List<JobRunEntity> result = jobRunService.getRecentRunsAllTypes(2);
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(0).getId()).isEqualTo(1L);
+            assertThat(result.get(1).getId()).isEqualTo(2L);
+        }
+
+        @Test
+        @DisplayName("queries with a since timestamp close to 7 days ago")
+        void getRecentRunsAllTypes_queriesLast7Days() {
+            when(jobRunRepository.findByStartedAtAfterOrderByStartedAtDesc(any()))
+                    .thenReturn(List.of());
+            ArgumentCaptor<LocalDateTime> captor = ArgumentCaptor.forClass(LocalDateTime.class);
+
+            jobRunService.getRecentRunsAllTypes(10);
+
+            verify(jobRunRepository).findByStartedAtAfterOrderByStartedAtDesc(captor.capture());
+            LocalDateTime since = captor.getValue();
+            LocalDateTime sevenDaysAgo = LocalDateTime.now(ZoneOffset.UTC).minusDays(7);
+            assertThat(since).isAfterOrEqualTo(sevenDaysAgo.minusSeconds(5));
+            assertThat(since).isBeforeOrEqualTo(sevenDaysAgo.plusSeconds(5));
         }
     }
 }

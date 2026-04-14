@@ -44,6 +44,7 @@ export function AuthProvider({ children }) {
   const [marketingEmailOptIn, setMarketingEmailOptIn] = useState(
     () => readStorage(MARKETING_OPT_IN_KEY) !== 'false'
   );
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const login = useCallback(async (username, password, turnstileToken) => {
     const data = await apiLogin(username, password, turnstileToken);
@@ -61,6 +62,7 @@ export function AuthProvider({ children }) {
     setMustChangePassword(data.passwordChangeRequired ?? false);
     if (data.refreshExpiresAt) setRefreshExpiresAt(data.refreshExpiresAt);
     if (data.marketingEmailOptIn != null) setMarketingEmailOptIn(data.marketingEmailOptIn);
+    setSessionExpired(false);
   }, []);
 
   const logout = useCallback(async () => {
@@ -135,6 +137,7 @@ export function AuthProvider({ children }) {
       setMustChangePassword(false);
       setRefreshExpiresAt(null);
       setMarketingEmailOptIn(true);
+      setSessionExpired(true);
     };
     window.addEventListener('goldenhour:session-expired', handleExpired);
     return () => window.removeEventListener('goldenhour:session-expired', handleExpired);
@@ -155,13 +158,14 @@ export function AuthProvider({ children }) {
     mustChangePassword,
     sessionDaysRemaining,
     marketingEmailOptIn,
+    sessionExpired,
     login,
     logout,
     changePassword,
     completeRegistration,
     refreshSession,
     isAdmin: role === 'ADMIN',
-  }), [token, refreshToken, role, username, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, login, logout, changePassword, completeRegistration, refreshSession]);
+  }), [token, refreshToken, role, username, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, sessionExpired, login, logout, changePassword, completeRegistration, refreshSession]);
 
   return (
     <AuthContext.Provider value={value}>

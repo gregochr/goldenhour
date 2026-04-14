@@ -5,9 +5,13 @@ import com.gregochr.goldenhour.entity.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -118,5 +122,63 @@ class JwtServiceTest {
         assertThat(issuedAt).isNotNull();
         assertThat(issuedAt).isAfterOrEqualTo(before);
         assertThat(issuedAt).isBeforeOrEqualTo(Instant.now().plusSeconds(1));
+    }
+
+    @Test
+    @DisplayName("Access token expiry is approximately 24 hours from now")
+    void generateAccessToken_expiryIsApproximately24HoursFromNow() {
+        Instant before = Instant.now().plus(23, ChronoUnit.HOURS);
+        Instant after = Instant.now().plus(25, ChronoUnit.HOURS);
+
+        String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER);
+        Instant expiry = jwtService.extractExpiry(token).toInstant();
+
+        assertThat(expiry).isAfter(before);
+        assertThat(expiry).isBefore(after);
+    }
+
+    @ParameterizedTest(name = "extractRole round-trips {0}")
+    @EnumSource(UserRole.class)
+    @DisplayName("extractRole returns the correct role for every role value")
+    void extractRole_roundTripsAllRoles(UserRole role) {
+        String token = jwtService.generateAccessToken("alice", role);
+        assertThat(jwtService.extractRole(token)).isEqualTo(role);
+    }
+
+    @Test
+    @DisplayName("generateRefreshToken produces a UUID-format string")
+    void generateRefreshToken_isUuidFormat() {
+        Pattern uuid = Pattern.compile(
+                "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+        String refresh = jwtService.generateRefreshToken();
+        assertThat(refresh).matches(uuid);
+    }
+
+    @Test
+    @DisplayName("Two calls to generateRefreshToken produce different tokens")
+    void generateRefreshToken_producesUniqueValues() {
+        assertThat(jwtService.generateRefreshToken())
+                .isNotEqualTo(jwtService.generateRefreshToken());
+    }
+
+    @Test
+    @DisplayName("hashToken produces the known SHA-256 hex digest for 'hello'")
+    void hashToken_knownInput_producesKnownOutput() {
+        // echo -n "hello" | sha256sum → 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+        assertThat(jwtService.hashToken("hello"))
+                .isEqualTo("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    }
+
+    @Test
+    @DisplayName("Two different tokens produce different hashes")
+    void hashToken_differentInputs_produceDifferentHashes() {
+        assertThat(jwtService.hashToken("token-a"))
+                .isNotEqualTo(jwtService.hashToken("token-b"));
+    }
+
+    @Test
+    @DisplayName("validateToken returns false for null input")
+    void validateToken_nullInput_returnsFalse() {
+        assertThat(jwtService.validateToken(null)).isFalse();
     }
 }
