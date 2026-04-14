@@ -22,7 +22,7 @@
             version and cannot be overridden to a non-existent release.
             Revisit when Tomcat 11.0.21+ is published; remove this suppression and update
             tomcat.version in pom.xml.</notes>
-        <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-core@.*$</packageUrl>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-.*@.*$</packageUrl>
         <cve>CVE-2026-34483</cve>
         <cve>CVE-2026-34486</cve>
         <cve>CVE-2026-34487</cve>
