@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -24,7 +26,7 @@ public record DailyBriefingResponse(
         LocalDateTime generatedAt,
         String headline,
         List<BriefingDay> days,
-        List<BestBet> bestBets,
+        @JsonInclude(JsonInclude.Include.ALWAYS) List<BestBet> bestBets,
         AuroraTonightSummary auroraTonight,
         AuroraTomorrowSummary auroraTomorrow,
         boolean stale,

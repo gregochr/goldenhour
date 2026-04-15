@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.LocalDate;
 import java.util.List;
 
@@ -29,6 +32,32 @@ public record HotTopic(
         String filterAction,
         List<String> regions,
         String description) implements Comparable<HotTopic> {
+
+    /**
+     * Explicit canonical constructor with Jackson annotations so that cached briefing
+     * JSON written before the {@code description} field was added (7-field objects)
+     * deserialises correctly. When {@code description} is absent from the JSON,
+     * Jackson passes {@code null} and this constructor defaults it to {@code null}.
+     */
+    @JsonCreator
+    public HotTopic(
+            @JsonProperty("type") String type,
+            @JsonProperty("label") String label,
+            @JsonProperty("detail") String detail,
+            @JsonProperty("date") LocalDate date,
+            @JsonProperty("priority") int priority,
+            @JsonProperty("filterAction") String filterAction,
+            @JsonProperty("regions") List<String> regions,
+            @JsonProperty("description") String description) {
+        this.type = type;
+        this.label = label;
+        this.detail = detail;
+        this.date = date;
+        this.priority = priority;
+        this.filterAction = filterAction;
+        this.regions = regions;
+        this.description = description;
+    }
 
     /**
      * Orders topics by priority ascending, then by date ascending.
