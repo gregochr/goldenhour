@@ -260,16 +260,19 @@ public class ScheduledBatchEvaluationService {
     private void doSubmitForecastBatch() {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
         if (briefing == null) {
-            LOG.info("Forecast batch skipped: no cached briefing available");
+            LOG.warn("[BATCH DIAG] Forecast batch skipped: no cached briefing available");
             return;
         }
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+        LOG.warn("[BATCH DIAG] Starting forecast batch — model={}, briefing days={}",
+                model, briefing.days() != null ? briefing.days().size() : 0);
 
         // First pass: collect all GO/MARGINAL tasks without fetching weather yet
         List<ForecastTask> tasks = collectForecastTasks(briefing);
         if (tasks.isEmpty()) {
-            LOG.info("Forecast batch: no evaluable locations found, skipping submission");
+            LOG.warn("[BATCH DIAG] Forecast batch: no evaluable locations found after "
+                    + "task collection, skipping submission");
             return;
         }
 
@@ -298,6 +301,13 @@ public class ScheduledBatchEvaluationService {
         List<BatchCreateParams.Request> requests = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
+        int skippedTriage = 0;
+        int skippedStability = 0;
+        int skippedError = 0;
+        int included = 0;
+
+        LOG.warn("[BATCH DIAG] Starting triage loop — {} candidate tasks", tasks.size());
+
         for (ForecastTask task : tasks) {
             try {
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
@@ -305,24 +315,39 @@ public class ScheduledBatchEvaluationService {
                         task.location().getTideType(), model, false, null,
                         prefetchedWeather, cloudCache);
                 if (preEval.triaged()) {
-                    LOG.debug("Forecast batch: {} triaged ({}), skipping",
-                            task.location().getName(), preEval.triageReason());
+                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=TRIAGED ({})",
+                            task.location().getName(), task.date(), task.targetType(),
+                            preEval.triageReason());
+                    skippedTriage++;
                     continue;
                 }
                 int daysAhead = preEval.daysAhead();
                 int maxDays = getStabilityWindowDays(task.location(), preEval, stabilityByCell);
                 if (daysAhead > maxDays) {
-                    LOG.debug("Forecast batch: {} T+{} skipped — beyond stability window (max={})",
-                            task.location().getName(), daysAhead, maxDays);
+                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY "
+                                    + "T+{}d maxDays={}",
+                            task.location().getName(), task.date(), task.targetType(),
+                            daysAhead, maxDays);
+                    skippedStability++;
                     continue;
                 }
                 requests.add(buildForecastRequest(task.date(), task.targetType(),
                         task.location(), preEval.atmosphericData(), model));
+                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={}",
+                        task.location().getName(), task.date(), task.targetType());
+                included++;
             } catch (Exception e) {
-                LOG.warn("Forecast batch: triage failed for {}: {}",
-                        task.location().getName(), e.getMessage());
+                LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=ERROR ({})",
+                        task.location().getName(), task.date(), task.targetType(),
+                        e.getMessage());
+                skippedError++;
             }
         }
+
+        LOG.warn("[BATCH DIAG] Triage complete — {} included, {} skipped "
+                        + "(triage={}, stability={}, error={})",
+                included, skippedTriage + skippedStability + skippedError,
+                skippedTriage, skippedStability, skippedError);
 
         if (requests.isEmpty()) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
@@ -435,6 +460,11 @@ public class ScheduledBatchEvaluationService {
      */
     private List<ForecastTask> collectForecastTasks(DailyBriefingResponse briefing) {
         List<ForecastTask> tasks = new ArrayList<>();
+        int skippedCache = 0;
+        int skippedVerdict = 0;
+        int skippedUnknown = 0;
+        int totalSlots = 0;
+
         for (BriefingDay day : briefing.days()) {
             LocalDate date = day.date();
             for (BriefingEventSummary eventSummary : day.eventSummaries()) {
@@ -442,17 +472,28 @@ public class ScheduledBatchEvaluationService {
                 for (BriefingRegion region : eventSummary.regions()) {
                     String cacheKey = region.regionName() + "|" + date + "|" + targetType;
                     if (briefingEvaluationService.hasEvaluation(cacheKey)) {
-                        LOG.debug("Forecast batch: {} already cached, skipping region", cacheKey);
+                        int regionSlots = region.slots() != null ? region.slots().size() : 0;
+                        LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED ({} slots skipped)",
+                                cacheKey, regionSlots);
+                        skippedCache += regionSlots;
+                        totalSlots += regionSlots;
                         continue;
                     }
                     for (BriefingSlot slot : region.slots()) {
+                        totalSlots++;
                         if (slot.verdict() != Verdict.GO && slot.verdict() != Verdict.MARGINAL) {
+                            LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
+                                            + "reason=VERDICT_{}", slot.locationName(),
+                                    date, targetType, slot.verdict());
+                            skippedVerdict++;
                             continue;
                         }
                         LocationEntity location = findLocation(slot.locationName());
                         if (location == null) {
-                            LOG.warn("Forecast batch: unknown location '{}', skipping",
-                                    slot.locationName());
+                            LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
+                                            + "reason=UNKNOWN_LOCATION",
+                                    slot.locationName(), date, targetType);
+                            skippedUnknown++;
                             continue;
                         }
                         tasks.add(new ForecastTask(location, date, targetType));
@@ -460,6 +501,10 @@ public class ScheduledBatchEvaluationService {
                 }
             }
         }
+
+        LOG.warn("[BATCH DIAG] Task collection complete — {} tasks from {} total slots "
+                        + "(cached={}, verdict={}, unknownLoc={})",
+                tasks.size(), totalSlots, skippedCache, skippedVerdict, skippedUnknown);
         return tasks;
     }
 
