@@ -13,8 +13,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -106,6 +108,33 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].status").value("COMPLETED"))
                 .andExpect(jsonPath("$[0].succeededCount").value(12))
                 .andExpect(jsonPath("$[0].erroredCount").value(0));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/admin/batches/reset-guards returns 200 with reset flags")
+    void resetBatchGuards_returnsOkWithFlags() throws Exception {
+        mockMvc.perform(post("/api/admin/batches/reset-guards"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.forecastReset").value(true))
+                .andExpect(jsonPath("$.auroraReset").value(true));
+
+        verify(scheduledBatchEvaluationService).resetBatchGuards();
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("POST /api/admin/batches/reset-guards returns 403 for non-ADMIN")
+    void resetBatchGuards_forbiddenForNonAdmin() throws Exception {
+        mockMvc.perform(post("/api/admin/batches/reset-guards"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /api/admin/batches/reset-guards returns 401 when unauthenticated")
+    void resetBatchGuards_unauthenticated() throws Exception {
+        mockMvc.perform(post("/api/admin/batches/reset-guards"))
+                .andExpect(status().isUnauthorized());
     }
 
     private ForecastBatchEntity buildBatch(String anthropicBatchId, BatchType type) {

@@ -36,6 +36,7 @@ import com.gregochr.goldenhour.service.TideService;
 import com.gregochr.goldenhour.service.TurnstileService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.UserSettingsService;
+import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -145,6 +146,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected RunProgressTracker progressTracker;
+
+    @MockitoBean
+    protected ScheduledBatchEvaluationService scheduledBatchEvaluationService;
 
     @MockitoBean
     protected ScheduledForecastService scheduledForecastService;

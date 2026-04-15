@@ -192,11 +192,27 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
+     * Forcibly resets both batch-running guards to {@code false}.
+     *
+     * <p>Under normal operation the {@code finally} blocks in {@link #submitForecastBatch()}
+     * and {@link #submitAuroraBatch()} always clear the guards, so this method should never
+     * need to be called. It exists as an admin escape hatch in case a guard somehow becomes
+     * stuck (e.g. during in-process debugging or an unrecoverable JVM-level failure that
+     * bypassed the finally block).
+     */
+    public void resetBatchGuards() {
+        LOG.warn("Batch guards manually reset by admin");
+        forecastBatchRunning.set(false);
+        auroraBatchRunning.set(false);
+    }
+
+    /**
      * Builds and submits a forecast evaluation batch to the Anthropic Batch API.
      *
      * <p>Guards against concurrent submissions with an {@link AtomicBoolean}. If a batch
      * submission is already in progress (e.g. triggered simultaneously by two scheduler
-     * threads), the second call is silently dropped.
+     * threads), the second call is silently dropped. The {@code finally} block guarantees
+     * the guard is always cleared, even if {@link #doSubmitForecastBatch()} throws.
      *
      * <p>Weather data for all candidate locations is pre-fetched in bulk before the
      * per-location triage loop, avoiding per-location Open-Meteo calls that would trip
@@ -217,7 +233,9 @@ public class ScheduledBatchEvaluationService {
     /**
      * Builds and submits an aurora evaluation batch to the Anthropic Batch API.
      *
-     * <p>Guards against concurrent submissions with an {@link AtomicBoolean}.
+     * <p>Guards against concurrent submissions with an {@link AtomicBoolean}. The
+     * {@code finally} block guarantees the guard is always cleared, even if
+     * {@link #doSubmitAuroraBatch()} throws.
      *
      * <p>Fetches current NOAA SWPC data, derives the alert level, and runs weather triage.
      * Submits a single batch request if any locations pass triage. Skips submission if the
