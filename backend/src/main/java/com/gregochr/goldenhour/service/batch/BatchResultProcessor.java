@@ -216,6 +216,7 @@ public class BatchResultProcessor {
                     succeeded++;
                 } catch (Exception e) {
                     LOG.warn("Forecast batch: parse failed for '{}': {}", customId, e.getMessage());
+                    LOG.warn("Forecast batch: raw response for '{}': {}", customId, text);
                     errored++;
                 }
             }
