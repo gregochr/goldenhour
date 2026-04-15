@@ -1158,26 +1158,15 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
       {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
       {dayDates.length > 0 && (
-        <div className="flex items-start gap-4 mb-1" data-testid="quality-slider-row">
-          <div className="flex-1 min-w-0">
-            <QualitySlider
-              value={qualityTier}
-              onChange={setQualityTier}
-              showing={sliderCounts.showing}
-              total={sliderCounts.total}
-            />
-          </div>
-          <label className="hidden sm:flex items-center gap-1.5 cursor-pointer shrink-0 pt-0.5"
-            style={{ fontSize: '13px' }}>
-            <input
-              type="checkbox"
-              checked={showAllLocations}
-              onChange={(e) => setShowAllLocations(e.target.checked)}
-              className="accent-plex-gold"
-              data-testid="show-all-locations-toggle"
-            />
-            <span className="text-plex-text-muted">Show all locations</span>
-          </label>
+        <div data-testid="quality-slider-row">
+          <QualitySlider
+            value={qualityTier}
+            onChange={setQualityTier}
+            showing={sliderCounts.showing}
+            total={sliderCounts.total}
+            showAllLocations={showAllLocations}
+            onShowAllLocationsChange={setShowAllLocations}
+          />
         </div>
       )}
 

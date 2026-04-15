@@ -1887,7 +1887,7 @@ describe('DailyBriefing', () => {
   });
 
   describe('Show all locations toggle', () => {
-    it('renders toggle checkbox on desktop', async () => {
+    it('renders toggle switch on desktop', async () => {
       useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
       getDailyBriefing.mockResolvedValue(buildBriefing());
       getDriveTimes.mockResolvedValue({});
@@ -1896,12 +1896,12 @@ describe('DailyBriefing', () => {
 
       const toggle = screen.queryByTestId('show-all-locations-toggle');
       expect(toggle).toBeTruthy();
-      expect(toggle.type).toBe('checkbox');
+      expect(toggle).toHaveAttribute('role', 'switch');
     });
   });
 
   describe('Quality slider row layout', () => {
-    it('slider row uses items-start so checkbox does not overlap the header', async () => {
+    it('slider row contains the quality slider', async () => {
       useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
       getDailyBriefing.mockResolvedValue(buildBriefing());
       getDriveTimes.mockResolvedValue({});
@@ -1909,21 +1909,19 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
       const row = screen.getByTestId('quality-slider-row');
-      expect(row.className).toContain('items-start');
-      expect(row.className).not.toContain('items-center');
+      expect(row.querySelector('[data-testid="quality-slider"]')).toBeTruthy();
     });
 
-    it('checkbox label uses top padding, not bottom padding', async () => {
+    it('toggle is inside the quality slider component', async () => {
       useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
       getDailyBriefing.mockResolvedValue(buildBriefing());
       getDriveTimes.mockResolvedValue({});
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
-      const toggle = screen.getByTestId('show-all-locations-toggle');
-      const label = toggle.closest('label');
-      expect(label.className).toContain('pt-0.5');
-      expect(label.className).not.toContain('pb-');
+      const slider = screen.getByTestId('quality-slider');
+      const toggle = slider.querySelector('[data-testid="show-all-locations-toggle"]');
+      expect(toggle).toBeTruthy();
     });
   });
 });

@@ -25,14 +25,10 @@ const DRAG_TABLE = [
 ];
 
 describe('QualitySlider', () => {
-  it('shows Worst label on the left', () => {
+  it('does not render Worst or Best labels', () => {
     render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
-    expect(screen.getByText('Worst')).toBeInTheDocument();
-  });
-
-  it('shows Best label on the right', () => {
-    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
-    expect(screen.getByText('Best')).toBeInTheDocument();
+    expect(screen.queryByText('Worst')).not.toBeInTheDocument();
+    expect(screen.queryByText('Best')).not.toBeInTheDocument();
   });
 
   it('slider fully left (visual 0) means everything visible (internal tier 5)', () => {
@@ -193,5 +189,102 @@ describe('QualitySlider', () => {
   it('root element has data-testid="quality-slider"', () => {
     render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
     expect(screen.getByTestId('quality-slider')).toBeInTheDocument();
+  });
+
+  // ── Show all locations toggle ─────────────────────────────────────────────
+
+  it('renders toggle switch when onShowAllLocationsChange is provided', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    expect(screen.getByTestId('show-all-locations-toggle')).toBeInTheDocument();
+  });
+
+  it('does not render toggle when onShowAllLocationsChange is not provided', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
+    expect(screen.queryByTestId('show-all-locations-toggle')).not.toBeInTheDocument();
+  });
+
+  it('toggle has role="switch" and aria-checked matching state', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={true}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    const toggle = screen.getByRole('switch');
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('toggle aria-checked is false when showAllLocations is false', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    const toggle = screen.getByRole('switch');
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('clicking toggle calls onShowAllLocationsChange with inverted value', () => {
+    const onToggle = vi.fn();
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByRole('switch'));
+    expect(onToggle).toHaveBeenCalledWith(true);
+  });
+
+  it('clicking toggle when on calls onShowAllLocationsChange with false', () => {
+    const onToggle = vi.fn();
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={true}
+        onShowAllLocationsChange={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByRole('switch'));
+    expect(onToggle).toHaveBeenCalledWith(false);
+  });
+
+  it('toggle displays "Show all locations" label', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    expect(screen.getByText('Show all locations')).toBeInTheDocument();
   });
 });
