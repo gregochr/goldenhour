@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -1084,6 +1085,151 @@ class BriefingServiceTest {
 
             DailyBriefingResponse result = briefingService.getCachedBriefing();
             assertThat(result.auroraTonight()).isSameAs(liveAurora);
+        }
+    }
+
+    // ── getCachedBriefing hot topic overlay ───────────────────────────────────
+
+    @Nested
+    @DisplayName("getCachedBriefing hot topic overlay")
+    class GetCachedBriefingHotTopicTests {
+
+        private void refreshWithOneLocation() {
+            LocationEntity loc = location("Durham", null);
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+            briefingService.refreshBriefing();
+        }
+
+        /**
+         * The core bug: simulation was toggled ON after the last refresh, so the cached
+         * response had an empty hotTopics list. getCachedBriefing must overlay live topics
+         * from the aggregator, not return the stale cached list.
+         */
+        @Test
+        @DisplayName("simulation toggled after refresh — getCachedBriefing returns live simulated topics")
+        void simulationToggledAfterRefresh_returnsLiveTopics() {
+            // Aggregator returns empty during refresh (simulation off)
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+
+            // Verify cached response has no hot topics
+            DailyBriefingResponse beforeToggle = briefingService.getCachedBriefing();
+            assertThat(beforeToggle.hotTopics()).isEmpty();
+
+            // Now simulation is toggled on — aggregator returns topics
+            HotTopic bluebell = new HotTopic("BLUEBELL", "Bluebell conditions",
+                    "Misty and still", LocalDate.now(), 1, "BLUEBELL",
+                    List.of("Northumberland"), "Bluebell season description");
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of(bluebell));
+
+            DailyBriefingResponse afterToggle = briefingService.getCachedBriefing();
+            assertThat(afterToggle.hotTopics()).containsExactly(bluebell);
+        }
+
+        /**
+         * When hot topics haven't changed between calls, getCachedBriefing must return
+         * the exact same cached instance — no unnecessary allocations.
+         */
+        @Test
+        @DisplayName("hot topics unchanged — successive calls return the same cached instance")
+        void hotTopicsUnchanged_returnsSameInstance() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+
+            DailyBriefingResponse first = briefingService.getCachedBriefing();
+            DailyBriefingResponse second = briefingService.getCachedBriefing();
+            assertThat(second).isSameAs(first);
+        }
+
+        /**
+         * When simulation is toggled OFF after being ON, the cached response must
+         * revert to the aggregator's real (empty) output.
+         */
+        @Test
+        @DisplayName("simulation toggled off — hot topics revert to real detector output")
+        void simulationToggledOff_revertsToRealDetectorOutput() {
+            HotTopic aurora = new HotTopic("AURORA", "Aurora possible",
+                    "Kp 5 tonight", LocalDate.now(), 1, null,
+                    List.of("Northumberland"), "Aurora description");
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of(aurora));
+            refreshWithOneLocation();
+
+            assertThat(briefingService.getCachedBriefing().hotTopics()).containsExactly(aurora);
+
+            // Simulation toggled off — aggregator now returns empty
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+
+            DailyBriefingResponse afterOff = briefingService.getCachedBriefing();
+            assertThat(afterOff.hotTopics()).isEmpty();
+        }
+
+        /**
+         * When the aggregator returns a different set of topics (e.g. new simulation
+         * types toggled), the response must carry the updated list, not the stale one.
+         */
+        @Test
+        @DisplayName("hot topics change between calls — response carries updated list")
+        void hotTopicsChange_responseCarriesUpdatedList() {
+            HotTopic bluebell = new HotTopic("BLUEBELL", "Bluebell conditions",
+                    "Misty and still", LocalDate.now(), 1, "BLUEBELL",
+                    List.of("Northumberland"), null);
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of(bluebell));
+            refreshWithOneLocation();
+
+            // A second topic is now active
+            HotTopic dust = new HotTopic("DUST", "Elevated dust",
+                    "Saharan dust at sunset", LocalDate.now(), 3, null,
+                    List.of("Northumberland"), null);
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of(bluebell, dust));
+
+            DailyBriefingResponse result = briefingService.getCachedBriefing();
+            assertThat(result.hotTopics()).containsExactly(bluebell, dust);
+        }
+
+        /**
+         * Non-hot-topic fields (headline, days, bestBets etc.) must be preserved
+         * when the hot topic overlay creates a new response.
+         */
+        @Test
+        @DisplayName("hot topic overlay preserves all other briefing fields")
+        void hotTopicOverlay_preservesOtherFields() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+
+            DailyBriefingResponse original = briefingService.getCachedBriefing();
+
+            // Change hot topics so a new response is built
+            HotTopic topic = new HotTopic("INVERSION", "Cloud inversion",
+                    "Strong inversion forecast", LocalDate.now(), 2, null,
+                    List.of("The North York Moors"), null);
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of(topic));
+
+            DailyBriefingResponse overlaid = briefingService.getCachedBriefing();
+            assertThat(overlaid).isNotSameAs(original);
+            assertThat(overlaid.generatedAt()).isEqualTo(original.generatedAt());
+            assertThat(overlaid.headline()).isEqualTo(original.headline());
+            assertThat(overlaid.days()).isEqualTo(original.days());
+            assertThat(overlaid.bestBets()).isEqualTo(original.bestBets());
+            assertThat(overlaid.stale()).isEqualTo(original.stale());
+            assertThat(overlaid.partialFailure()).isEqualTo(original.partialFailure());
+            assertThat(overlaid.failedLocationCount()).isEqualTo(original.failedLocationCount());
+            assertThat(overlaid.bestBetModel()).isEqualTo(original.bestBetModel());
+            assertThat(overlaid.seasonalFeatures()).isEqualTo(original.seasonalFeatures());
         }
     }
 
