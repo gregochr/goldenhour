@@ -1899,4 +1899,31 @@ describe('DailyBriefing', () => {
       expect(toggle.type).toBe('checkbox');
     });
   });
+
+  describe('Quality slider row layout', () => {
+    it('slider row uses items-start so checkbox does not overlap the header', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const row = screen.getByTestId('quality-slider-row');
+      expect(row.className).toContain('items-start');
+      expect(row.className).not.toContain('items-center');
+    });
+
+    it('checkbox label uses top padding, not bottom padding', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const toggle = screen.getByTestId('show-all-locations-toggle');
+      const label = toggle.closest('label');
+      expect(label.className).toContain('pt-0.5');
+      expect(label.className).not.toContain('pb-');
+    });
+  });
 });
