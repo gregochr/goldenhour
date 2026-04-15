@@ -17,12 +17,15 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -194,6 +197,24 @@ public class BriefingBestBetAdvisor {
             - Your "region" field MUST exactly match one of the "validRegions" values.
             - Do not reference any date outside the "forecastWindow".
 
+            **FORECAST RELIABILITY**
+
+            Each region may include a stability field:
+
+            SETTLED — Conditions locked in. Recommend with confidence.
+
+            TRANSITIONAL — Front timing uncertain. When recommending a TRANSITIONAL region, \
+            qualify the recommendation:
+            - "...conditions may change — check the forecast before leaving"
+            - "...front arriving later in the evening — the sunset window looks clear but \
+            monitor closely"
+            A TRANSITIONAL region with exceptional conditions (king tide, rare alignment) \
+            may still be the best bet — just flag the uncertainty.
+
+            UNSETTLED — Active frontal weather. Avoid recommending UNSETTLED regions unless \
+            every other region is also poor. If forced to recommend an UNSETTLED region, \
+            be honest about it.
+
             Never include raw data field names, codes, or technical identifiers in your response.
             Translate all data into natural language:
             - weatherCode values → "clear skies", "partly cloudy", "overcast", "light rain", "fog" etc.
@@ -206,25 +227,29 @@ public class BriefingBestBetAdvisor {
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
     private final AuroraStateCache auroraStateCache;
+    private final ForecastCommandExecutor forecastCommandExecutor;
 
     /**
      * Constructs a {@code BriefingBestBetAdvisor}.
      *
-     * @param anthropicApiClient    resilient Anthropic API client
-     * @param objectMapper          Jackson mapper for JSON building and parsing
-     * @param jobRunService         service for logging the API call in job run metrics
-     * @param modelSelectionService service for resolving the active Claude model
-     * @param auroraStateCache      read-only access to the current aurora alert state
+     * @param anthropicApiClient       resilient Anthropic API client
+     * @param objectMapper             Jackson mapper for JSON building and parsing
+     * @param jobRunService            service for logging the API call in job run metrics
+     * @param modelSelectionService    service for resolving the active Claude model
+     * @param auroraStateCache         read-only access to the current aurora alert state
+     * @param forecastCommandExecutor  provides the latest stability summary for region rollup
      */
     public BriefingBestBetAdvisor(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
             ModelSelectionService modelSelectionService,
-            AuroraStateCache auroraStateCache) {
+            AuroraStateCache auroraStateCache,
+            ForecastCommandExecutor forecastCommandExecutor) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
         this.auroraStateCache = auroraStateCache;
+        this.forecastCommandExecutor = forecastCommandExecutor;
     }
 
     /**
@@ -628,6 +653,52 @@ public class BriefingBestBetAdvisor {
 
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
+
+        // Stability rollup: worst-case across grid cells containing this region's locations
+        appendStabilityToRegion(regionNode, region);
+    }
+
+    /**
+     * Looks up the worst-case stability across all grid cells containing locations
+     * in the given region. If stability data is unavailable, the field is omitted.
+     */
+    private void appendStabilityToRegion(ObjectNode regionNode, BriefingRegion region) {
+        StabilitySummaryResponse summary = forecastCommandExecutor.getLatestStabilitySummary();
+        if (summary == null || summary.cells().isEmpty()) {
+            return;
+        }
+
+        Set<String> regionLocationNames = new LinkedHashSet<>();
+        for (BriefingSlot slot : region.slots()) {
+            regionLocationNames.add(slot.locationName());
+        }
+
+        ForecastStability worstStability = null;
+        String worstReason = null;
+        for (StabilitySummaryResponse.GridCellDetail cell : summary.cells()) {
+            boolean hasMatch = cell.locationNames().stream()
+                    .anyMatch(regionLocationNames::contains);
+            if (hasMatch) {
+                if (worstStability == null || isMoreUnstable(cell.stability(), worstStability)) {
+                    worstStability = cell.stability();
+                    worstReason = cell.reason();
+                }
+            }
+        }
+
+        if (worstStability != null) {
+            regionNode.put("stability", worstStability.name());
+            if (worstReason != null) {
+                regionNode.put("stabilityReason", worstReason);
+            }
+        }
+    }
+
+    /**
+     * Returns {@code true} if {@code candidate} is more unstable than {@code current}.
+     */
+    private static boolean isMoreUnstable(ForecastStability candidate, ForecastStability current) {
+        return candidate.evaluationWindowDays() < current.evaluationWindowDays();
     }
 
     private void appendAuroraEvent(ArrayNode eventsNode, String eventId) {

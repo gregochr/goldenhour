@@ -3,11 +3,13 @@ package com.gregochr.goldenhour;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
 import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
+import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.WeatherData;
 
@@ -51,6 +53,9 @@ public final class TestAtmosphericData {
     private MistTrend mistTrend = null;
     private String locationOrientation = null;
     private Double inversionScore = null;
+    private ForecastStability stability = null;
+    private String stabilityReason = null;
+    private PressureTrend pressureTrend = null;
 
     private TestAtmosphericData() {
     }
@@ -213,6 +218,21 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData stability(ForecastStability val) {
+        this.stability = val;
+        return this;
+    }
+
+    public TestAtmosphericData stabilityReason(String val) {
+        this.stabilityReason = val;
+        return this;
+    }
+
+    public TestAtmosphericData pressureTrend(PressureTrend val) {
+        this.pressureTrend = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -227,6 +247,7 @@ public final class TestAtmosphericData {
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,
-                locationOrientation, null, null, null, inversionScore, null);
+                locationOrientation, null, null, null, inversionScore, null,
+                stability, stabilityReason, pressureTrend);
     }
 }

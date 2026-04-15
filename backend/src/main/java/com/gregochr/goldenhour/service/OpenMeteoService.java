@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherData;
@@ -76,6 +77,9 @@ public class OpenMeteoService {
 
     /** Number of hours after the event to include in the mist/visibility trend. */
     private static final int MIST_TREND_HOURS_FORWARD = 2;
+
+    /** Number of hours before and after the event to sample for pressure tendency. */
+    private static final int PRESSURE_TREND_HOURS = 3;
 
     /**
      * Half-angle of the sampling cone for the solar horizon direction (degrees).
@@ -691,6 +695,7 @@ public class OpenMeteoService {
                 getIntegerValue(h.getPrecipitationProbability(), idx));
 
         MistTrend mistTrend = extractMistTrend(h, idx);
+        PressureTrend pressureTrend = extractPressureTrend(h, idx);
 
         return new AtmosphericData(
                 locationName, solarEventTime, targetType,
@@ -698,7 +703,7 @@ public class OpenMeteoService {
                 null,  // directionalCloud — populated later for colour locations
                 null,  // tide — populated later for coastal locations
                 null,  // cloudApproach — populated later if directional data available
-                mistTrend);
+                mistTrend, pressureTrend);
     }
 
     /**
@@ -967,6 +972,42 @@ public class OpenMeteoService {
         }
 
         return slots.isEmpty() ? null : new MistTrend(slots);
+    }
+
+    /**
+     * Extracts a pressure tendency trend from T-3h through T+3h using mean sea level pressure.
+     *
+     * <p>Boundary handling: if T-3 or T+3 falls outside the array, uses the nearest available
+     * index. Returns {@code null} only if the pressureMsl list is null or empty.
+     *
+     * <p>Package-private for unit testing.
+     *
+     * @param h        the hourly forecast arrays from Open-Meteo
+     * @param eventIdx the slot index corresponding to the solar event time
+     * @return the trend, or {@code null} if pressure data is unavailable
+     */
+    PressureTrend extractPressureTrend(OpenMeteoForecastResponse.Hourly h, int eventIdx) {
+        List<Double> pressureMsl = h.getPressureMsl();
+        if (pressureMsl == null || pressureMsl.isEmpty()) {
+            return null;
+        }
+
+        List<Double> values = new ArrayList<>();
+        for (int offset = -PRESSURE_TREND_HOURS; offset <= PRESSURE_TREND_HOURS; offset++) {
+            int idx = Math.max(0, Math.min(eventIdx + offset, pressureMsl.size() - 1));
+            Double val = pressureMsl.get(idx);
+            if (val != null) {
+                values.add(val);
+            }
+        }
+
+        if (values.isEmpty()) {
+            return null;
+        }
+
+        double tendencyHpa6h = values.getLast() - values.getFirst();
+        String label = PressureTrend.labelFromTendency(tendencyHpa6h);
+        return new PressureTrend(values, tendencyHpa6h, label);
     }
 
     /**

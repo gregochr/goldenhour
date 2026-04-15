@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
@@ -343,8 +344,11 @@ public class ForecastCommandExecutor {
 
         // Stability gating: classify per grid cell, skip tasks beyond the stability window.
         // Bypass for manually triggered runs — the user explicitly requested these evaluations.
+        Map<String, GridCellStabilityResult> stabilityByCell = Map.of();
         if (!triggeredManually) {
-            fullEvalBatch = applyStabilityFilter(fullEvalBatch);
+            StabilityFilterResult stabilityResult = applyStabilityFilter(fullEvalBatch);
+            fullEvalBatch = stabilityResult.filteredTasks();
+            stabilityByCell = stabilityResult.stabilityByCell();
         } else {
             LOG.info("Stability filter bypassed — manual run");
         }
@@ -356,6 +360,9 @@ public class ForecastCommandExecutor {
             LOG.info("Forecast run complete — all remaining tasks filtered by stability");
             return results;
         }
+
+        // Enrich surviving tasks with stability classification for Claude prompt context.
+        fullEvalBatch = enrichWithStability(fullEvalBatch, stabilityByCell);
 
         // Phase 3: FULL_EVALUATION
         progressTracker.setPhase(jobRun.getId(), RunPhase.FULL_EVALUATION);
@@ -593,6 +600,17 @@ public class ForecastCommandExecutor {
     }
 
     /**
+     * Result of stability filtering: the filtered task list plus the underlying classification map.
+     *
+     * @param filteredTasks    tasks within their grid cell's stability window
+     * @param stabilityByCell  stability classification keyed by grid cell key
+     */
+    private record StabilityFilterResult(
+            List<ForecastPreEvalResult> filteredTasks,
+            Map<String, GridCellStabilityResult> stabilityByCell) {
+    }
+
+    /**
      * Classifies forecast stability per grid cell and filters out tasks whose
      * {@code daysAhead} exceeds the stability evaluation window.
      *
@@ -601,9 +619,9 @@ public class ForecastCommandExecutor {
      * default to TRANSITIONAL (T+1 window).
      *
      * @param batch tasks surviving triage and sentinel phases
-     * @return filtered list of tasks within their grid cell's stability window
+     * @return filter result containing tasks and the stability classification map
      */
-    private List<ForecastPreEvalResult> applyStabilityFilter(List<ForecastPreEvalResult> batch) {
+    private StabilityFilterResult applyStabilityFilter(List<ForecastPreEvalResult> batch) {
         Map<String, GridCellStabilityResult> stabilityByCell = new ConcurrentHashMap<>();
 
         for (ForecastPreEvalResult task : batch) {
@@ -673,7 +691,43 @@ public class ForecastCommandExecutor {
             LOG.info("Stability filter: {}/{} tasks skipped (beyond stability window)",
                     skipped, originalSize);
         }
-        return filtered;
+        return new StabilityFilterResult(filtered, stabilityByCell);
+    }
+
+    /**
+     * Enriches each task's {@link AtmosphericData} with stability classification from the
+     * grid cell stability map. Tasks without a matching grid cell are left unchanged.
+     *
+     * @param tasks           tasks to enrich
+     * @param stabilityByCell stability results keyed by grid cell key
+     * @return new list with stability-enriched atmospheric data
+     */
+    private List<ForecastPreEvalResult> enrichWithStability(
+            List<ForecastPreEvalResult> tasks,
+            Map<String, GridCellStabilityResult> stabilityByCell) {
+        if (stabilityByCell.isEmpty()) {
+            return tasks;
+        }
+        return tasks.stream()
+                .map(task -> {
+                    if (!task.location().hasGridCell() || task.atmosphericData() == null) {
+                        return task;
+                    }
+                    GridCellStabilityResult result =
+                            stabilityByCell.get(task.location().gridCellKey());
+                    if (result == null) {
+                        return task;
+                    }
+                    AtmosphericData enriched = task.atmosphericData()
+                            .withStability(result.stability(), result.reason());
+                    return new ForecastPreEvalResult(
+                            task.triaged(), task.triageReason(), enriched,
+                            task.location(), task.date(), task.targetType(),
+                            task.eventTime(), task.azimuth(), task.daysAhead(),
+                            task.model(), task.tideTypes(), task.taskKey(),
+                            task.forecastResponse());
+                })
+                .toList();
     }
 
     // -------------------------------------------------------------------------

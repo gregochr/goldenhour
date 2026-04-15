@@ -7,6 +7,7 @@ import com.anthropic.models.messages.ThinkingBlock;
 import com.anthropic.models.messages.Usage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -16,9 +17,11 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -59,6 +62,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private JobRunService jobRunService;
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
+    @Mock private ForecastCommandExecutor forecastCommandExecutor;
 
     private BriefingBestBetAdvisor advisor;
 
@@ -66,7 +70,8 @@ class BriefingBestBetAdvisorTest {
     void setUp() {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
-                jobRunService, modelSelectionService, auroraStateCache);
+                jobRunService, modelSelectionService, auroraStateCache,
+                forecastCommandExecutor);
     }
 
     // ── parseBestBets ──
@@ -1322,6 +1327,180 @@ class BriefingBestBetAdvisorTest {
             when(message.content()).thenReturn(List.of(thinkingCb, textCb));
             when(message.usage()).thenReturn(usage);
             return message;
+        }
+    }
+
+    // ── Stability in region rollup ──
+
+    @Nested
+    @DisplayName("Stability in region rollup JSON")
+    class StabilityRegionRollupTests {
+
+        @Test
+        @DisplayName("All SETTLED → stability=SETTLED in region JSON")
+        void allSettled_stabilitySettledInJson() throws Exception {
+            StabilitySummaryResponse summary = new StabilitySummaryResponse(
+                    java.time.Instant.now(), 2,
+                    Map.of(ForecastStability.SETTLED, 2L),
+                    List.of(
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.7500,-1.6250", 54.75, -1.625,
+                                    ForecastStability.SETTLED, "High pressure dominant",
+                                    3, List.of("Loc0", "Loc1")),
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.5000,-1.8750", 54.50, -1.875,
+                                    ForecastStability.SETTLED, "Stable ridge",
+                                    3, List.of("Loc2"))));
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
+                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+
+            assertThat(rollup.json()).contains("\"stability\":\"SETTLED\"");
+        }
+
+        @Test
+        @DisplayName("One TRANSITIONAL cell → stability=TRANSITIONAL (worst-case)")
+        void oneTransitional_worstCaseTransitional() throws Exception {
+            StabilitySummaryResponse summary = new StabilitySummaryResponse(
+                    java.time.Instant.now(), 2,
+                    Map.of(ForecastStability.SETTLED, 1L, ForecastStability.TRANSITIONAL, 1L),
+                    List.of(
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.7500,-1.6250", 54.75, -1.625,
+                                    ForecastStability.SETTLED, "High pressure dominant",
+                                    3, List.of("Loc0")),
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.5000,-1.8750", 54.50, -1.875,
+                                    ForecastStability.TRANSITIONAL, "Front approaching",
+                                    1, List.of("Loc1", "Loc2"))));
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
+                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+
+            assertThat(rollup.json()).contains("\"stability\":\"TRANSITIONAL\"");
+            assertThat(rollup.json()).contains("\"stabilityReason\":\"Front approaching\"");
+        }
+
+        @Test
+        @DisplayName("One UNSETTLED cell → stability=UNSETTLED regardless of others")
+        void oneUnsettled_worstCaseUnsettled() throws Exception {
+            StabilitySummaryResponse summary = new StabilitySummaryResponse(
+                    java.time.Instant.now(), 3,
+                    Map.of(ForecastStability.SETTLED, 1L,
+                            ForecastStability.TRANSITIONAL, 1L,
+                            ForecastStability.UNSETTLED, 1L),
+                    List.of(
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.7500,-1.6250", 54.75, -1.625,
+                                    ForecastStability.SETTLED, "High pressure dominant",
+                                    3, List.of("Loc0")),
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.5000,-1.8750", 54.50, -1.875,
+                                    ForecastStability.TRANSITIONAL, "Front approaching",
+                                    1, List.of("Loc1")),
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "54.2500,-2.0000", 54.25, -2.0,
+                                    ForecastStability.UNSETTLED, "Active frontal zone",
+                                    0, List.of("Loc2"))));
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
+                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+
+            assertThat(rollup.json()).contains("\"stability\":\"UNSETTLED\"");
+            assertThat(rollup.json()).contains("\"stabilityReason\":\"Active frontal zone\"");
+        }
+
+        @Test
+        @DisplayName("No stability data → stability field omitted from JSON")
+        void noStabilityData_fieldOmitted() throws Exception {
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
+                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+
+            assertThat(rollup.json()).doesNotContain("\"stability\"");
+            assertThat(rollup.json()).doesNotContain("\"stabilityReason\"");
+        }
+
+        @Test
+        @DisplayName("Stability data present but no matching locations → field omitted")
+        void stabilityData_noMatchingLocations_fieldOmitted() throws Exception {
+            StabilitySummaryResponse summary = new StabilitySummaryResponse(
+                    java.time.Instant.now(), 1,
+                    Map.of(ForecastStability.UNSETTLED, 1L),
+                    List.of(
+                            new StabilitySummaryResponse.GridCellDetail(
+                                    "51.5000,-0.1250", 51.50, -0.125,
+                                    ForecastStability.UNSETTLED, "Active frontal zone",
+                                    0, List.of("UnrelatedLocation"))));
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(auroraStateCache.isActive()).thenReturn(false);
+
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.RollupResult rollup = advisor.buildRollupJson(
+                    List.of(day), LocalDateTime.now(ZoneOffset.UTC));
+
+            assertThat(rollup.json()).doesNotContain("\"stability\"");
+            assertThat(rollup.json()).doesNotContain("\"stabilityReason\"");
+        }
+
+        @Test
+        @DisplayName("System prompt contains FORECAST RELIABILITY guidance")
+        void systemPrompt_containsForecastReliabilityGuidance() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream()
+                    .map(b -> b.text())
+                    .findFirst()
+                    .orElse("");
+
+            assertThat(systemText).contains("FORECAST RELIABILITY");
+            assertThat(systemText).contains("SETTLED");
+            assertThat(systemText).contains("TRANSITIONAL");
+            assertThat(systemText).contains("UNSETTLED");
         }
     }
 

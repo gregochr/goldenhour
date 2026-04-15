@@ -1,12 +1,14 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
+import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
@@ -955,5 +957,183 @@ public class PromptBuilderTest {
         assertThat(InversionPotential.MODERATE.label()).isEqualTo("Moderate Cloud Inversion Potential");
         assertThat(InversionPotential.STRONG.label()).isEqualTo("Strong Cloud Inversion Potential");
         assertThat(InversionPotential.NONE.label()).isEqualTo("No inversion potential");
+    }
+
+    // --- FORECAST RELIABILITY block tests ---
+
+    @Nested
+    @DisplayName("Forecast reliability block")
+    class ForecastReliabilityBlockTests {
+
+        @Test
+        @DisplayName("SETTLED stability produces no reliability block")
+        void settled_noReliabilityBlock() {
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(ForecastStability.SETTLED)
+                    .stabilityReason("High pressure dominant")
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).doesNotContain("FORECAST RELIABILITY");
+        }
+
+        @Test
+        @DisplayName("null stability produces no reliability block")
+        void nullStability_noReliabilityBlock() {
+            AtmosphericData data = TestAtmosphericData.defaults();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).doesNotContain("FORECAST RELIABILITY");
+        }
+
+        @Test
+        @DisplayName("TRANSITIONAL stability includes reliability block with front timing note")
+        void transitional_includesReliabilityBlockWithNote() {
+            PressureTrend pt = new PressureTrend(
+                    List.of(1015.0, 1014.5, 1014.0, 1013.5, 1013.0, 1012.5, 1012.0),
+                    -3.0, "FALLING_RAPIDLY");
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(ForecastStability.TRANSITIONAL)
+                    .stabilityReason("Moderate pressure fall, precip probability 55%")
+                    .pressureTrend(pt)
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).contains("FORECAST RELIABILITY");
+            assertThat(message).contains("Stability: TRANSITIONAL");
+            assertThat(message).contains("Moderate pressure fall, precip probability 55%");
+            assertThat(message).contains("-3.0 hPa over 6h (FALLING_RAPIDLY)");
+            assertThat(message).contains("Front timing uncertain");
+        }
+
+        @Test
+        @DisplayName("UNSETTLED stability includes reliability block with active frontal note")
+        void unsettled_includesReliabilityBlockWithNote() {
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(ForecastStability.UNSETTLED)
+                    .stabilityReason("Active weather, high precip variance")
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).contains("FORECAST RELIABILITY");
+            assertThat(message).contains("Stability: UNSETTLED");
+            assertThat(message).contains("Active frontal weather");
+        }
+
+        @Test
+        @DisplayName("FALLING_RAPIDLY tendency with TRANSITIONAL shows both signals")
+        void fallingRapidlyWithTransitional_showsBothSignals() {
+            PressureTrend pt = new PressureTrend(
+                    List.of(1020.0, 1019.3, 1018.6, 1017.9, 1017.2, 1016.5, 1015.8),
+                    -4.2, "FALLING_RAPIDLY");
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(ForecastStability.TRANSITIONAL)
+                    .stabilityReason("Falling pressure")
+                    .pressureTrend(pt)
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).contains("FORECAST RELIABILITY");
+            assertThat(message).contains("TRANSITIONAL");
+            assertThat(message).contains("-4.2 hPa over 6h (FALLING_RAPIDLY)");
+            assertThat(message).contains("Front timing uncertain");
+        }
+
+        @Test
+        @DisplayName("system prompt contains FORECAST RELIABILITY guidance")
+        void systemPrompt_containsForecastReliabilityGuidance() {
+            String system = promptBuilder.getSystemPrompt();
+
+            assertThat(system).contains("FORECAST RELIABILITY");
+            assertThat(system).contains("TRANSITIONAL");
+            assertThat(system).contains("UNSETTLED");
+            assertThat(system).contains("SETTLED");
+        }
+
+        @Test
+        @DisplayName("positive pressure tendency formats with + sign")
+        void positiveTendency_formatsWithPlusSign() {
+            PressureTrend pt = new PressureTrend(
+                    List.of(1010.0, 1010.3, 1010.6, 1010.9, 1011.2, 1011.5, 1011.8),
+                    1.8, "RISING");
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(ForecastStability.TRANSITIONAL)
+                    .stabilityReason("Rising after front passage")
+                    .pressureTrend(pt)
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).contains("+1.8 hPa over 6h (RISING)");
+        }
+
+        @Test
+        @DisplayName("negative pressure tendency formats with - sign")
+        void negativeTendency_formatsWithMinusSign() {
+            PressureTrend pt = new PressureTrend(
+                    List.of(1020.0, 1019.5, 1019.0, 1018.5, 1018.0, 1017.5, 1017.0),
+                    -3.0, "FALLING_RAPIDLY");
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(ForecastStability.UNSETTLED)
+                    .stabilityReason("Deep low approaching")
+                    .pressureTrend(pt)
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).contains("-3.0 hPa over 6h (FALLING_RAPIDLY)");
+        }
+    }
+
+    // --- Stability wiring via AtmosphericData ---
+
+    @Nested
+    @DisplayName("Stability wiring into AtmosphericData")
+    class StabilityWiringTests {
+
+        @Test
+        @DisplayName("withStability sets TRANSITIONAL and reason on AtmosphericData")
+        void withStability_transitional_setsFields() {
+            AtmosphericData base = TestAtmosphericData.defaults();
+            AtmosphericData enriched = base.withStability(
+                    ForecastStability.TRANSITIONAL, "Moderate pressure fall");
+
+            assertThat(enriched.stability()).isEqualTo(ForecastStability.TRANSITIONAL);
+            assertThat(enriched.stabilityReason()).isEqualTo("Moderate pressure fall");
+            // Other fields preserved
+            assertThat(enriched.locationName()).isEqualTo(base.locationName());
+            assertThat(enriched.cloud()).isEqualTo(base.cloud());
+        }
+
+        @Test
+        @DisplayName("default AtmosphericData has null stability — PromptBuilder skips block")
+        void defaultData_nullStability_noBlock() {
+            AtmosphericData data = TestAtmosphericData.defaults();
+
+            assertThat(data.stability()).isNull();
+            assertThat(data.stabilityReason()).isNull();
+
+            String message = promptBuilder.buildUserMessage(data);
+            assertThat(message).doesNotContain("FORECAST RELIABILITY");
+        }
+
+        @Test
+        @DisplayName("manual run leaves stability null — no regression in PromptBuilder output")
+        void manualRun_nullStability_noReliabilityBlock() {
+            // Simulates manual run: stability fields left at null (not enriched)
+            AtmosphericData data = TestAtmosphericData.builder()
+                    .stability(null)
+                    .stabilityReason(null)
+                    .build();
+
+            String message = promptBuilder.buildUserMessage(data);
+
+            assertThat(message).doesNotContain("FORECAST RELIABILITY");
+        }
     }
 }

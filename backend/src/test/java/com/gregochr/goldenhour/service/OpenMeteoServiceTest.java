@@ -1955,4 +1955,170 @@ class OpenMeteoServiceTest {
         assertThat(result.comfort().precipitationProbability()).isNull();
         assertThat(result.comfort().temperatureCelsius()).isNull();
     }
+
+    // --- extractPressureTrend tests ---
+
+    @Nested
+    @DisplayName("extractPressureTrend")
+    class ExtractPressureTrendTests {
+
+        @Test
+        @DisplayName("event at index 12 with 120 values extracts 7 values (indices 9-15)")
+        void extractPressureTrend_midArray_extractsSevenValues() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            // Build 120 hourly pressure values — linear ramp from 1010 to 1012
+            List<Double> pressures = new java.util.ArrayList<>();
+            for (int i = 0; i < 120; i++) {
+                pressures.add(1010.0 + (i * 0.02));
+            }
+            h.setPressureMsl(pressures);
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 12);
+
+            assertThat(result).isNotNull();
+            assertThat(result.pressureHpa()).hasSize(7);
+            // indices 9-15: pressures[9]=1010.18, pressures[15]=1010.30
+            var tolerance = org.assertj.core.data.Offset.offset(0.001);
+            assertThat(result.pressureHpa().getFirst())
+                    .isCloseTo(pressures.get(9), tolerance);
+            assertThat(result.pressureHpa().getLast())
+                    .isCloseTo(pressures.get(15), tolerance);
+            // tendency = pressures[15] - pressures[9] = 0.12 → STEADY
+            assertThat(result.tendencyHpa6h()).isCloseTo(0.12, org.assertj.core.data.Offset.offset(0.001));
+            assertThat(result.tendencyLabel()).isEqualTo("STEADY");
+        }
+
+        @Test
+        @DisplayName("event at index 1 (near start) handles boundary without exception")
+        void extractPressureTrend_nearStart_noBoundaryError() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            h.setPressureMsl(List.of(1015.0, 1014.5, 1014.0, 1013.5, 1013.0));
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 1);
+
+            assertThat(result).isNotNull();
+            // T-3h clamps to index 0; T+3h = 4; extracts indices 0,0,0,1,2,3,4
+            assertThat(result.pressureHpa()).hasSize(7);
+        }
+
+        @Test
+        @DisplayName("tendency -4.2 hPa produces FALLING_RAPIDLY label")
+        void extractPressureTrend_fallingRapidly() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            // Falling from 1020 to 1015.8 over 7 slots
+            h.setPressureMsl(List.of(1020.0, 1019.3, 1018.6, 1017.9, 1017.2, 1016.5, 1015.8));
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 3);
+
+            // tendency = 1015.8 - 1020.0 = -4.2
+            assertThat(result.tendencyHpa6h()).isCloseTo(-4.2, org.assertj.core.data.Offset.offset(0.001));
+            assertThat(result.tendencyLabel()).isEqualTo("FALLING_RAPIDLY");
+        }
+
+        @Test
+        @DisplayName("tendency -2.1 hPa produces FALLING label")
+        void extractPressureTrend_falling() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            h.setPressureMsl(List.of(1020.0, 1019.65, 1019.3, 1018.95, 1018.6, 1018.25, 1017.9));
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 3);
+
+            assertThat(result.tendencyHpa6h()).isCloseTo(-2.1, org.assertj.core.data.Offset.offset(0.001));
+            assertThat(result.tendencyLabel()).isEqualTo("FALLING");
+        }
+
+        @Test
+        @DisplayName("tendency +0.3 hPa produces STEADY label")
+        void extractPressureTrend_steady() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            h.setPressureMsl(List.of(1013.0, 1013.05, 1013.1, 1013.15, 1013.2, 1013.25, 1013.3));
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 3);
+
+            assertThat(result.tendencyHpa6h()).isCloseTo(0.3, org.assertj.core.data.Offset.offset(0.001));
+            assertThat(result.tendencyLabel()).isEqualTo("STEADY");
+        }
+
+        @Test
+        @DisplayName("tendency +1.8 hPa produces RISING label")
+        void extractPressureTrend_rising() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            h.setPressureMsl(List.of(1010.0, 1010.3, 1010.6, 1010.9, 1011.2, 1011.5, 1011.8));
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 3);
+
+            assertThat(result.tendencyHpa6h()).isCloseTo(1.8, org.assertj.core.data.Offset.offset(0.001));
+            assertThat(result.tendencyLabel()).isEqualTo("RISING");
+        }
+
+        @Test
+        @DisplayName("null pressureMsl returns null without exception")
+        void extractPressureTrend_nullPressure_returnsNull() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            h.setPressureMsl(null);
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 0);
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("empty pressureMsl list returns null")
+        void extractPressureTrend_emptyList_returnsNull() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            h.setPressureMsl(List.of());
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 0);
+
+            assertThat(result).isNull();
+        }
+
+        @Test
+        @DisplayName("event at last index clamps T+3 to array end")
+        void extractPressureTrend_lastIndex_clampsToEnd() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            // 10 values; event at index 9 (last)
+            List<Double> pressures = new java.util.ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                pressures.add(1010.0 + i * 0.5);
+            }
+            h.setPressureMsl(pressures);
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 9);
+
+            assertThat(result).isNotNull();
+            // T-3h = index 6, T+3h clamps to index 9
+            // indices 6,7,8,9,9,9,9 → 7 values collected
+            assertThat(result.pressureHpa()).hasSize(7);
+            // last value clamped to pressures[9]
+            assertThat(result.pressureHpa().getLast())
+                    .isCloseTo(pressures.get(9),
+                            org.assertj.core.data.Offset.offset(0.001));
+        }
+
+        @Test
+        @DisplayName("all null values in pressureMsl list returns null")
+        void extractPressureTrend_allNullValues_returnsNull() {
+            OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();
+            List<Double> pressures = new java.util.ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                pressures.add(null);
+            }
+            h.setPressureMsl(pressures);
+
+            com.gregochr.goldenhour.model.PressureTrend result =
+                    openMeteoService.extractPressureTrend(h, 5);
+
+            assertThat(result).isNull();
+        }
+    }
 }

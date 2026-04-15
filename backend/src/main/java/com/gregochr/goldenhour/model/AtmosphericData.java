@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.TargetType;
 
 import java.time.LocalDateTime;
@@ -27,6 +28,9 @@ import java.time.LocalDateTime;
  * @param astronomicalRangeMetres predicted astronomical tidal range, or null
  * @param inversionScore          cloud inversion likelihood score (0–10), or null if not applicable
  * @param bluebellConditionScore  bluebell photography conditions, or null outside season/non-bluebell
+ * @param stability               synoptic-scale forecast stability, or null on manual runs
+ * @param stabilityReason         human-readable signal summary from the stability classifier, or null
+ * @param pressureTrend           hourly pressure tendency around the event, or null if data unavailable
  */
 public record AtmosphericData(
         String locationName,
@@ -45,10 +49,14 @@ public record AtmosphericData(
         Double adjustedRangeMetres,
         Double astronomicalRangeMetres,
         Double inversionScore,
-        BluebellConditionScore bluebellConditionScore) {
+        BluebellConditionScore bluebellConditionScore,
+        ForecastStability stability,
+        String stabilityReason,
+        PressureTrend pressureTrend) {
 
     /**
-     * Backward-compatible constructor for callers that don't supply surge or orientation data.
+     * Backward-compatible constructor for callers that don't supply surge, orientation,
+     * stability, or pressure trend data.
      *
      * @param locationName     human-readable location name
      * @param solarEventTime   UTC time of the solar event
@@ -68,7 +76,36 @@ public record AtmosphericData(
             DirectionalCloudData directionalCloud, TideSnapshot tide,
             CloudApproachData cloudApproach, MistTrend mistTrend) {
         this(locationName, solarEventTime, targetType, cloud, weather, aerosol, comfort,
-                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null, null, null);
+                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null,
+                null, null, null, null, null);
+    }
+
+    /**
+     * Backward-compatible constructor for callers that supply mist trend and pressure trend
+     * but not surge, orientation, stability, or other later fields.
+     *
+     * @param locationName     human-readable location name
+     * @param solarEventTime   UTC time of the solar event
+     * @param targetType       SUNRISE or SUNSET
+     * @param cloud            observer-point cloud cover
+     * @param weather          core weather observations
+     * @param aerosol          aerosol measurements
+     * @param comfort          comfort metrics
+     * @param directionalCloud directional cloud data, or null
+     * @param tide             tide snapshot, or null
+     * @param cloudApproach    cloud approach data, or null
+     * @param mistTrend        mist trend, or null
+     * @param pressureTrend    pressure trend, or null
+     */
+    public AtmosphericData(
+            String locationName, LocalDateTime solarEventTime, TargetType targetType,
+            CloudData cloud, WeatherData weather, AerosolData aerosol, ComfortData comfort,
+            DirectionalCloudData directionalCloud, TideSnapshot tide,
+            CloudApproachData cloudApproach, MistTrend mistTrend,
+            PressureTrend pressureTrend) {
+        this(locationName, solarEventTime, targetType, cloud, weather, aerosol, comfort,
+                directionalCloud, tide, cloudApproach, mistTrend, null, null, null, null,
+                null, null, null, null, pressureTrend);
     }
 
     /**
@@ -81,7 +118,8 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore, bluebellConditionScore);
+                inversionScore, bluebellConditionScore, stability, stabilityReason,
+                pressureTrend);
     }
 
     /**
@@ -93,8 +131,9 @@ public record AtmosphericData(
     public AtmosphericData withTide(TideSnapshot tideSnapshot) {
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
-                mistTrend, locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore, bluebellConditionScore);
+                mistTrend, locationOrientation, surge, adjustedRangeMetres,
+                astronomicalRangeMetres, inversionScore, bluebellConditionScore,
+                stability, stabilityReason, pressureTrend);
     }
 
     /**
@@ -107,7 +146,8 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore, bluebellConditionScore);
+                inversionScore, bluebellConditionScore, stability, stabilityReason,
+                pressureTrend);
     }
 
     /**
@@ -120,7 +160,8 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, orientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
-                inversionScore, bluebellConditionScore);
+                inversionScore, bluebellConditionScore, stability, stabilityReason,
+                pressureTrend);
     }
 
     /**
@@ -136,7 +177,8 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surgeBreakdown, adjustedRange, astronomicalRange,
-                inversionScore, bluebellConditionScore);
+                inversionScore, bluebellConditionScore, stability, stabilityReason,
+                pressureTrend);
     }
 
     /**
@@ -149,7 +191,8 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
-                astronomicalRangeMetres, score, bluebellConditionScore);
+                astronomicalRangeMetres, score, bluebellConditionScore,
+                stability, stabilityReason, pressureTrend);
     }
 
     /**
@@ -162,6 +205,22 @@ public record AtmosphericData(
         return new AtmosphericData(locationName, solarEventTime, targetType,
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
-                astronomicalRangeMetres, inversionScore, score);
+                astronomicalRangeMetres, inversionScore, score,
+                stability, stabilityReason, pressureTrend);
+    }
+
+    /**
+     * Returns a copy with forecast stability classification set.
+     *
+     * @param forecastStability the synoptic-scale stability classification, or null
+     * @param reason            human-readable signal summary, or null
+     * @return a new instance with the stability populated
+     */
+    public AtmosphericData withStability(ForecastStability forecastStability, String reason) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
+                mistTrend, locationOrientation, surge, adjustedRangeMetres,
+                astronomicalRangeMetres, inversionScore, bluebellConditionScore,
+                forecastStability, reason, pressureTrend);
     }
 }

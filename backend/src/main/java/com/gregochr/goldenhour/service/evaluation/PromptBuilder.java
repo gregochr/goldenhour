@@ -3,12 +3,14 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.OutputConfig;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
+import com.gregochr.goldenhour.model.PressureTrend;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
@@ -173,6 +175,22 @@ public class PromptBuilder {
             + "- OPEN_FELL exposure: golden hour light across the hillside is positive.\n"
             + "- Key phrases when relevant: 'misty morning in the bluebell wood',\n"
             + "  'still air \u2014 no motion blur on flowers', 'post-rain freshness'.\n\n"
+            + "FORECAST RELIABILITY:\n"
+            + "When a FORECAST RELIABILITY block is present in the location data:\n\n"
+            + "TRANSITIONAL \u2014 A front is approaching or the forecast is uncertain. "
+            + "Reflect this in your recommendation. Use language like:\n"
+            + "- '...if the front holds off'\n"
+            + "- '...conditions likely to deteriorate after [time]'\n"
+            + "- '...timing is critical \u2014 watch the radar'\n"
+            + "- '...pre-frontal light could be dramatic but the window is short'\n"
+            + "Adjust the summary to signal that this is a conditional recommendation, "
+            + "not a confident one. Do not reduce the score \u2014 a dramatic pre-frontal "
+            + "sunset is still a high-scoring event. Just qualify the timing.\n\n"
+            + "UNSETTLED \u2014 Active frontal weather. The forecast is unreliable beyond "
+            + "today. Acknowledge uncertainty honestly. A low score with an honest "
+            + "explanation is more useful than a falsely confident one.\n\n"
+            + "When no FORECAST RELIABILITY block is present, or stability is "
+            + "SETTLED, make recommendations with full confidence.\n\n"
             + "Summaries must be exactly one sentence. Do not write two sentences even if "
             + "separated by a semicolon, dash, or conjunction.\n\n"
             + "Output your evaluation as JSON with these fields: "
@@ -481,6 +499,31 @@ public class PromptBuilder {
                     bb.summary(),
                     bb.misty(), bb.calm(), bb.softLight(), bb.goldenHourLight(),
                     bb.postRain(), bb.dryNow()));
+        }
+
+        // Forecast reliability block — only for TRANSITIONAL or UNSETTLED conditions
+        ForecastStability stability = data.stability();
+        if (stability != null && stability != ForecastStability.SETTLED) {
+            sb.append(String.format("%nFORECAST RELIABILITY:%nStability: %s", stability));
+            if (data.stabilityReason() != null) {
+                sb.append(String.format("%nReason: %s", data.stabilityReason()));
+            }
+            PressureTrend pt = data.pressureTrend();
+            if (pt != null) {
+                sb.append(String.format(
+                        "%nPressure tendency at event window: %+.1f hPa over 6h (%s)",
+                        pt.tendencyHpa6h(), pt.tendencyLabel()));
+            }
+            if (stability == ForecastStability.TRANSITIONAL) {
+                sb.append(String.format(
+                        "%nNote: Front timing uncertain. Qualify time-sensitive advice"
+                        + " \u2014 conditions may change significantly within the golden"
+                        + " hour window."));
+            } else if (stability == ForecastStability.UNSETTLED) {
+                sb.append(String.format(
+                        "%nNote: Active frontal weather. Conditions may be deteriorating"
+                        + " faster than the model shows. Be honest about uncertainty."));
+            }
         }
 
         sb.append("\n").append(getPromptSuffix());

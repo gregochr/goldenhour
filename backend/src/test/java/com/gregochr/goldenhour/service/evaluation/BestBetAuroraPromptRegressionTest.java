@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -105,7 +106,8 @@ class BestBetAuroraPromptRegressionTest {
         ModelSelectionService mss = mock(ModelSelectionService.class);
         when(mss.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(EvaluationModel.OPUS);
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
-                apiClient, objectMapper, mock(JobRunService.class), mss, cache);
+                apiClient, objectMapper, mock(JobRunService.class), mss, cache,
+                mock(ForecastCommandExecutor.class));
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -167,7 +169,8 @@ class BestBetAuroraPromptRegressionTest {
         ModelSelectionService mss = mock(ModelSelectionService.class);
         when(mss.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(EvaluationModel.OPUS);
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
-                apiClient, objectMapper, mock(JobRunService.class), mss, cache);
+                apiClient, objectMapper, mock(JobRunService.class), mss, cache,
+                mock(ForecastCommandExecutor.class));
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -209,7 +212,8 @@ class BestBetAuroraPromptRegressionTest {
         ModelSelectionService mss = mock(ModelSelectionService.class);
         when(mss.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(EvaluationModel.OPUS);
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
-                apiClient, objectMapper, mock(JobRunService.class), mss, cache);
+                apiClient, objectMapper, mock(JobRunService.class), mss, cache,
+                mock(ForecastCommandExecutor.class));
 
         BriefingBestBetAdvisor.RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
