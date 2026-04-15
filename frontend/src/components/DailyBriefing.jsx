@@ -1179,7 +1179,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
       {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
       {dayDates.length > 0 && (
-        <div className="flex items-center gap-4 mb-1">
+        <div className="flex items-start gap-4 mb-1">
           <div className="flex-1 min-w-0">
             <QualitySlider
               value={qualityTier}
@@ -1188,7 +1188,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
               total={sliderCounts.total}
             />
           </div>
-          <label className="hidden sm:flex items-center gap-1.5 cursor-pointer shrink-0 pb-1"
+          <label className="hidden sm:flex items-center gap-1.5 cursor-pointer shrink-0 pt-0.5"
             style={{ fontSize: '13px' }}>
             <input
               type="checkbox"
