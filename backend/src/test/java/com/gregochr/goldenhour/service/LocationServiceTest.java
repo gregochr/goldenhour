@@ -25,6 +25,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -358,7 +359,10 @@ class LocationServiceTest {
         assertThat(existing.getLocationType()).containsExactly(LocationType.SEASCAPE);
         assertThat(existing.getTideType()).containsExactlyInAnyOrder(
                 TideType.HIGH, TideType.MID, TideType.LOW);
-        verify(tideService).fetchAndStoreTideExtremes(any());
+        ArgumentCaptor<LocationEntity> tideCaptor =
+                ArgumentCaptor.forClass(LocationEntity.class);
+        verify(tideService).fetchAndStoreTideExtremes(tideCaptor.capture());
+        assertThat(tideCaptor.getValue().getName()).isEqualTo("Bamburgh");
     }
 
     @Test
@@ -374,6 +378,76 @@ class LocationServiceTest {
         locationService.update(1L, request);
 
         assertThat(existing.getTideType()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("update() rejects rename to an existing name")
+    void update_duplicateName_throwsIllegalArgumentException() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L))
+                .thenReturn(Optional.of(existing));
+        when(locationRepository.existsByName("Bamburgh")).thenReturn(true);
+
+        assertThatThrownBy(() -> locationService.update(1L,
+                new UpdateLocationRequest(
+                        "Bamburgh", null, null, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Bamburgh");
+    }
+
+    @Test
+    @DisplayName("update() trims whitespace from new name")
+    void update_nameWithWhitespace_trims() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L))
+                .thenReturn(Optional.of(existing));
+        when(locationRepository.existsByName("Durham Cathedral"))
+                .thenReturn(false);
+        when(locationRepository.save(any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "  Durham Cathedral  ", null, null,
+                null, null, null, null));
+
+        ArgumentCaptor<LocationEntity> captor =
+                ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().getName())
+                .isEqualTo("Durham Cathedral");
+    }
+
+    @Test
+    @DisplayName("update() does not rename when name is blank")
+    void update_blankName_doesNotRename() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L))
+                .thenReturn(Optional.of(existing));
+        when(locationRepository.save(any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "   ", null, null, null, null, null, null));
+
+        ArgumentCaptor<LocationEntity> captor =
+                ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().getName()).isEqualTo("Durham UK");
+    }
+
+    @Test
+    @DisplayName("update() skips rename when name matches existing")
+    void update_sameName_doesNotCallExistsByName() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        when(locationRepository.findById(1L))
+                .thenReturn(Optional.of(existing));
+        when(locationRepository.save(any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        locationService.update(1L, new UpdateLocationRequest(
+                "Durham UK", null, null, null, null, null, null));
+
+        verify(locationRepository, never()).existsByName("Durham UK");
     }
 
     @Test
@@ -638,6 +712,46 @@ class LocationServiceTest {
         assertThat(summary.get("distinctGridCells")).isEqualTo(0);
         assertThat(summary.get("largestGroupSize")).isEqualTo(0);
         assertThat(summary).doesNotContainKey("largestGroupExample");
+    }
+
+    // --- resetFailures ---
+
+    @Test
+    @DisplayName("resetFailures() clears failure tracking fields and saves")
+    void resetFailures_resetsFieldsAndSaves() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setConsecutiveFailures(5);
+        entity.setDisabledReason("API timeout");
+        entity.setLastFailureAt(
+                java.time.LocalDateTime.of(2026, 4, 1, 10, 0));
+        when(locationRepository.findByName("Durham UK"))
+                .thenReturn(Optional.of(entity));
+        when(locationRepository.save(any()))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result =
+                locationService.resetFailures("Durham UK");
+
+        ArgumentCaptor<LocationEntity> captor =
+                ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        LocationEntity saved = captor.getValue();
+        assertThat(saved.getConsecutiveFailures()).isZero();
+        assertThat(saved.getDisabledReason()).isNull();
+        assertThat(saved.getLastFailureAt()).isNull();
+        assertThat(result).isSameAs(saved);
+    }
+
+    @Test
+    @DisplayName("resetFailures() throws NoSuchElementException for unknown name")
+    void resetFailures_notFound_throwsNoSuchElementException() {
+        when(locationRepository.findByName("Unknown"))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(
+                () -> locationService.resetFailures("Unknown"))
+                .isInstanceOf(java.util.NoSuchElementException.class)
+                .hasMessageContaining("Unknown");
     }
 
     // --- defaults ---

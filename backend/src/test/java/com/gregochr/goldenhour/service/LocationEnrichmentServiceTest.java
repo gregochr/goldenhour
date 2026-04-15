@@ -20,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -40,6 +39,8 @@ class LocationEnrichmentServiceTest {
     private static final double BAMBURGH_LAT = 55.609;
     private static final double BAMBURGH_LON = -1.7099;
     private static final String API_KEY = "test-key";
+    private static final String ELEVATION_URL =
+            "https://api.open-meteo.com/v1/elevation?latitude={lat}&longitude={lon}";
 
     @Mock
     private LightPollutionClient lightPollutionClient;
@@ -115,7 +116,8 @@ class LocationEnrichmentServiceTest {
         when(auroraProperties.getLightPollutionApiKey()).thenReturn(API_KEY);
         when(lightPollutionClient.querySkyBrightness(eq(BAMBURGH_LAT), eq(BAMBURGH_LON), eq(API_KEY)))
                 .thenReturn(new SkyBrightnessResult(21.92, 2));
-        stubElevationResponse(Map.of("elevation", List.of(5.0)));
+        stubElevationResponse(BAMBURGH_LAT, BAMBURGH_LON,
+                Map.of("elevation", List.of(5.0)));
         stubForecastResponse(BAMBURGH_LAT, BAMBURGH_LON, 55.6, -1.71);
 
         LocationEnrichmentResult result = service.enrich(BAMBURGH_LAT, BAMBURGH_LON);
@@ -248,7 +250,8 @@ class LocationEnrichmentServiceTest {
     @SuppressWarnings("unchecked")
     void enrich_nullElevationBody_nullElevation() {
         when(auroraProperties.getLightPollutionApiKey()).thenReturn(null);
-        when(restClient.get().uri(anyString(), any(Object.class), any(Object.class))
+        when(restClient.get()
+                .uri(eq(ELEVATION_URL), eq(LATRIGG_LAT), eq(LATRIGG_LON))
                 .retrieve().body(Map.class)).thenReturn(null);
         stubForecastResponse(LATRIGG_LAT, LATRIGG_LON, 54.0, -3.0);
 
@@ -297,6 +300,17 @@ class LocationEnrichmentServiceTest {
         stubForecastResponse(LATRIGG_LAT, LATRIGG_LON, 54.0, -3.0);
 
         assertThat(service.enrich(LATRIGG_LAT, LATRIGG_LON).elevationMetres()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("enrich() uses first element when elevation array has multiple values")
+    void enrich_multipleElevationValues_usesFirst() {
+        when(auroraProperties.getLightPollutionApiKey()).thenReturn(null);
+        stubElevationResponse(Map.of("elevation", List.of(368.0, 999.0)));
+        stubForecastResponse(LATRIGG_LAT, LATRIGG_LON, 54.0, -3.0);
+
+        assertThat(service.enrich(LATRIGG_LAT, LATRIGG_LON).elevationMetres())
+                .isEqualTo(368);
     }
 
     // ── Grid cell failure modes ───────────────────────────────────────────
@@ -397,16 +411,35 @@ class LocationEnrichmentServiceTest {
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
+    /**
+     * Stubs the elevation API for the default LATRIGG coordinates.
+     */
     private void stubElevationResponse(Map<String, Object> body) {
-        when(restClient.get().uri(anyString(), any(Object.class), any(Object.class))
+        stubElevationResponse(LATRIGG_LAT, LATRIGG_LON, body);
+    }
+
+    /**
+     * Stubs the elevation API with exact coordinate matchers — a lat/lon
+     * swap in production code causes the stub to not match, returning null.
+     */
+    @SuppressWarnings("unchecked")
+    private void stubElevationResponse(double lat, double lon,
+                                        Map<String, Object> body) {
+        when(restClient.get()
+                .uri(eq(ELEVATION_URL), eq(lat), eq(lon))
                 .retrieve().body(Map.class)).thenReturn(body);
     }
 
-    @SuppressWarnings("unchecked")
     private void stubElevationFailure() {
-        when(restClient.get().uri(anyString(), any(Object.class), any(Object.class))
-                .retrieve().body(Map.class)).thenThrow(new RestClientException("elevation down"));
+        stubElevationFailure(LATRIGG_LAT, LATRIGG_LON);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void stubElevationFailure(double lat, double lon) {
+        when(restClient.get()
+                .uri(eq(ELEVATION_URL), eq(lat), eq(lon))
+                .retrieve().body(Map.class))
+                .thenThrow(new RestClientException("elevation down"));
     }
 
     private void stubForecastResponse(double inputLat, double inputLon,

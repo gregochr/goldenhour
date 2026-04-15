@@ -835,6 +835,54 @@ describe('LocationManagementView', () => {
     });
   });
 
+  it('saves with coastalTidal true and overlooksWater false — swap killer', async () => {
+    geocodePlace.mockResolvedValue({ lat: 55.0, lon: -1.5, displayName: 'Pier, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: null,
+      skyBrightnessSqm: null,
+      elevationMetres: null,
+      gridLat: null,
+      gridLng: null,
+    });
+    addLocation.mockResolvedValue({ id: 101, name: 'Pier' });
+    fetchLocations
+      .mockResolvedValueOnce(MOCK_LOCATIONS)
+      .mockResolvedValueOnce(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Pier' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('manual-toggles-panel')).toBeInTheDocument();
+    });
+
+    // Click ONLY coastalTidal — overlooksWater stays unchecked
+    fireEvent.click(screen.getByTestId('coastal-tidal-checkbox'));
+
+    fireEvent.click(screen.getByTestId('review-confirm-btn'));
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-save-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('confirm-save-btn'));
+
+    await waitFor(() => {
+      expect(addLocation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overlooksWater: false,
+          coastalTidal: true,
+        }),
+      );
+    });
+  });
+
   it('includes null enrichment fields in save request when enrichment fails', async () => {
     geocodePlace.mockResolvedValue({ lat: 54.0, lon: -2.0, displayName: 'Test, UK' });
     enrichLocation.mockRejectedValue(new Error('Network error'));
