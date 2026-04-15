@@ -1130,7 +1130,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         </button>
       </div>
 
-      {/* ── Best bet banner — ADMIN and PRO only; placeholder for LITE ── */}
+      {/* ── Best bet banner — ADMIN and PRO only; placeholder for LITE; empty state ── */}
       {canSeeBestBets && briefing.bestBets && briefing.bestBets.length > 0 ? (
         <BestBetBanner
           picks={briefing.bestBets}
@@ -1140,6 +1140,20 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         />
       ) : !canSeeBestBets && briefing.bestBets?.length > 0 ? (
         <BestBetPlaceholder />
+      ) : canSeeBestBets && !loading ? (
+        <div
+          data-testid="best-bet-empty"
+          className="mb-3 text-center rounded-lg"
+          style={{
+            padding: '16px 20px',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+            background: 'rgba(255, 255, 255, 0.02)',
+            color: 'var(--text-muted, rgba(255, 255, 255, 0.45))',
+            fontSize: '14px',
+          }}
+        >
+          No standout recommendations right now — conditions are similar across all regions.
+        </div>
       ) : null}
 
       {/* ── Simulation active banner — admin only ── */}
@@ -1169,13 +1183,26 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       )}
 
       {/* ── Hot Topics strip — seasonal conditions between Best Bet and slider ── */}
-      {briefing.hotTopics?.length > 0 && (
+      {briefing.hotTopics?.length > 0 ? (
         <HotTopicStrip
           hotTopics={briefing.hotTopics}
           isLiteUser={role === 'LITE_USER'}
           onTopicTap={handleHotTopicTap}
         />
-      )}
+      ) : simulationActive && role === 'ADMIN' ? (
+        <div
+          data-testid="hot-topic-sim-hint"
+          className="text-center rounded-lg mb-2"
+          style={{
+            padding: '8px 14px',
+            border: '1px dashed rgba(212, 168, 67, 0.3)',
+            color: 'rgba(212, 168, 67, 0.6)',
+            fontSize: '13px',
+          }}
+        >
+          Simulation active — select topics in Manage → Operations → Hot Topics
+        </div>
+      ) : null}
 
       {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}
       {dayDates.length > 0 && (

@@ -19,9 +19,14 @@ vi.mock('../api/settingsApi.js', () => ({
   getDriveTimes: vi.fn(() => Promise.resolve({})),
 }));
 
+vi.mock('../api/hotTopicSimulationApi.js', () => ({
+  getSimulationState: vi.fn(() => Promise.resolve({ enabled: false })),
+}));
+
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { getDriveTimes } from '../api/settingsApi.js';
+import { getSimulationState } from '../api/hotTopicSimulationApi.js';
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -1083,33 +1088,38 @@ describe('DailyBriefing', () => {
       return { ...buildBriefing(), bestBets: picks };
     }
 
-    it('renders no banner when bestBets is absent', async () => {
+    it('renders empty state when bestBets is absent', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
       expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+      expect(screen.getByTestId('best-bet-empty')).toBeInTheDocument();
+      expect(screen.getByText(/No standout recommendations/)).toBeInTheDocument();
     });
 
-    it('renders no banner when bestBets is empty', async () => {
+    it('renders empty state when bestBets is empty', async () => {
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([]));
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
       expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+      expect(screen.getByTestId('best-bet-empty')).toBeInTheDocument();
     });
 
-    it('renders no placeholder for LITE_USER when bestBets is absent', async () => {
+    it('does not render empty state for LITE_USER when bestBets is absent', async () => {
       useAuth.mockReturnValue({ role: 'LITE_USER' });
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-empty')).toBeNull();
       expect(screen.queryByTestId('best-bet-placeholder')).toBeNull();
     });
 
-    it('renders no placeholder for LITE_USER when bestBets is empty', async () => {
+    it('does not render empty state for LITE_USER when bestBets is empty', async () => {
       useAuth.mockReturnValue({ role: 'LITE_USER' });
       getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([]));
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('best-bet-empty')).toBeNull();
       expect(screen.queryByTestId('best-bet-placeholder')).toBeNull();
     });
 
@@ -1252,6 +1262,61 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('best-bet-banner'));
       expect(screen.queryByText(/min drive/)).toBeNull();
       expect(screen.queryByText(/Today sunset|Tomorrow sunrise/)).toBeNull();
+    });
+
+    it('does not show empty state while briefing is still loading', async () => {
+      getDailyBriefing.mockReturnValue(new Promise(() => {}));
+      render(<DailyBriefing />);
+      // Briefing hasn't resolved — neither banner nor empty state should appear
+      expect(screen.queryByTestId('best-bet-banner')).toBeNull();
+      expect(screen.queryByTestId('best-bet-empty')).toBeNull();
+    });
+
+    it('hides empty state when picks are present', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Go shoot', detail: 'Clear.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.queryByTestId('best-bet-empty')).toBeNull();
+    });
+  });
+
+  // ────── Hot Topic empty states ──────
+
+  describe('Hot Topic empty states', () => {
+    it('shows nothing when hotTopics is empty and simulation is off', async () => {
+      getSimulationState.mockResolvedValue({ enabled: false });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.queryByTestId('hot-topic-sim-hint')).toBeNull();
+    });
+
+    it('shows simulation hint when hotTopics is empty and simulation is on', async () => {
+      getSimulationState.mockResolvedValue({ enabled: true });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      await waitFor(() => screen.getByTestId('hot-topic-sim-hint'));
+      expect(screen.getByText(/select topics in Manage/)).toBeInTheDocument();
+    });
+
+    it('shows pills instead of hint when hotTopics has items and simulation is on', async () => {
+      getSimulationState.mockResolvedValue({ enabled: true });
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        hotTopics: [
+          { type: 'BLUEBELL', label: 'Bluebell conditions', detail: 'Misty and still',
+            date: futureDateStr(), priority: 1, filterAction: 'BLUEBELL',
+            regions: ['Northumberland'], description: null },
+        ],
+      });
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.getByText('Bluebell conditions')).toBeInTheDocument();
+      expect(screen.queryByTestId('hot-topic-sim-hint')).toBeNull();
     });
   });
 
