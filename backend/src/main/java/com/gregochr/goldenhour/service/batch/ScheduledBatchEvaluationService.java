@@ -560,6 +560,7 @@ public class ScheduledBatchEvaluationService {
                                         .text(builder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
+                        .outputConfig(builder.buildOutputConfig())
                         .addUserMessage(userMessage)
                         .build())
                 .build();

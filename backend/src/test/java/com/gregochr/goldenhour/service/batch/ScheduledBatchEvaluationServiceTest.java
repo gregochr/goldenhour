@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.core.JsonValue;
+import com.anthropic.models.messages.JsonOutputFormat;
+import com.anthropic.models.messages.OutputConfig;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -210,6 +213,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class)))
                 .thenReturn("user message");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_test001");
@@ -324,6 +328,7 @@ class ScheduledBatchEvaluationServiceTest {
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_tworgn");
@@ -362,6 +367,7 @@ class ScheduledBatchEvaluationServiceTest {
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_customid");
@@ -526,6 +532,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_t3");
@@ -738,6 +745,7 @@ class ScheduledBatchEvaluationServiceTest {
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(coastalPromptBuilder.buildUserMessage(atmosphericData)).thenReturn("coastal msg");
         when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+        when(coastalPromptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_coastal");
@@ -776,6 +784,7 @@ class ScheduledBatchEvaluationServiceTest {
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(atmosphericData)).thenReturn("inland msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("inland system");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_inland");
@@ -830,6 +839,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(coastalPromptBuilder.buildUserMessage(atmosphericData, surge, 4.85, 4.50))
                 .thenReturn("coastal surge msg");
         when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+        when(coastalPromptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_surge");
@@ -866,6 +876,7 @@ class ScheduledBatchEvaluationServiceTest {
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_jobrun01");
@@ -901,6 +912,7 @@ class ScheduledBatchEvaluationServiceTest {
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
         when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("user msg");
         when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
 
         MessageBatch mockBatch = mock(MessageBatch.class);
         when(mockBatch.id()).thenReturn("msgbatch_jobrun02");
@@ -1005,6 +1017,164 @@ class ScheduledBatchEvaluationServiceTest {
         verifyNoInteractions(openMeteoService);
     }
 
+    // ── Structured output (outputConfig) on batch requests ─────────────────
+
+    @Test
+    @DisplayName("forecast batch request includes outputConfig with JSON schema (prevents chain-of-thought)")
+    void submitForecastBatch_requestIncludesOutputConfig() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class)))
+                .thenReturn("user message");
+        when(promptBuilder.getSystemPrompt()).thenReturn("system prompt");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_outputcfg");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(paramsCaptor.capture());
+
+        BatchCreateParams.Request.Params requestParams =
+                paramsCaptor.getValue().requests().get(0).params();
+
+        // outputConfig must be present — its absence caused 100% parse failures in production
+        assertThat(requestParams.outputConfig()).isPresent();
+
+        OutputConfig outputConfig = requestParams.outputConfig().get();
+        assertThat(outputConfig.format()).isPresent();
+
+        JsonOutputFormat jsonFormat = outputConfig.format().get();
+        JsonOutputFormat.Schema schema = jsonFormat.schema();
+        Map<String, JsonValue> schemaProps = schema._additionalProperties();
+
+        // Schema must declare required scoring fields so Claude returns structured JSON
+        assertThat(schemaProps).containsKey("properties");
+        assertThat(schemaProps).containsKey("required");
+    }
+
+    @Test
+    @DisplayName("coastal batch request also includes outputConfig with JSON schema")
+    void submitForecastBatch_coastalRequest_includesOutputConfig() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH,
+                LocalDateTime.of(2026, 4, 7, 6, 0),
+                new BigDecimal("4.50"),
+                LocalDateTime.of(2026, 4, 7, 12, 15),
+                new BigDecimal("1.20"),
+                true,
+                LocalDateTime.of(2026, 4, 7, 6, 0),
+                null, null, null, null, null);
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.tide()).thenReturn(tide);
+        when(atmosphericData.surge()).thenReturn(null);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
+        when(coastalPromptBuilder.buildUserMessage(atmosphericData))
+                .thenReturn("coastal msg");
+        when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+        when(coastalPromptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_coastal_oc");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(paramsCaptor.capture());
+
+        BatchCreateParams.Request.Params requestParams =
+                paramsCaptor.getValue().requests().get(0).params();
+
+        assertThat(requestParams.outputConfig()).isPresent();
+        assertThat(requestParams.outputConfig().get().format()).isPresent();
+    }
+
+    @Test
+    @DisplayName("batch request passes the same outputConfig the promptBuilder provides (not a different schema)")
+    void submitForecastBatch_outputConfigMatchesPromptBuilder() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any(), any(), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class)))
+                .thenReturn("user msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        OutputConfig expectedConfig = buildTestOutputConfig();
+        when(promptBuilder.buildOutputConfig()).thenReturn(expectedConfig);
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_samecfg");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(paramsCaptor.capture());
+
+        OutputConfig actualConfig = paramsCaptor.getValue().requests().get(0)
+                .params().outputConfig().orElseThrow();
+
+        // The batch must pass through the exact OutputConfig from the builder
+        assertThat(actualConfig).isEqualTo(expectedConfig);
+    }
+
     private DailyBriefingResponse buildBriefing(Verdict verdict) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
@@ -1051,5 +1221,22 @@ class ScheduledBatchEvaluationServiceTest {
         location.setRegion(region);
         location.setTideType(Set.of());
         return location;
+    }
+
+    private static OutputConfig buildTestOutputConfig() {
+        return OutputConfig.builder()
+                .format(JsonOutputFormat.builder()
+                        .schema(JsonOutputFormat.Schema.builder()
+                                .putAdditionalProperty("type", JsonValue.from("object"))
+                                .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
+                                        Map.entry("rating", Map.of("type", "integer")),
+                                        Map.entry("fiery_sky", Map.of("type", "integer")),
+                                        Map.entry("golden_hour", Map.of("type", "integer")),
+                                        Map.entry("summary", Map.of("type", "string")))))
+                                .putAdditionalProperty("required", JsonValue.from(
+                                        List.of("rating", "fiery_sky", "golden_hour", "summary")))
+                                .build())
+                        .build())
+                .build();
     }
 }
