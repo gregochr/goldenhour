@@ -478,6 +478,7 @@
                     </formats>
                     <!-- NVD API key speeds up database updates from ~30min to ~30sec -->
                     <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                    <nvdValidForHours>24</nvdValidForHours>
                 </configuration>
             </plugin>
 
