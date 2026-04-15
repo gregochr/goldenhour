@@ -42,51 +42,61 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
     >
       {hotTopics.map((topic) => {
         const accent = TOPIC_ACCENT[topic.type] ?? DEFAULT_ACCENT;
+        const regionLine = topic.regions?.length > 0 ? topic.regions.join(', ') : null;
         return (
-          <div
+          <button
             key={`${topic.type}-${topic.date}`}
-            style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}
+            data-testid={`hot-topic-pill-${topic.type}`}
+            onClick={() => !isLiteUser && onTopicTap && onTopicTap(topic)}
+            disabled={isLiteUser}
+            style={{
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              padding: '8px 14px',
+              paddingRight: topic.description ? '32px' : '14px',
+              borderRadius: '8px',
+              border: `1px solid ${accent.border}`,
+              background: accent.background,
+              cursor: isLiteUser ? 'default' : 'pointer',
+              whiteSpace: 'nowrap',
+              opacity: isLiteUser ? 0.45 : 1,
+              pointerEvents: isLiteUser ? 'none' : 'auto',
+              textAlign: 'left',
+              transition: 'background 0.15s',
+              flexShrink: 0,
+            }}
           >
-            <button
-              data-testid={`hot-topic-pill-${topic.type}`}
-              onClick={() => !isLiteUser && onTopicTap && onTopicTap(topic)}
-              disabled={isLiteUser}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '2px',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                border: `1px solid ${accent.border}`,
-                background: accent.background,
-                cursor: isLiteUser ? 'default' : 'pointer',
-                whiteSpace: 'nowrap',
-                opacity: isLiteUser ? 0.45 : 1,
-                pointerEvents: isLiteUser ? 'none' : 'auto',
-                textAlign: 'left',
-                transition: 'background 0.15s',
-              }}
-            >
+            {regionLine && (
               <span
                 style={{
                   fontSize: '11px',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
-                  color: accent.labelColor,
+                  color: 'rgba(255, 255, 255, 0.4)',
                 }}
               >
-                {topic.label}
+                {regionLine}
               </span>
-              <span
-                style={{
-                  fontSize: '12px',
-                  color: 'rgba(255, 255, 255, 0.55)',
-                }}
-              >
-                {topic.detail}
-              </span>
-            </button>
+            )}
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                color: accent.labelColor,
+              }}
+            >
+              {topic.label}
+            </span>
+            <span
+              style={{
+                fontSize: '12px',
+                color: 'rgba(255, 255, 255, 0.55)',
+              }}
+            >
+              {topic.detail}
+            </span>
             {topic.description && (
               <InfoTip
                 text={topic.description}
@@ -94,7 +104,7 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
                 className="absolute top-1 right-1"
               />
             )}
-          </div>
+          </button>
         );
       })}
       {isLiteUser && (

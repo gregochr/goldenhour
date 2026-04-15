@@ -118,9 +118,7 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
                     .toList();
 
             String dayLabel = formatDayLabel(date, fromDate);
-            String regionSuffix = topRegions.isEmpty()
-                    ? "" : " — " + String.join(", ", topRegions);
-            String detail = (bestSummary != null ? bestSummary + " " : "") + dayLabel + regionSuffix;
+            String detail = (bestSummary != null ? bestSummary + " " : "") + dayLabel;
 
             int priority = bestScore >= 8 ? 1 : 3;
 
@@ -149,12 +147,12 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
      */
     private String formatDayLabel(LocalDate date, LocalDate today) {
         if (date.equals(today)) {
-            return "today";
+            return "this morning";
         }
         if (date.equals(today.plusDays(1))) {
-            return "tomorrow";
+            return "tomorrow morning";
         }
         DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
+        return dow.getDisplayName(TextStyle.FULL, Locale.UK) + " morning";
     }
 }

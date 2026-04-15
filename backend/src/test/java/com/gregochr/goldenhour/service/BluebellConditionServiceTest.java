@@ -228,7 +228,7 @@ class BluebellConditionServiceTest {
         String summary = service.buildSummary(true, true, false, false, false, false,
                 BluebellExposure.WOODLAND);
 
-        assertThat(summary).isEqualTo("Misty and still — perfect conditions");
+        assertThat(summary).isEqualTo("Misty and still — perfect morning conditions");
     }
 
     @Test

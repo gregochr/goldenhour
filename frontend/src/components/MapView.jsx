@@ -253,7 +253,7 @@ function getNextEventType(locations, date) {
 
 const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 
-function MapView({ locations, date, autoEventType, handoffEventType, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
+function MapView({ locations, date, autoEventType, handoffEventType, handoffFilterAction, briefingScores = new Map(), onForecastRun, seasonalFeatures = [] }) {
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -320,6 +320,14 @@ function MapView({ locations, date, autoEventType, handoffEventType, briefingSco
       setUserHasOverriddenEvent(false);
     }
   }, [handoffEventType]);
+
+  // Apply a filter action handoff from a Hot Topic pill tap (e.g. BLUEBELL).
+  useEffect(() => {
+    if (handoffFilterAction) {
+      setActiveTypeFilters(new Set([handoffFilterAction]));
+      setAdvancedOpen(true);
+    }
+  }, [handoffFilterAction]);
   const [tideClassifications, setTideClassifications] = useState({});
 
   // Inject popup width styles (desktop only)
@@ -946,6 +954,7 @@ MapView.propTypes = {
   date: PropTypes.string,
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
+  handoffFilterAction: PropTypes.string,
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
 };

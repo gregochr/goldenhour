@@ -296,51 +296,52 @@ class HotTopicSimulationServiceTest {
                 .allSatisfy(desc -> assertThat(desc).isNotNull().isNotBlank());
     }
 
-    // ── Detail string includes region names ─────────────────────────────────
+    // ── Regions stored in dedicated field, not appended to detail ──────────
 
     @Test
-    @DisplayName("AURORA detail string includes region name 'Northumberland'")
-    void getSimulatedTopics_aurora_detailContainsRegionName() {
+    @DisplayName("AURORA regions field includes 'Northumberland'")
+    void getSimulatedTopics_aurora_regionsContainsNorthumberland() {
         service.setEnabled(true);
         service.setTypeActive("AURORA", true);
 
         HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
 
-        assertThat(topic.detail()).contains("Northumberland");
+        assertThat(topic.regions()).contains("Northumberland");
     }
 
     @Test
-    @DisplayName("BLUEBELL detail string includes both region names")
-    void getSimulatedTopics_bluebell_detailContainsBothRegions() {
+    @DisplayName("BLUEBELL regions field includes both region names")
+    void getSimulatedTopics_bluebell_regionsContainsBothRegions() {
         service.setEnabled(true);
         service.setTypeActive("BLUEBELL", true);
 
         HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
 
-        assertThat(topic.detail()).contains("Northumberland").contains("The Lake District");
+        assertThat(topic.regions()).contains("Northumberland", "The Lake District");
     }
 
     @Test
-    @DisplayName("KING_TIDE detail string includes both coastal regions")
-    void getSimulatedTopics_kingTide_detailContainsBothRegions() {
+    @DisplayName("KING_TIDE regions field includes both coastal regions")
+    void getSimulatedTopics_kingTide_regionsContainsBothRegions() {
         service.setEnabled(true);
         service.setTypeActive("KING_TIDE", true);
 
         HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
 
-        assertThat(topic.detail()).contains("Northumberland").contains("The North Yorkshire Coast");
+        assertThat(topic.regions()).contains("Northumberland", "The North Yorkshire Coast");
     }
 
     @Test
-    @DisplayName("Detail string uses ' — ' separator between day label and region list")
-    void getSimulatedTopics_aurora_detailHasSeparator() {
+    @DisplayName("Detail string does not contain region names (regions in separate field)")
+    void getSimulatedTopics_bluebell_detailDoesNotContainRegionNames() {
         service.setEnabled(true);
-        service.setTypeActive("AURORA", true);
+        service.setTypeActive("BLUEBELL", true);
 
         HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
 
-        // The format is: "<template detail> <dayLabel> — <regions>"
-        assertThat(topic.detail()).contains(" — ");
+        assertThat(topic.detail())
+                .doesNotContain("Northumberland")
+                .doesNotContain("The Lake District");
     }
 
     // ── Day label in detail string ────────────────────────────────────────────

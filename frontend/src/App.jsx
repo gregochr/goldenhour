@@ -117,10 +117,19 @@ function AppInner() {
   }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
 
-  /** Called from Plan tab drill-down — switches to Map tab with pre-selected date + event type. */
-  const handleShowOnMap = (date, eventType) => {
-    setSelectedDate(date);
-    setMapHandoff({ eventType });
+  /** Called from Plan tab drill-down — switches to Map tab with pre-selected date + event type or filter action. */
+  const handleShowOnMap = (dateOrHandoff, eventType) => {
+    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
+      // Hot Topic pill tap: { filterAction, date }
+      if (dateOrHandoff.date) {
+        setSelectedDate(dateOrHandoff.date);
+      }
+      setMapHandoff({ filterAction: dateOrHandoff.filterAction });
+    } else {
+      // Best Bet / drill-down: (date, eventType)
+      setSelectedDate(dateOrHandoff);
+      setMapHandoff({ eventType });
+    }
     setViewMode('map');
   };
 
@@ -322,6 +331,7 @@ function AppInner() {
                 date={effectiveDate}
                 autoEventType={autoSelection?.eventType ?? null}
                 handoffEventType={mapHandoff?.eventType ?? null}
+                handoffFilterAction={mapHandoff?.filterAction ?? null}
                 briefingScores={briefingScores}
                 onForecastRun={refresh}
                 seasonalFeatures={seasonalFeatures}

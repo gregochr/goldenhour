@@ -148,8 +148,9 @@ public class HotTopicSimulationService {
                 case 2 -> date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.UK);
                 default -> "tomorrow";
             };
+            String qualifiedLabel = "BLUEBELL".equals(type) ? dayLabel + " morning" : dayLabel;
             return new HotTopic(type, label,
-                    detail + " " + dayLabel + " — " + String.join(", ", regions),
+                    detail + " " + qualifiedLabel,
                     date, priority, filterAction, regions, description);
         }
     }
@@ -157,7 +158,7 @@ public class HotTopicSimulationService {
     private static final List<SimulationTemplate> ALL_SIMULATIONS = List.of(
             new SimulationTemplate(
                     "BLUEBELL", "Bluebell conditions",
-                    "Misty and still — perfect conditions",
+                    "Misty and still — perfect morning conditions",
                     "Bluebell season runs mid-April to mid-May. We score mist, wind, light and"
                             + " recent rain to find the best mornings for woodland and"
                             + " open-fell bluebell photography.",

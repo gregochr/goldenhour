@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
-import { getSimulationState } from '../api/hotTopicSimulationApi.js';
 import { subscribeToBriefingEvaluation } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
@@ -740,7 +739,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [activeModelName, setActiveModelName] = useState(null); // e.g. 'HAIKU'
 
   // Simulation active indicator — only checked for ADMIN users
-  const [simulationActive, setSimulationActive] = useState(false);
 
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
@@ -898,13 +896,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
     }
   }, [canRunEvaluation]);
 
-  // Check simulation state for ADMIN users so the Plan tab shows a banner when active.
-  useEffect(() => {
-    if (role !== 'ADMIN') return;
-    getSimulationState()
-      .then((data) => setSimulationActive(data.enabled))
-      .catch(() => {});
-  }, [role, briefing]);
 
   // Fetch astro conditions for each visible date in the heatmap.
   const astroDayDates = useMemo(() => {
@@ -939,7 +930,7 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
 
   const handleHotTopicTap = useCallback((topic) => {
     if (topic.filterAction && onShowOnMap) {
-      onShowOnMap({ filterAction: topic.filterAction });
+      onShowOnMap({ filterAction: topic.filterAction, date: topic.date });
     }
   }, [onShowOnMap]);
 
@@ -1156,32 +1147,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         </div>
       ) : null}
 
-      {/* ── Simulation active banner — admin only ── */}
-      {simulationActive && role === 'ADMIN' && (
-        <div
-          data-testid="simulation-active-banner"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '6px 12px',
-            borderRadius: '6px',
-            background: 'rgba(212, 168, 67, 0.1)',
-            border: '1px solid rgba(212, 168, 67, 0.25)',
-            fontSize: '12px',
-            color: '#d4a843',
-          }}
-        >
-          <span>Simulation active — showing simulated hot topics</span>
-          <a
-            href="#manage/hottopics"
-            style={{ textDecoration: 'underline', color: '#d4a843', opacity: 0.8 }}
-          >
-            Manage
-          </a>
-        </div>
-      )}
-
       {/* ── Hot Topics strip — seasonal conditions between Best Bet and slider ── */}
       {briefing.hotTopics?.length > 0 ? (
         <HotTopicStrip
@@ -1189,19 +1154,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
           isLiteUser={role === 'LITE_USER'}
           onTopicTap={handleHotTopicTap}
         />
-      ) : simulationActive && role === 'ADMIN' ? (
-        <div
-          data-testid="hot-topic-sim-hint"
-          className="text-center rounded-lg mb-2"
-          style={{
-            padding: '8px 14px',
-            border: '1px dashed rgba(212, 168, 67, 0.3)',
-            color: 'rgba(212, 168, 67, 0.6)',
-            fontSize: '13px',
-          }}
-        >
-          Simulation active — select topics in Manage → Operations → Hot Topics
-        </div>
       ) : null}
 
       {/* ── Quality threshold slider + show-all toggle (desktop + mobile) ── */}

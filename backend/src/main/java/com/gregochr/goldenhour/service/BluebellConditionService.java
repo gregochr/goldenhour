@@ -156,7 +156,7 @@ public class BluebellConditionService {
             boolean goldenHourLight, boolean postRain, boolean dryNow,
             BluebellExposure exposure) {
         if (misty && calm) {
-            return "Misty and still — perfect conditions";
+            return "Misty and still — perfect morning conditions";
         }
 
         List<String> parts = new ArrayList<>();

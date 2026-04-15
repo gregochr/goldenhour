@@ -1294,13 +1294,13 @@ describe('DailyBriefing', () => {
       expect(screen.queryByTestId('hot-topic-sim-hint')).toBeNull();
     });
 
-    it('shows simulation hint when hotTopics is empty and simulation is on', async () => {
+    it('shows nothing when hotTopics is empty even when simulation is on', async () => {
       getSimulationState.mockResolvedValue({ enabled: true });
       getDailyBriefing.mockResolvedValue(buildBriefing());
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
-      await waitFor(() => screen.getByTestId('hot-topic-sim-hint'));
-      expect(screen.getByText(/select topics in Manage/)).toBeInTheDocument();
+      expect(screen.queryByTestId('hot-topic-sim-hint')).toBeNull();
+      expect(screen.queryByTestId('hot-topic-strip')).toBeNull();
     });
 
     it('shows pills instead of hint when hotTopics has items and simulation is on', async () => {
