@@ -169,15 +169,23 @@ public class BriefingService {
         try {
             AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonightCached();
             AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrowCached();
+
+            // Overlay live hot topics so simulation toggles take effect immediately
+            // without requiring a full briefing refresh.
+            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+            List<HotTopic> rawTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
+            List<HotTopic> liveTopics = rawTopics == null ? List.of() : rawTopics;
+
             if (Objects.equals(cached.auroraTonight(), liveTonight)
-                    && Objects.equals(cached.auroraTomorrow(), liveTomorrow)) {
+                    && Objects.equals(cached.auroraTomorrow(), liveTomorrow)
+                    && Objects.equals(cached.hotTopics(), liveTopics)) {
                 return cached;
             }
             return new DailyBriefingResponse(
                     cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
                     liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
                     cached.failedLocationCount(), cached.bestBetModel(),
-                    cached.hotTopics(), cached.seasonalFeatures());
+                    liveTopics, cached.seasonalFeatures());
         } catch (Exception e) {
             LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
                     e.getMessage());
