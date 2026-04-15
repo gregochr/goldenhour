@@ -287,4 +287,172 @@ describe('QualitySlider', () => {
     );
     expect(screen.getByText('Show all locations')).toBeInTheDocument();
   });
+
+  // ── Toggle track data-checked attribute ───────────────────────────────────
+  // Kills mutations that hardcode 'true'/'false' or flip the ternary on line 78.
+
+  it('toggle track data-checked is "true" when showAllLocations is true', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={true}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    const track = screen.getByTestId('show-all-locations-toggle').querySelector('.quality-toggle-track');
+    expect(track).toHaveAttribute('data-checked', 'true');
+  });
+
+  it('toggle track data-checked is "false" when showAllLocations is false', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    const track = screen.getByTestId('show-all-locations-toggle').querySelector('.quality-toggle-track');
+    expect(track).toHaveAttribute('data-checked', 'false');
+  });
+
+  // ── Conditional rendering guard ───────────────────────────────────────────
+  // Kills a mutant that changes the guard from onShowAllLocationsChange to showAllLocations.
+
+  it('does not render toggle when showAllLocations is true but onShowAllLocationsChange is undefined', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={true}
+      />,
+    );
+    expect(screen.queryByTestId('show-all-locations-toggle')).not.toBeInTheDocument();
+  });
+
+  // ── Callback isolation ────────────────────────────────────────────────────
+  // Kills mutations that swap onChange ↔ onShowAllLocationsChange.
+
+  it('clicking toggle does not call the slider onChange callback', () => {
+    const onChange = vi.fn();
+    const onToggle = vi.fn();
+    render(
+      <QualitySlider
+        value={2}
+        onChange={onChange}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByRole('switch'));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('dragging slider does not call onShowAllLocationsChange', () => {
+    const onChange = vi.fn();
+    const onToggle = vi.fn();
+    render(
+      <QualitySlider
+        value={2}
+        onChange={onChange}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={onToggle}
+      />,
+    );
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '4' } });
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Toggle call count ─────────────────────────────────────────────────────
+  // Kills mutations that double-fire or skip the callback.
+
+  it('toggle click fires onShowAllLocationsChange exactly once', () => {
+    const onToggle = vi.fn();
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByRole('switch'));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  // ── No spurious callback on mount ─────────────────────────────────────────
+
+  it('onChange is not called on initial render', () => {
+    const onChange = vi.fn();
+    render(<QualitySlider value={3} onChange={onChange} showing={5} total={12} />);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('onShowAllLocationsChange is not called on initial render', () => {
+    const onToggle = vi.fn();
+    render(
+      <QualitySlider
+        value={3}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={onToggle}
+      />,
+    );
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  // ── Dot separator ─────────────────────────────────────────────────────────
+  // Kills mutations that remove the middot separator between count and tier label.
+
+  it('renders a dot separator between cell count and tier label', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
+    const slider = screen.getByTestId('quality-slider');
+    expect(slider.textContent).toContain('\u00B7');
+  });
+
+  // ── Pin showing vs total vs value to distinct values ──────────────────────
+  // Kills mutations that substitute value for showing, total for showing, etc.
+
+  it('renders showing, total, and tier label from three independent props', () => {
+    // value=1, showing=3, total=17 — all distinct, none collide
+    render(<QualitySlider value={1} onChange={() => {}} showing={3} total={17} />);
+    expect(screen.getByText(/Showing 3 of 17 cells/)).toBeInTheDocument();
+    expect(screen.getByText((t) => t.includes(TIER_LABELS[1]))).toBeInTheDocument();
+    // A mutant using value (1) or total (17) in place of showing (3) fails the regex
+    expect(screen.queryByText(/Showing 1 of/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Showing 17 of/)).not.toBeInTheDocument();
+  });
+
+  // ── Toggle button type ────────────────────────────────────────────────────
+  // Kills mutations that remove type="button", which could cause form submission.
+
+  it('toggle button has type="button"', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole('switch')).toHaveAttribute('type', 'button');
+  });
 });
