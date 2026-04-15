@@ -1223,6 +1223,89 @@ class ScheduledBatchEvaluationServiceTest {
         return location;
     }
 
+    // ── resetBatchGuards ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("resetBatchGuards clears forecastBatchRunning guard")
+    void resetBatchGuards_clearsForecastGuard() throws Exception {
+        // Set the forecast guard to true via reflection
+        Field forecastField = ScheduledBatchEvaluationService.class
+                .getDeclaredField("forecastBatchRunning");
+        forecastField.setAccessible(true);
+        ((AtomicBoolean) forecastField.get(service)).set(true);
+
+        service.resetBatchGuards();
+
+        // After reset, submitForecastBatch should enter (not skip)
+        // Verify by checking it proceeds to call briefingService
+        when(briefingService.getCachedBriefing()).thenReturn(null);
+        service.submitForecastBatch();
+        verify(briefingService).getCachedBriefing();
+    }
+
+    @Test
+    @DisplayName("resetBatchGuards clears auroraBatchRunning guard")
+    void resetBatchGuards_clearsAuroraGuard() throws Exception {
+        // Set the aurora guard to true via reflection
+        Field auroraField = ScheduledBatchEvaluationService.class
+                .getDeclaredField("auroraBatchRunning");
+        auroraField.setAccessible(true);
+        ((AtomicBoolean) auroraField.get(service)).set(true);
+
+        service.resetBatchGuards();
+
+        // After reset, submitAuroraBatch should enter (not skip)
+        // Verify by checking it proceeds to call noaaSwpcClient
+        when(noaaSwpcClient.fetchAll()).thenThrow(new RuntimeException("test"));
+        service.submitAuroraBatch();
+        verify(noaaSwpcClient).fetchAll();
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch skips when guard already held")
+    void submitForecastBatch_guardAlreadyHeld_skips() throws Exception {
+        Field forecastField = ScheduledBatchEvaluationService.class
+                .getDeclaredField("forecastBatchRunning");
+        forecastField.setAccessible(true);
+        ((AtomicBoolean) forecastField.get(service)).set(true);
+
+        service.submitForecastBatch();
+
+        verifyNoInteractions(briefingService);
+    }
+
+    @Test
+    @DisplayName("submitAuroraBatch skips when guard already held")
+    void submitAuroraBatch_guardAlreadyHeld_skips() throws Exception {
+        Field auroraField = ScheduledBatchEvaluationService.class
+                .getDeclaredField("auroraBatchRunning");
+        auroraField.setAccessible(true);
+        ((AtomicBoolean) auroraField.get(service)).set(true);
+
+        service.submitAuroraBatch();
+
+        verifyNoInteractions(noaaSwpcClient);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch clears guard even when inner method throws")
+    void submitForecastBatch_exceptionInDoSubmit_clearsGuard() throws Exception {
+        when(briefingService.getCachedBriefing())
+                .thenThrow(new RuntimeException("boom"))
+                .thenReturn(null);
+
+        // First call throws but should clear guard in finally
+        try {
+            service.submitForecastBatch();
+        } catch (RuntimeException ignored) {
+            // Expected — guard must still be cleared
+        }
+
+        // Guard should be cleared — second call should enter again (not skip)
+        service.submitForecastBatch();
+        verify(briefingService, org.mockito.Mockito.times(2)).getCachedBriefing();
+    }
+
     private static OutputConfig buildTestOutputConfig() {
         return OutputConfig.builder()
                 .format(JsonOutputFormat.builder()
