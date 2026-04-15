@@ -7,6 +7,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -104,6 +105,85 @@ class DailyBriefingResponseJsonTest {
         assertThat(response.hotTopics()).isNotNull().isEmpty();
     }
 
+    // ── round-trip (serialize → deserialize) ────────────────────────────────
+
+    @Test
+    @DisplayName("round-trip — empty bestBets deserialises to empty list, not null")
+    void roundTrip_emptyBestBets_deserialisesToEmptyList() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        DailyBriefingResponse original = minimalResponse(List.of());
+
+        String json = mapper.writeValueAsString(original);
+        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
+
+        assertThat(restored.bestBets()).isNotNull().isEmpty();
+    }
+
+    @Test
+    @DisplayName("round-trip — populated bestBets deserialises with correct content")
+    void roundTrip_populatedBestBets_contentPreserved() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BestBet bet = new BestBet(1, "Head to the coast", "Clear skies until midnight.",
+                "2026-04-15_sunset", "Northumberland", Confidence.HIGH, 45,
+                "Today", "sunset", "20:48");
+        DailyBriefingResponse original = minimalResponse(List.of(bet));
+
+        String json = mapper.writeValueAsString(original);
+        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
+
+        assertThat(restored.bestBets()).hasSize(1);
+        assertThat(restored.bestBets().get(0).rank()).isEqualTo(1);
+        assertThat(restored.bestBets().get(0).headline()).isEqualTo("Head to the coast");
+        assertThat(restored.bestBets().get(0).region()).isEqualTo("Northumberland");
+        assertThat(restored.bestBets().get(0).confidence()).isEqualTo(Confidence.HIGH);
+        assertThat(restored.bestBets().get(0).nearestDriveMinutes()).isEqualTo(45);
+    }
+
+    @Test
+    @DisplayName("round-trip — hotTopics deserialises with correct content")
+    void roundTrip_hotTopics_contentPreserved() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        HotTopic topic = new HotTopic("BLUEBELL", "Bluebell conditions", "Misty and still",
+                LocalDate.of(2026, 4, 20), 1, "BLUEBELL",
+                List.of("Northumberland"), "Peak bluebell season.");
+        DailyBriefingResponse original = new DailyBriefingResponse(
+                GENERATED_AT, "Test", List.of(), List.of(), null, null,
+                false, false, 0, null, List.of(topic), List.of());
+
+        String json = mapper.writeValueAsString(original);
+        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
+
+        assertThat(restored.hotTopics()).hasSize(1);
+        assertThat(restored.hotTopics().get(0).type()).isEqualTo("BLUEBELL");
+        assertThat(restored.hotTopics().get(0).description()).isEqualTo("Peak bluebell season.");
+    }
+
+    @Test
+    @DisplayName("round-trip — seasonalFeatures null-normalised to empty list")
+    void roundTrip_nullSeasonalFeatures_normalisedToEmptyList() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        DailyBriefingResponse original = new DailyBriefingResponse(
+                GENERATED_AT, "Test", List.of(), List.of(), null, null,
+                false, false, 0, null, List.of(),
+                List.of("BLUEBELL", "AURORA"));
+
+        String json = mapper.writeValueAsString(original);
+        DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
+
+        assertThat(restored.seasonalFeatures()).containsExactly("BLUEBELL", "AURORA");
+    }
+
+    @Test
+    @DisplayName("compact constructor — null seasonalFeatures normalised to empty list")
+    void compactConstructor_nullSeasonalFeatures_normalisedToEmptyList() {
+        DailyBriefingResponse response = new DailyBriefingResponse(
+                GENERATED_AT, "Test", List.of(), List.of(), null, null,
+                false, false, 0, null, List.of(),
+                null);  // null seasonalFeatures
+
+        assertThat(response.seasonalFeatures()).isNotNull().isEmpty();
+    }
+
     // ── other list fields excluded by NON_EMPTY (no ALWAYS override) ─────────
 
     @Test
@@ -132,4 +212,5 @@ class DailyBriefingResponseJsonTest {
                 bestBets, null, null, false, false, 0, null,
                 List.of(), List.of());
     }
+
 }

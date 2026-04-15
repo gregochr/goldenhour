@@ -296,6 +296,53 @@ class HotTopicSimulationServiceTest {
                 .allSatisfy(desc -> assertThat(desc).isNotNull().isNotBlank());
     }
 
+    // ── Detail string includes region names ─────────────────────────────────
+
+    @Test
+    @DisplayName("AURORA detail string includes region name 'Northumberland'")
+    void getSimulatedTopics_aurora_detailContainsRegionName() {
+        service.setEnabled(true);
+        service.setTypeActive("AURORA", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.detail()).contains("Northumberland");
+    }
+
+    @Test
+    @DisplayName("BLUEBELL detail string includes both region names")
+    void getSimulatedTopics_bluebell_detailContainsBothRegions() {
+        service.setEnabled(true);
+        service.setTypeActive("BLUEBELL", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.detail()).contains("Northumberland").contains("The Lake District");
+    }
+
+    @Test
+    @DisplayName("KING_TIDE detail string includes both coastal regions")
+    void getSimulatedTopics_kingTide_detailContainsBothRegions() {
+        service.setEnabled(true);
+        service.setTypeActive("KING_TIDE", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.detail()).contains("Northumberland").contains("The North Yorkshire Coast");
+    }
+
+    @Test
+    @DisplayName("Detail string uses ' — ' separator between day label and region list")
+    void getSimulatedTopics_aurora_detailHasSeparator() {
+        service.setEnabled(true);
+        service.setTypeActive("AURORA", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        // The format is: "<template detail> <dayLabel> — <regions>"
+        assertThat(topic.detail()).contains(" — ");
+    }
+
     // ── Day label in detail string ────────────────────────────────────────────
 
     @Test

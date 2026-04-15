@@ -178,4 +178,49 @@ class HotTopicJsonTest {
         assertThat(restored.priority()).isEqualTo(3);
         assertThat(restored.regions()).containsExactly("Northumberland", "The North Yorkshire Coast");
     }
+
+    // ── compareTo ordering ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("compareTo — lower priority sorts before higher priority")
+    void compareTo_lowerPriorityFirst() {
+        HotTopic low = new HotTopic("A", "a", "d", LocalDate.of(2026, 5, 1), 1, null, List.of(), null);
+        HotTopic high = new HotTopic("B", "b", "d", LocalDate.of(2026, 5, 1), 3, null, List.of(), null);
+
+        assertThat(low.compareTo(high)).isNegative();
+        assertThat(high.compareTo(low)).isPositive();
+    }
+
+    @Test
+    @DisplayName("compareTo — same priority, earlier date sorts first")
+    void compareTo_samePriority_earlierDateFirst() {
+        LocalDate earlier = LocalDate.of(2026, 4, 20);
+        LocalDate later = LocalDate.of(2026, 4, 22);
+        HotTopic a = new HotTopic("A", "a", "d", earlier, 2, null, List.of(), null);
+        HotTopic b = new HotTopic("B", "b", "d", later, 2, null, List.of(), null);
+
+        assertThat(a.compareTo(b)).isNegative();
+        assertThat(b.compareTo(a)).isPositive();
+    }
+
+    @Test
+    @DisplayName("compareTo — same priority and date returns zero")
+    void compareTo_samePriorityAndDate_zero() {
+        LocalDate date = LocalDate.of(2026, 4, 21);
+        HotTopic a = new HotTopic("X", "x", "d1", date, 2, null, List.of(), null);
+        HotTopic b = new HotTopic("Y", "y", "d2", date, 2, "filter", List.of("R"), "desc");
+
+        assertThat(a.compareTo(b)).isZero();
+    }
+
+    @Test
+    @DisplayName("compareTo — priority dominates date (lower priority + later date wins)")
+    void compareTo_priorityDominatesDate() {
+        HotTopic lowPriorityLateDate = new HotTopic(
+                "A", "a", "d", LocalDate.of(2026, 5, 10), 1, null, List.of(), null);
+        HotTopic highPriorityEarlyDate = new HotTopic(
+                "B", "b", "d", LocalDate.of(2026, 4, 1), 3, null, List.of(), null);
+
+        assertThat(lowPriorityLateDate.compareTo(highPriorityEarlyDate)).isNegative();
+    }
 }
