@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.GitInfoService;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ModelTestService;
@@ -114,6 +115,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected JobRunService jobRunService;
+
+    @MockitoBean
+    protected LocationEnrichmentService locationEnrichmentService;
 
     @MockitoBean
     protected LocationService locationService;

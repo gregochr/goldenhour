@@ -1,6 +1,6 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace } from '../api/forecastApi.js';
+import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation } from '../api/forecastApi.js';
 import { fetchRegions } from '../api/regionApi.js';
 import { fetchTideStats } from '../api/tideApi.js';
 import LocationAlerts from './LocationAlerts.jsx';
@@ -403,6 +403,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
   const [addLocationType, setAddLocationType] = useState('LANDSCAPE');
   const [addTideTypes, setAddTideTypes] = useState([]);
   const [addRegionId, setAddRegionId] = useState('');
+  const [enrichmentData, setEnrichmentData] = useState(null);
+  const [enriching, setEnriching] = useState(false);
+  const [addOverlooksWater, setAddOverlooksWater] = useState(false);
+  const [addCoastalTidal, setAddCoastalTidal] = useState(false);
 
   // Confirm modal state
   const [confirmData, setConfirmData] = useState(null);
@@ -474,6 +478,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setAddLocationType('LANDSCAPE');
     setAddTideTypes([]);
     setAddRegionId('');
+    setEnrichmentData(null);
+    setEnriching(false);
+    setAddOverlooksWater(false);
+    setAddCoastalTidal(false);
     setError('');
   }
 
@@ -573,9 +581,19 @@ export default function LocationManagementView({ onLocationsChanged }) {
     setGeocoding(true);
     setGeocodeError('');
     setGeocodeResult(null);
+    setEnrichmentData(null);
     try {
       const result = await geocodePlace(trimmed);
       setGeocodeResult(result);
+      // Fire enrichment in background — don't block geocode result
+      setEnriching(true);
+      enrichLocation(result.lat, result.lon)
+        .then((data) => setEnrichmentData(data))
+        .catch((err) => {
+          console.error('Enrichment failed:', err);
+          setEnrichmentData({ bortleClass: null, skyBrightnessSqm: null, elevationMetres: null, gridLat: null, gridLng: null });
+        })
+        .finally(() => setEnriching(false));
     } catch (err) {
       setGeocodeError(err.message || 'Geocoding failed.');
     } finally {
@@ -619,6 +637,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationType: addLocationType,
         tideTypes: addLocationType === 'SEASCAPE' ? addTideTypes : [],
         regionId: addRegionId ? Number(addRegionId) : null,
+        bortleClass: enrichmentData?.bortleClass ?? null,
+        skyBrightnessSqm: enrichmentData?.skyBrightnessSqm ?? null,
+        elevationMetres: enrichmentData?.elevationMetres ?? null,
+        gridLat: enrichmentData?.gridLat ?? null,
+        gridLng: enrichmentData?.gridLng ?? null,
+        overlooksWater: addOverlooksWater,
+        coastalTidal: addCoastalTidal,
       });
     }
   }
@@ -635,6 +660,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
         locationType: confirmData.locationType,
         tideTypes: confirmData.tideTypes,
         regionId: confirmData.regionId,
+        bortleClass: confirmData.bortleClass,
+        skyBrightnessSqm: confirmData.skyBrightnessSqm,
+        elevationMetres: confirmData.elevationMetres,
+        gridLat: confirmData.gridLat,
+        gridLng: confirmData.gridLng,
+        overlooksWater: confirmData.overlooksWater,
+        coastalTidal: confirmData.coastalTidal,
       });
       await refreshLocations();
       handleCancel();
@@ -1118,6 +1150,72 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   <p className="mt-0.5">{geocodeResult.displayName}</p>
                 </div>
               )}
+
+              {enriching && (
+                <p className="text-xs text-plex-text-muted animate-pulse" data-testid="enriching-spinner">
+                  Detecting elevation, bortle, grid cell…
+                </p>
+              )}
+
+              {!enriching && enrichmentData && (
+                <div className="border border-plex-border rounded px-3 py-2" data-testid="enrichment-panel">
+                  <p className="text-xs font-medium text-plex-text-secondary mb-1.5">Auto-detected</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-plex-text-secondary">Elevation</span>
+                      <span className="text-plex-text" data-testid="enrichment-elevation">
+                        {enrichmentData.elevationMetres != null ? `${enrichmentData.elevationMetres}m` : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-plex-text-secondary">Grid cell</span>
+                      <span className="text-plex-text" data-testid="enrichment-grid">
+                        {enrichmentData.gridLat != null && enrichmentData.gridLng != null
+                          ? `${enrichmentData.gridLat}, ${enrichmentData.gridLng}`
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-plex-text-secondary">Bortle</span>
+                      <span className="text-plex-text" data-testid="enrichment-bortle">
+                        {enrichmentData.bortleClass != null ? enrichmentData.bortleClass : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-plex-text-secondary">SQM</span>
+                      <span className="text-plex-text" data-testid="enrichment-sqm">
+                        {enrichmentData.skyBrightnessSqm != null ? enrichmentData.skyBrightnessSqm : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!enriching && enrichmentData && (
+                <div className="border border-plex-border rounded px-3 py-2" data-testid="manual-toggles-panel">
+                  <p className="text-xs font-medium text-plex-text-secondary mb-1.5">Manual</p>
+                  <div className="flex gap-6">
+                    <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addOverlooksWater}
+                        onChange={(e) => setAddOverlooksWater(e.target.checked)}
+                        data-testid="overlooks-water-checkbox"
+                      />
+                      Overlooks water
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={addCoastalTidal}
+                        onChange={(e) => setAddCoastalTidal(e.target.checked)}
+                        data-testid="coastal-tidal-checkbox"
+                      />
+                      Coastal tidal
+                    </label>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -1287,6 +1385,38 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 <span className="text-plex-text">
                   {confirmData.regionId ? (regions.find((r) => r.id === confirmData.regionId)?.name ?? '—') : '—'}
                 </span>
+              </div>
+              <hr className="border-plex-border" />
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Elevation</span>
+                <span className="text-plex-text">
+                  {confirmData.elevationMetres != null ? `${confirmData.elevationMetres}m` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Bortle</span>
+                <span className="text-plex-text">{confirmData.bortleClass ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">SQM</span>
+                <span className="text-plex-text">{confirmData.skyBrightnessSqm ?? '—'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Grid cell</span>
+                <span className="text-plex-text">
+                  {confirmData.gridLat != null && confirmData.gridLng != null
+                    ? `${confirmData.gridLat}, ${confirmData.gridLng}`
+                    : '—'}
+                </span>
+              </div>
+              <hr className="border-plex-border" />
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Overlooks water</span>
+                <span className="text-plex-text">{confirmData.overlooksWater ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-plex-text-secondary">Coastal tidal</span>
+                <span className="text-plex-text">{confirmData.coastalTidal ? 'Yes' : 'No'}</span>
               </div>
             </div>
 

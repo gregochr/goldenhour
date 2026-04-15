@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Add Location enrichment
+- **`LocationEnrichmentService`** — new service that auto-detects bortle class, sky brightness (SQM), elevation, and Open-Meteo grid cell coordinates via three parallel API calls (lightpollutionmap.info, Open-Meteo elevation, Open-Meteo forecast); each source fails independently, returning null for failed fields
+- **`GET /api/locations/enrich`** — new ADMIN-only endpoint on `LocationController` that returns a `LocationEnrichmentResult` record for a given lat/lon
+- **`AddLocationRequest` extended** — 7 new fields: `bortleClass`, `skyBrightnessSqm`, `elevationMetres`, `gridLat`, `gridLng`, `overlooksWater`, `coastalTidal`; `LocationService.add()` persists all enrichment fields on the entity
+- **Frontend enrichment panel** — after geocoding, the Add Location form shows an "Auto-detected" panel (elevation, bortle, SQM, grid cell) and a "Manual" panel (overlooks water / coastal tidal checkboxes); enrichment data and manual toggles flow through the confirm modal into the save request
+- **Tests** — `LocationEnrichmentServiceTest` (19 tests with exact matchers, verify calls, edge cases), enrichment tests in `LocationControllerTest`, `LocationServiceTest` (swap-killing boolean tests), and `LocationManagementView.test.jsx` (7 enrichment tests)
+
 ### Added — Light pollution job API call logging
 - **`LIGHT_POLLUTION` service name** — added to `ServiceName` enum; `CostCalculator` handles it with zero cost (free API) in both modern micro-dollar and legacy pence switches
 - **API call logging for Bortle enrichment** — `BortleEnrichmentService.enrichAll()` now records each `lightpollutionmap.info` call via `jobRunService.logApiCall()` with per-location URL (lon,lat), duration, HTTP status, and success/error flag; the LIGHT_POLLUTION job run panel now shows individual API calls instead of "No API calls recorded"

@@ -135,7 +135,7 @@ class LocationServiceTest {
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AddLocationRequest request = new AddLocationRequest(
-                "Bamburgh Castle", 55.6090, -1.7099, null, null, null, null);
+                "Bamburgh Castle", 55.6090, -1.7099, null, null, null, null, null, null, null, null, null, null, null);
 
         LocationEntity result = locationService.add(request);
 
@@ -165,7 +165,8 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Bamburgh", 55.6, -1.7, Set.of(SolarEventType.SUNSET),
-                LocationType.SEASCAPE, Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null);
+                LocationType.SEASCAPE, Set.of(TideType.HIGH, TideType.MID, TideType.LOW), null,
+                null, null, null, null, null, null, null);
 
         locationService.add(request);
 
@@ -180,7 +181,8 @@ class LocationServiceTest {
 
         AddLocationRequest request = new AddLocationRequest(
                 "Durham", 54.7753, -1.5849, Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET),
-                LocationType.LANDSCAPE, Set.of(TideType.HIGH), null);
+                LocationType.LANDSCAPE, Set.of(TideType.HIGH), null,
+                null, null, null, null, null, null, null);
 
         locationService.add(request);
 
@@ -192,7 +194,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when name is blank")
     void add_blankName_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("  ", 54.7753, -1.5849, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                "  ", 54.7753, -1.5849,
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("name");
@@ -201,7 +205,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when name is null")
     void add_nullName_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest(null, 54.7753, -1.5849, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                null, 54.7753, -1.5849,
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("name");
@@ -210,7 +216,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when latitude is below -90")
     void add_latBelowMin_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", -91.0, 0.0, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                "Test", -91.0, 0.0,
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Latitude");
@@ -219,7 +227,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when latitude is above 90")
     void add_latAboveMax_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", 91.0, 0.0, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                "Test", 91.0, 0.0,
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Latitude");
@@ -228,7 +238,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when longitude is below -180")
     void add_lonBelowMin_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", 0.0, -181.0, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                "Test", 0.0, -181.0,
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Longitude");
@@ -237,7 +249,9 @@ class LocationServiceTest {
     @Test
     @DisplayName("add() throws IllegalArgumentException when longitude is above 180")
     void add_lonAboveMax_throwsIllegalArgumentException() {
-        AddLocationRequest request = new AddLocationRequest("Test", 0.0, 181.0, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                "Test", 0.0, 181.0,
+                null, null, null, null, null, null, null, null, null, null, null);
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Longitude");
@@ -247,7 +261,9 @@ class LocationServiceTest {
     @DisplayName("add() throws IllegalArgumentException when a location with the same name already exists")
     void add_duplicateName_throwsIllegalArgumentException() {
         when(locationRepository.existsByName("Durham UK")).thenReturn(true);
-        AddLocationRequest request = new AddLocationRequest("Durham UK", 54.7753, -1.5849, null, null, null, null);
+        AddLocationRequest request = new AddLocationRequest(
+                "Durham UK", 54.7753, -1.5849,
+                null, null, null, null, null, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> locationService.add(request))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -260,8 +276,10 @@ class LocationServiceTest {
         when(locationRepository.existsByName(any())).thenReturn(false);
         when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        locationService.add(new AddLocationRequest("South Pole", -90.0, 0.0, null, null, null, null));
-        locationService.add(new AddLocationRequest("North Pole", 90.0, 0.0, null, null, null, null));
+        locationService.add(new AddLocationRequest("South Pole", -90.0, 0.0,
+                null, null, null, null, null, null, null, null, null, null, null));
+        locationService.add(new AddLocationRequest("North Pole", 90.0, 0.0,
+                null, null, null, null, null, null, null, null, null, null, null));
 
         verify(locationRepository, times(2)).save(any());
     }
@@ -636,6 +654,99 @@ class LocationServiceTest {
         assertThat(entity.getTideType()).isEmpty();
         assertThat(entity.getLocationType()).isEmpty();
         assertThat(entity.isEnabled()).isTrue();
+    }
+
+    // --- Enrichment field persistence tests ---
+
+    @Test
+    @DisplayName("add() persists enrichment fields from request")
+    void add_withEnrichmentFields_persistsAll() {
+        when(locationRepository.existsByName("Latrigg")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AddLocationRequest request = new AddLocationRequest(
+                "Latrigg", 54.6124, -3.1179,
+                Set.of(SolarEventType.SUNRISE, SolarEventType.SUNSET),
+                LocationType.LANDSCAPE, Set.of(), null,
+                3, 21.72, 368, 54.611, -3.121, true, false);
+
+        locationService.add(request);
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        LocationEntity saved = captor.getValue();
+
+        assertThat(saved.getBortleClass()).isEqualTo(3);
+        assertThat(saved.getSkyBrightnessSqm()).isEqualTo(21.72);
+        assertThat(saved.getElevationMetres()).isEqualTo(368);
+        assertThat(saved.getGridLat()).isEqualTo(54.611);
+        assertThat(saved.getGridLng()).isEqualTo(-3.121);
+        assertThat(saved.isOverlooksWater()).isTrue();
+        assertThat(saved.isCoastalTidal()).isFalse();
+    }
+
+    @Test
+    @DisplayName("add() with overlooksWater=true and coastalTidal=false — swap killer")
+    void add_overlooksWaterTrue_coastalTidalFalse() {
+        when(locationRepository.existsByName("Valley")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AddLocationRequest request = new AddLocationRequest(
+                "Valley", 54.0, -3.0,
+                Set.of(SolarEventType.SUNRISE), LocationType.LANDSCAPE,
+                Set.of(), null, null, null, null, null, null, true, false);
+
+        locationService.add(request);
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().isOverlooksWater()).isTrue();
+        assertThat(captor.getValue().isCoastalTidal()).isFalse();
+    }
+
+    @Test
+    @DisplayName("add() with coastalTidal=true and overlooksWater=false — swap killer")
+    void add_coastalTidalTrue_overlooksWaterFalse() {
+        when(locationRepository.existsByName("Pier")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AddLocationRequest request = new AddLocationRequest(
+                "Pier", 54.0, -3.0,
+                Set.of(SolarEventType.SUNSET), LocationType.SEASCAPE,
+                Set.of(TideType.HIGH), null, null, null, null, null, null, false, true);
+
+        locationService.add(request);
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        assertThat(captor.getValue().isOverlooksWater()).isFalse();
+        assertThat(captor.getValue().isCoastalTidal()).isTrue();
+    }
+
+    @Test
+    @DisplayName("add() with null booleans defaults to false, null enrichment fields pass through")
+    void add_nullBooleans_defaultToFalse() {
+        when(locationRepository.existsByName("Null Test")).thenReturn(false);
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AddLocationRequest request = new AddLocationRequest(
+                "Null Test", 54.0, -2.0,
+                Set.of(SolarEventType.SUNRISE), LocationType.LANDSCAPE,
+                Set.of(), null, null, null, null, null, null, null, null);
+
+        locationService.add(request);
+
+        ArgumentCaptor<LocationEntity> captor = ArgumentCaptor.forClass(LocationEntity.class);
+        verify(locationRepository).save(captor.capture());
+        LocationEntity saved = captor.getValue();
+
+        assertThat(saved.isOverlooksWater()).isFalse();
+        assertThat(saved.isCoastalTidal()).isFalse();
+        assertThat(saved.getBortleClass()).isNull();
+        assertThat(saved.getSkyBrightnessSqm()).isNull();
+        assertThat(saved.getElevationMetres()).isNull();
+        assertThat(saved.getGridLat()).isNull();
+        assertThat(saved.getGridLng()).isNull();
     }
 
     private LocationEntity buildEntity(String name, double lat, double lon) {

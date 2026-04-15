@@ -8,6 +8,7 @@ vi.mock('../api/forecastApi', () => ({
   updateLocation: vi.fn(),
   setLocationEnabled: vi.fn(),
   geocodePlace: vi.fn(),
+  enrichLocation: vi.fn(),
 }));
 
 vi.mock('../api/regionApi', () => ({
@@ -20,7 +21,7 @@ vi.mock('../api/tideApi', () => ({
   fetchTidesForDate: vi.fn(),
 }));
 
-import { fetchLocations, updateLocation, geocodePlace } from '../api/forecastApi';
+import { fetchLocations, addLocation, updateLocation, geocodePlace, enrichLocation } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { fetchTideStats } from '../api/tideApi';
 
@@ -633,6 +634,281 @@ describe('LocationManagementView', () => {
     // After stats load, data should be visible
     await waitFor(() => {
       expect(screen.getByText('200')).toBeInTheDocument();
+    });
+  });
+
+  // --- Enrichment tests ---
+
+  it('displays enrichment data after geocoding', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.6124, lon: -3.1179, displayName: 'Latrigg, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: 3,
+      skyBrightnessSqm: 21.72,
+      elevationMetres: 368,
+      gridLat: 54.611,
+      gridLng: -3.121,
+    });
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Latrigg' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('enrichment-elevation')).toHaveTextContent('368m');
+    });
+
+    expect(screen.getByTestId('enrichment-bortle')).toHaveTextContent('3');
+    expect(screen.getByTestId('enrichment-sqm')).toHaveTextContent('21.72');
+    expect(screen.getByTestId('enrichment-grid')).toHaveTextContent('54.611, -3.121');
+  });
+
+  it('shows dashes for null enrichment fields', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.0, lon: -2.0, displayName: 'Test, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: null,
+      skyBrightnessSqm: null,
+      elevationMetres: 50,
+      gridLat: null,
+      gridLng: null,
+    });
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Test' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('enrichment-elevation')).toHaveTextContent('50m');
+    });
+
+    expect(screen.getByTestId('enrichment-bortle')).toHaveTextContent('—');
+    expect(screen.getByTestId('enrichment-sqm')).toHaveTextContent('—');
+    expect(screen.getByTestId('enrichment-grid')).toHaveTextContent('—');
+  });
+
+  it('renders manual toggle checkboxes', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.0, lon: -2.0, displayName: 'Test, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: null,
+      skyBrightnessSqm: null,
+      elevationMetres: null,
+      gridLat: null,
+      gridLng: null,
+    });
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Test' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('manual-toggles-panel')).toBeInTheDocument();
+    });
+
+    const overlooksWater = screen.getByTestId('overlooks-water-checkbox');
+    const coastalTidal = screen.getByTestId('coastal-tidal-checkbox');
+    expect(overlooksWater).not.toBeChecked();
+    expect(coastalTidal).not.toBeChecked();
+
+    fireEvent.click(overlooksWater);
+    expect(overlooksWater).toBeChecked();
+  });
+
+  it('shows enriching spinner while enrichment is loading', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.0, lon: -2.0, displayName: 'Test, UK' });
+    let resolveEnrichment;
+    enrichLocation.mockReturnValue(
+      new Promise((resolve) => {
+        resolveEnrichment = resolve;
+      }),
+    );
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Test' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('enriching-spinner')).toBeInTheDocument();
+    });
+
+    resolveEnrichment({
+      bortleClass: null,
+      skyBrightnessSqm: null,
+      elevationMetres: null,
+      gridLat: null,
+      gridLng: null,
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('enriching-spinner')).not.toBeInTheDocument();
+    });
+  });
+
+  it('includes enrichment data and manual toggles in save request', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.6124, lon: -3.1179, displayName: 'Latrigg, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: 3,
+      skyBrightnessSqm: 21.72,
+      elevationMetres: 368,
+      gridLat: 54.611,
+      gridLng: -3.121,
+    });
+    addLocation.mockResolvedValue({ id: 99, name: 'Latrigg' });
+    fetchLocations
+      .mockResolvedValueOnce(MOCK_LOCATIONS)
+      .mockResolvedValueOnce(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Latrigg' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('enrichment-elevation')).toHaveTextContent('368m');
+    });
+
+    // Check overlooks water toggle
+    fireEvent.click(screen.getByTestId('overlooks-water-checkbox'));
+
+    // Click Review & Confirm
+    fireEvent.click(screen.getByTestId('review-confirm-btn'));
+
+    // Confirm modal should show enrichment data
+    await waitFor(() => {
+      expect(screen.getAllByText('368m').length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Click Save
+    fireEvent.click(screen.getByTestId('confirm-save-btn'));
+
+    await waitFor(() => {
+      expect(addLocation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Latrigg',
+          lat: 54.6124,
+          lon: -3.1179,
+          bortleClass: 3,
+          skyBrightnessSqm: 21.72,
+          elevationMetres: 368,
+          gridLat: 54.611,
+          gridLng: -3.121,
+          overlooksWater: true,
+          coastalTidal: false,
+        }),
+      );
+    });
+  });
+
+  it('includes null enrichment fields in save request when enrichment fails', async () => {
+    geocodePlace.mockResolvedValue({ lat: 54.0, lon: -2.0, displayName: 'Test, UK' });
+    enrichLocation.mockRejectedValue(new Error('Network error'));
+    addLocation.mockResolvedValue({ id: 100, name: 'Test' });
+    fetchLocations
+      .mockResolvedValueOnce(MOCK_LOCATIONS)
+      .mockResolvedValueOnce(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Test' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    // Wait for geocode result
+    await waitFor(() => {
+      expect(screen.getByText('54.0000, -2.0000')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('review-confirm-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('confirm-save-btn')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-save-btn'));
+
+    await waitFor(() => {
+      expect(addLocation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Test',
+          lat: 54.0,
+          lon: -2.0,
+          bortleClass: null,
+          skyBrightnessSqm: null,
+          elevationMetres: null,
+          gridLat: null,
+          gridLng: null,
+          overlooksWater: false,
+          coastalTidal: false,
+        }),
+      );
+    });
+  });
+
+  it('passes exact coordinates to enrichLocation', async () => {
+    geocodePlace.mockResolvedValue({ lat: 55.609, lon: -1.7099, displayName: 'Bamburgh, UK' });
+    enrichLocation.mockResolvedValue({
+      bortleClass: null,
+      skyBrightnessSqm: null,
+      elevationMetres: null,
+      gridLat: null,
+      gridLng: null,
+    });
+    fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('add-location-btn')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('add-location-btn'));
+
+    const input = screen.getByTestId('place-name-input');
+    fireEvent.change(input, { target: { value: 'Bamburgh' } });
+    fireEvent.click(screen.getByTestId('geocode-btn'));
+
+    await waitFor(() => {
+      expect(enrichLocation).toHaveBeenCalledWith(55.609, -1.7099);
     });
   });
 });

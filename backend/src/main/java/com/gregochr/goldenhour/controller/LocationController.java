@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
+import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,14 +29,18 @@ import java.util.Map;
 public class LocationController {
 
     private final LocationService locationService;
+    private final LocationEnrichmentService locationEnrichmentService;
 
     /**
      * Constructs a {@code LocationController}.
      *
-     * @param locationService the service managing persisted locations
+     * @param locationService           the service managing persisted locations
+     * @param locationEnrichmentService the service for enriching location metadata
      */
-    public LocationController(LocationService locationService) {
+    public LocationController(LocationService locationService,
+            LocationEnrichmentService locationEnrichmentService) {
         this.locationService = locationService;
+        this.locationEnrichmentService = locationEnrichmentService;
     }
 
     /**
@@ -113,6 +119,20 @@ public class LocationController {
     @PreAuthorize("hasRole('ADMIN')")
     public Map<String, Object> getGridCellSummary() {
         return locationService.getGridCellSummary();
+    }
+
+    /**
+     * Enriches a location with auto-detected metadata (bortle, SQM, elevation, grid cell).
+     *
+     * @param lat latitude in decimal degrees
+     * @param lon longitude in decimal degrees
+     * @return enrichment result with nullable fields for any failed API source
+     */
+    @GetMapping("/enrich")
+    @PreAuthorize("hasRole('ADMIN')")
+    public LocationEnrichmentResult enrichLocation(@RequestParam double lat,
+            @RequestParam double lon) {
+        return locationEnrichmentService.enrich(lat, lon);
     }
 
 }

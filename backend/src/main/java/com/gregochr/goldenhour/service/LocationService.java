@@ -148,6 +148,13 @@ public class LocationService {
                 .locationType(new HashSet<>(Set.of(locationType)))
                 .tideType(tideTypes)
                 .region(region)
+                .bortleClass(request.bortleClass())
+                .skyBrightnessSqm(request.skyBrightnessSqm())
+                .elevationMetres(request.elevationMetres())
+                .gridLat(request.gridLat())
+                .gridLng(request.gridLng())
+                .overlooksWater(request.overlooksWater() != null && request.overlooksWater())
+                .coastalTidal(request.coastalTidal() != null && request.coastalTidal())
                 .createdAt(LocalDateTime.now(ZoneOffset.UTC))
                 .build();
         LocationEntity saved = locationRepository.save(entity);

@@ -232,6 +232,18 @@ export async function refreshDriveTimes(lat, lon) {
 }
 
 /**
+ * Fetches auto-detected enrichment data (bortle, SQM, elevation, grid cell) for a location.
+ *
+ * @param {number} lat - Latitude in decimal degrees.
+ * @param {number} lon - Longitude in decimal degrees.
+ * @returns {Promise<{bortleClass: number|null, skyBrightnessSqm: number|null, elevationMetres: number|null, gridLat: number|null, gridLng: number|null}>}
+ */
+export async function enrichLocation(lat, lon) {
+  const response = await axios.get(`${BASE_URL}/locations/enrich`, { params: { lat, lon } });
+  return response.data;
+}
+
+/**
  * Geocodes a place name via Nominatim (OpenStreetMap).
  * Uses plain fetch to avoid the JWT axios interceptor.
  *

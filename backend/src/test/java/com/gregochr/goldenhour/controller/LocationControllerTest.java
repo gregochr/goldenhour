@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -284,6 +286,85 @@ class LocationControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/locations/grid-cells returns 401 when unauthenticated")
     void getGridCells_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/locations/grid-cells"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // --- enrichLocation endpoint ---
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/enrich returns 200 with all enrichment fields")
+    void enrichLocation_admin_returns200WithAllFields() throws Exception {
+        when(locationEnrichmentService.enrich(54.6124, -3.1179))
+                .thenReturn(new LocationEnrichmentResult(3, 21.72, 368, 54.611, -3.121));
+
+        mockMvc.perform(get("/api/locations/enrich")
+                        .param("lat", "54.6124")
+                        .param("lon", "-3.1179"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bortleClass").value(3))
+                .andExpect(jsonPath("$.skyBrightnessSqm").value(21.72))
+                .andExpect(jsonPath("$.elevationMetres").value(368))
+                .andExpect(jsonPath("$.gridLat").value(54.611))
+                .andExpect(jsonPath("$.gridLng").value(-3.121));
+
+        verify(locationEnrichmentService).enrich(eq(54.6124), eq(-3.1179));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/enrich returns 200 with nulls for failed API sources")
+    void enrichLocation_partialFailure_returnsNulls() throws Exception {
+        when(locationEnrichmentService.enrich(54.0, -2.0))
+                .thenReturn(new LocationEnrichmentResult(null, null, 50, null, null));
+
+        mockMvc.perform(get("/api/locations/enrich")
+                        .param("lat", "54.0")
+                        .param("lon", "-2.0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bortleClass").doesNotExist())
+                .andExpect(jsonPath("$.skyBrightnessSqm").doesNotExist())
+                .andExpect(jsonPath("$.elevationMetres").value(50))
+                .andExpect(jsonPath("$.gridLat").doesNotExist())
+                .andExpect(jsonPath("$.gridLng").doesNotExist());
+
+        verify(locationEnrichmentService).enrich(eq(54.0), eq(-2.0));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/locations/enrich returns all nulls when every source fails")
+    void enrichLocation_allFail_returnsAllNulls() throws Exception {
+        when(locationEnrichmentService.enrich(55.0, -1.5))
+                .thenReturn(new LocationEnrichmentResult(null, null, null, null, null));
+
+        mockMvc.perform(get("/api/locations/enrich")
+                        .param("lat", "55.0")
+                        .param("lon", "-1.5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bortleClass").doesNotExist())
+                .andExpect(jsonPath("$.skyBrightnessSqm").doesNotExist())
+                .andExpect(jsonPath("$.elevationMetres").doesNotExist())
+                .andExpect(jsonPath("$.gridLat").doesNotExist())
+                .andExpect(jsonPath("$.gridLng").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/locations/enrich returns 403 for non-ADMIN user")
+    void enrichLocation_nonAdmin_returns403() throws Exception {
+        mockMvc.perform(get("/api/locations/enrich")
+                        .param("lat", "54.0")
+                        .param("lon", "-2.0"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/locations/enrich returns 401 when unauthenticated")
+    void enrichLocation_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/locations/enrich")
+                        .param("lat", "54.0")
+                        .param("lon", "-2.0"))
                 .andExpect(status().isUnauthorized());
     }
 
