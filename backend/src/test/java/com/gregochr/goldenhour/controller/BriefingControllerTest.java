@@ -98,6 +98,20 @@ class BriefingControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing — bestBets field is present even when empty")
+    void getBriefing_bestBetsAlwaysPresent() throws Exception {
+        // Verifies that @JsonInclude(ALWAYS) on bestBets means the field is never silently
+        // omitted from the HTTP response body, even when the list is empty.
+        when(briefingService.getCachedBriefing()).thenReturn(buildSampleBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bestBets").isArray())
+                .andExpect(jsonPath("$.bestBets.length()").value(0));
+    }
+
+    @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/briefing/run triggers refresh and returns 200 for ADMIN")
     void runBriefing_adminTriggersRefresh() throws Exception {

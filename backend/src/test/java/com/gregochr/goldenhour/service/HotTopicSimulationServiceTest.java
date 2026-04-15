@@ -244,6 +244,58 @@ class HotTopicSimulationServiceTest {
         assertThat(topic.priority()).isEqualTo(3);
     }
 
+    // ── description field populated by withDates() ───────────────────────────
+
+    @Test
+    @DisplayName("BLUEBELL simulated topic has a non-blank description")
+    void getSimulatedTopics_bluebell_hasNonBlankDescription() {
+        service.setEnabled(true);
+        service.setTypeActive("BLUEBELL", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.description())
+                .as("BLUEBELL description must be non-null and non-blank")
+                .isNotNull()
+                .isNotBlank();
+    }
+
+    @Test
+    @DisplayName("KING_TIDE simulated topic has a non-blank description")
+    void getSimulatedTopics_kingTide_hasNonBlankDescription() {
+        service.setEnabled(true);
+        service.setTypeActive("KING_TIDE", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.description()).isNotNull().isNotBlank();
+    }
+
+    @Test
+    @DisplayName("AURORA simulated topic has a non-blank description")
+    void getSimulatedTopics_aurora_hasNonBlankDescription() {
+        service.setEnabled(true);
+        service.setTypeActive("AURORA", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.description()).isNotNull().isNotBlank();
+    }
+
+    @Test
+    @DisplayName("all 15 simulated topic types have non-blank descriptions")
+    void getSimulatedTopics_allTypes_allHaveNonBlankDescriptions() {
+        service.setEnabled(true);
+        service.getAllTypes().forEach(t -> service.setTypeActive(t.type(), true));
+
+        List<HotTopic> topics = service.getSimulatedTopics(TODAY, TODAY.plusDays(3));
+
+        assertThat(topics).hasSize(15);
+        assertThat(topics).extracting(HotTopic::description)
+                .as("every simulated topic must have a non-blank description")
+                .allSatisfy(desc -> assertThat(desc).isNotNull().isNotBlank());
+    }
+
     // ── Day label in detail string ────────────────────────────────────────────
 
     @Test
