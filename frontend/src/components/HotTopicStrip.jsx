@@ -50,12 +50,10 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
             onClick={() => !isLiteUser && onTopicTap && onTopicTap(topic)}
             disabled={isLiteUser}
             style={{
-              position: 'relative',
               display: 'flex',
               flexDirection: 'column',
               gap: '2px',
               padding: '8px 14px',
-              paddingRight: topic.description ? '32px' : '14px',
               borderRadius: '8px',
               border: `1px solid ${accent.border}`,
               background: accent.background,
@@ -68,27 +66,53 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
               flexShrink: 0,
             }}
           >
-            {regionLine && (
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: 'rgba(255, 255, 255, 0.4)',
-                }}
-              >
-                {regionLine}
-              </span>
-            )}
-            <span
+            <div
               style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                color: accent.labelColor,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                gap: '12px',
+                marginBottom: '4px',
               }}
             >
-              {topic.label}
-            </span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    color: accent.labelColor,
+                  }}
+                >
+                  {topic.label}
+                </span>
+                {topic.description && (
+                  <InfoTip text={topic.description} position="above" />
+                )}
+              </div>
+              {regionLine && (
+                <span
+                  style={{
+                    fontSize: '11px',
+                    color: 'rgba(255, 255, 255, 0.45)',
+                    textAlign: 'right',
+                    lineHeight: 1.3,
+                    whiteSpace: 'normal',
+                    wordBreak: 'normal',
+                  }}
+                >
+                  {regionLine}
+                </span>
+              )}
+            </div>
             <span
               style={{
                 fontSize: '12px',
@@ -97,13 +121,6 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
             >
               {topic.detail}
             </span>
-            {topic.description && (
-              <InfoTip
-                text={topic.description}
-                position="above"
-                className="absolute top-1 right-1"
-              />
-            )}
           </button>
         );
       })}
