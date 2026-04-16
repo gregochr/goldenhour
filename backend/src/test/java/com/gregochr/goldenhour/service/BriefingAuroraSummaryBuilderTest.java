@@ -828,6 +828,24 @@ class BriefingAuroraSummaryBuilderTest {
     }
 
     @Test
+    @DisplayName("buildAuroraTomorrow moon phase name comes from LunarPhase enum — not hardcoded")
+    void tomorrowSummary_moonPhaseReflectsActualPhase() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        -10.0, 90.0, 0.02, LunarPhase.NEW_MOON, 356500));
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrow();
+
+        assertThat(summary.moonPhase()).isEqualTo("NEW_MOON");
+        assertThat(summary.moonIlluminationPct()).isEqualTo(2.0);
+    }
+
+    @Test
     @DisplayName("buildAuroraTomorrow has null moon fields when lunar calculator fails")
     void tomorrowSummary_lunarCalcFails_nullMoonFields() {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
@@ -843,6 +861,101 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(summary).isNotNull();
         assertThat(summary.moonPhase()).isNull();
         assertThat(summary.moonIlluminationPct()).isNull();
+        // Rest of summary unaffected
+        assertThat(summary.peakKp()).isEqualTo(4.5);
+        assertThat(summary.label()).isEqualTo("Worth watching");
+    }
+
+    @Test
+    @DisplayName("buildAuroraTomorrowCached populates moon fields from cached lunar calc")
+    void tomorrowSummaryCached_includesMoonData() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 4.0)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        15.0, 200.0, 0.55, LunarPhase.FIRST_QUARTER, 384400));
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrowCached();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.moonPhase()).isEqualTo("FIRST_QUARTER");
+        assertThat(summary.moonIlluminationPct()).isCloseTo(55.0,
+                org.assertj.core.data.Offset.offset(0.1));
+    }
+
+    @Test
+    @DisplayName("buildAuroraTomorrow calls lunarCalculator with Durham coordinates")
+    void tomorrowSummary_callsLunarCalcWithDurhamCoords() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        25.0, 180.0, 0.73, LunarPhase.WAXING_GIBBOUS, 384400));
+
+        builder.buildAuroraTomorrow();
+
+        // sampleWindow calls calculate() once per hour across the window —
+        // verify every call used Durham coordinates, not some other location.
+        ArgumentCaptor<Double> latCaptor = ArgumentCaptor.forClass(Double.class);
+        ArgumentCaptor<Double> lonCaptor = ArgumentCaptor.forClass(Double.class);
+        verify(lunarCalculator, org.mockito.Mockito.atLeastOnce()).calculate(
+                any(ZonedDateTime.class), latCaptor.capture(), lonCaptor.capture());
+        // Durham, UK — 54.776, -1.575
+        assertThat(latCaptor.getAllValues())
+                .allSatisfy(lat -> assertThat(lat).isCloseTo(54.776,
+                        org.assertj.core.data.Offset.offset(0.01)));
+        assertThat(lonCaptor.getAllValues())
+                .allSatisfy(lon -> assertThat(lon).isCloseTo(-1.575,
+                        org.assertj.core.data.Offset.offset(0.01)));
+    }
+
+    @Test
+    @DisplayName("existing tomorrow tests have null moon when lunarCalculator not stubbed")
+    void tomorrowQuiet_moonFieldsNullWhenCalcUnstubbed() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(20), now.plusHours(23), 1.5)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+        // lunarCalculator not stubbed — returns null → NPE → caught → null moon
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrow();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.moonPhase()).isNull();
+        assertThat(summary.moonIlluminationPct()).isNull();
+    }
+
+    @Test
+    @DisplayName("buildAuroraTomorrow moon fields independent of regions and Kp label")
+    void tomorrowSummary_moonFieldsIndependentOfOtherFields() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        LocationEntity loc = location(2L, "Kielder", "Northumberland");
+        loc.setBortleClass(3);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of(loc));
+        when(weatherEnricher.fetchWeather(anyList(), any(ZonedDateTime.class)))
+                .thenReturn(Map.of(2L, new AuroraWeatherEnricher.AuroraWeather(
+                        30, 1.0, 3.0, 0)));
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        -5.0, 150.0, 0.95, LunarPhase.FULL_MOON, 357000));
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrow();
+
+        // Moon fields populated alongside regions and Kp
+        assertThat(summary.moonPhase()).isEqualTo("FULL_MOON");
+        assertThat(summary.moonIlluminationPct()).isEqualTo(95.0);
+        assertThat(summary.regions()).hasSize(1);
+        assertThat(summary.label()).isEqualTo("Worth watching");
     }
 
     private static LocationEntity location(Long id, String name, String regionName) {
