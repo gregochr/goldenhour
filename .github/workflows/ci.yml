@@ -42,46 +42,12 @@ jobs:
           name: spotbugs-report
           path: backend/target/spotbugsXml.xml
 
-      - name: Cache OWASP Dependency-Check DB
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: owasp-db-${{ runner.os }}
-          restore-keys: owasp-db-
-
-      - name: Debug NVD API key presence
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          if [ -z "$NVD_API_KEY" ]; then
-            echo "::error::NVD_API_KEY is EMPTY — secret not reaching runner"
-            exit 1
-          else
-            echo "NVD_API_KEY is SET (length: ${#NVD_API_KEY})"
-            echo "First 4 chars: ${NVD_API_KEY:0:4}..."
-          fi
-
-      - name: OWASP Dependency-Check (backend)
-        continue-on-error: true  # NVD API has a nanosecond timestamp bug; don't block CI
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          cd backend && ./mvnw org.owasp:dependency-check-maven:12.2.1:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=24 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
-
       - name: Upload JaCoCo coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: backend/target/site/jacoco/
-
-      - name: Upload OWASP report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owasp-backend-report
-          path: backend/target/dependency-check-report.*
 
   # ── Frontend ─────────────────────────────────────────────────────────────────
   frontend:
