@@ -116,6 +116,72 @@ class PromptUtilsTest {
         }
     }
 
+    // ── extractJsonObject ────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("extractJsonObject")
+    class ExtractJsonObjectTests {
+
+        @Test
+        void pureJsonReturnsUnchanged() {
+            String json = "{\"picks\":[{\"rank\":1}]}";
+            assertThat(PromptUtils.extractJsonObject(json)).isEqualTo(json);
+        }
+
+        @Test
+        void preamblePlusJson() {
+            String input = "I'll analyze the conditions.\n\n{\"picks\":[]}";
+            assertThat(PromptUtils.extractJsonObject(input)).isEqualTo("{\"picks\":[]}");
+        }
+
+        @Test
+        void jsonPlusPostamble() {
+            String input = "{\"picks\":[]}\n\nHope this helps!";
+            assertThat(PromptUtils.extractJsonObject(input)).isEqualTo("{\"picks\":[]}");
+        }
+
+        @Test
+        void preambleAndPostamble() {
+            String input = "Here is my analysis:\n{\"picks\":[]}\nLet me know if you need more.";
+            assertThat(PromptUtils.extractJsonObject(input)).isEqualTo("{\"picks\":[]}");
+        }
+
+        @Test
+        void bracesInsideStringValues() {
+            String json = "{\"detail\":\"winds {strong} today\",\"rank\":1}";
+            assertThat(PromptUtils.extractJsonObject("Preamble " + json + " done"))
+                    .isEqualTo(json);
+        }
+
+        @Test
+        void escapedQuotesInsideStringValues() {
+            String json = "{\"detail\":\"she said \\\"wow\\\"\",\"rank\":1}";
+            assertThat(PromptUtils.extractJsonObject(json)).isEqualTo(json);
+        }
+
+        @Test
+        void noBracesReturnsOriginal() {
+            String input = "No JSON here at all";
+            assertThat(PromptUtils.extractJsonObject(input)).isEqualTo(input);
+        }
+
+        @Test
+        void unbalancedBracesReturnsOriginal() {
+            String input = "{\"truncated\": true";
+            assertThat(PromptUtils.extractJsonObject(input)).isEqualTo(input);
+        }
+
+        @Test
+        void nullReturnsNull() {
+            assertThat(PromptUtils.extractJsonObject(null)).isNull();
+        }
+
+        @Test
+        void emptyStringReturnsEmpty() {
+            assertThat(PromptUtils.extractJsonObject("")).isEqualTo("");
+        }
+    }
+
     // ── insertBeforeSuffix ──────────────────────────────────────────────
 
     @Nested

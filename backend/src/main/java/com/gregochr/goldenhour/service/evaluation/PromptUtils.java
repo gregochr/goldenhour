@@ -84,6 +84,60 @@ public final class PromptUtils {
     }
 
     /**
+     * Extracts the first balanced JSON object from a string, ignoring any
+     * surrounding preamble or postamble text. Returns the original string if
+     * no balanced object is found (caller will then fail fast with a clear
+     * Jackson error).
+     *
+     * <p>Handles the common case where Claude emits conversational text like
+     * "I'll analyze..." before the JSON, despite system-prompt instructions
+     * to return JSON only.
+     *
+     * @param raw the raw response text, possibly with preamble/postamble
+     * @return the first balanced JSON object, or the original string
+     */
+    public static String extractJsonObject(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        int start = raw.indexOf('{');
+        if (start == -1) {
+            return raw;
+        }
+        int depth = 0;
+        boolean inString = false;
+        boolean escape = false;
+        for (int i = start; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (c == '\\' && inString) {
+                escape = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                continue;
+            }
+            if (c == '{') {
+                depth++;
+            } else if (c == '}') {
+                depth--;
+                if (depth == 0) {
+                    return raw.substring(start, i + 1);
+                }
+            }
+        }
+        // Unbalanced — return the original so Jackson reports a clear error
+        return raw;
+    }
+
+    /**
      * Returns the median of a sorted int array, or 0 if empty.
      *
      * @param sorted a sorted int array
