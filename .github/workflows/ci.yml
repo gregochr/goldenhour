@@ -49,6 +49,18 @@ jobs:
           key: owasp-db-${{ runner.os }}
           restore-keys: owasp-db-
 
+      - name: Debug NVD API key presence
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::error::NVD_API_KEY is EMPTY — secret not reaching runner"
+            exit 1
+          else
+            echo "NVD_API_KEY is SET (length: ${#NVD_API_KEY})"
+            echo "First 4 chars: ${NVD_API_KEY:0:4}..."
+          fi
+
       - name: OWASP Dependency-Check (backend)
         continue-on-error: true  # NVD API has a nanosecond timestamp bug; don't block CI
         env:
