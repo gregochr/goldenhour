@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.ContentBlock;
+import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
+import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
@@ -12,10 +14,12 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -31,6 +35,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,8 +47,13 @@ import java.util.Map;
  * Fetches completed Anthropic Batch API results and writes them to the appropriate cache.
  *
  * <p>For FORECAST batches: parses each per-location response, looks up the location by the ID
- * encoded in the {@code customId} ({@code "fc-{locationId}-{date}-{targetType}"}), reconstructs
- * the {@code "regionName|date|targetType"} cache key, and writes to {@link BriefingEvaluationService}.
+ * encoded in the {@code customId}. Two formats are accepted:
+ * <ul>
+ *   <li>Scheduled: {@code "fc-{locationId}-{date}-{targetType}"}</li>
+ *   <li>Force-submit: {@code "force-{regionName}-{locationId}-{date}-{targetType}"}</li>
+ * </ul>
+ * Reconstructs the {@code "regionName|date|targetType"} cache key and writes to
+ * {@link BriefingEvaluationService}.
  *
  * <p>For AURORA batches: re-runs weather triage to obtain current cloud data, parses the
  * single-response aurora evaluation, and writes scored results to {@link AuroraStateCache}.
@@ -68,6 +79,7 @@ public class BatchResultProcessor {
     private final NoaaSwpcClient noaaSwpcClient;
     private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
+    private final CostCalculator costCalculator;
 
     /**
      * Constructs the batch result processor.
@@ -85,6 +97,7 @@ public class BatchResultProcessor {
      * @param noaaSwpcClient              NOAA SWPC client for aurora re-triage
      * @param objectMapper                Jackson mapper for JSON parsing
      * @param jobRunService               service for completing the linked job run record
+     * @param costCalculator              calculates token-based costs for batch results
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -98,7 +111,8 @@ public class BatchResultProcessor {
             AuroraProperties auroraProperties,
             NoaaSwpcClient noaaSwpcClient,
             ObjectMapper objectMapper,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            CostCalculator costCalculator) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.briefingEvaluationService = briefingEvaluationService;
@@ -112,6 +126,7 @@ public class BatchResultProcessor {
         this.noaaSwpcClient = noaaSwpcClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
+        this.costCalculator = costCalculator;
     }
 
     /**
@@ -146,6 +161,11 @@ public class BatchResultProcessor {
         Map<String, List<BriefingEvaluationResult>> byKey = new HashMap<>();
         int succeeded = 0;
         int errored = 0;
+        long totalInput = 0;
+        long totalOutput = 0;
+        long totalCacheRead = 0;
+        long totalCacheCreate = 0;
+        String firstModelId = null;
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -159,18 +179,56 @@ public class BatchResultProcessor {
                     continue;
                 }
 
-                String text = extractText(response);
+                Message message = extractMessage(response);
+                if (message == null) {
+                    LOG.warn("Forecast batch: no message for '{}'", customId);
+                    errored++;
+                    continue;
+                }
+
+                String text = extractTextFromMessage(message);
                 if (text == null) {
                     LOG.warn("Forecast batch: no text content for '{}'", customId);
                     errored++;
                     continue;
                 }
 
-                // customId format: "fc-{locationId}-{date}-{targetType}"
-                // e.g. "fc-42-2026-04-16-SUNRISE" → split on "-" gives
-                // ["fc","42","2026","04","16","SUNRISE"]
+                // Capture model from first response
+                if (firstModelId == null) {
+                    firstModelId = message.model().asString();
+                }
+
+                // Log per-request token usage
+                Usage usage = message.usage();
+                long input = usage.inputTokens();
+                long output = usage.outputTokens();
+                long cacheRead = usage.cacheReadInputTokens().orElse(0L);
+                long cacheCreate = usage.cacheCreationInputTokens().orElse(0L);
+                LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, cacheCreate={}",
+                        customId, input, output, cacheRead, cacheCreate);
+                totalInput += input;
+                totalOutput += output;
+                totalCacheRead += cacheRead;
+                totalCacheCreate += cacheCreate;
+
+                // Scheduled format: "fc-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
+                // e.g. "fc-42-2026-04-16-SUNRISE" → 6 parts
+                // Force-submit format: "force-{regionName}-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
+                // e.g. "force-TheNorthYorkMoors-93-2026-04-16-SUNSET" → 7 parts
                 String[] parts = customId.split("-");
-                if (parts.length < 6 || !"fc".equals(parts[0])) {
+                int locationIdIdx;
+                int dateStartIdx;
+                int eventIdx;
+
+                if (parts.length == 6 && "fc".equals(parts[0])) {
+                    locationIdIdx = 1;
+                    dateStartIdx = 2;
+                    eventIdx = 5;
+                } else if (parts.length == 7 && "force".equals(parts[0])) {
+                    locationIdIdx = 2;
+                    dateStartIdx = 3;
+                    eventIdx = 6;
+                } else {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
                     continue;
@@ -178,7 +236,7 @@ public class BatchResultProcessor {
 
                 long locationId;
                 try {
-                    locationId = Long.parseLong(parts[1]);
+                    locationId = Long.parseLong(parts[locationIdIdx]);
                 } catch (NumberFormatException e) {
                     LOG.warn("Forecast batch: non-numeric locationId in '{}', skipping", customId);
                     errored++;
@@ -193,8 +251,16 @@ public class BatchResultProcessor {
                     continue;
                 }
 
-                String date = parts[2] + "-" + parts[3] + "-" + parts[4];
-                String targetTypePart = parts[5];
+                if (customId.startsWith("force-")) {
+                    LOG.info("Batch result: processing force-submit result for locationId={} "
+                            + "date={}-{}-{} event={}",
+                            locationId, parts[dateStartIdx], parts[dateStartIdx + 1],
+                            parts[dateStartIdx + 2], parts[eventIdx]);
+                }
+
+                String date = parts[dateStartIdx] + "-" + parts[dateStartIdx + 1]
+                        + "-" + parts[dateStartIdx + 2];
+                String targetTypePart = parts[eventIdx];
                 String regionName = location.getRegion() != null
                         ? location.getRegion().getName() : location.getName();
                 String cacheKey = regionName + "|" + date + "|" + targetTypePart;
@@ -239,6 +305,10 @@ public class BatchResultProcessor {
         batch.setErroredCount(errored);
         batch.setEndedAt(Instant.now());
         batch.setStatus(succeeded > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED);
+
+        persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                firstModelId);
+
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
             jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
@@ -255,6 +325,11 @@ public class BatchResultProcessor {
     private void processAuroraBatch(ForecastBatchEntity batch) {
         String rawResponse = null;
         AlertLevel level = AlertLevel.QUIET;
+        String auroraModelId = null;
+        long totalInput = 0;
+        long totalOutput = 0;
+        long totalCacheRead = 0;
+        long totalCacheCreate = 0;
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -268,7 +343,20 @@ public class BatchResultProcessor {
                     return;
                 }
 
-                rawResponse = extractText(response);
+                Message message = extractMessage(response);
+                if (message != null) {
+                    rawResponse = extractTextFromMessage(message);
+                    auroraModelId = message.model().asString();
+
+                    Usage usage = message.usage();
+                    totalInput = usage.inputTokens();
+                    totalOutput = usage.outputTokens();
+                    totalCacheRead = usage.cacheReadInputTokens().orElse(0L);
+                    totalCacheCreate = usage.cacheCreationInputTokens().orElse(0L);
+                    LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, "
+                            + "cacheCreate={}", customId, totalInput, totalOutput,
+                            totalCacheRead, totalCacheCreate);
+                }
 
                 // customId format: "au-{alertLevel}-{date}"
                 // e.g. "au-MODERATE-2026-04-16" → split on "-" limit 3 gives
@@ -346,6 +434,10 @@ public class BatchResultProcessor {
             batch.setErroredCount(0);
             batch.setEndedAt(Instant.now());
             batch.setStatus(BatchStatus.COMPLETED);
+
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    auroraModelId);
+
             batchRepository.save(batch);
             if (batch.getJobRunId() != null) {
                 jobRunService.completeBatchRun(batch.getJobRunId(), allScores.size(), 0);
@@ -358,17 +450,76 @@ public class BatchResultProcessor {
     }
 
     /**
-     * Extracts the text content from a succeeded batch individual response.
+     * Extracts the {@link Message} from a succeeded batch individual response.
      */
-    private String extractText(MessageBatchIndividualResponse response) {
+    private Message extractMessage(MessageBatchIndividualResponse response) {
         return response.result().succeeded()
-                .map(succeeded -> succeeded.message().content().stream()
-                        .filter(ContentBlock::isText)
-                        .map(ContentBlock::asText)
-                        .map(TextBlock::text)
-                        .findFirst()
-                        .orElse(null))
+                .map(succeeded -> succeeded.message())
                 .orElse(null);
+    }
+
+    /**
+     * Extracts the text content from a {@link Message}.
+     */
+    private String extractTextFromMessage(Message message) {
+        return message.content().stream()
+                .filter(ContentBlock::isText)
+                .map(ContentBlock::asText)
+                .map(TextBlock::text)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Persists token usage totals and estimated cost on the batch entity.
+     */
+    private void persistTokenUsage(ForecastBatchEntity batch, long totalInput, long totalOutput,
+            long totalCacheRead, long totalCacheCreate, String modelId) {
+        if (totalInput == 0 && totalOutput == 0) {
+            return;
+        }
+
+        batch.setTotalInputTokens(totalInput);
+        batch.setTotalOutputTokens(totalOutput);
+        batch.setTotalCacheReadTokens(totalCacheRead);
+        batch.setTotalCacheCreationTokens(totalCacheCreate);
+
+        EvaluationModel evalModel = resolveEvaluationModel(modelId);
+        TokenUsage tokenUsage = new TokenUsage(totalInput, totalOutput, totalCacheCreate,
+                totalCacheRead);
+        long costMicroDollars = costCalculator.calculateCostMicroDollars(evalModel, tokenUsage, true);
+        BigDecimal costUsd = BigDecimal.valueOf(costMicroDollars)
+                .divide(BigDecimal.valueOf(1_000_000), 6, RoundingMode.HALF_UP);
+        batch.setEstimatedCostUsd(costUsd);
+
+        LOG.info("Batch cost summary [{}]: model={}, input={}k, output={}k, cacheRead={}k, "
+                + "cacheCreate={}k, estimated cost=${} USD",
+                batch.getAnthropicBatchId(), modelId != null ? modelId : "unknown",
+                totalInput / 1000, totalOutput / 1000, totalCacheRead / 1000,
+                totalCacheCreate / 1000, costUsd.toPlainString());
+    }
+
+    /**
+     * Resolves an Anthropic model ID string to an {@link EvaluationModel} enum value.
+     */
+    static EvaluationModel resolveEvaluationModel(String modelId) {
+        if (modelId == null) {
+            return EvaluationModel.SONNET;
+        }
+        for (EvaluationModel em : EvaluationModel.values()) {
+            if (em.getModelId() != null && modelId.contains(em.getModelId())) {
+                return em;
+            }
+        }
+        if (modelId.contains("haiku")) {
+            return EvaluationModel.HAIKU;
+        } else if (modelId.contains("opus")) {
+            return EvaluationModel.OPUS;
+        } else if (modelId.contains("sonnet")) {
+            return EvaluationModel.SONNET;
+        }
+        LOG.warn("Unknown model for pricing: {} — using Sonnet rates", modelId);
+        return EvaluationModel.SONNET;
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {

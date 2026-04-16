@@ -20,6 +20,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -36,6 +37,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +88,8 @@ class BatchResultProcessorTest {
     private ObjectMapper objectMapper;
     @Mock
     private JobRunService jobRunService;
+    @Mock
+    private CostCalculator costCalculator;
 
     private BatchResultProcessor processor;
 
@@ -95,7 +99,7 @@ class BatchResultProcessorTest {
                 anthropicClient, batchRepository, briefingEvaluationService,
                 evaluationStrategies, modelSelectionService, claudeAuroraInterpreter,
                 auroraStateCache, weatherTriageService, locationRepository,
-                auroraProperties, noaaSwpcClient, objectMapper, jobRunService);
+                auroraProperties, noaaSwpcClient, objectMapper, jobRunService, costCalculator);
     }
 
     private void stubBatchService() {
@@ -477,6 +481,150 @@ class BatchResultProcessorTest {
         // Falls back to location name when region is null
         assertThat(cacheKeyCaptor.getValue())
                 .isEqualTo("Isolated Viewpoint|2026-04-07|SUNRISE");
+    }
+
+    // ── FORECAST: force-submit customId format ────────────────────────────────
+
+    @Test
+    @DisplayName("processResults for FORECAST parses force-submit customId and writes to cache")
+    void processResults_forecastBatch_forceSubmitCustomId_writesToCache() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
+                + "\"summary\":\"Good conditions\"}";
+
+        LocationEntity location = buildLocationWithRegion(93L, "Whitby Abbey", "North York Moors");
+        when(locationRepository.findById(93L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "force-TheNorthYorkMoors-93-2026-04-16-SUNSET", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        4, 72, 68, "Good conditions"));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North York Moors|2026-04-16|SUNSET"), resultsCaptor.capture());
+        assertThat(resultsCaptor.getValue()).hasSize(1);
+        assertThat(resultsCaptor.getValue().get(0).locationName()).isEqualTo("Whitby Abbey");
+
+        ArgumentCaptor<ForecastBatchEntity> entityCaptor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(entityCaptor.getValue().getSucceededCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST rejects force-submit customId with wrong part count")
+    void processResults_forecastBatch_forceSubmitWrongPartCount_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        // Only 6 parts but starts with "force" — missing event type
+        MessageBatchIndividualResponse response = succeededResponse(
+                "force-Region-93-2026-04-16",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST rejects force-submit customId with non-numeric locationId")
+    void processResults_forecastBatch_forceSubmitNonNumericLocationId_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "force-Region-abc-2026-04-16-SUNSET",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        verifyNoInteractions(locationRepository);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST handles mix of fc and force-submit customIds")
+    void processResults_forecastBatch_mixedFcAndForceCustomIds() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String text1 = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"Good\"}";
+        String text2 = "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":50,\"summary\":\"OK\"}";
+
+        LocationEntity loc1 = buildLocationWithRegion(10L, "Durham UK", "North East");
+        LocationEntity loc2 = buildLocationWithRegion(93L, "Whitby Abbey", "North York Moors");
+        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc1));
+        when(locationRepository.findById(93L)).thenReturn(Optional.of(loc2));
+
+        MessageBatchIndividualResponse resp1 = succeededResponse(
+                "fc-10-2026-04-16-SUNRISE", text1);
+        MessageBatchIndividualResponse resp2 = succeededResponse(
+                "force-NorthYorkMoors-93-2026-04-16-SUNSET", text2);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(resp1, resp2));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(text1, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(4, 70, 65, "Good"));
+        when(strategy.parseEvaluation(text2, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(3, 55, 50, "OK"));
+
+        processor.processResults(batch);
+
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North East|2026-04-16|SUNRISE"), any());
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North York Moors|2026-04-16|SUNSET"), any());
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(2);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(0);
     }
 
     // ── FORECAST: parse exception ────────────────────────────────────────────
@@ -948,6 +1096,75 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
     }
 
+    // ── Token usage + cost tracking ────────────────────────────────────────
+
+    @Test
+    @DisplayName("processResults for FORECAST persists token totals and estimated cost on batch entity")
+    void processResults_forecastBatch_persistsTokenTotalsAndCost() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
+                + "\"summary\":\"Good conditions\"}";
+
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        4, 72, 68, "Good conditions"));
+
+        // CostCalculator returns 1500 micro-dollars = $0.001500
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class),
+                any(com.gregochr.goldenhour.model.TokenUsage.class), eq(true)))
+                .thenReturn(1500L);
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        ForecastBatchEntity saved = captor.getValue();
+
+        assertThat(saved.getTotalInputTokens()).isEqualTo(500L);
+        assertThat(saved.getTotalOutputTokens()).isEqualTo(200L);
+        assertThat(saved.getTotalCacheReadTokens()).isEqualTo(1000L);
+        assertThat(saved.getTotalCacheCreationTokens()).isEqualTo(0L);
+        assertThat(saved.getEstimatedCostUsd()).isEqualByComparingTo(new BigDecimal("0.001500"));
+    }
+
+    @Test
+    @DisplayName("resolveEvaluationModel maps known model IDs correctly")
+    void resolveEvaluationModel_knownModels() {
+        assertThat(BatchResultProcessor.resolveEvaluationModel("claude-sonnet-4-6"))
+                .isEqualTo(EvaluationModel.SONNET);
+        assertThat(BatchResultProcessor.resolveEvaluationModel("claude-haiku-4-5-20251001"))
+                .isEqualTo(EvaluationModel.HAIKU);
+        assertThat(BatchResultProcessor.resolveEvaluationModel("claude-opus-4-6"))
+                .isEqualTo(EvaluationModel.OPUS);
+        assertThat(BatchResultProcessor.resolveEvaluationModel(null))
+                .isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("resolveEvaluationModel falls back to Sonnet for unknown model strings")
+    void resolveEvaluationModel_unknownModel_fallsBackToSonnet() {
+        assertThat(BatchResultProcessor.resolveEvaluationModel("claude-future-99"))
+                .isEqualTo(EvaluationModel.SONNET);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     // ── Job run tracking: FORECAST ───────────────────────────────────────────
@@ -1034,6 +1251,8 @@ class BatchResultProcessorTest {
                 mock(com.anthropic.models.messages.TextBlock.class);
         com.anthropic.models.messages.ContentBlock contentBlock =
                 mock(com.anthropic.models.messages.ContentBlock.class);
+        com.anthropic.models.messages.Usage usage =
+                mock(com.anthropic.models.messages.Usage.class);
 
         when(response.result()).thenReturn(result);
         when(response.customId()).thenReturn("au-MODERATE-2026-04-14");
@@ -1041,6 +1260,12 @@ class BatchResultProcessorTest {
         when(result.succeeded()).thenReturn(Optional.of(succeeded));
         when(succeeded.message()).thenReturn(message);
         when(message.content()).thenReturn(List.of(contentBlock));
+        when(message.usage()).thenReturn(usage);
+        when(message.model()).thenReturn(com.anthropic.models.messages.Model.of("claude-haiku-4-5"));
+        when(usage.inputTokens()).thenReturn(100L);
+        when(usage.outputTokens()).thenReturn(50L);
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.of(0L));
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(0L));
         when(contentBlock.isText()).thenReturn(true);
         when(contentBlock.asText()).thenReturn(textBlock);
         when(textBlock.text()).thenReturn("aurora response text");
@@ -1104,6 +1329,8 @@ class BatchResultProcessorTest {
                 mock(com.anthropic.models.messages.TextBlock.class);
         com.anthropic.models.messages.ContentBlock contentBlock =
                 mock(com.anthropic.models.messages.ContentBlock.class);
+        com.anthropic.models.messages.Usage usage =
+                mock(com.anthropic.models.messages.Usage.class);
 
         when(response.result()).thenReturn(result);
         when(response.customId()).thenReturn(customId);
@@ -1111,9 +1338,16 @@ class BatchResultProcessorTest {
         when(result.succeeded()).thenReturn(Optional.of(succeeded));
         when(succeeded.message()).thenReturn(message);
         when(message.content()).thenReturn(List.of(contentBlock));
+        when(message.usage()).thenReturn(usage);
+        org.mockito.Mockito.lenient().when(message.model())
+                .thenReturn(com.anthropic.models.messages.Model.of("claude-sonnet-4-6"));
         when(contentBlock.isText()).thenReturn(true);
         when(contentBlock.asText()).thenReturn(textBlock);
         when(textBlock.text()).thenReturn(text);
+        when(usage.inputTokens()).thenReturn(500L);
+        when(usage.outputTokens()).thenReturn(200L);
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.of(1000L));
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(0L));
 
         return response;
     }
