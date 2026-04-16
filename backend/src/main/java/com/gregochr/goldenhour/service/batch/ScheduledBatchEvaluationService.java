@@ -55,12 +55,14 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * Submits forecast and aurora evaluations to the Anthropic Batch API for cost-efficient
@@ -299,6 +301,7 @@ public class ScheduledBatchEvaluationService {
 
         // Second pass: triage each task using the pre-fetched caches (no individual API calls)
         List<BatchCreateParams.Request> requests = new ArrayList<>();
+        List<ForecastTask> includedTasks = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         int skippedTriage = 0;
@@ -333,6 +336,7 @@ public class ScheduledBatchEvaluationService {
                 }
                 requests.add(buildForecastRequest(task.date(), task.targetType(),
                         task.location(), preEval.atmosphericData(), model));
+                includedTasks.add(task);
                 LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={}",
                         task.location().getName(), task.date(), task.targetType());
                 included++;
@@ -355,6 +359,41 @@ public class ScheduledBatchEvaluationService {
         }
 
         submitBatch(requests, BatchType.FORECAST, "Forecast batch");
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+
+        String dateBreakdown = includedTasks.stream()
+                .collect(Collectors.groupingBy(
+                        t -> "T+" + ChronoUnit.DAYS.between(today, t.date()),
+                        Collectors.counting()))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining(", "));
+
+        String eventBreakdown = includedTasks.stream()
+                .collect(Collectors.groupingBy(
+                        t -> t.targetType().name(),
+                        Collectors.counting()))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining(", "));
+
+        String regionBreakdown = includedTasks.stream()
+                .collect(Collectors.groupingBy(
+                        t -> t.location().getRegion() != null
+                                ? t.location().getRegion().getName()
+                                : t.location().getName(),
+                        Collectors.counting()))
+                .entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(e -> e.getKey() + "=" + e.getValue())
+                .collect(Collectors.joining(", "));
+
+        LOG.warn("[BATCH DIAG] Submitted {} requests — by date: [{}] | by event: [{}] "
+                        + "| by region: [{}]",
+                includedTasks.size(), dateBreakdown, eventBreakdown, regionBreakdown);
     }
 
     /**
