@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -93,6 +94,26 @@ public class ForecastBatchEntity {
      */
     @Column(name = "job_run_id")
     private Long jobRunId;
+
+    /** Sum of input tokens across all requests in this batch. */
+    @Column(name = "total_input_tokens")
+    private Long totalInputTokens;
+
+    /** Sum of output tokens generated across all requests. */
+    @Column(name = "total_output_tokens")
+    private Long totalOutputTokens;
+
+    /** Sum of cached input tokens read (90% cost saving applies). */
+    @Column(name = "total_cache_read_tokens")
+    private Long totalCacheReadTokens;
+
+    /** Sum of tokens written to cache (1.25x base rate applies). */
+    @Column(name = "total_cache_creation_tokens")
+    private Long totalCacheCreationTokens;
+
+    /** Estimated USD cost for the entire batch (post-discounts). */
+    @Column(name = "estimated_cost_usd", precision = 10, scale = 6)
+    private BigDecimal estimatedCostUsd;
 
     /** Default constructor for JPA. */
     public ForecastBatchEntity() {
@@ -192,5 +213,45 @@ public class ForecastBatchEntity {
 
     public void setJobRunId(Long jobRunId) {
         this.jobRunId = jobRunId;
+    }
+
+    public Long getTotalInputTokens() {
+        return totalInputTokens;
+    }
+
+    public void setTotalInputTokens(Long totalInputTokens) {
+        this.totalInputTokens = totalInputTokens;
+    }
+
+    public Long getTotalOutputTokens() {
+        return totalOutputTokens;
+    }
+
+    public void setTotalOutputTokens(Long totalOutputTokens) {
+        this.totalOutputTokens = totalOutputTokens;
+    }
+
+    public Long getTotalCacheReadTokens() {
+        return totalCacheReadTokens;
+    }
+
+    public void setTotalCacheReadTokens(Long totalCacheReadTokens) {
+        this.totalCacheReadTokens = totalCacheReadTokens;
+    }
+
+    public Long getTotalCacheCreationTokens() {
+        return totalCacheCreationTokens;
+    }
+
+    public void setTotalCacheCreationTokens(Long totalCacheCreationTokens) {
+        this.totalCacheCreationTokens = totalCacheCreationTokens;
+    }
+
+    public BigDecimal getEstimatedCostUsd() {
+        return estimatedCostUsd;
+    }
+
+    public void setEstimatedCostUsd(BigDecimal estimatedCostUsd) {
+        this.estimatedCostUsd = estimatedCostUsd;
     }
 }
