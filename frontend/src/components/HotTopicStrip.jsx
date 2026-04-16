@@ -17,7 +17,7 @@ const DEFAULT_ACCENT = {
 };
 
 /**
- * Horizontally scrollable strip of Hot Topic pills shown between the Best Bet
+ * Two-column responsive grid of Hot Topic pills shown between the Best Bet
  * cards and the quality slider in the briefing planner.
  *
  * @param {Object}   props
@@ -31,14 +31,7 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
   return (
     <div
       data-testid="hot-topic-strip"
-      style={{
-        display: 'flex',
-        gap: '8px',
-        overflowX: 'auto',
-        padding: '8px 0',
-        scrollbarWidth: 'none',
-        msOverflowStyle: 'none',
-      }}
+      className="hot-topic-grid"
     >
       {hotTopics.map((topic) => {
         const accent = TOPIC_ACCENT[topic.type] ?? DEFAULT_ACCENT;
@@ -58,12 +51,10 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
               border: `1px solid ${accent.border}`,
               background: accent.background,
               cursor: isLiteUser ? 'default' : 'pointer',
-              whiteSpace: 'nowrap',
               opacity: isLiteUser ? 0.45 : 1,
               pointerEvents: isLiteUser ? 'none' : 'auto',
               textAlign: 'left',
               transition: 'background 0.15s',
-              flexShrink: 0,
             }}
           >
             <div
@@ -135,7 +126,6 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
             color: '#d4a843',
             whiteSpace: 'nowrap',
             padding: '0 8px',
-            flexShrink: 0,
           }}
         >
           Upgrade to Pro

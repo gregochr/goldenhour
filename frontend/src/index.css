@@ -183,6 +183,20 @@
   background: #fff;
 }
 
+/* Hot Topic grid — two-column responsive layout */
+.hot-topic-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+}
+
+@media (max-width: 640px) {
+  .hot-topic-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Heatmap cell visibility transitions */
 .heatmap-cell-visible {
   opacity: 1;

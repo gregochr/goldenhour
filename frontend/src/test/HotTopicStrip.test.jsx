@@ -40,12 +40,11 @@ describe('HotTopicStrip', () => {
     expect(pills).toHaveLength(2);
   });
 
-  it('renders the strip container with horizontal scroll', () => {
+  it('renders the strip container with the grid class', () => {
     render(<HotTopicStrip hotTopics={[buildTopic()]} />);
     const strip = screen.getByTestId('hot-topic-strip');
     expect(strip).toBeInTheDocument();
-    expect(strip.style.overflowX).toBe('auto');
-    expect(strip.style.display).toBe('flex');
+    expect(strip.className).toContain('hot-topic-grid');
   });
 
   describe('title row layout', () => {
@@ -71,18 +70,39 @@ describe('HotTopicStrip', () => {
       expect(screen.getByText('A, B, C')).toBeInTheDocument();
     });
 
-    it('does not render regions when regions array is empty', () => {
-      render(<HotTopicStrip hotTopics={[buildTopic({ regions: [] })]} />);
-      expect(
-        screen.queryByText('Northumberland, The Lake District'),
-      ).not.toBeInTheDocument();
+    it('renders a single region without separator', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ regions: ['Snowdonia'] })]}
+        />,
+      );
+      expect(screen.getByText('Snowdonia')).toBeInTheDocument();
     });
 
-    it('does not render regions when regions is null', () => {
+    it('does not render region span when regions array is empty', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic({ regions: [] })]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      // Only the title-group div, no region span
+      expect(titleRow.children).toHaveLength(1);
+    });
+
+    it('does not render region span when regions is null', () => {
       render(<HotTopicStrip hotTopics={[buildTopic({ regions: null })]} />);
-      expect(
-        screen.queryByText('Northumberland, The Lake District'),
-      ).not.toBeInTheDocument();
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.children).toHaveLength(1);
+    });
+
+    it('does not render region span when regions is undefined', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ regions: undefined })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.children).toHaveLength(1);
     });
 
     it('renders detail text below the title row', () => {
@@ -297,6 +317,18 @@ describe('HotTopicStrip', () => {
       const regions = screen.getByText('Northumberland, The Lake District');
       expect(regions.style.whiteSpace).toBe('normal');
     });
+
+    it('uses muted colour for region text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const regions = screen.getByText('Northumberland, The Lake District');
+      expect(regions.style.color).toBe('rgba(255, 255, 255, 0.45)');
+    });
+
+    it('uses 11px font size for region text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const regions = screen.getByText('Northumberland, The Lake District');
+      expect(regions.style.fontSize).toBe('11px');
+    });
   });
 
   describe('DOM order', () => {
@@ -331,6 +363,86 @@ describe('HotTopicStrip', () => {
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
       const titleRow = pill.children[0];
       expect(titleRow.children).toHaveLength(1); // title-group only
+    });
+  });
+
+  describe('pill layout styles', () => {
+    it('uses column flex direction for pill content', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.flexDirection).toBe('column');
+    });
+
+    it('left-aligns pill text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.textAlign).toBe('left');
+    });
+
+    it('title row uses space-between to separate title and regions', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.style.justifyContent).toBe('space-between');
+    });
+
+    it('title-group does not shrink', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.style.flexShrink).toBe('0');
+    });
+  });
+
+  describe('title label styling', () => {
+    it('renders title in uppercase', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const label = screen.getByText('BLUEBELL CONDITIONS');
+      expect(label.style.textTransform).toBe('uppercase');
+    });
+
+    it('renders title with bold weight', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const label = screen.getByText('BLUEBELL CONDITIONS');
+      expect(label.style.fontWeight).toBe('600');
+    });
+
+    it('renders title at 11px', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const label = screen.getByText('BLUEBELL CONDITIONS');
+      expect(label.style.fontSize).toBe('11px');
+    });
+  });
+
+  describe('detail text styling', () => {
+    it('uses muted colour for detail text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const detail = screen.getByText(
+        'Misty and still — perfect morning conditions',
+      );
+      expect(detail.style.color).toBe('rgba(255, 255, 255, 0.55)');
+    });
+
+    it('uses 12px font size for detail text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const detail = screen.getByText(
+        'Misty and still — perfect morning conditions',
+      );
+      expect(detail.style.fontSize).toBe('12px');
+    });
+  });
+
+  describe('upsell styling', () => {
+    it('renders upsell text in gold colour', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.color).toBe('rgb(212, 168, 67)');
+    });
+
+    it('renders upsell text with bold weight', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.fontWeight).toBe('600');
     });
   });
 
