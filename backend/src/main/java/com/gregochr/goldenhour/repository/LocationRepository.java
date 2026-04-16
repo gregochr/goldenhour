@@ -84,4 +84,16 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
             + " WHERE lt = com.gregochr.goldenhour.entity.LocationType.BLUEBELL"
             + " AND l.enabled = true")
     List<LocationEntity> findBluebellLocations();
+
+    /**
+     * Returns all enabled locations that have at least one tide type preference.
+     *
+     * <p>A non-empty {@code tideType} set indicates a coastal location where
+     * tide data is relevant. Used by tide hot topic strategies to identify
+     * which regions have coastal locations.
+     *
+     * @return enabled coastal locations (those with at least one tide type)
+     */
+    @Query("SELECT DISTINCT l FROM LocationEntity l JOIN l.tideType tt WHERE l.enabled = true")
+    List<LocationEntity> findCoastalLocations();
 }
