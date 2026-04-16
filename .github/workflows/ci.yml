@@ -55,7 +55,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          cd backend && ./mvnw org.owasp:dependency-check-maven:12.2.1:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=24
+          cd backend && ./mvnw org.owasp:dependency-check-maven:12.2.1:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=24 -DnvdApiKey=$NVD_API_KEY
 
       - name: Upload JaCoCo coverage report
         if: always()
