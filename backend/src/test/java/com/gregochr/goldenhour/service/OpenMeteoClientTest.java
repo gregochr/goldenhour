@@ -12,8 +12,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -21,6 +24,7 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.times;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -289,6 +293,151 @@ class OpenMeteoClientTest {
         List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
 
         assertThat(results).hasSize(25);
+        assertThat(results).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    // ── fetchForecastBriefingBatch transient retry ────────────────────────────
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch: transient timeout succeeds on retry")
+    void fetchForecastBriefingBatch_transientTimeout_succeedsOnRetry() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(),
+                mockForecastClient, null);
+        client.interChunkDelayMs = 0;
+        client.chunkRetryBackoffMs = 0;
+
+        // 25 coords → 2 chunks; first chunk times out once then succeeds
+        List<double[]> coords = buildCoords(25);
+        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenThrow(new ResourceAccessException("I/O error: Read timed out",
+                        new IOException("Read timed out")))
+                .thenReturn(buildJsonArray(20, 50.0))
+                .thenReturn(buildJsonArray(5, 51.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
+
+        assertThat(results).hasSize(25);
+        assertThat(results).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch: transient 502 exhausts retries, other chunks preserved")
+    void fetchForecastBriefingBatch_transientExhausted_otherChunksPreserved() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(),
+                mockForecastClient, null);
+        client.interChunkDelayMs = 0;
+        client.chunkRetryBackoffMs = 0;
+
+        // 40 coords → 2 chunks; first chunk fails all 3 attempts, second succeeds
+        List<double[]> coords = buildCoords(40);
+        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenThrow(new HttpServerErrorException(
+                        org.springframework.http.HttpStatus.BAD_GATEWAY, "Bad Gateway"))
+                .thenThrow(new HttpServerErrorException(
+                        org.springframework.http.HttpStatus.BAD_GATEWAY, "Bad Gateway"))
+                .thenThrow(new HttpServerErrorException(
+                        org.springframework.http.HttpStatus.BAD_GATEWAY, "Bad Gateway"))
+                .thenReturn(buildJsonArray(20, 51.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
+
+        assertThat(results).hasSize(40);
+        // First chunk failed after 3 attempts → nulls
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNull());
+        // Second chunk succeeded
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch: 429 is not retried, propagates to rate-limit handling")
+    void fetchForecastBriefingBatch_rateLimitNotRetried() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(),
+                mockForecastClient, null);
+        client.interChunkDelayMs = 0;
+        client.rateLimitBackoffMs = 0;
+        client.chunkRetryBackoffMs = 0;
+
+        // 40 coords → 2 chunks; first chunk returns 429 — should NOT be retried
+        List<double[]> coords = buildCoords(40);
+        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenThrow(new RuntimeException("429 Too Many Requests"))
+                .thenReturn(buildJsonArray(20, 51.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
+
+        // 429 chunk failed immediately (no retry), second chunk succeeded
+        assertThat(results).hasSize(40);
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNull());
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+        // Only 2 HTTP calls: one 429 + one success (no retry attempts)
+        verify(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve(), times(2)).body(String.class);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch: non-transient error is not retried")
+    void fetchForecastBriefingBatch_nonTransientNotRetried() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(),
+                mockForecastClient, null);
+        client.interChunkDelayMs = 0;
+        client.chunkRetryBackoffMs = 0;
+
+        // 40 coords → 2 chunks; first chunk gets a parse error — not retried
+        List<double[]> coords = buildCoords(40);
+        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenThrow(new RuntimeException("Failed to parse JSON"))
+                .thenReturn(buildJsonArray(20, 51.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
+
+        assertThat(results).hasSize(40);
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNull());
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+        // Only 2 HTTP calls: one parse error + one success (no retry attempts)
+        verify(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve(), times(2)).body(String.class);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch: connection reset retried then succeeds on second attempt")
+    void fetchForecastBriefingBatch_connectionReset_succeedsOnSecondAttempt() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(),
+                mockForecastClient, null);
+        client.interChunkDelayMs = 0;
+        client.chunkRetryBackoffMs = 0;
+
+        // Single chunk (≤20 coords) hits connection reset once, then succeeds
+        List<double[]> coords = buildCoords(15);
+        when(mockForecastClient.get().uri(org.mockito.ArgumentMatchers.<java.util.function.Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenThrow(new ResourceAccessException("I/O error: Connection reset",
+                        new IOException("Connection reset")))
+                .thenReturn(buildJsonArray(15, 50.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
+
+        assertThat(results).hasSize(15);
         assertThat(results).allSatisfy(r -> assertThat(r).isNotNull());
     }
 

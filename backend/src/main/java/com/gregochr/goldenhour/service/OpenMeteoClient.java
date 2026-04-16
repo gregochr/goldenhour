@@ -16,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
@@ -80,6 +82,19 @@ public class OpenMeteoClient {
      */
     private static final long RATE_LIMIT_BACKOFF_MS = 61_000;
 
+    /**
+     * Maximum number of retry attempts for a briefing chunk that fails with a transient error
+     * (timeout, connection reset, 5xx). Rate-limit (429) failures are not retried — they use
+     * the existing inter-chunk backoff instead.
+     */
+    private static final int CHUNK_MAX_RETRIES = 2;
+
+    /**
+     * Base backoff in milliseconds before retrying a transiently failed briefing chunk.
+     * Doubles on each subsequent attempt: 2 s → 4 s.
+     */
+    private static final long CHUNK_RETRY_BASE_BACKOFF_MS = 2_000;
+
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
     private final RestClient forecastRestClient;
@@ -97,6 +112,12 @@ public class OpenMeteoClient {
      * Production code always reads {@link #RATE_LIMIT_BACKOFF_MS}.
      */
     long rateLimitBackoffMs = RATE_LIMIT_BACKOFF_MS;
+
+    /**
+     * Overridable in unit tests so that chunk-retry tests do not sleep 2+ seconds per attempt.
+     * Production code always reads {@link #CHUNK_RETRY_BASE_BACKOFF_MS}.
+     */
+    long chunkRetryBackoffMs = CHUNK_RETRY_BASE_BACKOFF_MS;
 
     @Autowired(required = false)
     private RateLimiterRegistry rateLimiterRegistry;
@@ -265,12 +286,13 @@ public class OpenMeteoClient {
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoForecastResponse> fetchForecastBriefingBatch(List<double[]> coords) {
         if (coords.size() <= BATCH_COORD_LIMIT) {
-            return fetchForecastChunk(coords, FORECAST_PARAMS, forecastRestClient);
+            return fetchBriefingChunkWithRetry(coords, 1, 1, new int[]{0});
         }
 
         int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
         int succeededChunks = 0;
         int failedChunks = 0;
+        int totalRetries = 0;
         boolean hitRateLimit = false;
 
         // Pre-fill with nulls — failed chunk positions remain null
@@ -288,12 +310,14 @@ public class OpenMeteoClient {
             int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
             List<double[]> chunk = coords.subList(i, end);
             try {
+                int[] retries = {0};
                 List<OpenMeteoForecastResponse> chunkResults =
-                        fetchForecastChunk(chunk, FORECAST_PARAMS, forecastRestClient);
+                        fetchBriefingChunkWithRetry(chunk, chunkIndex, totalChunks, retries);
                 for (int j = 0; j < chunkResults.size(); j++) {
                     results.set(i + j, chunkResults.get(j));
                 }
                 succeededChunks++;
+                totalRetries += retries[0];
                 hitRateLimit = false;
             } catch (Exception e) {
                 failedChunks++;
@@ -310,10 +334,89 @@ public class OpenMeteoClient {
         }
 
         long populated = results.stream().filter(r -> r != null).count();
-        LOG.info("Open-Meteo briefing batch: {}/{} chunks succeeded, {}/{} responses populated",
-                succeededChunks, totalChunks, populated, coords.size());
+        LOG.info("Open-Meteo briefing batch: {}/{} chunks succeeded ({} retries used), "
+                        + "{}/{} responses populated",
+                succeededChunks, totalChunks, totalRetries, populated, coords.size());
 
         return results;
+    }
+
+    /**
+     * Attempts to fetch a single briefing chunk, retrying up to {@value #CHUNK_MAX_RETRIES}
+     * times on transient failures (timeouts, connection errors, 5xx).
+     *
+     * <p>Rate-limit (429) and non-transient errors are re-thrown immediately for the caller
+     * to handle.
+     *
+     * @param chunk        coordinate pairs for this chunk
+     * @param chunkIndex   1-based chunk index (for logging)
+     * @param totalChunks  total number of chunks in the batch (for logging)
+     * @param retryCounter single-element array; incremented on each retry attempt
+     * @return parsed forecast responses for the chunk
+     */
+    private List<OpenMeteoForecastResponse> fetchBriefingChunkWithRetry(
+            List<double[]> chunk, int chunkIndex, int totalChunks, int[] retryCounter) {
+
+        Exception lastFailure = null;
+        for (int attempt = 0; attempt <= CHUNK_MAX_RETRIES; attempt++) {
+            try {
+                List<OpenMeteoForecastResponse> result =
+                        fetchForecastChunk(chunk, FORECAST_PARAMS, forecastRestClient);
+                if (attempt > 0) {
+                    LOG.info("Open-Meteo chunk {}/{} succeeded on retry attempt {}",
+                            chunkIndex, totalChunks, attempt + 1);
+                }
+                return result;
+            } catch (Exception e) {
+                lastFailure = e;
+                String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+
+                // 429 — propagate immediately; caller handles rate-limit backoff
+                if (reason.contains("429")) {
+                    throw e;
+                }
+
+                // Non-transient — no point retrying
+                if (!isTransientFailure(e)) {
+                    throw e;
+                }
+
+                // Last attempt exhausted
+                if (attempt == CHUNK_MAX_RETRIES) {
+                    break;
+                }
+
+                retryCounter[0]++;
+                long backoffMs = chunkRetryBackoffMs * (1L << attempt); // 2s, 4s
+                LOG.warn("Open-Meteo chunk {}/{} attempt {} failed ({}) — retrying in {}ms",
+                        chunkIndex, totalChunks, attempt + 1, reason, backoffMs);
+                sleepQuietly(backoffMs);
+            }
+        }
+        throw new RuntimeException(
+                "Chunk " + chunkIndex + "/" + totalChunks + " failed after "
+                + (CHUNK_MAX_RETRIES + 1) + " attempts", lastFailure);
+    }
+
+    /**
+     * Classifies whether an exception represents a transient failure worth retrying.
+     *
+     * <p>Returns {@code true} for I/O errors (timeouts, connection resets) and HTTP 5xx
+     * server errors. Returns {@code false} for rate limits (429), client errors, and
+     * parse failures.
+     */
+    private boolean isTransientFailure(Exception e) {
+        String message = e.getMessage() != null ? e.getMessage() : "";
+        if (message.contains("429")) {
+            return false;
+        }
+        if (e instanceof ResourceAccessException) {
+            return true;
+        }
+        if (e instanceof HttpServerErrorException) {
+            return true;
+        }
+        return false;
     }
 
     /**
