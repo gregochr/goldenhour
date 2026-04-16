@@ -1898,6 +1898,71 @@ describe('DailyBriefing', () => {
       expect(toggle).toBeTruthy();
       expect(toggle).toHaveAttribute('role', 'switch');
     });
+
+    it('toggle starts with aria-checked="false" by default', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const toggle = screen.getByTestId('show-all-locations-toggle');
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('clicking toggle flips aria-checked from false to true', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const toggle = screen.getByTestId('show-all-locations-toggle');
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('clicking toggle twice returns aria-checked to false', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const toggle = screen.getByTestId('show-all-locations-toggle');
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('toggle track data-checked updates when clicked', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const toggle = screen.getByTestId('show-all-locations-toggle');
+      const track = toggle.querySelector('.quality-toggle-track');
+      expect(track).toHaveAttribute('data-checked', 'false');
+
+      fireEvent.click(toggle);
+      expect(track).toHaveAttribute('data-checked', 'true');
+    });
+
+    it('toggle displays "Show all locations" label text', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const slider = screen.getByTestId('quality-slider');
+      expect(slider).toHaveTextContent('Show all locations');
+    });
   });
 
   describe('Quality slider row layout', () => {
@@ -1922,6 +1987,26 @@ describe('DailyBriefing', () => {
       const slider = screen.getByTestId('quality-slider');
       const toggle = slider.querySelector('[data-testid="show-all-locations-toggle"]');
       expect(toggle).toBeTruthy();
+    });
+
+    it('quality slider row is not rendered when briefing has no days', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing({ days: [] }));
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+
+      expect(screen.queryByTestId('quality-slider-row')).not.toBeInTheDocument();
+    });
+
+    it('quality slider row is rendered when briefing has days', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      expect(screen.getByTestId('quality-slider-row')).toBeInTheDocument();
     });
   });
 });

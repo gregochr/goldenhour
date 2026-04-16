@@ -455,4 +455,130 @@ describe('QualitySlider', () => {
     );
     expect(screen.getByRole('switch')).toHaveAttribute('type', 'button');
   });
+
+  // ── Slider class includes full-width ──────────────────────────────────────
+  // Kills mutations that remove w-full from the slider input.
+
+  it('slider input has quality-slider and w-full classes', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveClass('quality-slider');
+    expect(slider).toHaveClass('w-full');
+  });
+
+  // ── Toggle thumb element exists inside toggle track ───────────────────────
+  // Kills mutations that remove the thumb span from the track.
+
+  it('toggle track contains a thumb element', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    const track = screen.getByTestId('show-all-locations-toggle').querySelector('.quality-toggle-track');
+    expect(track.querySelector('.quality-toggle-thumb')).toBeTruthy();
+  });
+
+  // ── Metadata row structure ────────────────────────────────────────────────
+  // Kills mutations that render count and tier label in a single span
+  // (so removing the separator span would merge them).
+
+  it('cell count and tier label are in separate span elements', () => {
+    render(<QualitySlider value={2} onChange={() => {}} showing={5} total={12} />);
+    const slider = screen.getByTestId('quality-slider');
+    const spans = slider.querySelectorAll('span.text-plex-text-muted');
+    // Expect at least 3 spans: count, separator, tier label
+    expect(spans.length).toBeGreaterThanOrEqual(3);
+    // First span contains the count text, third contains the tier label
+    expect(spans[0].textContent).toContain('Showing 5 of 12 cells');
+    expect(spans[2].textContent).toContain(TIER_LABELS[2]);
+  });
+
+  // ── aria-checked is a boolean-reflecting attribute ────────────────────────
+  // Kills mutations that hardcode aria-checked to a string vs the prop value,
+  // or that pass the wrong prop (e.g. value instead of showAllLocations).
+
+  it('aria-checked reflects showAllLocations=false not value prop', () => {
+    // value=0 is falsy — a mutation could use `value` instead of `showAllLocations`
+    // since Boolean(0) = false = showAllLocations here. Use value=2 + showAllLocations=false
+    // to separate the two.
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('aria-checked reflects showAllLocations=true even when value is 0', () => {
+    // value=0 is falsy — confirms we read showAllLocations not value
+    render(
+      <QualitySlider
+        value={0}
+        onChange={() => {}}
+        showing={2}
+        total={10}
+        showAllLocations={true}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  // ── data-testid on toggle button ──────────────────────────────────────────
+  // Kills mutations that remove or change the data-testid.
+
+  it('toggle button has data-testid="show-all-locations-toggle"', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        showAllLocations={false}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    const toggle = screen.getByRole('switch');
+    expect(toggle).toHaveAttribute('data-testid', 'show-all-locations-toggle');
+  });
+
+  // ── onChange receives exact integer, not a string ─────────────────────────
+  // Kills mutations that remove Number() from handleChange (JS coerces
+  // string→number in subtraction, but typeof would differ — pin the type).
+
+  it('onChange argument is typeof number', () => {
+    const onChange = vi.fn();
+    render(<QualitySlider value={2} onChange={onChange} showing={5} total={12} />);
+    fireEvent.change(screen.getByRole('slider'), { target: { value: '4' } });
+    expect(typeof onChange.mock.calls[0][0]).toBe('number');
+  });
+
+  // ── Toggle with showAllLocations=undefined (only callback provided) ──────
+  // Kills mutations that guard on showAllLocations instead of onShowAllLocationsChange.
+  // When onShowAllLocationsChange is present but showAllLocations is undefined,
+  // the toggle should still render (aria-checked will be undefined → "false").
+
+  it('renders toggle when showAllLocations is undefined but callback is provided', () => {
+    render(
+      <QualitySlider
+        value={2}
+        onChange={() => {}}
+        showing={5}
+        total={12}
+        onShowAllLocationsChange={() => {}}
+      />,
+    );
+    expect(screen.getByTestId('show-all-locations-toggle')).toBeInTheDocument();
+  });
 });
