@@ -190,6 +190,36 @@ class BriefingBestBetAdvisorTest {
             assertThat(picks).hasSize(1);
             assertThat(picks.get(0).event()).isEqualTo("2026-04-01_aurora");
         }
+
+        @Test
+        @DisplayName("Preamble before JSON is stripped and parsed")
+        void preambleBeforeJson() {
+            String raw = "I'll analyze the forecast data.\n\n"
+                    + "{\"picks\":[{\"rank\":1,\"headline\":\"Go shoot\","
+                    + "\"detail\":\"Clear skies.\",\"event\":\"today_sunset\","
+                    + "\"region\":\"Northumberland\",\"confidence\":\"high\"}]}";
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks).hasSize(1);
+            assertThat(picks.get(0).headline()).isEqualTo("Go shoot");
+        }
+
+        @Test
+        @DisplayName("Code fences with preamble both handled")
+        void codeFencesAndPreamble() {
+            String raw = "Here is my analysis:\n```json\n"
+                    + "{\"picks\":[{\"rank\":1,\"headline\":\"Go shoot\","
+                    + "\"detail\":\"Clear.\",\"event\":\"today_sunset\","
+                    + "\"region\":\"Northumberland\",\"confidence\":\"high\"}]}\n```";
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks).hasSize(1);
+            assertThat(picks.get(0).event()).isEqualTo("today_sunset");
+        }
+
+        @Test
+        @DisplayName("Completely malformed response returns empty list")
+        void completelyMalformed() {
+            assertThat(advisor.parseBestBets("I cannot provide forecast data.")).isEmpty();
+        }
     }
 
     // ── buildRollupJson ──
@@ -711,7 +741,7 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("ET enabled + SONNET: adds ThinkingConfigEnabled with budget=10000 and maxTokens=16000")
+        @DisplayName("ET enabled + SONNET: adds ThinkingConfigAdaptive and maxTokens=16000")
         void etEnabled_sonnet_addsThinkingBlock() {
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.SONNET);
@@ -728,12 +758,11 @@ class BriefingBestBetAdvisorTest {
             MessageCreateParams params = captor.getValue();
             assertThat(params._body().maxTokens()).isEqualTo(16000L);
             assertThat(params._body().thinking()).isPresent();
-            assertThat(params._body().thinking().get().isEnabled()).isTrue();
-            assertThat(params._body().thinking().get().asEnabled().budgetTokens()).isEqualTo(10000L);
+            assertThat(params._body().thinking().get().isAdaptive()).isTrue();
         }
 
         @Test
-        @DisplayName("ET enabled + OPUS: adds ThinkingConfigEnabled with budget=10000 and maxTokens=16000")
+        @DisplayName("ET enabled + OPUS: adds ThinkingConfigAdaptive and maxTokens=16000")
         void etEnabled_opus_addsThinkingBlock() {
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.OPUS);
@@ -750,7 +779,7 @@ class BriefingBestBetAdvisorTest {
             MessageCreateParams params = captor.getValue();
             assertThat(params._body().maxTokens()).isEqualTo(16000L);
             assertThat(params._body().thinking()).isPresent();
-            assertThat(params._body().thinking().get().asEnabled().budgetTokens()).isEqualTo(10000L);
+            assertThat(params._body().thinking().get().isAdaptive()).isTrue();
             assertThat(params.model().toString()).isEqualTo(EvaluationModel.OPUS.getModelId());
         }
 
@@ -1137,7 +1166,7 @@ class BriefingBestBetAdvisorTest {
     class ExtendedThinkingTests {
 
         @Test
-        @DisplayName("ET variants send ThinkingConfigEnabled with budget=10000 and maxTokens=16000")
+        @DisplayName("ET variants send ThinkingConfigAdaptive and maxTokens=16000")
         void extendedThinkingVariants_sendCorrectParams() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -1158,16 +1187,12 @@ class BriefingBestBetAdvisorTest {
             // SONNET_ET at index 2
             assertThat(params.get(2)._body().maxTokens()).isEqualTo(16000L);
             assertThat(params.get(2)._body().thinking()).isPresent();
-            assertThat(params.get(2)._body().thinking().get().isEnabled()).isTrue();
-            assertThat(params.get(2)._body().thinking().get().asEnabled().budgetTokens())
-                    .isEqualTo(10000L);
+            assertThat(params.get(2)._body().thinking().get().isAdaptive()).isTrue();
 
             // OPUS_ET at index 4
             assertThat(params.get(4)._body().maxTokens()).isEqualTo(16000L);
             assertThat(params.get(4)._body().thinking()).isPresent();
-            assertThat(params.get(4)._body().thinking().get().isEnabled()).isTrue();
-            assertThat(params.get(4)._body().thinking().get().asEnabled().budgetTokens())
-                    .isEqualTo(10000L);
+            assertThat(params.get(4)._body().thinking().get().isAdaptive()).isTrue();
         }
 
         @Test

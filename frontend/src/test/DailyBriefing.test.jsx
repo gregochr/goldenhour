@@ -1895,7 +1895,7 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
       const toggle = screen.queryByTestId('show-all-locations-toggle');
-      expect(toggle).toBeTruthy();
+      expect(toggle).toBeInTheDocument();
       expect(toggle).toHaveAttribute('role', 'switch');
     });
 
@@ -1986,7 +1986,7 @@ describe('DailyBriefing', () => {
 
       const slider = screen.getByTestId('quality-slider');
       const toggle = slider.querySelector('[data-testid="show-all-locations-toggle"]');
-      expect(toggle).toBeTruthy();
+      expect(toggle).toBeInTheDocument();
     });
 
     it('quality slider row is not rendered when briefing has no days', async () => {
@@ -2007,6 +2007,72 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
       expect(screen.getByTestId('quality-slider-row')).toBeInTheDocument();
+    });
+
+    // ── Slider prop wiring ──────────────────────────────────────────────────
+    // Kills mutations that swap showing↔total, hardcode value, or swap setters.
+
+    it('slider displays correct initial cell counts from sliderCounts', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      // Default qualityTier=2: 3 total cells, 1 visible (Lake District sunset at tier 2)
+      const slider = screen.getByTestId('quality-slider');
+      expect(slider).toHaveTextContent(/Showing 1 of 3 cells/);
+    });
+
+    it('slider initial aria-valuetext matches default qualityTier 2', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      const input = screen.getByRole('slider');
+      expect(input).toHaveAttribute('aria-valuetext', 'All WORTH IT conditions');
+    });
+
+    it('dragging slider to show-everything updates the showing count', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      // Drag to visual 0 → internal tier 5 (everything visible)
+      fireEvent.change(screen.getByRole('slider'), { target: { value: '0' } });
+
+      const slider = screen.getByTestId('quality-slider');
+      expect(slider).toHaveTextContent(/Showing 3 of 3 cells/);
+    });
+
+    it('dragging slider to best-only reduces the showing count', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      // Drag to visual 5 → internal tier 0 (best only — no cells match)
+      fireEvent.change(screen.getByRole('slider'), { target: { value: '5' } });
+
+      const slider = screen.getByTestId('quality-slider');
+      expect(slider).toHaveTextContent(/Showing 0 of 3 cells/);
+    });
+
+    it('showing and total are not swapped at default tier', async () => {
+      useAuth.mockReturnValue({ user: { role: 'ADMIN' } });
+      getDailyBriefing.mockResolvedValue(buildBriefing());
+      getDriveTimes.mockResolvedValue({});
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
+
+      // A mutation swapping showing↔total would display "Showing 3 of 1 cells"
+      const slider = screen.getByTestId('quality-slider');
+      expect(slider.textContent).not.toMatch(/Showing 3 of 1/);
     });
   });
 });

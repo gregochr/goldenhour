@@ -6,7 +6,7 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.ThinkingBlock;
-import com.anthropic.models.messages.ThinkingConfigEnabled;
+import com.anthropic.models.messages.ThinkingConfigAdaptive;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -66,9 +66,6 @@ public class BriefingBestBetAdvisor {
 
     /** Maximum response tokens for extended-thinking calls (thinking budget + response). */
     private static final int MAX_TOKENS_THINKING = 16000;
-
-    /** Token budget allocated for Claude's thinking chain in extended-thinking variants. */
-    private static final long THINKING_BUDGET_TOKENS = 10000L;
 
     /** Maximum number of solar events to include in the rollup (matches frontend grid). */
     private static final int MAX_VISIBLE_EVENTS = 6;
@@ -187,7 +184,8 @@ public class BriefingBestBetAdvisor {
 
             If conditions only support one good pick, return a single item in the array.
             If everything is STANDDOWN, return a single pick with event and region as null.
-            Return only valid JSON — no code fences, no markdown.
+            Return ONLY a JSON object — no preamble, no explanation, no code fences,
+            no markdown. Your entire response must begin with { and end with }.
 
             CRITICAL CONSTRAINTS — violating any of these makes your response invalid:
             - Only recommend events present in the "validEvents" array. Never invent,
@@ -302,9 +300,7 @@ public class BriefingBestBetAdvisor {
                             TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
                     .addUserMessage(rollup.json());
             if (useExtendedThinking) {
-                paramsBuilder.thinking(ThinkingConfigEnabled.builder()
-                        .budgetTokens(THINKING_BUDGET_TOKENS)
-                        .build());
+                paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build());
             }
 
             Message response = anthropicApiClient.createMessage(paramsBuilder.build());
@@ -810,9 +806,7 @@ public class BriefingBestBetAdvisor {
                     .addUserMessage(rollup.json());
 
             if (extendedThinking) {
-                builder.thinking(ThinkingConfigEnabled.builder()
-                        .budgetTokens(THINKING_BUDGET_TOKENS)
-                        .build());
+                builder.thinking(ThinkingConfigAdaptive.builder().build());
             }
 
             Message response = anthropicApiClient.createMessage(builder.build());
@@ -867,7 +861,8 @@ public class BriefingBestBetAdvisor {
         }
         try {
             String cleaned = PromptUtils.stripCodeFences(raw);
-            JsonNode root = objectMapper.readTree(cleaned);
+            String extracted = PromptUtils.extractJsonObject(cleaned);
+            JsonNode root = objectMapper.readTree(extracted);
             JsonNode picksNode = root.get("picks");
             if (picksNode == null || !picksNode.isArray() || picksNode.isEmpty()) {
                 LOG.warn("Best-bet response missing or empty 'picks' array");
@@ -890,7 +885,11 @@ public class BriefingBestBetAdvisor {
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
             return List.copyOf(picks);
         } catch (Exception e) {
-            LOG.warn("Failed to parse best-bet response — returning empty", e);
+            String preview = raw.length() > 4000
+                    ? raw.substring(0, 4000) + "...<truncated>"
+                    : raw;
+            LOG.warn("Failed to parse best-bet response — returning empty. Raw response was:\n{}",
+                    preview, e);
             return List.of();
         }
     }
