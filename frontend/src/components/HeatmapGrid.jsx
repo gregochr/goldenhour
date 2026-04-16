@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
-import { formatEventTimeUk, bortleLabel, formatTideHighlight } from '../utils/conversions.js';
+import { formatEventTimeUk, bortleLabel, formatTideHighlight, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 import InfoTip from './InfoTip.jsx';
 import ProPill from './shared/ProPill.jsx';
 
@@ -52,12 +52,6 @@ function msToMph(ms) {
   return Math.round(ms * 2.237);
 }
 
-function moonIlluminationStyle(illuminationPct) {
-  if (illuminationPct < 20) return { colourClass: 'text-green-400/70', suffix: ' — dark all night' };
-  if (illuminationPct < 50) return { colourClass: 'text-plex-text-secondary', suffix: '' };
-  if (illuminationPct < 75) return { colourClass: 'text-amber-400', suffix: ' — moon will impact' };
-  return { colourClass: 'text-red-400', suffix: ' — moon above horizon all night' };
-}
 
 function getShortDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00Z');
@@ -730,11 +724,6 @@ const formatAlertLevel = (level) => {
   return level && level !== 'QUIET' && AURORA_LEVEL_LABEL[level] ? `${label} aurora` : label;
 };
 
-const MOON_EMOJI = {
-  NEW_MOON: '\u{1F311}', WAXING_CRESCENT: '\u{1F312}', FIRST_QUARTER: '\u{1F313}',
-  WAXING_GIBBOUS: '\u{1F314}', FULL_MOON: '\u{1F315}', WANING_GIBBOUS: '\u{1F316}',
-  LAST_QUARTER: '\u{1F317}', WANING_CRESCENT: '\u{1F318}',
-};
 
 // ── AuroraDrillDown ──────────────────────────────────────────────────────────
 
@@ -775,7 +764,10 @@ function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, 
 
       {sourceData?.moonPhase && (() => {
         const illum = sourceData.moonIlluminationPct ?? 0;
-        const { colourClass, suffix } = moonIlluminationStyle(illum);
+        const { colourClass, suffix } = moonIlluminationStyle(
+          illum, sourceData.windowQuality,
+          sourceData.moonRiseTime, sourceData.moonSetTime,
+        );
         return (
           <div className={`px-2 mb-1 ${colourClass}`} style={{ fontSize: '12px' }}>
             {MOON_EMOJI[sourceData.moonPhase] || ''} {Math.round(illum)}%{suffix}
@@ -1213,7 +1205,10 @@ export default function HeatmapGrid({
                             )}
                             {auroraTonight.moonPhase && (() => {
                               const illum = auroraTonight.moonIlluminationPct ?? 0;
-                              const { colourClass, suffix } = moonIlluminationStyle(illum);
+                              const { colourClass, suffix } = moonIlluminationStyle(
+                                illum, auroraTonight.windowQuality,
+                                auroraTonight.moonRiseTime, auroraTonight.moonSetTime,
+                              );
                               return (
                                 <span data-testid="aurora-moon-indicator" className={colourClass}>
                                   {auroraRegion.bestBortleClass != null ? '· ' : ''}

@@ -419,6 +419,157 @@ describe('HeatmapGrid — moon illumination display', () => {
   });
 });
 
+describe('HeatmapGrid — moon window quality display', () => {
+  function auroraWithWindowQuality(overrides) {
+    return {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      clearLocationCount: 1,
+      moonPhase: 'WAXING_GIBBOUS',
+      moonIlluminationPct: 82,
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [{
+          locationName: 'Bamburgh',
+          bortleClass: 3,
+          clear: true,
+          cloudPercent: 30,
+        }],
+        regionTemperatureCelsius: 4.5,
+        regionWindSpeedMs: 3.1,
+        regionWeatherCode: 2,
+      }],
+      ...overrides,
+    };
+  }
+
+  it('DARK_THEN_MOONLIT shows amber with "dark until" and moonrise time', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        windowQuality: 'DARK_THEN_MOONLIT',
+        moonRiseTime: '2026-02-20T23:00:00',
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('dark until');
+    expect(indicator.textContent).toContain('23:00');
+    expect(indicator.textContent).toContain('↑');
+    expect(indicator.className).toContain('text-amber-400');
+  });
+
+  it('MOONLIT_THEN_DARK shows green with "clears after" and moonset time', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        windowQuality: 'MOONLIT_THEN_DARK',
+        moonSetTime: '2026-02-20T01:30:00',
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('clears after');
+    expect(indicator.textContent).toContain('01:30');
+    expect(indicator.textContent).toContain('↓');
+    expect(indicator.className).toContain('text-green-400');
+  });
+
+  it('DARK_ALL_WINDOW shows green "dark all night"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        windowQuality: 'DARK_ALL_WINDOW',
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('dark all night');
+    expect(indicator.className).toContain('text-green-400');
+  });
+
+  it('MOONLIT_ALL_WINDOW shows red "moon above horizon all night"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        windowQuality: 'MOONLIT_ALL_WINDOW',
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('moon above horizon all night');
+    expect(indicator.className).toContain('text-red-400');
+  });
+
+  it('windowQuality overrides illumination (high illumination + DARK_ALL_WINDOW = green)', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        moonIlluminationPct: 95,
+        windowQuality: 'DARK_ALL_WINDOW',
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('dark all night');
+    expect(indicator.className).toContain('text-green-400');
+  });
+
+  it('no windowQuality falls back to illumination logic', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        moonIlluminationPct: 60,
+        windowQuality: undefined,
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('moon will impact');
+    expect(indicator.className).toContain('text-amber-400');
+  });
+
+  it('DARK_THEN_MOONLIT with null moonRiseTime shows ??:?? fallback', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        windowQuality: 'DARK_THEN_MOONLIT',
+        moonRiseTime: null,
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('dark until');
+    expect(indicator.textContent).toContain('??:??');
+  });
+
+  it('MOONLIT_THEN_DARK with null moonSetTime shows ??:?? fallback', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithWindowQuality({
+        windowQuality: 'MOONLIT_THEN_DARK',
+        moonSetTime: null,
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('clears after');
+    expect(indicator.textContent).toContain('??:??');
+  });
+});
+
 describe('HeatmapGrid — verdict labels', () => {
   it('GO region cell shows Worth it sunset label', () => {
     renderGrid();
@@ -1138,6 +1289,72 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
 
     const drillDown = screen.getByTestId('aurora-drill-down');
     expect(drillDown.textContent).toContain('Bortle 3 site with low wind and clear conditions tonight.');
+  });
+
+  it('aurora drill-down shows DARK_THEN_MOONLIT transition text', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      moonPhase: 'WAXING_GIBBOUS',
+      moonIlluminationPct: 82,
+      windowQuality: 'DARK_THEN_MOONLIT',
+      moonRiseTime: '2026-02-20T23:00:00',
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 10 }],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cell = screen.queryAllByTestId('aurora-heatmap-cell')[0];
+    fireEvent.click(cell);
+
+    const drillDown = screen.getByTestId('aurora-drill-down');
+    expect(drillDown.textContent).toContain('dark until');
+    expect(drillDown.textContent).toContain('23:00');
+    expect(drillDown.textContent).toContain('↑');
+  });
+
+  it('aurora drill-down shows MOONLIT_THEN_DARK transition text', () => {
+    const auroraTonight = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      moonPhase: 'WANING_GIBBOUS',
+      moonIlluminationPct: 70,
+      windowQuality: 'MOONLIT_THEN_DARK',
+      moonSetTime: '2026-02-20T01:30:00',
+      regions: [{
+        regionName: 'North East',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 1,
+        bestBortleClass: 3,
+        locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 10 }],
+      }],
+    };
+
+    renderGrid({
+      events: [{ date: TODAY_STR, targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([TODAY_STR], 'North East', ['Bamburgh']),
+      auroraTonight,
+    });
+
+    const cell = screen.queryAllByTestId('aurora-heatmap-cell')[0];
+    fireEvent.click(cell);
+
+    const drillDown = screen.getByTestId('aurora-drill-down');
+    expect(drillDown.textContent).toContain('clears after');
+    expect(drillDown.textContent).toContain('01:30');
+    expect(drillDown.textContent).toContain('↓');
   });
 });
 

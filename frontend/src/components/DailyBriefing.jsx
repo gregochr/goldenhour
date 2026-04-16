@@ -11,7 +11,7 @@ import HotTopicStrip from './HotTopicStrip.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
-import { formatEventTimeUk, bortleLabel, formatTideHighlight } from '../utils/conversions.js';
+import { formatEventTimeUk, bortleLabel, formatTideHighlight, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -1267,6 +1267,18 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
                             {at.kp != null && ` Kp ${at.kp.toFixed(1)}`}
                           </span>
                         </div>
+                        {at.moonPhase && (() => {
+                          const illum = at.moonIlluminationPct ?? 0;
+                          const { colourClass, suffix } = moonIlluminationStyle(
+                            illum, at.windowQuality, at.moonRiseTime, at.moonSetTime,
+                          );
+                          return (
+                            <div data-testid="aurora-mobile-moon-indicator"
+                              className={`px-1 mb-1 ${colourClass}`} style={{ fontSize: '11px' }}>
+                              {MOON_EMOJI[at.moonPhase] || ''} {Math.round(illum)}%{suffix}
+                            </div>
+                          );
+                        })()}
                         {visibleRegions.map((regionName) => {
                           const ar = (at.regions || []).find((r) => r.regionName === regionName);
                           if (!ar) return null;

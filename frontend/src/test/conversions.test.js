@@ -13,6 +13,8 @@ import {
   groupForecastsByDate,
   bortleLabel,
   formatTideHighlight,
+  moonIlluminationStyle,
+  MOON_EMOJI,
 } from '../utils/conversions.js';
 
 describe('mpsToMph', () => {
@@ -439,5 +441,151 @@ describe('formatTideHighlight', () => {
   it('preserves extra-high composite without trailing s', () => {
     expect(formatTideHighlight('Spring Tide, Extra High at 1 coastal spot'))
       .toBe('1 spring tide, extra high');
+  });
+});
+
+describe('moonIlluminationStyle', () => {
+  // ── Window quality takes priority when present ──
+
+  it('DARK_ALL_WINDOW returns green with "dark all night"', () => {
+    const result = moonIlluminationStyle(82, 'DARK_ALL_WINDOW');
+    expect(result.colourClass).toContain('text-green-400');
+    expect(result.suffix).toContain('dark all night');
+  });
+
+  it('DARK_THEN_MOONLIT returns amber with moonrise time and up arrow', () => {
+    // 22:00 UTC in winter (GMT) = 22:00 UK
+    const result = moonIlluminationStyle(65, 'DARK_THEN_MOONLIT', '2026-02-20T22:00:00');
+    expect(result.colourClass).toBe('text-amber-400');
+    expect(result.suffix).toContain('dark until');
+    expect(result.suffix).toContain('22:00');
+    expect(result.suffix).toContain('↑');
+  });
+
+  it('MOONLIT_THEN_DARK returns green with moonset time and down arrow', () => {
+    // 01:30 UTC in winter (GMT) = 01:30 UK
+    const result = moonIlluminationStyle(55, 'MOONLIT_THEN_DARK', null, '2026-02-20T01:30:00');
+    expect(result.colourClass).toContain('text-green-400');
+    expect(result.suffix).toContain('clears after');
+    expect(result.suffix).toContain('01:30');
+    expect(result.suffix).toContain('↓');
+  });
+
+  it('MOONLIT_ALL_WINDOW returns red with "moon above horizon all night"', () => {
+    const result = moonIlluminationStyle(90, 'MOONLIT_ALL_WINDOW');
+    expect(result.colourClass).toBe('text-red-400');
+    expect(result.suffix).toContain('moon above horizon all night');
+  });
+
+  it('windowQuality overrides illumination (high illumination + DARK_ALL_WINDOW = green)', () => {
+    const result = moonIlluminationStyle(95, 'DARK_ALL_WINDOW');
+    expect(result.colourClass).toContain('text-green-400');
+    expect(result.suffix).toContain('dark all night');
+  });
+
+  it('unknown windowQuality falls through to illumination logic', () => {
+    const result = moonIlluminationStyle(60, 'SOME_UNKNOWN_VALUE');
+    expect(result.colourClass).toBe('text-amber-400');
+    expect(result.suffix).toContain('moon will impact');
+  });
+
+  it('DARK_THEN_MOONLIT with null moonRiseTime shows ??:??', () => {
+    const result = moonIlluminationStyle(50, 'DARK_THEN_MOONLIT', null);
+    expect(result.suffix).toContain('??:??');
+  });
+
+  it('MOONLIT_THEN_DARK with null moonSetTime shows ??:??', () => {
+    const result = moonIlluminationStyle(50, 'MOONLIT_THEN_DARK', null, null);
+    expect(result.suffix).toContain('??:??');
+  });
+
+  it('applies BST for summer moonrise time', () => {
+    // 21:00 UTC in summer (BST) = 22:00 UK
+    const result = moonIlluminationStyle(70, 'DARK_THEN_MOONLIT', '2026-06-21T21:00:00');
+    expect(result.suffix).toContain('22:00');
+  });
+
+  // ── Illumination-only fallback (no windowQuality) ──
+
+  it('<20% illumination returns green "dark all night"', () => {
+    const result = moonIlluminationStyle(5);
+    expect(result.colourClass).toContain('text-green-400');
+    expect(result.suffix).toContain('dark all night');
+  });
+
+  it('20-50% illumination returns secondary with no suffix', () => {
+    const result = moonIlluminationStyle(35);
+    expect(result.colourClass).toBe('text-plex-text-secondary');
+    expect(result.suffix).toBe('');
+  });
+
+  it('50-75% illumination returns amber "moon will impact"', () => {
+    const result = moonIlluminationStyle(60);
+    expect(result.colourClass).toBe('text-amber-400');
+    expect(result.suffix).toContain('moon will impact');
+  });
+
+  it('>75% illumination returns red "moon above horizon all night"', () => {
+    const result = moonIlluminationStyle(85);
+    expect(result.colourClass).toBe('text-red-400');
+    expect(result.suffix).toContain('moon above horizon all night');
+  });
+
+  // ── Boundary tests ──
+
+  it('exactly 20% crosses into secondary (no "dark all night")', () => {
+    const result = moonIlluminationStyle(20);
+    expect(result.colourClass).toBe('text-plex-text-secondary');
+    expect(result.suffix).toBe('');
+  });
+
+  it('exactly 50% crosses into amber', () => {
+    const result = moonIlluminationStyle(50);
+    expect(result.colourClass).toBe('text-amber-400');
+    expect(result.suffix).toContain('moon will impact');
+  });
+
+  it('exactly 75% crosses into red', () => {
+    const result = moonIlluminationStyle(75);
+    expect(result.colourClass).toBe('text-red-400');
+    expect(result.suffix).toContain('moon above horizon all night');
+  });
+});
+
+describe('MOON_EMOJI', () => {
+  it('maps all 8 lunar phases', () => {
+    expect(Object.keys(MOON_EMOJI)).toHaveLength(8);
+  });
+
+  it('NEW_MOON maps to 🌑', () => {
+    expect(MOON_EMOJI.NEW_MOON).toBe('🌑');
+  });
+
+  it('WAXING_CRESCENT maps to 🌒', () => {
+    expect(MOON_EMOJI.WAXING_CRESCENT).toBe('🌒');
+  });
+
+  it('FIRST_QUARTER maps to 🌓', () => {
+    expect(MOON_EMOJI.FIRST_QUARTER).toBe('🌓');
+  });
+
+  it('WAXING_GIBBOUS maps to 🌔', () => {
+    expect(MOON_EMOJI.WAXING_GIBBOUS).toBe('🌔');
+  });
+
+  it('FULL_MOON maps to 🌕', () => {
+    expect(MOON_EMOJI.FULL_MOON).toBe('🌕');
+  });
+
+  it('WANING_GIBBOUS maps to 🌖', () => {
+    expect(MOON_EMOJI.WANING_GIBBOUS).toBe('🌖');
+  });
+
+  it('LAST_QUARTER maps to 🌗', () => {
+    expect(MOON_EMOJI.LAST_QUARTER).toBe('🌗');
+  });
+
+  it('WANING_CRESCENT maps to 🌘', () => {
+    expect(MOON_EMOJI.WANING_CRESCENT).toBe('🌘');
   });
 });
