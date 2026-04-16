@@ -36,6 +36,11 @@ function futureDateStr(daysAhead = 1) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Returns today's date in Europe/London — matches the component's todayStr computation. */
+function londonTodayStr() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+}
+
 function pastDateStr() {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - 1);
@@ -1395,12 +1400,13 @@ describe('DailyBriefing', () => {
     function buildBriefingToday(auroraTonight) {
       // Use tomorrow so the sunset event is never past (avoids time-of-day sensitivity)
       const tomorrowDate = futureDateStr(1);
-      // But we also need today to be selected for the aurora section to show.
-      // Include today with a far-future sunrise so it's never past.
-      const todayDate = futureDateStr(0);
-      const farFutureSunrise = new Date();
-      farFutureSunrise.setUTCHours(farFutureSunrise.getUTCHours() + 3);
-      const safeSunriseTime = `${todayDate}T${String(farFutureSunrise.getUTCHours()).padStart(2, '0')}:00:00`;
+      // Must match the component's todayStr (Europe/London), not UTC —
+      // during BST these diverge late at night, breaking the aurora section guard.
+      const todayDate = londonTodayStr();
+      // isEventPast() appends 'Z' and checks against Date.now(). During BST,
+      // londonTodayStr() is ahead of UTC, so 23:59 on the London date is always
+      // in the future (at worst ~1 hour ahead when UTC is 22:59).
+      const safeSunriseTime = `${todayDate}T23:59:00`;
       return {
         generatedAt: new Date().toISOString().slice(0, 19),
         headline: 'Check aurora tonight',
