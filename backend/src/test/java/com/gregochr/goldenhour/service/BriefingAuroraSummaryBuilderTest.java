@@ -806,6 +806,45 @@ class BriefingAuroraSummaryBuilderTest {
         verify(auroraGlossService, never()).enrichGlosses(anyList(), any(), any(), any());
     }
 
+    // ── Moon phase in tomorrow summary ──
+
+    @Test
+    @DisplayName("buildAuroraTomorrow populates moonPhase and moonIlluminationPct")
+    void tomorrowSummary_includesMoonData() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        25.0, 180.0, 0.73, LunarPhase.WAXING_GIBBOUS, 384400));
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrow();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.moonPhase()).isEqualTo("WAXING_GIBBOUS");
+        assertThat(summary.moonIlluminationPct()).isEqualTo(73.0);
+    }
+
+    @Test
+    @DisplayName("buildAuroraTomorrow has null moon fields when lunar calculator fails")
+    void tomorrowSummary_lunarCalcFails_nullMoonFields() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 4.5)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenThrow(new RuntimeException("Ephemeris error"));
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrow();
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.moonPhase()).isNull();
+        assertThat(summary.moonIlluminationPct()).isNull();
+    }
+
     private static LocationEntity location(Long id, String name, String regionName) {
         RegionEntity region = regionName != null
                 ? RegionEntity.builder().name(regionName).build() : null;

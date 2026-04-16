@@ -52,7 +52,7 @@ public final class MoonTransitionCalculator {
             }
             return sampleWindow(calc, window, lat, lon);
         } catch (Exception e) {
-            LOG.debug("Moon transition calculation failed: {}", e.getMessage());
+            LOG.warn("Moon transition calculation failed: {}", e.getMessage(), e);
             return null;
         }
     }

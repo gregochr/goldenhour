@@ -147,6 +147,10 @@ public class BriefingAuroraSummaryBuilder {
 
             // Moon transition data across tonight's dark window
             MoonTransitionData moon = computeMoonTransition();
+            if (moon == null) {
+                LOG.warn("Tonight moon transition returned null — aurora summary "
+                        + "will have no moon data");
+            }
 
             // Enrich GO regions with Claude-generated glosses
             if (allowFetch) {
@@ -221,8 +225,13 @@ public class BriefingAuroraSummaryBuilder {
 
             List<AuroraRegionSummary> regions = buildTomorrowRegions(now, allowFetch);
 
+            // Moon data for tomorrow night's dark window
+            MoonTransitionData moon = computeTomorrowMoonTransition();
+
             return new AuroraTomorrowSummary(peakKp, label,
-                    AlertLevel.fromKp(peakKp).name(), regions);
+                    AlertLevel.fromKp(peakKp).name(), regions,
+                    moon != null ? moon.phase().name() : null,
+                    moon != null ? moon.illuminationPct() : null);
         } catch (Exception e) {
             LOG.debug("Could not fetch tomorrow Kp forecast for briefing: {}", e.getMessage());
             return null;
@@ -266,7 +275,38 @@ public class BriefingAuroraSummaryBuilder {
             return MoonTransitionCalculator.calculate(
                     lunarCalculator, window, DURHAM_LAT, DURHAM_LON);
         } catch (Exception e) {
-            LOG.debug("Moon transition calculation failed: {}", e.getMessage());
+            LOG.warn("Tonight moon transition calculation failed: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Computes moon transition data for tomorrow night's approximate dark window
+     * (21:00–04:00 UTC, one day ahead of tonight's window).
+     *
+     * @return moon transition data, or {@code null} on error
+     */
+    private MoonTransitionData computeTomorrowMoonTransition() {
+        try {
+            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
+            ZonedDateTime dusk;
+            ZonedDateTime dawn;
+            if (utcNow.getHour() >= 6) {
+                dusk = utcNow.toLocalDate().plusDays(1).atTime(21, 0)
+                        .atZone(ZoneOffset.UTC);
+                dawn = utcNow.toLocalDate().plusDays(2).atTime(4, 0)
+                        .atZone(ZoneOffset.UTC);
+            } else {
+                dusk = utcNow.toLocalDate().atTime(21, 0).atZone(ZoneOffset.UTC);
+                dawn = utcNow.toLocalDate().plusDays(1).atTime(4, 0)
+                        .atZone(ZoneOffset.UTC);
+            }
+            TonightWindow window = new TonightWindow(dusk, dawn);
+            return MoonTransitionCalculator.calculate(
+                    lunarCalculator, window, DURHAM_LAT, DURHAM_LON);
+        } catch (Exception e) {
+            LOG.warn("Tomorrow moon transition calculation failed: {}",
+                    e.getMessage(), e);
             return null;
         }
     }
