@@ -3,6 +3,7 @@ package com.gregochr.goldenhour;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudData;
@@ -53,6 +54,7 @@ public final class TestAtmosphericData {
     private MistTrend mistTrend = null;
     private String locationOrientation = null;
     private Double inversionScore = null;
+    private BluebellConditionScore bluebellConditionScore = null;
     private ForecastStability stability = null;
     private String stabilityReason = null;
     private PressureTrend pressureTrend = null;
@@ -218,6 +220,11 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData bluebellConditionScore(BluebellConditionScore val) {
+        this.bluebellConditionScore = val;
+        return this;
+    }
+
     public TestAtmosphericData stability(ForecastStability val) {
         this.stability = val;
         return this;
@@ -247,7 +254,7 @@ public final class TestAtmosphericData {
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,
-                locationOrientation, null, null, null, inversionScore, null,
-                stability, stabilityReason, pressureTrend);
+                locationOrientation, null, null, null, inversionScore,
+                bluebellConditionScore, stability, stabilityReason, pressureTrend);
     }
 }

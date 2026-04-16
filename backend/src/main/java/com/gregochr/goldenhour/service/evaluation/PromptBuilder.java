@@ -499,6 +499,8 @@ public class PromptBuilder {
                     bb.summary(),
                     bb.misty(), bb.calm(), bb.softLight(), bb.goldenHourLight(),
                     bb.postRain(), bb.dryNow()));
+            sb.append("\nIn addition to the standard output fields, also include: "
+                    + "bluebell_score (integer, 0-100) and bluebell_summary (string).");
         }
 
         // Forecast reliability block — only for TRANSITIONAL or UNSETTLED conditions
@@ -552,12 +554,9 @@ public class PromptBuilder {
                                         Map.entry("inversion_score", Map.of("type", "integer")),
                                         Map.entry("inversion_potential", Map.of(
                                                 "type", "string",
-                                                "enum", List.of("NONE", "MODERATE", "STRONG"))),
-                                        Map.entry("bluebell_score", Map.of("type", "integer")),
-                                        Map.entry("bluebell_summary", Map.of("type", "string")))))
+                                                "enum", List.of("NONE", "MODERATE", "STRONG"))))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
-                                .putAdditionalProperty("additionalProperties", JsonValue.from(false))
                                 .build())
                         .build())
                 .build();
