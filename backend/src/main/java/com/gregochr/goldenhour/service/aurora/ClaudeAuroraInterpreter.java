@@ -86,12 +86,16 @@ public class ClaudeAuroraInterpreter {
             - Bz persistently negative (−10 nT or below): +0.5. Positive: −0.5.
             - OVATION probability > 50% at 55°N: +0.5.
             - Cloud cover < 30%: +1. 30–60%: 0. 60–80%: −1. > 80%: −1.5.
-            - Moon scoring depends on window_quality:
-              - DARK_ALL_WINDOW or illumination < 20%: +0.5 (dark skies all window)
-              - DARK_THEN_MOONLIT: +0.25 (good early window; mention moonrise time in summary)
-              - MOONLIT_THEN_DARK: +0.25 (good late window; mention moonset time in summary)
-              - MOONLIT_ALL_WINDOW with illumination > 60%: −1 (severe moonlight)
-              - MOONLIT_ALL_WINDOW with illumination 20–60%: −0.5 (moderate moonlight)
+            - Moon penalty (UK latitudes — aurora is faint at these latitudes, so moonlight impact is severe):
+              - Moon below horizon or illumination < 20%: no penalty (+0.5 for ideal dark skies)
+              - Illumination 20–50%: −0.5 (moderate glow, tolerable)
+              - Illumination 50–75%: −2.0 if MOONLIT_ALL_WINDOW; −1.0 if partial
+                (DARK_THEN_MOONLIT or MOONLIT_THEN_DARK)
+              - Illumination > 75%: −3.0 HARD PENALTY. Hard cap the FINAL score at 3★ regardless of Kp.
+                Only Kp 7+ (STRONG) is worth chasing under a near-full moon at UK latitudes.
+              - If illumination > 50%, MUST mention moon impact explicitly in the "detail" field.
+              - DARK_THEN_MOONLIT: mention moonrise time in summary.
+              - MOONLIT_THEN_DARK: mention moonset time in summary.
             - Bortle 1–2: +0.5. Bortle 3–4: 0. Bortle 5+: −0.5.
             - Clamp final score to 1–5 inclusive.
 

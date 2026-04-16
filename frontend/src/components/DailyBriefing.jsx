@@ -11,7 +11,7 @@ import HotTopicStrip from './HotTopicStrip.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
-import { formatEventTimeUk, bortleLabel } from '../utils/conversions.js';
+import { formatEventTimeUk, bortleLabel, formatTideHighlight } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -560,7 +560,7 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
       {/* Tide highlights always visible on card */}
       {(bestRegion?.tideHighlights || []).length > 0 && (
         <div className="flex flex-wrap gap-1 px-3 pb-1">
-          {bestRegion.tideHighlights.map((hl) => <FlagChip key={hl} label={hl} />)}
+          {bestRegion.tideHighlights.map((hl) => <FlagChip key={hl} label={formatTideHighlight(hl)} />)}
         </div>
       )}
 

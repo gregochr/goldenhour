@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeCellTier, computeAuroraCellTier, isCellVisible } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
-import { formatEventTimeUk, bortleLabel } from '../utils/conversions.js';
+import { formatEventTimeUk, bortleLabel, formatTideHighlight } from '../utils/conversions.js';
 import InfoTip from './InfoTip.jsx';
 import ProPill from './shared/ProPill.jsx';
 
@@ -50,6 +50,13 @@ function weatherCodeToIcon(code) {
 function msToMph(ms) {
   if (ms == null) return null;
   return Math.round(ms * 2.237);
+}
+
+function moonIlluminationStyle(illuminationPct) {
+  if (illuminationPct < 20) return { colourClass: 'text-green-400/70', suffix: ' — dark all night' };
+  if (illuminationPct < 50) return { colourClass: 'text-plex-text-secondary', suffix: '' };
+  if (illuminationPct < 75) return { colourClass: 'text-amber-400', suffix: ' — moon will impact' };
+  return { colourClass: 'text-red-400', suffix: ' — moon above horizon all night' };
 }
 
 function getShortDate(dateStr) {
@@ -543,11 +550,11 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   const isStanddown = region.verdict === 'STANDDOWN';
 
-  // Extract the best tide label from tideHighlights (e.g. "King Tide at 3 coastal spots" → "King Tide")
+  // Extract the best tide label from tideHighlights (e.g. "King Tide at 3 coastal spots" → "3 king tides")
   const tideHighlight = (region.tideHighlights || []).find((h) =>
     h.toLowerCase().includes('king') || h.toLowerCase().includes('spring') || h.toLowerCase().includes('extra'));
-  const tideLabel = tideHighlight ? tideHighlight.replace(/ at .+$/, '') : null;
-  const hasKingTide = tideLabel?.toLowerCase().includes('king');
+  const tideLabel = tideHighlight ? formatTideHighlight(tideHighlight) : null;
+  const hasKingTide = tideHighlight?.toLowerCase().includes('king');
   const alignedCount = (region.slots || []).filter((s) => s.tideAligned).length;
 
   // Cell background colour by tier
@@ -765,6 +772,16 @@ function AuroraDrillDown({ regionName, auroraTonight, auroraTomorrow, todayStr, 
           {auroraRegion.glossDetail}
         </div>
       )}
+
+      {sourceData?.moonPhase && (() => {
+        const illum = sourceData.moonIlluminationPct ?? 0;
+        const { colourClass, suffix } = moonIlluminationStyle(illum);
+        return (
+          <div className={`px-2 mb-1 ${colourClass}`} style={{ fontSize: '12px' }}>
+            {MOON_EMOJI[sourceData.moonPhase] || ''} {Math.round(illum)}%{suffix}
+          </div>
+        );
+      })()}
 
       {locations.length === 0 ? (
         <p className="text-plex-text-muted italic" style={{ fontSize: '12px' }}>No dark-sky locations in this region</p>
@@ -1183,32 +1200,28 @@ export default function HeatmapGrid({
                               {Math.round(auroraRegion.clearLocationCount / auroraRegion.totalDarkSkyLocations * 100)}% clear
                             </div>
                           )}
-                          {auroraRegion.bestBortleClass != null && bortleLabel(auroraRegion.bestBortleClass) && (
-                            <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium mt-0.5 inline-block"
-                              style={{ fontSize: '9px' }}>
-                              {bortleLabel(auroraRegion.bestBortleClass)} · Bortle {auroraRegion.bestBortleClass}
-                            </span>
-                          )}
                           <div className={`font-medium mt-0.5 ${AURORA_LEVEL_COLOUR[auroraTonight.alertLevel] || ''}`}
                             style={{ fontSize: '9px' }}>
                             {formatAlertLevel(auroraTonight.alertLevel)}
                           </div>
-                          {auroraTonight.moonPhase && (() => {
-                            const wq = auroraTonight.windowQuality;
-                            const isAmber = wq === 'DARK_THEN_MOONLIT' || wq === 'MOONLIT_ALL_WINDOW';
-                            const colourClass = isAmber ? 'text-amber-400' : 'text-green-400/70';
-                            let suffix = '';
-                            if (wq === 'DARK_ALL_WINDOW') suffix = ' — dark all night';
-                            else if (wq === 'DARK_THEN_MOONLIT' && auroraTonight.moonRiseTime) suffix = ` — dark until ${auroraTonight.moonRiseTime} ↑`;
-                            else if (wq === 'MOONLIT_THEN_DARK' && auroraTonight.moonSetTime) suffix = ` — clears after ${auroraTonight.moonSetTime} ↓`;
-                            else if (wq === 'MOONLIT_ALL_WINDOW') suffix = ' — moon up all night';
-                            return (
-                              <div data-testid="aurora-moon-indicator"
-                                className={`${colourClass} mt-0.5`} style={{ fontSize: '10px' }}>
-                                {MOON_EMOJI[auroraTonight.moonPhase] || ''} {Math.round(auroraTonight.moonIlluminationPct)}%{suffix}
-                              </div>
-                            );
-                          })()}
+                          {/* Combined Bortle + Moon line */}
+                          <div className="flex items-center gap-1 mt-0.5 flex-wrap" style={{ fontSize: '9px' }}>
+                            {auroraRegion.bestBortleClass != null && bortleLabel(auroraRegion.bestBortleClass) && (
+                              <span className="rounded px-1 bg-teal-500/20 text-teal-300 font-medium">
+                                {bortleLabel(auroraRegion.bestBortleClass)} · Bortle {auroraRegion.bestBortleClass}
+                              </span>
+                            )}
+                            {auroraTonight.moonPhase && (() => {
+                              const illum = auroraTonight.moonIlluminationPct ?? 0;
+                              const { colourClass, suffix } = moonIlluminationStyle(illum);
+                              return (
+                                <span data-testid="aurora-moon-indicator" className={colourClass}>
+                                  {auroraRegion.bestBortleClass != null ? '· ' : ''}
+                                  {MOON_EMOJI[auroraTonight.moonPhase] || ''} {Math.round(illum)}%{suffix}
+                                </span>
+                              );
+                            })()}
+                          </div>
                           {auroraTonight.solarWindSpeedKmPerSec != null && (
                             <div className="text-plex-text-secondary" style={{ fontSize: '10px' }}>
                               {Math.round(auroraTonight.solarWindSpeedKmPerSec)} km/s solar wind

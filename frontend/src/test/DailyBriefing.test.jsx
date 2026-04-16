@@ -71,7 +71,7 @@ function buildBriefing(overrides = {}) {
                 regionName: 'Northumberland',
                 verdict: 'MARGINAL',
                 summary: 'Some cloud at 3 locations',
-                tideHighlights: ['King tide at Bamburgh'],
+                tideHighlights: ['King Tide at 1 coastal spot'],
                 slots: [
                   {
                     locationName: 'Bamburgh',
@@ -705,7 +705,7 @@ describe('DailyBriefing', () => {
     await waitFor(() => screen.getByTestId('briefing-toggle'));
     fireEvent.click(screen.getByTestId('briefing-toggle'));
 
-    expect(screen.getByText('King tide at Bamburgh')).toBeInTheDocument();
+    expect(screen.getAllByText('1 king tide').length).toBeGreaterThan(0);
   });
 
   // ────── Collapsed event summary rows ──────

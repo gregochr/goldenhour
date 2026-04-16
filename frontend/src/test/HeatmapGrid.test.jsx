@@ -256,7 +256,7 @@ describe('HeatmapGrid — aurora cells with weather', () => {
   });
 });
 
-describe('HeatmapGrid — moon transition display', () => {
+describe('HeatmapGrid — moon illumination display', () => {
   function auroraWithMoon(moonOverrides) {
     return {
       alertLevel: 'MODERATE',
@@ -284,12 +284,11 @@ describe('HeatmapGrid — moon transition display', () => {
     };
   }
 
-  it('DARK_ALL_WINDOW renders "dark all night" in green', () => {
+  it('<20% illumination renders "dark all night" in green', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
       auroraTonight: auroraWithMoon({
-        windowQuality: 'DARK_ALL_WINDOW',
         moonIlluminationPct: 5,
         moonPhase: 'NEW_MOON',
       }),
@@ -298,55 +297,125 @@ describe('HeatmapGrid — moon transition display', () => {
     expect(indicator).toBeTruthy();
     expect(indicator.textContent).toContain('dark all night');
     expect(indicator.className).toContain('text-green-400');
-    expect(indicator.className).not.toContain('text-amber-400');
   });
 
-  it('DARK_THEN_MOONLIT renders "dark until HH:mm ↑" in amber', () => {
+  it('20-50% illumination renders no warning suffix in secondary text', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
       auroraTonight: auroraWithMoon({
-        windowQuality: 'DARK_THEN_MOONLIT',
-        moonRiseTime: '23:05',
+        moonIlluminationPct: 35,
+        moonPhase: 'FIRST_QUARTER',
       }),
     });
     const indicator = screen.queryByTestId('aurora-moon-indicator');
     expect(indicator).toBeTruthy();
-    expect(indicator.textContent).toContain('dark until 23:05 ↑');
+    expect(indicator.textContent).toContain('35%');
+    expect(indicator.textContent).not.toContain('dark all night');
+    expect(indicator.textContent).not.toContain('moon will impact');
+    expect(indicator.className).toContain('text-plex-text-secondary');
+  });
+
+  it('50-75% illumination renders "moon will impact" in amber', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({
+        moonIlluminationPct: 60,
+        moonPhase: 'WAXING_GIBBOUS',
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toContain('moon will impact');
     expect(indicator.className).toContain('text-amber-400');
-    expect(indicator.className).not.toContain('text-green-400');
   });
 
-  it('MOONLIT_THEN_DARK renders "clears after HH:mm ↓" in green', () => {
+  it('>75% illumination renders "moon above horizon all night" in red', () => {
     renderGrid({
       events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
       briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
       auroraTonight: auroraWithMoon({
-        windowQuality: 'MOONLIT_THEN_DARK',
-        moonSetTime: '02:30',
-      }),
-    });
-    const indicator = screen.queryByTestId('aurora-moon-indicator');
-    expect(indicator).toBeTruthy();
-    expect(indicator.textContent).toContain('clears after 02:30 ↓');
-    expect(indicator.className).toContain('text-green-400');
-    expect(indicator.className).not.toContain('text-amber-400');
-  });
-
-  it('MOONLIT_ALL_WINDOW renders "moon up all night" in amber', () => {
-    renderGrid({
-      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
-      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
-      auroraTonight: auroraWithMoon({
-        windowQuality: 'MOONLIT_ALL_WINDOW',
         moonIlluminationPct: 85,
+        moonPhase: 'FULL_MOON',
       }),
     });
     const indicator = screen.queryByTestId('aurora-moon-indicator');
     expect(indicator).toBeTruthy();
-    expect(indicator.textContent).toContain('moon up all night');
+    expect(indicator.textContent).toContain('moon above horizon all night');
+    expect(indicator.className).toContain('text-red-400');
+  });
+
+  // ── Boundary tests: the exact threshold where colour/suffix flips ──
+
+  it('exactly 20% illumination crosses into secondary (no "dark all night")', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({ moonIlluminationPct: 20 }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator.textContent).not.toContain('dark all night');
+    expect(indicator.className).toContain('text-plex-text-secondary');
+  });
+
+  it('exactly 50% illumination crosses into amber "moon will impact"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({ moonIlluminationPct: 50 }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator.textContent).toContain('moon will impact');
     expect(indicator.className).toContain('text-amber-400');
-    expect(indicator.className).not.toContain('text-green-400');
+  });
+
+  it('exactly 75% illumination crosses into red "moon above horizon all night"', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({ moonIlluminationPct: 75 }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator.textContent).toContain('moon above horizon all night');
+    expect(indicator.className).toContain('text-red-400');
+  });
+
+  // ── Null/missing data: don't crash, don't show misleading info ──
+
+  it('no moonPhase in aurora data renders no moon indicator', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({ moonPhase: null, moonIlluminationPct: null }),
+    });
+    expect(screen.queryByTestId('aurora-moon-indicator')).toBeNull();
+  });
+
+  it('null Bortle omits dot prefix before moon indicator', () => {
+    renderGrid({
+      events: [{ date: futureDateStr(0), targetType: 'AURORA' }],
+      briefingDays: buildBriefingDays([futureDateStr(0)], 'North East', ['Bamburgh']),
+      auroraTonight: auroraWithMoon({
+        moonIlluminationPct: 60,
+        moonPhase: 'WAXING_GIBBOUS',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          clearLocationCount: 1,
+          totalDarkSkyLocations: 1,
+          bestBortleClass: null,
+          locations: [{ locationName: 'Bamburgh', bortleClass: null, clear: true, cloudPercent: 30 }],
+          regionTemperatureCelsius: 4.5,
+          regionWindSpeedMs: 3.1,
+          regionWeatherCode: 2,
+        }],
+      }),
+    });
+    const indicator = screen.queryByTestId('aurora-moon-indicator');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).not.toMatch(/^· /);
+    expect(indicator.textContent).toContain('60%');
   });
 });
 
@@ -440,6 +509,36 @@ describe('HeatmapGrid — verdict labels', () => {
     const cells = screen.getAllByTestId('heatmap-cell');
     const marginalCell = cells.find((c) => c.textContent.includes('Maybe sunset'));
     expect(marginalCell.querySelector('.text-amber-300')).toBeTruthy();
+  });
+});
+
+describe('HeatmapGrid — tide badge formatting', () => {
+  it('shows reformatted tide label "3 king tides" instead of raw highlight', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          tideHighlights: ['King Tide at 3 coastal spots'],
+          slots: [
+            { locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00`, tideAligned: true },
+            { locationName: 'Kielder', verdict: 'GO', solarEventTime: `${date}T19:30:00`, tideAligned: false },
+          ],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    expect(cells[0].textContent).toContain('3 king tides');
+    expect(cells[0].textContent).not.toContain('King Tide at 3 coastal spots');
   });
 });
 

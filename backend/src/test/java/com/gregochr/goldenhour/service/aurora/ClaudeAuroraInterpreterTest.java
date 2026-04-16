@@ -241,6 +241,23 @@ class ClaudeAuroraInterpreterTest {
     }
 
     @Test
+    @DisplayName("buildUserMessage with bright moon (>75%) provides illumination Claude needs for hard cap")
+    void buildUserMessage_brightMoon_includesHighIllumination() {
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenReturn(new LunarPosition(
+                        30.0, 180.0, 0.92, LunarPhase.FULL_MOON, 384400));
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+
+        assertThat(msg).contains("Phase: FULL_MOON");
+        assertThat(msg).contains("Illumination: 92%");
+        assertThat(msg).contains("Window quality: MOONLIT_ALL_WINDOW");
+    }
+
+    @Test
     @DisplayName("buildUserMessage shows DARK_ALL_WINDOW when moon is below horizon")
     void buildUserMessage_moonBelowHorizon() {
         when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
@@ -807,10 +824,60 @@ class ClaudeAuroraInterpreterTest {
             String systemPrompt = captor.getValue().system().get()
                     .asTextBlockParams().getFirst().text();
 
-            assertThat(systemPrompt).contains("DARK_ALL_WINDOW");
+            assertThat(systemPrompt).contains("UK latitudes");
+            assertThat(systemPrompt).contains("Hard cap the FINAL score at 3");
+            assertThat(systemPrompt).contains("Illumination > 75%");
             assertThat(systemPrompt).contains("DARK_THEN_MOONLIT");
             assertThat(systemPrompt).contains("MOONLIT_THEN_DARK");
-            assertThat(systemPrompt).contains("MOONLIT_ALL_WINDOW");
+        }
+
+        @Test
+        @DisplayName("System prompt requires moon mention in detail for >50% illumination")
+        void systemPrompt_containsMoonDetailMentionRule() {
+            stubModelSelection();
+            stubDefaultMoon();
+            LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+            SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+            mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
+
+            interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                    data, null, TriggerType.REALTIME, null);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemPrompt = captor.getValue().system().get()
+                    .asTextBlockParams().getFirst().text();
+
+            assertThat(systemPrompt).contains("illumination > 50%");
+            assertThat(systemPrompt).contains("MUST mention moon impact");
+        }
+
+        @Test
+        @DisplayName("System prompt specifies graduated moon penalties at each illumination tier")
+        void systemPrompt_containsGraduatedMoonPenalties() {
+            stubModelSelection();
+            stubDefaultMoon();
+            LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+            SpaceWeatherData data = minimalSpaceWeather(6.0);
+
+            mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
+
+            interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                    data, null, TriggerType.REALTIME, null);
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemPrompt = captor.getValue().system().get()
+                    .asTextBlockParams().getFirst().text();
+
+            // Each penalty tier must be present — deleting any one would change scoring
+            assertThat(systemPrompt).contains("Illumination 20");
+            assertThat(systemPrompt).contains("Illumination 50");
+            assertThat(systemPrompt).contains("Illumination > 75%");
+            assertThat(systemPrompt).contains("Kp 7+");
         }
 
         @Test

@@ -355,3 +355,23 @@ export function computeAutoSelection(locations, now) {
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   return { date: tomorrow.toLocaleDateString('en-CA'), eventType: 'SUNRISE' };
 }
+
+/**
+ * Reformats a tide highlight string into a compact count-based label.
+ *
+ * Examples:
+ * - "King Tide at 3 coastal spots" → "3 king tides"
+ * - "Spring Tide at 1 coastal spot" → "1 spring tide"
+ * - "King Tide, Extra Extra High at 2 coastal spots" → "2 king tide, extra extra high"
+ *
+ * @param {string} highlight - Raw tide highlight string from the backend.
+ * @returns {string} Reformatted label, or the original if it doesn't match.
+ */
+export function formatTideHighlight(highlight) {
+  const countMatch = highlight.match(/at (\d+) coastal/);
+  if (!countMatch) return highlight;
+  const count = parseInt(countMatch[1], 10);
+  const rawLabel = highlight.replace(/ at .+$/, '').toLowerCase();
+  const isSimple = !rawLabel.includes(',');
+  return count === 1 ? `${count} ${rawLabel}` : `${count} ${rawLabel}${isSimple ? 's' : ''}`;
+}
