@@ -147,12 +147,12 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
      */
     private String formatDayLabel(LocalDate date, LocalDate today) {
         if (date.equals(today)) {
-            return "this morning";
+            return "today";
         }
         if (date.equals(today.plusDays(1))) {
-            return "tomorrow morning";
+            return "tomorrow";
         }
         DayOfWeek dow = date.getDayOfWeek();
-        return dow.getDisplayName(TextStyle.FULL, Locale.UK) + " morning";
+        return dow.getDisplayName(TextStyle.FULL, Locale.UK);
     }
 }

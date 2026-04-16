@@ -397,7 +397,7 @@ class BluebellHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
 
-        assertThat(topics.get(0).detail()).contains("this morning");
+        assertThat(topics.get(0).detail()).contains("today");
     }
 
     @Test
@@ -423,7 +423,7 @@ class BluebellHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, tomorrow);
 
-        assertThat(topics.get(0).detail()).contains("tomorrow morning");
+        assertThat(topics.get(0).detail()).contains("tomorrow");
     }
 
     @Test
@@ -450,7 +450,7 @@ class BluebellHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(IN_SEASON, monday);
 
-        assertThat(topics.get(0).detail()).contains("Monday morning");
+        assertThat(topics.get(0).detail()).contains("Monday");
     }
 
     // ── Exact repository argument verification ────────────────────────────────

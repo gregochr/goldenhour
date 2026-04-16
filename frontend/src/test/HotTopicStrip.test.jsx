@@ -459,4 +459,214 @@ describe('HotTopicStrip', () => {
       expect(pills).toHaveLength(2);
     });
   });
+
+  describe('multi-topic click correctness', () => {
+    it('clicking the second pill passes the second topic object', () => {
+      const onTap = vi.fn();
+      const topicA = buildTopic({ type: 'BLUEBELL', date: '2026-04-16' });
+      const topicB = buildTopic({ type: 'FOG', label: 'FOG', date: '2026-04-17' });
+      render(
+        <HotTopicStrip hotTopics={[topicA, topicB]} onTopicTap={onTap} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-FOG'));
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(onTap.mock.calls[0][0]).toBe(topicB);
+    });
+
+    it('clicking the first pill does not pass the second topic', () => {
+      const onTap = vi.fn();
+      const topicA = buildTopic({ type: 'BLUEBELL', date: '2026-04-16' });
+      const topicB = buildTopic({ type: 'FOG', label: 'FOG', date: '2026-04-17' });
+      render(
+        <HotTopicStrip hotTopics={[topicA, topicB]} onTopicTap={onTap} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(onTap.mock.calls[0][0]).toBe(topicA);
+    });
+  });
+
+  describe('detail text edge cases', () => {
+    it('renders empty detail span when detail is null', () => {
+      render(
+        <HotTopicStrip hotTopics={[buildTopic({ detail: null })]} />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const detailSpan = pill.children[1];
+      expect(detailSpan.tagName).toBe('SPAN');
+      expect(detailSpan.textContent).toBe('');
+    });
+
+    it('renders empty detail span when detail is undefined', () => {
+      render(
+        <HotTopicStrip hotTopics={[buildTopic({ detail: undefined })]} />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const detailSpan = pill.children[1];
+      expect(detailSpan.tagName).toBe('SPAN');
+      expect(detailSpan.textContent).toBe('');
+    });
+  });
+
+  describe('infotip description null guard', () => {
+    it('does not render infotip when description is null', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ description: null })]}
+        />,
+      );
+      expect(screen.queryByTestId('infotip-trigger')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pill container styles', () => {
+    it('uses display flex on the pill', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.display).toBe('flex');
+    });
+
+    it('uses 2px gap between pill children', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.gap).toBe('2px');
+    });
+
+    it('uses 8px 14px padding on the pill', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.padding).toBe('8px 14px');
+    });
+
+    it('uses 8px border radius on the pill', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.borderRadius).toBe('8px');
+    });
+
+    it('uses background transition on the pill', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.transition).toBe('background 0.15s');
+    });
+  });
+
+  describe('title row styles', () => {
+    it('uses display flex on the title row', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.style.display).toBe('flex');
+    });
+
+    it('aligns title row items to flex-start', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.style.alignItems).toBe('flex-start');
+    });
+
+    it('uses 12px gap between title group and regions', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.style.gap).toBe('12px');
+    });
+
+    it('uses 4px bottom margin on the title row', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleRow = pill.children[0];
+      expect(titleRow.style.marginBottom).toBe('4px');
+    });
+  });
+
+  describe('title group styles', () => {
+    it('uses display flex on the title group', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.style.display).toBe('flex');
+    });
+
+    it('vertically centres items in the title group', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.style.alignItems).toBe('center');
+    });
+
+    it('uses 6px gap between label and infotip', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.style.gap).toBe('6px');
+    });
+  });
+
+  describe('label letter spacing', () => {
+    it('uses 0.5px letter spacing on the label', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const label = screen.getByText('BLUEBELL CONDITIONS');
+      expect(label.style.letterSpacing).toBe('0.5px');
+    });
+  });
+
+  describe('region line height', () => {
+    it('uses 1.3 line height on region text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const regions = screen.getByText('Northumberland, The Lake District');
+      expect(regions.style.lineHeight).toBe('1.3');
+    });
+  });
+
+  describe('upsell layout styles', () => {
+    it('uses display flex on the upsell badge', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.display).toBe('flex');
+    });
+
+    it('vertically centres the upsell text', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.alignItems).toBe('center');
+    });
+
+    it('uses 11px font size on the upsell badge', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.fontSize).toBe('11px');
+    });
+
+    it('prevents upsell text from wrapping', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.whiteSpace).toBe('nowrap');
+    });
+
+    it('uses 0 8px padding on the upsell badge', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} isLiteUser />);
+      const upsell = screen.getByTestId('hot-topic-upsell');
+      expect(upsell.style.padding).toBe('0px 8px');
+    });
+  });
+
+  describe('pill border format', () => {
+    it('uses 1px solid border with accent colour for BLUEBELL', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      expect(pill.style.border).toBe('1px solid rgba(99, 102, 241, 0.3)');
+    });
+
+    it('uses 1px solid border with default accent for unknown type', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'UNKNOWN', label: 'UNKNOWN' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-UNKNOWN');
+      expect(pill.style.border).toBe('1px solid rgba(255, 255, 255, 0.1)');
+    });
+  });
 });

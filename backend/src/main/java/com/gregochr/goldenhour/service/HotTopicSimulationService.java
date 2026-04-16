@@ -148,9 +148,8 @@ public class HotTopicSimulationService {
                 case 2 -> date.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.UK);
                 default -> "tomorrow";
             };
-            String qualifiedLabel = "BLUEBELL".equals(type) ? dayLabel + " morning" : dayLabel;
             return new HotTopic(type, label,
-                    detail + " " + qualifiedLabel,
+                    detail + " " + dayLabel,
                     date, priority, filterAction, regions, description);
         }
     }
