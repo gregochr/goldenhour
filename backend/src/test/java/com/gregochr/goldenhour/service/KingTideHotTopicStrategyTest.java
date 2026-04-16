@@ -18,6 +18,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -139,6 +142,138 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
+    }
+
+    // ── Early return / loop boundary ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("stops scanning after first king tide — does not call classifyTide for later days")
+    void detect_kingTideOnFirstDay_stopsScanning() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+
+        strategy.detect(TODAY, TO_DATE);
+
+        verify(lunarPhaseService).classifyTide(TODAY);
+        verifyNoMoreInteractions(lunarPhaseService);
+    }
+
+    @Test
+    @DisplayName("king tide on toDate boundary (last day of window) is detected")
+    void detect_kingTideOnLastDay_detected() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TO_DATE))
+                .thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TO_DATE);
+    }
+
+    @Test
+    @DisplayName("single-day window with king tide emits pill")
+    void detect_singleDayWindow_kingTide_emits() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TODAY);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        assertThat(topics.get(0).detail()).contains("today");
+    }
+
+    @Test
+    @DisplayName("single-day window with regular tide emits nothing")
+    void detect_singleDayWindow_regularTide_emitsNothing() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
+
+        List<HotTopic> topics = strategy.detect(TODAY, TODAY);
+
+        assertThat(topics).isEmpty();
+    }
+
+    // ── Region edge cases ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("duplicate regions from multiple coastal locations are deduplicated")
+    void detect_duplicateRegions_deduplicated() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Craster").lat(55.47).lon(-1.59)
+                .tideType(Set.of(TideType.HIGH)).region(region).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Bamburgh").lat(55.61).lon(-1.71)
+                .tideType(Set.of(TideType.LOW)).region(region).enabled(true).build();
+
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(loc1, loc2));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
+    }
+
+    @Test
+    @DisplayName("locations with null region are filtered out")
+    void detect_nullRegion_filteredOut() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+
+        RegionEntity validRegion = new RegionEntity();
+        validRegion.setName("Northumberland");
+
+        LocationEntity withRegion = LocationEntity.builder()
+                .id(1L).name("Craster").lat(55.47).lon(-1.59)
+                .tideType(Set.of(TideType.HIGH)).region(validRegion).enabled(true).build();
+        LocationEntity noRegion = LocationEntity.builder()
+                .id(2L).name("Orphan Cove").lat(54.0).lon(-1.0)
+                .tideType(Set.of(TideType.HIGH)).region(null).enabled(true).build();
+
+        when(locationRepository.findCoastalLocations())
+                .thenReturn(List.of(withRegion, noRegion));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
+    }
+
+    @Test
+    @DisplayName("no coastal locations produces empty regions list")
+    void detect_noCoastalLocations_emptyRegions() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).regions()).isEmpty();
+    }
+
+    // ── Interaction verification ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("does not query location repository when no king tide found")
+    void detect_noKingTide_noLocationQuery() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TODAY.plusDays(3)))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+
+        strategy.detect(TODAY, TO_DATE);
+
+        verifyNoInteractions(locationRepository);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

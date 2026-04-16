@@ -21,6 +21,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -247,6 +248,283 @@ class AuroraHotTopicStrategyTest {
 
         assertThat(topics.get(0).regions())
                 .containsExactly("Northumberland", "The Lake District");
+    }
+
+    // ── Tonight detail string ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("tonight pill omits clear-sky suffix when clearCount is null")
+    void detect_nullClearCount_omitsSuffix() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MINOR);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(4.0);
+        when(auroraStateCache.getClearLocationCount()).thenReturn(null);
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        HotTopic tonight = topics.stream()
+                .filter(t -> t.date().equals(TODAY))
+                .findFirst().orElseThrow();
+        assertThat(tonight.detail()).isEqualTo("Kp 4 forecast tonight");
+    }
+
+    @Test
+    @DisplayName("tonight pill filterAction is null (aurora has its own UI section)")
+    void detect_tonightPill_filterActionIsNull() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).filterAction()).isNull();
+    }
+
+    // ── Tomorrow pill field coverage ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("tomorrow pill has type AURORA, label 'Aurora possible', null filterAction")
+    void detect_tomorrowPill_fieldValues() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        stubTomorrowKpForecast(6.0);
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        HotTopic tomorrow = topics.get(0);
+        assertThat(tomorrow.type()).isEqualTo("AURORA");
+        assertThat(tomorrow.label()).isEqualTo("Aurora possible");
+        assertThat(tomorrow.filterAction()).isNull();
+        assertThat(tomorrow.description()).contains("aurora borealis");
+        assertThat(tomorrow.regions()).containsExactly("Northumberland");
+    }
+
+    // ── Kp threshold boundary ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("tomorrow Kp exactly 4.0 emits pill (boundary: >= 4.0)")
+    void detect_tomorrowKpExactly4_emitsPill() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        stubTomorrowKpForecast(4.0);
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).contains("Kp 4");
+    }
+
+    @Test
+    @DisplayName("tomorrow Kp 3.9 does NOT emit pill (boundary: < 4.0)")
+    void detect_tomorrowKp3point9_noPill() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        stubTomorrowKpForecast(3.9);
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+    }
+
+    // ── Dark hours boundary ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Kp window at hour 18 (start of dark hours) IS included")
+    void detect_kpAtHour18_included() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        ZonedDateTime hour18 = tomorrow.atTime(18, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(hour18, hour18.plusHours(3), 5.0)));
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Kp window at hour 17 (before dark hours) is excluded")
+    void detect_kpAtHour17_excluded() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        ZonedDateTime hour17 = tomorrow.atTime(17, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(hour17, hour17.plusHours(3), 7.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Kp window at hour 5 next morning IS included (early hours)")
+    void detect_kpAtHour5NextMorning_included() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        // Early morning of tomorrow+1 = still "tomorrow night"
+        ZonedDateTime hour5 = tomorrow.plusDays(1).atTime(5, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(hour5, hour5.plusHours(1), 5.0)));
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Kp window at hour 6 next morning is excluded (end of dark hours)")
+    void detect_kpAtHour6NextMorning_excluded() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        ZonedDateTime hour6 = tomorrow.plusDays(1).atTime(6, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(hour6, hour6.plusHours(3), 7.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+    }
+
+    @Test
+    @DisplayName("daytime Kp window (hour 12) is excluded even when Kp is high")
+    void detect_daytimeKp_excluded() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        ZonedDateTime noon = tomorrow.atTime(12, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(noon, noon.plusHours(3), 8.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+    }
+
+    // ── Kp forecast aggregation ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("forecast picks MAX Kp across multiple dark-hour windows")
+    void detect_multipleWindows_picksMax() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        ZonedDateTime window1 = tomorrow.atTime(21, 0).atZone(ZoneOffset.UTC);
+        ZonedDateTime window2 = tomorrow.plusDays(1).atTime(0, 0).atZone(ZoneOffset.UTC);
+        ZonedDateTime window3 = tomorrow.plusDays(1).atTime(3, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(window1, window1.plusHours(3), 3.0),
+                new KpForecast(window2, window2.plusHours(3), 6.0),
+                new KpForecast(window3, window3.plusHours(3), 2.0)));
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).contains("Kp 6");
+    }
+
+    @Test
+    @DisplayName("forecast ignores daytime windows when picking max")
+    void detect_mixedDayNight_ignoresDaytime() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        LocalDate tomorrow = TODAY.plusDays(1);
+        ZonedDateTime daytime = tomorrow.atTime(12, 0).atZone(ZoneOffset.UTC);
+        ZonedDateTime nighttime = tomorrow.atTime(21, 0).atZone(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(daytime, daytime.plusHours(3), 8.0),
+                new KpForecast(nighttime, nighttime.plusHours(3), 3.0)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        // daytime Kp 8.0 is excluded; nighttime Kp 3.0 is below threshold
+        assertThat(topics).isEmpty();
+    }
+
+    @Test
+    @DisplayName("empty forecast list emits no tomorrow pill")
+    void detect_emptyForecastList_noTomorrowPill() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+    }
+
+    // ── Region edge cases ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("duplicate regions from multiple locations are deduplicated")
+    void detect_duplicateRegions_deduplicated() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MINOR);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(4.0);
+
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Kielder").lat(55.2).lon(-2.6)
+                .bortleClass(2).region(region).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Cawfields").lat(55.1).lon(-2.4)
+                .bortleClass(3).region(region).enabled(true).build();
+
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of(loc1, loc2));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
+    }
+
+    @Test
+    @DisplayName("locations with null region are filtered out")
+    void detect_nullRegion_filteredOut() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MINOR);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(4.0);
+
+        RegionEntity validRegion = new RegionEntity();
+        validRegion.setName("Northumberland");
+
+        LocationEntity withRegion = LocationEntity.builder()
+                .id(1L).name("Kielder").lat(55.2).lon(-2.6)
+                .bortleClass(2).region(validRegion).enabled(true).build();
+        LocationEntity noRegion = LocationEntity.builder()
+                .id(2L).name("Orphan").lat(54.0).lon(-2.0)
+                .bortleClass(4).region(null).enabled(true).build();
+
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of(withRegion, noRegion));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
+    }
+
+    @Test
+    @DisplayName("no dark-sky locations produces empty regions list")
+    void detect_noDarkSkyLocations_emptyRegions() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MINOR);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(4.0);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).regions()).isEmpty();
+    }
+
+    // ── Interaction verification ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("QUIET alert does not query location repository or Kp forecast")
+    void detect_quiet_noRepositoryOrForecastQueries() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.QUIET);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of());
+
+        strategy.detect(TODAY, TO_DATE);
+
+        verifyNoInteractions(locationRepository);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
