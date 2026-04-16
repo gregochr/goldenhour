@@ -194,26 +194,24 @@ describe('HotTopicStrip', () => {
   });
 
   describe('accent colours', () => {
-    it('applies BLUEBELL accent border, background, and label colour', () => {
+    it('applies BLUEBELL accent left border and label colour', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
-      expect(pill.style.borderColor).toBe('rgba(99, 102, 241, 0.3)');
-      expect(pill.style.background).toBe('rgba(99, 102, 241, 0.06)');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(139, 92, 246)');
       const label = screen.getByText('BLUEBELL CONDITIONS');
-      expect(label.style.color).toBe('rgb(129, 140, 248)');
+      expect(label.style.color).toBe('rgb(139, 92, 246)');
     });
 
-    it('applies default accent border, background, and label colour for unknown types', () => {
+    it('applies default accent left border and label colour for unknown types', () => {
       render(
         <HotTopicStrip
           hotTopics={[buildTopic({ type: 'UNKNOWN', label: 'UNKNOWN TOPIC' })]}
         />,
       );
       const pill = screen.getByTestId('hot-topic-pill-UNKNOWN');
-      expect(pill.style.borderColor).toBe('rgba(255, 255, 255, 0.1)');
-      expect(pill.style.background).toBe('rgba(255, 255, 255, 0.04)');
+      expect(pill.style.borderLeft).toContain('3px solid');
       const label = screen.getByText('UNKNOWN TOPIC');
-      expect(label.style.color).toBe('rgba(255, 255, 255, 0.7)');
+      expect(label.style.color).toBe('rgba(255, 255, 255, 0.2)');
     });
   });
 
@@ -538,10 +536,10 @@ describe('HotTopicStrip', () => {
       expect(pill.style.padding).toBe('8px 14px');
     });
 
-    it('uses 8px border radius on the pill', () => {
+    it('uses right-only border radius on the pill', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
-      expect(pill.style.borderRadius).toBe('8px');
+      expect(pill.style.borderRadius).toBe('0 8px 8px 0');
     });
 
     it('uses background transition on the pill', () => {
@@ -653,20 +651,20 @@ describe('HotTopicStrip', () => {
   });
 
   describe('pill border format', () => {
-    it('uses 1px solid border with accent colour for BLUEBELL', () => {
+    it('uses 3px solid left border with accent colour for BLUEBELL', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
-      expect(pill.style.border).toBe('1px solid rgba(99, 102, 241, 0.3)');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(139, 92, 246)');
     });
 
-    it('uses 1px solid border with default accent for unknown type', () => {
+    it('uses 3px solid left border with default accent for unknown type', () => {
       render(
         <HotTopicStrip
           hotTopics={[buildTopic({ type: 'UNKNOWN', label: 'UNKNOWN' })]}
         />,
       );
       const pill = screen.getByTestId('hot-topic-pill-UNKNOWN');
-      expect(pill.style.border).toBe('1px solid rgba(255, 255, 255, 0.1)');
+      expect(pill.style.borderLeft).toBe('3px solid rgba(255, 255, 255, 0.2)');
     });
   });
 });
