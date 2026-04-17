@@ -20,9 +20,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import com.anthropic.core.JsonValue;
+import com.anthropic.models.messages.JsonOutputFormat;
+import com.anthropic.models.messages.OutputConfig;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static com.gregochr.goldenhour.service.evaluation.PromptBuilder.InversionPotential;
@@ -378,6 +385,270 @@ public class PromptBuilderTest {
 
             assertThat(configStr).contains("inversion_score");
             assertThat(configStr).contains("inversion_potential");
+        }
+
+        @Test
+        @DisplayName("Output config JSON contains bluebell fields")
+        void outputConfig_containsBluebellFields() {
+            var config = promptBuilder.buildOutputConfig();
+            String configStr = config.toString();
+
+            assertThat(configStr).contains("bluebell_score");
+            assertThat(configStr).contains("bluebell_summary");
+        }
+    }
+
+    // ── Schema guard tests ──────────────────────────────────────────────────
+    //
+    // These tests validate the output schema against Anthropic's structured
+    // output requirements. They prevent future schema changes from breaking
+    // batch submissions.
+
+    @Nested
+    @DisplayName("Output schema guard tests — Anthropic structured output compliance")
+    @SuppressWarnings("unchecked")
+    class OutputSchemaGuardTests {
+
+        private static final Set<String> VALID_JSON_SCHEMA_TYPES =
+                Set.of("string", "integer", "number", "boolean", "array", "object");
+
+        private Map<String, JsonValue> extractSchema() {
+            OutputConfig config = promptBuilder.buildOutputConfig();
+            JsonOutputFormat format = config.format().orElseThrow(
+                    () -> new AssertionError("OutputConfig.format() is empty"));
+            return format.schema()._additionalProperties();
+        }
+
+        private Map<String, JsonValue> extractProperties(
+                Map<String, JsonValue> schema) {
+            var opt = schema.get("properties").asObject();
+            assertThat(opt.isPresent())
+                    .as("Schema 'properties' must be an object").isTrue();
+            return (Map<String, JsonValue>) opt.get();
+        }
+
+        /**
+         * Recursively walks all nodes in the schema. For each node that is
+         * {@code "type":"object"}, invokes the visitor with the path and
+         * node map.
+         */
+        private void walkObjects(Map<String, JsonValue> node, String path,
+                ObjectNodeVisitor visitor) {
+            var typeVal = node.get("type");
+            String typeStr = (String) typeVal.asString().orElse("");
+            if ("object".equals(typeStr)) {
+                visitor.visit(path, node);
+                var propsVal = node.get("properties");
+                if (propsVal != null) {
+                    var propsOpt = propsVal.asObject();
+                    if (propsOpt.isPresent()) {
+                        Map<String, JsonValue> props =
+                                (Map<String, JsonValue>) propsOpt.get();
+                        for (var entry : props.entrySet()) {
+                            var childOpt = entry.getValue().asObject();
+                            if (childOpt.isPresent()) {
+                                Map<String, JsonValue> child =
+                                        (Map<String, JsonValue>)
+                                                childOpt.get();
+                                walkObjects(child,
+                                        path + "." + entry.getKey(),
+                                        visitor);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * Walks all property definitions, invoking the visitor with each
+         * property name and its schema map.
+         */
+        private void walkProperties(Map<String, JsonValue> schema,
+                PropertyVisitor visitor) {
+            var propsVal = schema.get("properties");
+            if (propsVal == null) {
+                return;
+            }
+            var propsOpt = propsVal.asObject();
+            if (propsOpt.isPresent()) {
+                Map<String, JsonValue> props =
+                        (Map<String, JsonValue>) propsOpt.get();
+                for (var entry : props.entrySet()) {
+                    var childOpt = entry.getValue().asObject();
+                    if (childOpt.isPresent()) {
+                        Map<String, JsonValue> propSchema =
+                                (Map<String, JsonValue>) childOpt.get();
+                        visitor.visit(entry.getKey(), propSchema);
+                    }
+                }
+            }
+        }
+
+        @FunctionalInterface
+        interface ObjectNodeVisitor {
+            /** Called for each {@code "type":"object"} node. */
+            void visit(String path, Map<String, JsonValue> node);
+        }
+
+        @FunctionalInterface
+        interface PropertyVisitor {
+            /** Called for each property name and schema definition. */
+            void visit(String name, Map<String, JsonValue> propSchema);
+        }
+
+        @Test
+        @DisplayName("Top-level schema type must be 'object'")
+        void outputConfig_topLevelMustBeObject() {
+            Map<String, JsonValue> schema = extractSchema();
+            String type = (String) schema.get("type").asString()
+                    .orElse(null);
+
+            assertThat(type)
+                    .as("Top-level schema must be type 'object'")
+                    .isEqualTo("object");
+        }
+
+        @Test
+        @DisplayName("All object types must have additionalProperties: false")
+        void outputConfig_allObjectTypesMustHaveAdditionalPropertiesFalse() {
+            Map<String, JsonValue> schema = extractSchema();
+            List<String> violations = new ArrayList<>();
+
+            walkObjects(schema, "$", (path, node) -> {
+                var addlProps = node.get("additionalProperties");
+                if (addlProps == null) {
+                    violations.add(path
+                            + ": missing 'additionalProperties'");
+                } else {
+                    Boolean val = (Boolean) addlProps.asBoolean()
+                            .orElse(null);
+                    if (!Boolean.FALSE.equals(val)) {
+                        violations.add(path
+                                + ": 'additionalProperties' must be "
+                                + "false, was " + val);
+                    }
+                }
+            });
+
+            assertThat(violations)
+                    .as("Every 'type':'object' node must have "
+                            + "'additionalProperties': false — "
+                            + "Anthropic rejects schemas without it")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("All required fields must exist in properties")
+        void outputConfig_allRequiredFieldsMustExistInProperties() {
+            Map<String, JsonValue> schema = extractSchema();
+            Map<String, JsonValue> props = extractProperties(schema);
+
+            var reqOpt = schema.get("required").asArray();
+            assertThat(reqOpt.isPresent())
+                    .as("'required' must be an array").isTrue();
+            List<JsonValue> required = (List<JsonValue>) reqOpt.get();
+
+            for (JsonValue reqField : required) {
+                var nameOpt = reqField.asString();
+                assertThat(nameOpt.isPresent())
+                        .as("required entry must be a string: %s",
+                                reqField).isTrue();
+                String fieldName = (String) nameOpt.get();
+                assertThat(props)
+                        .as("Required field '%s' not found in properties",
+                                fieldName)
+                        .containsKey(fieldName);
+            }
+        }
+
+        @Test
+        @DisplayName("All property type values must be valid JSON Schema types")
+        void outputConfig_allTypeValuesMustBeValidJsonSchemaTypes() {
+            Map<String, JsonValue> schema = extractSchema();
+            List<String> violations = new ArrayList<>();
+
+            walkProperties(schema, (name, propSchema) -> {
+                var typeVal = propSchema.get("type");
+                if (typeVal != null) {
+                    String typeStr = (String) typeVal.asString()
+                            .orElse(null);
+                    if (typeStr != null
+                            && !VALID_JSON_SCHEMA_TYPES.contains(typeStr)) {
+                        violations.add("Property '" + name
+                                + "' has invalid type '" + typeStr + "'");
+                    }
+                }
+            });
+
+            assertThat(violations)
+                    .as("All property types must be one of: "
+                            + VALID_JSON_SCHEMA_TYPES)
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("Enum values must be non-empty")
+        void outputConfig_enumValuesMustBeNonEmpty() {
+            Map<String, JsonValue> schema = extractSchema();
+            List<String> violations = new ArrayList<>();
+
+            walkProperties(schema, (name, propSchema) -> {
+                var enumVal = propSchema.get("enum");
+                if (enumVal != null) {
+                    List<JsonValue> enumList =
+                            (List<JsonValue>) enumVal.asArray()
+                                    .orElse(List.of());
+                    if (enumList.isEmpty()) {
+                        violations.add("Property '" + name
+                                + "' has empty enum list");
+                    }
+                }
+            });
+
+            assertThat(violations)
+                    .as("Enum properties must have at least one value")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("Enum types must match declared type")
+        void outputConfig_enumTypesMustMatchDeclaredType() {
+            Map<String, JsonValue> schema = extractSchema();
+            List<String> violations = new ArrayList<>();
+
+            walkProperties(schema, (name, propSchema) -> {
+                var typeVal = propSchema.get("type");
+                var enumVal = propSchema.get("enum");
+                if (typeVal == null || enumVal == null) {
+                    return;
+                }
+                String declaredType = (String) typeVal.asString()
+                        .orElse(null);
+                List<JsonValue> enumList =
+                        (List<JsonValue>) enumVal.asArray()
+                                .orElse(List.of());
+
+                for (JsonValue v : enumList) {
+                    boolean matches = switch (declaredType) {
+                        case "string" -> v.asString().isPresent();
+                        case "integer", "number" ->
+                                v.asNumber().isPresent();
+                        case "boolean" -> v.asBoolean().isPresent();
+                        default -> true;
+                    };
+                    if (!matches) {
+                        violations.add("Property '" + name
+                                + "' has type '" + declaredType
+                                + "' but enum contains non-"
+                                + declaredType + " value: " + v);
+                    }
+                }
+            });
+
+            assertThat(violations)
+                    .as("Enum values must match the declared property type")
+                    .isEmpty();
         }
     }
 
@@ -1406,23 +1677,37 @@ public class PromptBuilderTest {
     }
 
     @Nested
-    @DisplayName("Output config excludes bluebell fields")
-    class OutputConfigBluebellExclusionTests {
+    @DisplayName("Output config includes bluebell fields as optional")
+    class OutputConfigBluebellInclusionTests {
 
         @Test
-        @DisplayName("output config does not contain bluebell_score")
-        void outputConfig_excludesBluebellScore() {
+        @DisplayName("output config contains bluebell_score in properties")
+        void outputConfig_containsBluebellScore() {
             String configStr = promptBuilder.buildOutputConfig().toString();
 
-            assertThat(configStr).doesNotContain("bluebell_score");
+            assertThat(configStr).contains("bluebell_score");
         }
 
         @Test
-        @DisplayName("output config does not contain bluebell_summary")
-        void outputConfig_excludesBluebellSummary() {
+        @DisplayName("output config contains bluebell_summary in properties")
+        void outputConfig_containsBluebellSummary() {
             String configStr = promptBuilder.buildOutputConfig().toString();
 
-            assertThat(configStr).doesNotContain("bluebell_summary");
+            assertThat(configStr).contains("bluebell_summary");
+        }
+
+        @Test
+        @DisplayName("bluebell fields are not in the required list")
+        void outputConfig_bluebellFieldsNotRequired() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+            // required list should not mention bluebell
+            String requiredSection = configStr.substring(
+                    configStr.indexOf("required="));
+            String requiredList = requiredSection.substring(0,
+                    requiredSection.indexOf("]") + 1);
+
+            assertThat(requiredList).doesNotContain("bluebell_score");
+            assertThat(requiredList).doesNotContain("bluebell_summary");
         }
     }
 

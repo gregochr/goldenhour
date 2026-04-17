@@ -463,6 +463,11 @@ public class ScheduledBatchEvaluationService {
     private void submitBatch(List<BatchCreateParams.Request> requests,
             BatchType batchType, String logPrefix) {
         try {
+            if (LOG.isDebugEnabled() && !requests.isEmpty()) {
+                LOG.debug("[BATCH DIAG] Output config schema: {}",
+                        requests.get(0).params().outputConfig());
+            }
+
             BatchCreateParams params = BatchCreateParams.builder()
                     .requests(requests)
                     .build();

@@ -176,6 +176,11 @@ public class ForceSubmitBatchService {
         }
 
         // Submit to Anthropic Batch API
+        if (LOG.isDebugEnabled() && !requests.isEmpty()) {
+            LOG.debug("[BATCH DIAG] Output config schema: {}",
+                    requests.get(0).params().outputConfig());
+        }
+
         BatchCreateParams params = BatchCreateParams.builder()
                 .requests(requests)
                 .build();
