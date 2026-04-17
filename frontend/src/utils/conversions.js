@@ -366,6 +366,15 @@ export const MOON_EMOJI = {
 };
 
 /**
+ * Human-readable moon phase names — keyed by backend MoonPhase enum values.
+ */
+export const MOON_PHASE_NAME = {
+  NEW_MOON: 'New moon', WAXING_CRESCENT: 'Waxing crescent', FIRST_QUARTER: 'First quarter',
+  WAXING_GIBBOUS: 'Waxing gibbous', FULL_MOON: 'Full moon', WANING_GIBBOUS: 'Waning gibbous',
+  LAST_QUARTER: 'Last quarter', WANING_CRESCENT: 'Waning crescent',
+};
+
+/**
  * Returns colour class and descriptive suffix for a moon indicator.
  *
  * When windowQuality is present (aurora observation window data), the transition

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
-import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
+import { bortleLabel, moonIlluminationStyle, MOON_EMOJI, MOON_PHASE_NAME } from '../utils/conversions.js';
 
 /** Accent colours keyed by topic type. */
 const HOT_TOPIC_STYLES = {
@@ -97,6 +97,22 @@ function buildSubtitle(topic, auroraData) {
     return parts.join(' \u00b7 ');
   }
   return null;
+}
+
+/**
+ * Builds a moon-phase line for the collapsed aurora pill header.
+ * Returns null when aurora data or moon phase is absent (graceful degradation).
+ */
+function buildMoonLine(auroraData) {
+  if (!auroraData?.moonPhase) return null;
+  const illum = Math.round(auroraData.moonIlluminationPct ?? 0);
+  const emoji = MOON_EMOJI[auroraData.moonPhase] || '';
+  const phaseName = MOON_PHASE_NAME[auroraData.moonPhase] || auroraData.moonPhase;
+  const { colourClass, suffix } = moonIlluminationStyle(
+    auroraData.moonIlluminationPct ?? 0, auroraData.windowQuality,
+    auroraData.moonRiseTime, auroraData.moonSetTime,
+  );
+  return { emoji, phaseName, illum, colourClass, suffix };
 }
 
 /**
@@ -491,6 +507,7 @@ export default function HotTopicStrip({
           && ((isAurora && auroraData != null) || topic.expandedDetail != null);
 
         const subtitle = canExpand ? buildSubtitle(topic, auroraData) : null;
+        const moonLine = isAurora ? buildMoonLine(auroraData) : null;
 
         // For expandable pills, regions are shown in the expanded body, not the collapsed pill
         const regionLine = !canExpand && topic.regions?.length > 0
@@ -617,6 +634,21 @@ export default function HotTopicStrip({
                   }}
                 >
                   {subtitle}
+                </span>
+              )}
+              {moonLine && (
+                <span
+                  data-testid="aurora-pill-moon-line"
+                  style={{ fontSize: '11px', marginBottom: '2px' }}
+                >
+                  {moonLine.emoji}{' '}
+                  <span style={{ color: 'rgba(255, 255, 255, 0.5)' }}>
+                    {moonLine.phaseName}
+                  </span>
+                  {' · '}
+                  <span className={moonLine.colourClass}>
+                    {moonLine.illum}%{moonLine.suffix}
+                  </span>
                 </span>
               )}
               <span

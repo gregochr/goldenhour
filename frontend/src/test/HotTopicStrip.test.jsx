@@ -2390,3 +2390,159 @@ describe('HotTopicStrip — generic expand behaviour', () => {
     expect(screen.getByTestId('tide-expanded-card')).toBeInTheDocument();
   });
 });
+
+describe('HotTopicStrip — aurora pill moon line', () => {
+  const auroraTopic = {
+    type: 'AURORA',
+    label: 'AURORA TONIGHT',
+    detail: 'Moderate activity tonight',
+    date: '2026-04-17',
+    priority: 1,
+    regions: ['Northumberland'],
+    description: null,
+  };
+
+  const auroraTomorrowTopic = {
+    type: 'AURORA',
+    label: 'AURORA TOMORROW',
+    detail: 'Minor activity tomorrow night',
+    date: '2026-04-18',
+    priority: 2,
+    regions: ['Northumberland'],
+    description: null,
+  };
+
+  const tonightData = {
+    alertLevel: 'MODERATE',
+    kp: 5.3,
+    moonPhase: 'NEW_MOON',
+    moonIlluminationPct: 2.802,
+    windowQuality: 'DARK_ALL_WINDOW',
+    moonRiseTime: null,
+    moonSetTime: null,
+    regions: [{ regionName: 'Northumberland', clearLocationCount: 2, totalDarkSkyLocations: 3 }],
+  };
+
+  const tomorrowData = {
+    peakKp: 4.0,
+    label: 'Worth watching',
+    alertLevel: 'MINOR',
+    moonPhase: 'WAXING_CRESCENT',
+    moonIlluminationPct: 8.5,
+    regions: [{ regionName: 'Northumberland', clearLocationCount: 1, totalDarkSkyLocations: 3 }],
+  };
+
+  it('tonight pill shows moon line with phase name and rounded illumination', () => {
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={tonightData} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine).toBeInTheDocument();
+    expect(moonLine.textContent).toContain('New moon');
+    expect(moonLine.textContent).toContain('3%');
+    expect(moonLine.textContent).not.toContain('2.8');
+  });
+
+  it('tonight pill DARK_ALL_WINDOW shows green text and "dark all night"', () => {
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={tonightData} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('dark all night');
+    const colourSpan = moonLine.querySelector('.text-green-400\\/70');
+    expect(colourSpan).not.toBeNull();
+  });
+
+  it('DARK_THEN_MOONLIT shows amber text and "dark until" with moonrise time', () => {
+    const data = { ...tonightData, windowQuality: 'DARK_THEN_MOONLIT', moonRiseTime: '2026-04-17T22:15:00', moonPhase: 'WAXING_GIBBOUS', moonIlluminationPct: 82 };
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={data} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('Waxing gibbous');
+    expect(moonLine.textContent).toContain('82%');
+    expect(moonLine.textContent).toContain('dark until');
+    expect(moonLine.textContent).toContain('23:15'); // UTC 22:15 → BST 23:15
+    const colourSpan = moonLine.querySelector('.text-amber-400');
+    expect(colourSpan).not.toBeNull();
+  });
+
+  it('MOONLIT_THEN_DARK shows green text and "clears after" with moonset time', () => {
+    const data = { ...tonightData, windowQuality: 'MOONLIT_THEN_DARK', moonSetTime: '2026-04-18T01:00:00', moonPhase: 'WANING_GIBBOUS', moonIlluminationPct: 65 };
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={data} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('Waning gibbous');
+    expect(moonLine.textContent).toContain('clears after');
+    expect(moonLine.textContent).toContain('02:00'); // UTC 01:00 → BST 02:00
+  });
+
+  it('MOONLIT_ALL_WINDOW shows red text and "moon above horizon all night"', () => {
+    const data = { ...tonightData, windowQuality: 'MOONLIT_ALL_WINDOW', moonPhase: 'FULL_MOON', moonIlluminationPct: 96 };
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={data} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('Full moon');
+    expect(moonLine.textContent).toContain('96%');
+    expect(moonLine.textContent).toContain('moon above horizon all night');
+    const colourSpan = moonLine.querySelector('.text-red-400');
+    expect(colourSpan).not.toBeNull();
+  });
+
+  it('auroraTonight null renders pill without moon line', () => {
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={null} />,
+    );
+    expect(screen.queryByTestId('aurora-pill-moon-line')).not.toBeInTheDocument();
+  });
+
+  it('auroraTomorrow null renders tomorrow pill without moon line', () => {
+    render(
+      <HotTopicStrip hotTopics={[auroraTomorrowTopic]} auroraTomorrow={null} />,
+    );
+    expect(screen.queryByTestId('aurora-pill-moon-line')).not.toBeInTheDocument();
+  });
+
+  it('aurora data with moonPhase null renders pill without moon line', () => {
+    const noMoon = { ...tonightData, moonPhase: null, moonIlluminationPct: null };
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noMoon} />,
+    );
+    expect(screen.queryByTestId('aurora-pill-moon-line')).not.toBeInTheDocument();
+  });
+
+  it('tomorrow pill shows moon line from auroraTomorrow data', () => {
+    render(
+      <HotTopicStrip
+        hotTopics={[auroraTomorrowTopic]}
+        auroraTomorrow={tomorrowData}
+      />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('Waxing crescent');
+    expect(moonLine.textContent).toContain('9%');
+  });
+
+  it('non-aurora pill types do not render moon line', () => {
+    render(
+      <HotTopicStrip
+        hotTopics={[buildTopic({ type: 'DUST', label: 'Dust', date: '2026-04-17' })]}
+        auroraTonight={tonightData}
+      />,
+    );
+    expect(screen.queryByTestId('aurora-pill-moon-line')).not.toBeInTheDocument();
+  });
+
+  it('phase name renders in muted colour', () => {
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={tonightData} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    const phaseSpan = Array.from(moonLine.querySelectorAll('span'))
+      .find((s) => s.textContent === 'New moon');
+    expect(phaseSpan).toBeDefined();
+    expect(phaseSpan.style.color).toBe('rgba(255, 255, 255, 0.5)');
+  });
+});
