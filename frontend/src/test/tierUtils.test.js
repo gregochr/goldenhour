@@ -104,7 +104,7 @@ describe('TIER_LABELS', () => {
   it('last label describes everything', () => expect(TIER_LABELS[5]).toMatch(/standdown/i));
 
   it('GO tiers use WORTH IT label', () => {
-    expect(TIER_LABELS[0]).toBe('WORTH IT + king tide or aurora');
+    expect(TIER_LABELS[0]).toBe('WORTH IT + king tide');
     expect(TIER_LABELS[1]).toBe('WORTH IT + any tide alignment');
     expect(TIER_LABELS[2]).toBe('All WORTH IT conditions');
   });

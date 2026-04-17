@@ -91,7 +91,7 @@ describe('QualitySlider', () => {
 
   it('displays WORTH IT label at best-quality tier', () => {
     render(<QualitySlider value={0} onChange={() => {}} showing={2} total={10} />);
-    expect(screen.getByText((t) => t.includes('WORTH IT + king tide or aurora'))).toBeInTheDocument();
+    expect(screen.getByText((t) => t.includes('WORTH IT + king tide'))).toBeInTheDocument();
   });
 
   it('displays MAYBE label at marginal tier', () => {
