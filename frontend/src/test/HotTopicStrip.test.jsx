@@ -57,8 +57,9 @@ describe('HotTopicStrip', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       const title = screen.getByText('BLUEBELL CONDITIONS');
       const regions = screen.getByText('Northumberland, The Lake District');
-      // Both should share the same parent row div
-      expect(title.closest('div').parentElement).toBe(regions.parentElement);
+      // Title-group and regions wrapper are siblings inside the title row div
+      const titleRow = title.closest('div').parentElement;
+      expect(titleRow.contains(regions)).toBe(true);
     });
 
     it('renders regions as comma-separated text', () => {
@@ -83,15 +84,17 @@ describe('HotTopicStrip', () => {
       render(<HotTopicStrip hotTopics={[buildTopic({ regions: [] })]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
       const titleRow = pill.children[0];
-      // Only the title-group div, no region span
-      expect(titleRow.children).toHaveLength(1);
+      // Title row has title-group + regions/chevron wrapper; wrapper should be empty
+      const regionsWrapper = titleRow.children[1];
+      expect(regionsWrapper.children).toHaveLength(0);
     });
 
     it('does not render region span when regions is null', () => {
       render(<HotTopicStrip hotTopics={[buildTopic({ regions: null })]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
       const titleRow = pill.children[0];
-      expect(titleRow.children).toHaveLength(1);
+      const regionsWrapper = titleRow.children[1];
+      expect(regionsWrapper.children).toHaveLength(0);
     });
 
     it('does not render region span when regions is undefined', () => {
@@ -102,7 +105,8 @@ describe('HotTopicStrip', () => {
       );
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
       const titleRow = pill.children[0];
-      expect(titleRow.children).toHaveLength(1);
+      const regionsWrapper = titleRow.children[1];
+      expect(regionsWrapper.children).toHaveLength(0);
     });
 
     it('renders detail text below the title row', () => {
@@ -343,24 +347,25 @@ describe('HotTopicStrip', () => {
       );
     });
 
-    it('title row contains title-group and regions', () => {
+    it('title row contains title-group and regions wrapper', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
       const titleRow = pill.children[0];
-      expect(titleRow.children).toHaveLength(2); // title-group + regions
+      expect(titleRow.children).toHaveLength(2); // title-group + regions/chevron wrapper
       expect(titleRow.children[0].textContent).toContain('BLUEBELL CONDITIONS');
-      expect(titleRow.children[1].textContent).toBe(
+      expect(titleRow.children[1].textContent).toContain(
         'Northumberland, The Lake District',
       );
     });
 
-    it('title row contains only title-group when no regions', () => {
+    it('title row regions wrapper is empty when no regions', () => {
       render(
         <HotTopicStrip hotTopics={[buildTopic({ regions: [] })]} />,
       );
       const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
       const titleRow = pill.children[0];
-      expect(titleRow.children).toHaveLength(1); // title-group only
+      expect(titleRow.children).toHaveLength(2); // title-group + empty wrapper
+      expect(titleRow.children[1].children).toHaveLength(0);
     });
   });
 
@@ -1037,6 +1042,660 @@ describe('HotTopicStrip', () => {
       expect(mistPill.style.borderLeft).toBe('3px solid rgb(203, 213, 225)');
       expect(topsPill.style.borderLeft).toBe('3px solid rgb(191, 219, 254)');
       expect(mistPill.style.borderLeft).not.toBe(topsPill.style.borderLeft);
+    });
+  });
+
+  // ────── AURORA expanded card ──────
+
+  describe('HotTopicStrip — AURORA expanded card', () => {
+    const auroraTopic = {
+      type: 'AURORA',
+      label: 'AURORA TONIGHT',
+      detail: 'Moderate activity tonight',
+      date: '2026-04-17',
+      priority: 1,
+      regions: ['Northumberland'],
+      description: null,
+    };
+
+    const auroraData = {
+      alertLevel: 'MODERATE',
+      kp: 5.3,
+      clearLocationCount: 2,
+      moonPhase: 'WAXING_GIBBOUS',
+      moonIlluminationPct: 72,
+      windowQuality: 'DARK_THEN_MOONLIT',
+      moonRiseTime: '2026-04-17T23:15:00',
+      moonSetTime: null,
+      regions: [{
+        regionName: 'Northumberland',
+        verdict: 'GO',
+        clearLocationCount: 1,
+        totalDarkSkyLocations: 2,
+        bestBortleClass: 2,
+        glossHeadline: 'Clear skies expected',
+        glossDetail: 'High pressure building from the west',
+        locations: [
+          {
+            locationName: 'Kielder',
+            bortleClass: 2,
+            clear: true,
+            cloudPercent: 15,
+            temperatureCelsius: 4.2,
+            windSpeedMs: 2.5,
+            weatherCode: 0,
+          },
+          {
+            locationName: 'Bamburgh',
+            bortleClass: 4,
+            clear: false,
+            cloudPercent: 65,
+            temperatureCelsius: 7.1,
+            windSpeedMs: 5.8,
+            weatherCode: 3,
+          },
+        ],
+      }],
+    };
+
+    it('renders expand chevron on AURORA pill when aurora data is present', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      expect(screen.getByTestId('aurora-expand-chevron')).toBeInTheDocument();
+    });
+
+    it('does not render expand chevron on non-AURORA pill', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+    });
+
+    it('does not render expand chevron when aurora data is null', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={null}
+        />,
+      );
+      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+    });
+
+    it('clicking AURORA pill toggles expanded card', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      expect(screen.queryByTestId('aurora-expanded-card')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+
+      // Second click collapses
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.queryByTestId('aurora-expanded-card')).not.toBeInTheDocument();
+    });
+
+    it('expanded card shows alert level', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const alert = screen.getByTestId('aurora-expanded-alert');
+      expect(alert.textContent).toBe('Moderate aurora');
+    });
+
+    it('expanded card shows Kp value', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByText('Kp 5.3')).toBeInTheDocument();
+    });
+
+    it('expanded card shows moon indicator with window quality transition', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const moon = screen.getByTestId('aurora-expanded-moon');
+      expect(moon).toBeInTheDocument();
+      expect(moon.textContent).toContain('72%');
+      expect(moon.textContent).toContain('dark until');
+    });
+
+    it('expanded card shows region name and gloss headline', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const card = screen.getByTestId('aurora-expanded-card');
+      expect(card.textContent).toContain('Northumberland');
+      expect(card.textContent).toContain('Clear skies expected');
+    });
+
+    it('expanded card shows location rows with Bortle badges and clear/cloudy dots', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const locationRows = screen.getAllByTestId('aurora-expanded-location');
+      expect(locationRows).toHaveLength(2);
+      // Locations are sorted by bortleClass ascending
+      expect(locationRows[0].textContent).toContain('Kielder');
+      expect(locationRows[0].textContent).toContain('Bortle 2');
+      expect(locationRows[1].textContent).toContain('Bamburgh');
+      expect(locationRows[1].textContent).toContain('Bortle 4');
+    });
+
+    it('expanded card shows weather details per location', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const locationRows = screen.getAllByTestId('aurora-expanded-location');
+      // Kielder: 15% cloud, 4°C, 6mph (2.5 * 2.237 ≈ 6)
+      expect(locationRows[0].textContent).toContain('15% cloud');
+      expect(locationRows[0].textContent).toContain('4°C');
+      expect(locationRows[0].textContent).toContain('6mph');
+      // Bamburgh: 65% cloud, 7°C, 13mph (5.8 * 2.237 ≈ 13)
+      expect(locationRows[1].textContent).toContain('65% cloud');
+      expect(locationRows[1].textContent).toContain('7°C');
+      expect(locationRows[1].textContent).toContain('13mph');
+    });
+
+    it('LITE user cannot expand AURORA pill', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+          isLiteUser
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.queryByTestId('aurora-expanded-card')).not.toBeInTheDocument();
+    });
+
+    it('LITE user does not see expand chevron', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+          isLiteUser
+        />,
+      );
+      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+    });
+
+    it('only one aurora pill can be expanded at a time', () => {
+      const tonightTopic = { ...auroraTopic, detail: 'Moderate activity tonight' };
+      const tomorrowTopic = {
+        ...auroraTopic,
+        label: 'AURORA TOMORROW',
+        detail: 'Minor activity tomorrow night',
+        date: '2026-04-18',
+      };
+      const auroraTomorrow = { ...auroraData, alertLevel: 'MINOR', kp: 4.0 };
+
+      render(
+        <HotTopicStrip
+          hotTopics={[tonightTopic, tomorrowTopic]}
+          auroraTonight={auroraData}
+          auroraTomorrow={auroraTomorrow}
+        />,
+      );
+
+      const pills = screen.getAllByTestId('hot-topic-pill-AURORA');
+      // Expand first
+      fireEvent.click(pills[0]);
+      expect(screen.getAllByTestId('aurora-expanded-card')).toHaveLength(1);
+
+      // Expand second — first should collapse
+      fireEvent.click(pills[1]);
+      expect(screen.getAllByTestId('aurora-expanded-card')).toHaveLength(1);
+    });
+
+    it('renders AURORA pill as normal (no expand) when aurora data is null', () => {
+      const onTap = vi.fn();
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={null}
+          onTopicTap={onTap}
+        />,
+      );
+      expect(screen.getByTestId('hot-topic-pill-AURORA')).toBeInTheDocument();
+      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+      // Clicking should not expand and should not call onTopicTap (AURORA pills never call onTopicTap)
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.queryByTestId('aurora-expanded-card')).not.toBeInTheDocument();
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('AURORA pill click does not call onTopicTap', () => {
+      const onTap = vi.fn();
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+          onTopicTap={onTap}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(onTap).not.toHaveBeenCalled();
+    });
+
+    it('expanded card shows clear dot for clear location and cloudy dot for cloudy location', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const locationRows = screen.getAllByTestId('aurora-expanded-location');
+      // Kielder is clear
+      const kielderDot = locationRows[0].querySelector('span[title="Clear skies"]');
+      expect(kielderDot).toBeTruthy();
+      expect(kielderDot.style.background).toBe('rgb(74, 222, 128)');
+      // Bamburgh is cloudy
+      const bamburghDot = locationRows[1].querySelector('span[title="Cloudy"]');
+      expect(bamburghDot).toBeTruthy();
+      expect(bamburghDot.style.background).toBe('rgba(248, 113, 113, 0.6)');
+    });
+
+    it('expanded card shows clear percentage per region', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      // 1 clear out of 2 total = 50%
+      expect(screen.getByText('50% clear')).toBeInTheDocument();
+    });
+
+    it('expanded card shows best Bortle badge per region', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      // bestBortleClass=2 → "Truly dark · Bortle 2"
+      expect(screen.getByText(/Truly dark · Bortle 2/)).toBeInTheDocument();
+    });
+
+    // ── resolveAuroraData logic ──
+
+    it('resolves auroraTonight when topic detail contains "tonight"', () => {
+      const tonightData = { ...auroraData, alertLevel: 'STRONG', kp: 7.0 };
+      const tomorrowData = { ...auroraData, alertLevel: 'MINOR', kp: 3.0 };
+      render(
+        <HotTopicStrip
+          hotTopics={[{ ...auroraTopic, detail: 'Strong activity tonight' }]}
+          auroraTonight={tonightData}
+          auroraTomorrow={tomorrowData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const alert = screen.getByTestId('aurora-expanded-alert');
+      expect(alert.textContent).toBe('Strong aurora');
+      expect(screen.getByText('Kp 7.0')).toBeInTheDocument();
+    });
+
+    it('resolves auroraTomorrow when topic detail contains "tomorrow"', () => {
+      const tonightData = { ...auroraData, alertLevel: 'STRONG', kp: 7.0 };
+      const tomorrowData = { ...auroraData, alertLevel: 'MINOR', kp: 3.0 };
+      render(
+        <HotTopicStrip
+          hotTopics={[{ ...auroraTopic, detail: 'Minor activity tomorrow night' }]}
+          auroraTonight={tonightData}
+          auroraTomorrow={tomorrowData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const alert = screen.getByTestId('aurora-expanded-alert');
+      expect(alert.textContent).toBe('Minor aurora');
+      expect(screen.getByText('Kp 3.0')).toBeInTheDocument();
+    });
+
+    it('falls back to auroraTonight when detail contains neither keyword', () => {
+      const tonightData = { ...auroraData, alertLevel: 'MODERATE', kp: 5.0 };
+      const tomorrowData = { ...auroraData, alertLevel: 'STRONG', kp: 8.0 };
+      render(
+        <HotTopicStrip
+          hotTopics={[{ ...auroraTopic, detail: 'Aurora activity expected' }]}
+          auroraTonight={tonightData}
+          auroraTomorrow={tomorrowData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      // Fallback prefers auroraTonight
+      expect(screen.getByText('Kp 5.0')).toBeInTheDocument();
+    });
+
+    it('falls back to auroraTomorrow when auroraTonight is null and detail has no keyword', () => {
+      const tomorrowData = { ...auroraData, alertLevel: 'MINOR', kp: 4.0 };
+      render(
+        <HotTopicStrip
+          hotTopics={[{ ...auroraTopic, detail: 'Possible aurora' }]}
+          auroraTonight={null}
+          auroraTomorrow={tomorrowData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByText('Kp 4.0')).toBeInTheDocument();
+    });
+
+    it('handles null topic.detail without crashing', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[{ ...auroraTopic, detail: null }]}
+          auroraTonight={auroraData}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+    });
+
+    // ── AuroraExpandedCard edge cases ──
+
+    it('renders expanded card header with no location rows when regions is empty', () => {
+      const emptyRegions = { ...auroraData, regions: [] };
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={emptyRegions}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+      expect(screen.getByTestId('aurora-expanded-alert')).toBeInTheDocument();
+      expect(screen.queryAllByTestId('aurora-expanded-location')).toHaveLength(0);
+    });
+
+    it('excludes locations with null bortleClass from the location list', () => {
+      const mixedBortle = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          locations: [
+            { locationName: 'Kielder', bortleClass: 2, clear: true, cloudPercent: 10 },
+            { locationName: 'Unknown Site', bortleClass: null, clear: true, cloudPercent: 5 },
+          ],
+        }],
+      };
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={mixedBortle}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const locationRows = screen.getAllByTestId('aurora-expanded-location');
+      expect(locationRows).toHaveLength(1);
+      expect(locationRows[0].textContent).toContain('Kielder');
+      expect(locationRows[0].textContent).not.toContain('Unknown Site');
+    });
+
+    it('does not render moon section when moonPhase is null', () => {
+      const noMoon = { ...auroraData, moonPhase: null, moonIlluminationPct: null };
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={noMoon}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+      expect(screen.queryByTestId('aurora-expanded-moon')).not.toBeInTheDocument();
+    });
+
+    it('uses peakKp as fallback when kp is absent', () => {
+      const peakKpOnly = { ...auroraData, kp: undefined, peakKp: 6.7 };
+      // Remove the kp property entirely
+      delete peakKpOnly.kp;
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={peakKpOnly}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByText('Kp 6.7')).toBeInTheDocument();
+    });
+
+    it('does not render Kp line when both kp and peakKp are null', () => {
+      const noKp = { ...auroraData, kp: null, peakKp: undefined };
+      delete noKp.peakKp;
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic]}
+          auroraTonight={noKp}
+        />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+      // No "Kp" text should appear
+      const card = screen.getByTestId('aurora-expanded-card');
+      expect(card.textContent).not.toMatch(/Kp \d/);
+    });
+
+    it('omits temperature when temperatureCelsius is null', () => {
+      const noTemp = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          locations: [{
+            locationName: 'Kielder', bortleClass: 2, clear: true,
+            cloudPercent: 10, temperatureCelsius: null, windSpeedMs: 3.0, weatherCode: 0,
+          }],
+        }],
+      };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noTemp} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const row = screen.getByTestId('aurora-expanded-location');
+      expect(row.textContent).toContain('10% cloud');
+      expect(row.textContent).not.toContain('°C');
+    });
+
+    it('omits wind speed when windSpeedMs is null', () => {
+      const noWind = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          locations: [{
+            locationName: 'Kielder', bortleClass: 2, clear: true,
+            cloudPercent: 10, temperatureCelsius: 5.0, windSpeedMs: null, weatherCode: 0,
+          }],
+        }],
+      };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noWind} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const row = screen.getByTestId('aurora-expanded-location');
+      expect(row.textContent).toContain('5°C');
+      expect(row.textContent).not.toContain('mph');
+    });
+
+    it('omits weather icon when weatherCode is null', () => {
+      const noWeather = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          locations: [{
+            locationName: 'Kielder', bortleClass: 2, clear: true,
+            cloudPercent: 10, temperatureCelsius: 5.0, windSpeedMs: 2.0, weatherCode: null,
+          }],
+        }],
+      };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noWeather} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const row = screen.getByTestId('aurora-expanded-location');
+      // Should show cloud, temp, wind but no weather emoji
+      expect(row.textContent).toContain('10% cloud');
+      expect(row.textContent).toContain('5°C');
+      expect(row.textContent).not.toContain('\u2600\uFE0F'); // no sun emoji
+      expect(row.textContent).not.toContain('\u2601\uFE0F'); // no cloud emoji
+    });
+
+    // ── Alert level label correctness ──
+
+    it('shows "Strong aurora" for STRONG alert level', () => {
+      const strong = { ...auroraData, alertLevel: 'STRONG' };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={strong} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-alert').textContent).toBe('Strong aurora');
+    });
+
+    it('shows raw level for QUIET (no "aurora" suffix)', () => {
+      const quiet = { ...auroraData, alertLevel: 'QUIET' };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={quiet} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const alert = screen.getByTestId('aurora-expanded-alert');
+      expect(alert.textContent).toBe('QUIET');
+      expect(alert.textContent).not.toContain('aurora');
+    });
+
+    // ── State isolation ──
+
+    it('expanding AURORA pill does not prevent non-AURORA pill from firing onTopicTap', () => {
+      const onTap = vi.fn();
+      const bluebellTopic = buildTopic();
+      render(
+        <HotTopicStrip
+          hotTopics={[auroraTopic, bluebellTopic]}
+          auroraTonight={auroraData}
+          onTopicTap={onTap}
+        />,
+      );
+      // Expand aurora
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+      // Click bluebell — onTopicTap should still fire
+      fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+      expect(onTap).toHaveBeenCalledTimes(1);
+      expect(onTap).toHaveBeenCalledWith(bluebellTopic);
+    });
+
+    it('chevron rotates to 90deg when expanded and 0deg when collapsed', () => {
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={auroraData} />,
+      );
+      const chevron = screen.getByTestId('aurora-expand-chevron');
+      expect(chevron.style.transform).toBe('rotate(0deg)');
+
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(chevron.style.transform).toBe('rotate(90deg)');
+
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      expect(chevron.style.transform).toBe('rotate(0deg)');
+    });
+
+    it('does not render region Bortle badge when bestBortleClass is null', () => {
+      const noBortle = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          bestBortleClass: null,
+          locations: [
+            { locationName: 'Kielder', bortleClass: 2, clear: true, cloudPercent: 10 },
+          ],
+        }],
+      };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noBortle} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const card = screen.getByTestId('aurora-expanded-card');
+      // Region-level "Truly dark · Bortle 2" badge should not appear
+      // (individual location Bortle badge for Kielder still shows)
+      const regionBadges = card.querySelectorAll('span');
+      const regionBortleText = Array.from(regionBadges)
+        .filter((s) => s.textContent.includes('Truly dark · Bortle'));
+      expect(regionBortleText).toHaveLength(0);
+    });
+
+    it('does not render clear percentage when totalDarkSkyLocations is 0', () => {
+      const noTotal = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          totalDarkSkyLocations: 0,
+          locations: [
+            { locationName: 'Kielder', bortleClass: 2, clear: true, cloudPercent: 10 },
+          ],
+        }],
+      };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noTotal} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const card = screen.getByTestId('aurora-expanded-card');
+      expect(card.textContent).not.toContain('% clear');
+    });
+
+    it('renders glossDetail infotip inside expanded card when present', () => {
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={auroraData} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      // glossDetail is present in fixture — infotip should render inside the card
+      const card = screen.getByTestId('aurora-expanded-card');
+      const infotips = card.querySelectorAll('[data-testid="infotip-trigger"]');
+      expect(infotips.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not render glossDetail infotip when glossDetail is absent', () => {
+      const noGloss = {
+        ...auroraData,
+        regions: [{
+          ...auroraData.regions[0],
+          glossHeadline: 'Clear skies',
+          glossDetail: null,
+        }],
+      };
+      render(
+        <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={noGloss} />,
+      );
+      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+      const card = screen.getByTestId('aurora-expanded-card');
+      const infotips = card.querySelectorAll('[data-testid="infotip-trigger"]');
+      expect(infotips).toHaveLength(0);
     });
   });
 });

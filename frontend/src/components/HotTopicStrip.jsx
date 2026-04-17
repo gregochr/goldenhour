@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import PropTypes from 'prop-types';
 import InfoTip from './InfoTip.jsx';
+import { bortleLabel, moonIlluminationStyle, MOON_EMOJI } from '../utils/conversions.js';
 
 /** Accent colours keyed by topic type. */
 const HOT_TOPIC_STYLES = {
@@ -22,16 +24,232 @@ const HOT_TOPIC_STYLES = {
 
 const DEFAULT_STYLE = { color: '#ffffff33', emoji: '' };
 
+const AURORA_LEVEL_COLOUR = {
+  STRONG: 'text-red-400',
+  MODERATE: 'text-amber-400',
+  MINOR: 'text-green-400',
+};
+
+const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
+
+function formatAlertLevel(level) {
+  const label = AURORA_LEVEL_LABEL[level] || level;
+  return level && level !== 'QUIET' && AURORA_LEVEL_LABEL[level] ? `${label} aurora` : label;
+}
+
+function weatherCodeToIcon(code) {
+  if (code == null) return '';
+  if (code === 0) return '\u2600\uFE0F';
+  if (code <= 2) return '\uD83C\uDF24\uFE0F';
+  if (code === 3) return '\u2601\uFE0F';
+  if (code <= 48) return '\uD83C\uDF2B\uFE0F';
+  if (code <= 67 || (code >= 80 && code <= 82)) return '\uD83C\uDF26\uFE0F';
+  if (code <= 77 || (code >= 85 && code <= 86)) return '\u2744\uFE0F';
+  return '\u26C8\uFE0F';
+}
+
+function msToMph(ms) {
+  if (ms == null) return null;
+  return Math.round(ms * 2.237);
+}
+
+/**
+ * Resolves the aurora summary object for an AURORA topic's date.
+ * Matches topic.date against today/tomorrow to select the right object.
+ */
+function resolveAuroraData(topic, auroraTonight, auroraTomorrow) {
+  if (!topic || topic.type !== 'AURORA') return null;
+  // Match by checking which aurora object has a date matching the topic.
+  // The backend sets topic.date to the calendar date of the aurora event.
+  if (auroraTonight && topic.detail?.toLowerCase().includes('tonight')) return auroraTonight;
+  if (auroraTomorrow && topic.detail?.toLowerCase().includes('tomorrow')) return auroraTomorrow;
+  // Fallback: prefer tonight, then tomorrow
+  return auroraTonight || auroraTomorrow || null;
+}
+
+/**
+ * Expanded aurora detail card rendered below an AURORA pill.
+ */
+function AuroraExpandedCard({ auroraData }) {
+  if (!auroraData) return null;
+
+  const alertLevel = auroraData.alertLevel;
+  const kpValue = auroraData.kp ?? auroraData.peakKp;
+  const regions = auroraData.regions || [];
+
+  return (
+    <div
+      data-testid="aurora-expanded-card"
+      style={{
+        marginTop: '6px',
+        padding: '10px 12px',
+        borderRadius: '6px',
+        border: '1px solid rgba(74, 222, 128, 0.15)',
+        background: 'rgba(74, 222, 128, 0.04)',
+      }}
+    >
+      {/* Header: alert level + Kp */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <span
+          data-testid="aurora-expanded-alert"
+          className={AURORA_LEVEL_COLOUR[alertLevel] || 'text-plex-text-secondary'}
+          style={{ fontSize: '12px', fontWeight: 600 }}
+        >
+          {formatAlertLevel(alertLevel)}
+        </span>
+        {kpValue != null && (
+          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>
+            Kp {kpValue.toFixed(1)}
+          </span>
+        )}
+      </div>
+
+      {/* Moon line */}
+      {auroraData.moonPhase && (() => {
+        const illum = auroraData.moonIlluminationPct ?? 0;
+        const { colourClass, suffix } = moonIlluminationStyle(
+          illum, auroraData.windowQuality,
+          auroraData.moonRiseTime, auroraData.moonSetTime,
+        );
+        return (
+          <div
+            data-testid="aurora-expanded-moon"
+            className={colourClass}
+            style={{ fontSize: '11px', marginBottom: '6px' }}
+          >
+            {MOON_EMOJI[auroraData.moonPhase] || ''} {Math.round(illum)}%{suffix}
+          </div>
+        );
+      })()}
+
+      {/* Per-region sections */}
+      {regions.map((region) => {
+        const locations = (region.locations || [])
+          .filter((l) => l.bortleClass != null)
+          .sort((a, b) => (a.bortleClass ?? 99) - (b.bortleClass ?? 99));
+
+        return (
+          <div key={region.regionName} style={{ marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+                {region.regionName}
+              </span>
+              {region.glossHeadline && (
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}>
+                  {region.glossHeadline}
+                  {region.glossDetail && (
+                    <span style={{ marginLeft: '3px' }}>
+                      <InfoTip text={region.glossDetail} position="above" />
+                    </span>
+                  )}
+                </span>
+              )}
+            </div>
+
+            {/* Region summary: Bortle + clear % */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+              {region.bestBortleClass != null && bortleLabel(region.bestBortleClass) && (
+                <span
+                  style={{
+                    fontSize: '10px',
+                    padding: '1px 5px',
+                    borderRadius: '3px',
+                    background: 'rgba(20, 184, 166, 0.15)',
+                    color: 'rgb(94, 234, 212)',
+                    fontWeight: 500,
+                  }}
+                >
+                  {bortleLabel(region.bestBortleClass)} · Bortle {region.bestBortleClass}
+                </span>
+              )}
+              {region.totalDarkSkyLocations > 0 && (
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)' }}>
+                  {Math.round((region.clearLocationCount / region.totalDarkSkyLocations) * 100)}% clear
+                </span>
+              )}
+            </div>
+
+            {/* Location rows */}
+            {locations.map((loc) => (
+              <div
+                key={loc.locationName}
+                data-testid="aurora-expanded-location"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 6px',
+                  marginTop: '2px',
+                  borderRadius: '4px',
+                  background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    background: loc.clear ? 'rgb(74, 222, 128)' : 'rgba(248, 113, 113, 0.6)',
+                    flexShrink: 0,
+                  }}
+                  title={loc.clear ? 'Clear skies' : 'Cloudy'}
+                />
+                <span style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
+                  {loc.locationName}
+                </span>
+                {loc.bortleClass != null && bortleLabel(loc.bortleClass) && (
+                  <span
+                    style={{
+                      fontSize: '9px',
+                      padding: '0 4px',
+                      borderRadius: '3px',
+                      background: 'rgba(20, 184, 166, 0.15)',
+                      color: 'rgb(94, 234, 212)',
+                      fontWeight: 500,
+                    }}
+                  >
+                    Bortle {loc.bortleClass}
+                  </span>
+                )}
+                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>
+                  {loc.cloudPercent}% cloud
+                  {loc.temperatureCelsius != null && ` · ${Math.round(loc.temperatureCelsius)}°C`}
+                  {loc.windSpeedMs != null && ` · ${msToMph(loc.windSpeedMs)}mph`}
+                  {loc.weatherCode != null && ` ${weatherCodeToIcon(loc.weatherCode)}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * Two-column responsive grid of Hot Topic pills shown between the Best Bet
  * cards and the quality slider in the briefing planner.
  *
+ * AURORA pills are expandable — tapping toggles a detail card with region
+ * breakdown, Bortle badges, moon data, and per-location weather.
+ *
  * @param {Object}   props
- * @param {Array}    props.hotTopics      array of hot topic objects from the API
- * @param {boolean}  props.isLiteUser     true when role === 'LITE_USER'
- * @param {Function} props.onTopicTap     callback(topic) invoked when a pill is tapped
+ * @param {Array}    props.hotTopics        array of hot topic objects from the API
+ * @param {boolean}  props.isLiteUser       true when role === 'LITE_USER'
+ * @param {Function} props.onTopicTap       callback(topic) invoked when a non-AURORA pill is tapped
+ * @param {Object}   props.auroraTonight    aurora summary for tonight (optional)
+ * @param {Object}   props.auroraTomorrow   aurora summary for tomorrow (optional)
  */
-export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
+export default function HotTopicStrip({
+  hotTopics,
+  isLiteUser,
+  onTopicTap,
+  auroraTonight = null,
+  auroraTomorrow = null,
+}) {
+  const [expandedKey, setExpandedKey] = useState(null);
+
   if (!hotTopics || hotTopics.length === 0) return null;
 
   return (
@@ -42,98 +260,132 @@ export default function HotTopicStrip({ hotTopics, isLiteUser, onTopicTap }) {
       {hotTopics.map((topic) => {
         const style = HOT_TOPIC_STYLES[topic.type] ?? DEFAULT_STYLE;
         const regionLine = topic.regions?.length > 0 ? topic.regions.join(', ') : null;
+        const isAurora = topic.type === 'AURORA';
+        const pillKey = `${topic.type}-${topic.date}`;
+        const isExpanded = expandedKey === pillKey;
+        const auroraData = isAurora ? resolveAuroraData(topic, auroraTonight, auroraTomorrow) : null;
+        const canExpand = isAurora && !isLiteUser && auroraData != null;
+
+        const handleClick = () => {
+          if (isLiteUser) return;
+          if (isAurora) {
+            if (canExpand) setExpandedKey(isExpanded ? null : pillKey);
+          } else {
+            onTopicTap?.(topic);
+          }
+        };
+
         return (
-          <button
-            key={`${topic.type}-${topic.date}`}
-            data-testid={`hot-topic-pill-${topic.type}`}
-            onClick={() => !isLiteUser && onTopicTap && onTopicTap(topic)}
-            disabled={isLiteUser}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '2px',
-              padding: '8px 14px',
-              borderRadius: '0 8px 8px 0',
-              border: `1px solid ${style.color}33`,
-              borderLeft: `3px solid ${style.color}`,
-              background: `${style.color}0F`,
-              cursor: isLiteUser ? 'default' : 'pointer',
-              opacity: isLiteUser ? 0.45 : 1,
-              pointerEvents: isLiteUser ? 'none' : 'auto',
-              textAlign: 'left',
-              transition: 'background 0.15s',
-            }}
-          >
-            <div
+          <div key={pillKey}>
+            <button
+              data-testid={`hot-topic-pill-${topic.type}`}
+              onClick={handleClick}
+              disabled={isLiteUser}
               style={{
                 display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                gap: '12px',
-                marginBottom: '4px',
+                flexDirection: 'column',
+                gap: '2px',
+                padding: '8px 14px',
+                borderRadius: '0 8px 8px 0',
+                border: `1px solid ${style.color}33`,
+                borderLeft: `3px solid ${style.color}`,
+                background: `${style.color}0F`,
+                cursor: isLiteUser ? 'default' : 'pointer',
+                opacity: isLiteUser ? 0.45 : 1,
+                pointerEvents: isLiteUser ? 'none' : 'auto',
+                textAlign: 'left',
+                transition: 'background 0.15s',
+                width: '100%',
               }}
             >
               <div
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  flexShrink: 0,
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  marginBottom: '4px',
                 }}
               >
-                {style.emoji && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    flexShrink: 0,
+                  }}
+                >
+                  {style.emoji && (
+                    <span
+                      style={{
+                        fontSize: '14px',
+                        lineHeight: 1,
+                        ...(topic.type === 'INVERSION' ? { display: 'inline-block', transform: 'rotate(180deg)' } : {}),
+                      }}
+                    >
+                      {style.emoji}
+                    </span>
+                  )}
                   <span
                     style={{
-                      fontSize: '14px',
-                      lineHeight: 1,
-                      ...(topic.type === 'INVERSION' ? { display: 'inline-block', transform: 'rotate(180deg)' } : {}),
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.5px',
+                      color: style.color,
+                      filter: 'brightness(1.4)',
                     }}
                   >
-                    {style.emoji}
+                    {topic.label}
                   </span>
-                )}
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
-                    color: style.color,
-                    filter: 'brightness(1.4)',
-                  }}
-                >
-                  {topic.label}
-                </span>
-                {topic.description && (
-                  <span style={{ color: `${style.color}99` }}>
-                    <InfoTip text={topic.description} position="above" />
-                  </span>
-                )}
+                  {topic.description && (
+                    <span style={{ color: `${style.color}99` }}>
+                      <InfoTip text={topic.description} position="above" />
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {regionLine && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        color: 'rgba(255, 255, 255, 0.45)',
+                        textAlign: 'right',
+                        lineHeight: 1.3,
+                        whiteSpace: 'normal',
+                        wordBreak: 'normal',
+                      }}
+                    >
+                      {regionLine}
+                    </span>
+                  )}
+                  {canExpand && (
+                    <span
+                      data-testid="aurora-expand-chevron"
+                      style={{
+                        fontSize: '10px',
+                        color: 'rgba(255,255,255,0.4)',
+                        transition: 'transform 0.15s',
+                        transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                        flexShrink: 0,
+                      }}
+                    >
+                      ▶
+                    </span>
+                  )}
+                </div>
               </div>
-              {regionLine && (
-                <span
-                  style={{
-                    fontSize: '11px',
-                    color: 'rgba(255, 255, 255, 0.45)',
-                    textAlign: 'right',
-                    lineHeight: 1.3,
-                    whiteSpace: 'normal',
-                    wordBreak: 'normal',
-                  }}
-                >
-                  {regionLine}
-                </span>
-              )}
-            </div>
-            <span
-              style={{
-                fontSize: '12px',
-                color: 'rgba(255, 255, 255, 0.55)',
-              }}
-            >
-              {topic.detail}
-            </span>
-          </button>
+              <span
+                style={{
+                  fontSize: '12px',
+                  color: 'rgba(255, 255, 255, 0.55)',
+                }}
+              >
+                {topic.detail}
+              </span>
+            </button>
+            {isExpanded && <AuroraExpandedCard auroraData={auroraData} />}
+          </div>
         );
       })}
       {isLiteUser && (
@@ -171,9 +423,6 @@ HotTopicStrip.propTypes = {
   ).isRequired,
   isLiteUser: PropTypes.bool,
   onTopicTap: PropTypes.func,
-};
-
-HotTopicStrip.defaultProps = {
-  isLiteUser: false,
-  onTopicTap: null,
+  auroraTonight: PropTypes.object,
+  auroraTomorrow: PropTypes.object,
 };

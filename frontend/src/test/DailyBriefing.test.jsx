@@ -36,11 +36,6 @@ function futureDateStr(daysAhead = 1) {
   return d.toISOString().slice(0, 10);
 }
 
-/** Returns today's date in Europe/London — matches the component's todayStr computation. */
-function londonTodayStr() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
-}
-
 function pastDateStr() {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - 1);
@@ -1325,224 +1320,31 @@ describe('DailyBriefing', () => {
     });
   });
 
-  // ────── Aurora grid columns ──────
+  // ────── Aurora data passed to HotTopicStrip ──────
 
-  describe('Aurora grid columns', () => {
-    function buildBriefingWithAurora(tonight, tomorrow) {
-      return { ...buildBriefing(), auroraTonight: tonight || null, auroraTomorrow: tomorrow || null };
-    }
-
-    it('does not render aurora cells when auroraTonight is absent', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefing());
+  describe('Aurora data forwarded to HotTopicStrip', () => {
+    it('does not render aurora heatmap cells after column removal', async () => {
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        auroraTonight: { alertLevel: 'MODERATE', kp: 5.3, regions: [] },
+      });
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('daily-briefing'));
       expect(screen.queryByTestId('aurora-heatmap-cell')).toBeNull();
     });
 
-    it('renders aurora cells in the grid when auroraTonight is present', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora({
-        alertLevel: 'MODERATE',
-        kp: 5.3,
-        clearLocationCount: 2,
-        regions: [{
-          regionName: 'Northumberland',
-          verdict: 'GO',
-          clearLocationCount: 1,
-          totalDarkSkyLocations: 2,
-          bestBortleClass: 2,
-          locations: [
-            { locationName: 'Kielder', bortleClass: 2, clear: true, cloudPercent: 30 },
-          ],
-        }],
-      }));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
-      const auroraCells = screen.getAllByTestId('aurora-heatmap-cell');
-      expect(auroraCells.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('does not render aurora column when auroraTomorrow label is Quiet', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora(
-        null,
-        { peakKp: 1.5, label: 'Quiet', alertLevel: 'QUIET' },
-      ));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('daily-briefing'));
-      expect(screen.queryByTestId('aurora-heatmap-cell')).toBeNull();
-    });
-
-    it('renders aurora tomorrow column when label is Worth watching', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora(
-        null,
-        { peakKp: 4.33, label: 'Worth watching', alertLevel: 'MINOR' },
-      ));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
-      const auroraCells = screen.getAllByTestId('aurora-heatmap-cell');
-      expect(auroraCells.length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('renders aurora tomorrow column when label is Potentially strong', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingWithAurora(
-        null,
-        { peakKp: 6.67, label: 'Potentially strong', alertLevel: 'STRONG' },
-      ));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-heatmap'));
-      const auroraCells = screen.getAllByTestId('aurora-heatmap-cell');
-      expect(auroraCells.length).toBeGreaterThanOrEqual(1);
-    });
-  });
-
-  // ────── Mobile aurora moon indicator ──────
-
-  describe('Mobile aurora moon indicator', () => {
-    function buildBriefingToday(auroraTonight) {
-      // Use tomorrow so the sunset event is never past (avoids time-of-day sensitivity)
-      const tomorrowDate = futureDateStr(1);
-      // Must match the component's todayStr (Europe/London), not UTC —
-      // during BST these diverge late at night, breaking the aurora section guard.
-      const todayDate = londonTodayStr();
-      // isEventPast() appends 'Z' and checks against Date.now(). During BST,
-      // londonTodayStr() is ahead of UTC, so 23:59 on the London date is always
-      // in the future (at worst ~1 hour ahead when UTC is 22:59).
-      const safeSunriseTime = `${todayDate}T23:59:00`;
-      return {
-        generatedAt: new Date().toISOString().slice(0, 19),
-        headline: 'Check aurora tonight',
-        days: [
-          {
-            date: todayDate,
-            eventSummaries: [{
-              targetType: 'SUNRISE',
-              regions: [{
-                regionName: 'Northumberland',
-                verdict: 'GO',
-                summary: 'Clear skies',
-                tideHighlights: [],
-                slots: [{
-                  locationName: 'Bamburgh',
-                  solarEventTime: safeSunriseTime,
-                  verdict: 'GO',
-                  lowCloudPercent: 15,
-                  precipitationMm: 0,
-                  visibilityMetres: 20000,
-                  temperatureCelsius: 6.1,
-                  windSpeedMs: 3.2,
-                  tideState: null,
-                  tideAligned: false,
-                  flags: [],
-                }],
-              }],
-              unregioned: [],
-            }],
-          },
-          {
-            date: tomorrowDate,
-            eventSummaries: [{
-              targetType: 'SUNSET',
-              regions: [{
-                regionName: 'Northumberland',
-                verdict: 'GO',
-                summary: 'Clear skies',
-                tideHighlights: [],
-                slots: [{
-                  locationName: 'Bamburgh',
-                  solarEventTime: `${tomorrowDate}T18:30:00`,
-                  verdict: 'GO',
-                  lowCloudPercent: 15,
-                  precipitationMm: 0,
-                  visibilityMetres: 20000,
-                  temperatureCelsius: 6.1,
-                  windSpeedMs: 3.2,
-                  tideState: null,
-                  tideAligned: false,
-                  flags: [],
-                }],
-              }],
-              unregioned: [],
-            }],
-          },
+    it('renders AURORA hot topic pill when aurora data and hotTopics are present', async () => {
+      getDailyBriefing.mockResolvedValue({
+        ...buildBriefing(),
+        auroraTonight: { alertLevel: 'MODERATE', kp: 5.3, regions: [] },
+        hotTopics: [
+          { type: 'AURORA', label: 'Aurora tonight', detail: 'Moderate activity tonight',
+            date: futureDateStr(), priority: 1, filterAction: null, regions: ['Northumberland'] },
         ],
-        auroraTonight: auroraTonight || null,
-      };
-    }
-
-    function auroraFixture(overrides) {
-      return {
-        alertLevel: 'MODERATE',
-        kp: 5.0,
-        clearLocationCount: 1,
-        moonPhase: 'WAXING_GIBBOUS',
-        moonIlluminationPct: 82,
-        regions: [{
-          regionName: 'Northumberland',
-          verdict: 'GO',
-          clearLocationCount: 1,
-          totalDarkSkyLocations: 1,
-          bestBortleClass: 3,
-          locations: [{ locationName: 'Bamburgh', bortleClass: 3, clear: true, cloudPercent: 20 }],
-        }],
-        ...overrides,
-      };
-    }
-
-    it('renders moon indicator with DARK_THEN_MOONLIT transition', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingToday(auroraFixture({
-        windowQuality: 'DARK_THEN_MOONLIT',
-        moonRiseTime: '2026-02-20T23:00:00',
-      })));
+      });
       render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-toggle'));
-      fireEvent.click(screen.getByTestId('briefing-toggle'));
-
-      const indicator = screen.queryByTestId('aurora-mobile-moon-indicator');
-      expect(indicator).toBeTruthy();
-      expect(indicator.textContent).toContain('dark until');
-      expect(indicator.textContent).toContain('23:00');
-      expect(indicator.textContent).toContain('↑');
-    });
-
-    it('renders moon indicator with MOONLIT_THEN_DARK transition', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingToday(auroraFixture({
-        windowQuality: 'MOONLIT_THEN_DARK',
-        moonSetTime: '2026-02-20T01:30:00',
-      })));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-toggle'));
-      fireEvent.click(screen.getByTestId('briefing-toggle'));
-
-      const indicator = screen.queryByTestId('aurora-mobile-moon-indicator');
-      expect(indicator).toBeTruthy();
-      expect(indicator.textContent).toContain('clears after');
-      expect(indicator.textContent).toContain('01:30');
-      expect(indicator.textContent).toContain('↓');
-    });
-
-    it('renders moon indicator with illumination fallback when no windowQuality', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingToday(auroraFixture({
-        moonIlluminationPct: 60,
-      })));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-toggle'));
-      fireEvent.click(screen.getByTestId('briefing-toggle'));
-
-      const indicator = screen.queryByTestId('aurora-mobile-moon-indicator');
-      expect(indicator).toBeTruthy();
-      expect(indicator.textContent).toContain('60%');
-      expect(indicator.textContent).toContain('moon will impact');
-    });
-
-    it('does not render moon indicator when moonPhase is null', async () => {
-      getDailyBriefing.mockResolvedValue(buildBriefingToday(auroraFixture({
-        moonPhase: null,
-        moonIlluminationPct: null,
-      })));
-      render(<DailyBriefing />);
-      await waitFor(() => screen.getByTestId('briefing-toggle'));
-      fireEvent.click(screen.getByTestId('briefing-toggle'));
-
-      expect(screen.queryByTestId('aurora-mobile-moon-indicator')).toBeNull();
+      await waitFor(() => screen.getByTestId('daily-briefing'));
+      expect(screen.getByTestId('hot-topic-pill-AURORA')).toBeInTheDocument();
     });
   });
 
