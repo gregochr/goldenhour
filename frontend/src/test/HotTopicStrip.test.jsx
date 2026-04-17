@@ -666,5 +666,377 @@ describe('HotTopicStrip', () => {
       const pill = screen.getByTestId('hot-topic-pill-UNKNOWN');
       expect(pill.style.borderLeft).toBe('3px solid rgba(255, 255, 255, 0.2)');
     });
+
+    it('uses 1px solid outer border derived from accent colour for BLUEBELL', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      // borderLeft overrides the shorthand left side, so check top/right/bottom
+      expect(pill.style.borderTop).toBe('1px solid rgba(139, 92, 246, 0.2)');
+      expect(pill.style.borderRight).toBe('1px solid rgba(139, 92, 246, 0.2)');
+      expect(pill.style.borderBottom).toBe('1px solid rgba(139, 92, 246, 0.2)');
+    });
+
+    it('uses accent-derived background for BLUEBELL', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      // #8b5cf60F → rgba(139, 92, 246, 0.06)
+      expect(pill.style.background).toBe('rgba(139, 92, 246, 0.06)');
+    });
+  });
+
+  describe('emoji rendering', () => {
+    it('renders emoji span for BLUEBELL pill', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const titleGroup = pill.children[0].children[0];
+      // First child is emoji span, second is label span
+      expect(titleGroup.children[0].textContent).toBe('\uD83D\uDC9C');
+    });
+
+    it('renders emoji span for AURORA pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'AURORA', label: 'AURORA ALERT' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-AURORA');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\uD83C\uDF0C');
+    });
+
+    it('renders emoji span for KING_TIDE pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'KING_TIDE', label: 'KING TIDE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-KING_TIDE');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\uD83D\uDC51');
+    });
+
+    it('renders emoji span for STORM_SURGE pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'STORM_SURGE', label: 'STORM SURGE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-STORM_SURGE');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\u26A1');
+    });
+
+    it('renders emoji span for DUST pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'DUST', label: 'SAHARA DUST' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-DUST');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\uD83C\uDF05');
+    });
+
+    it('renders emoji span for SUPERMOON pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'SUPERMOON', label: 'SUPERMOON' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-SUPERMOON');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\uD83C\uDF15');
+    });
+
+    it('renders emoji span for SPRING_TIDE pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'SPRING_TIDE', label: 'SPRING TIDE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-SPRING_TIDE');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\uD83C\uDF0A');
+    });
+
+    it('renders emoji span for SNOW_FRESH pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'SNOW_FRESH', label: 'FRESH SNOW' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-SNOW_FRESH');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\u2744\uFE0F');
+    });
+
+    it('renders emoji span for NLC pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'NLC', label: 'NLC SEASON' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-NLC');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\u2728');
+    });
+
+    it('renders emoji span for METEOR pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'METEOR', label: 'METEOR SHOWER' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-METEOR');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\u2604\uFE0F');
+    });
+
+    it('renders emoji span for EQUINOX pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'EQUINOX', label: 'EQUINOX' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-EQUINOX');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\u2600\uFE0F');
+    });
+
+    it('renders emoji span for CLEARANCE pill with correct content', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'CLEARANCE', label: 'CLEARANCE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-CLEARANCE');
+      const titleGroup = pill.children[0].children[0];
+      expect(titleGroup.children[0].textContent).toBe('\u26C5');
+    });
+
+    it('does not render emoji span for unknown topic types', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'UNKNOWN', label: 'UNKNOWN', description: undefined })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-UNKNOWN');
+      const titleGroup = pill.children[0].children[0];
+      // First child should be the label span, not an emoji
+      expect(titleGroup.children[0].style.fontSize).toBe('11px');
+      expect(titleGroup.children).toHaveLength(1);
+    });
+
+    it('uses 14px font size on the emoji span', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const emojiSpan = pill.children[0].children[0].children[0];
+      expect(emojiSpan.style.fontSize).toBe('14px');
+    });
+
+    it('uses lineHeight 1 on the emoji span', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const emojiSpan = pill.children[0].children[0].children[0];
+      expect(emojiSpan.style.lineHeight).toBe('1');
+    });
+  });
+
+  describe('INVERSION emoji rotation', () => {
+    it('applies rotate(180deg) transform to INVERSION emoji', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'INVERSION', label: 'CLOUD INVERSION' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-INVERSION');
+      const emojiSpan = pill.children[0].children[0].children[0];
+      expect(emojiSpan.textContent).toBe('\u2601\uFE0F');
+      expect(emojiSpan.style.transform).toBe('rotate(180deg)');
+    });
+
+    it('applies display inline-block to INVERSION emoji for transform to work', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'INVERSION', label: 'CLOUD INVERSION' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-INVERSION');
+      const emojiSpan = pill.children[0].children[0].children[0];
+      expect(emojiSpan.style.display).toBe('inline-block');
+    });
+
+    it('does not apply rotation to BLUEBELL emoji', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const pill = screen.getByTestId('hot-topic-pill-BLUEBELL');
+      const emojiSpan = pill.children[0].children[0].children[0];
+      expect(emojiSpan.style.transform).toBe('');
+    });
+
+    it('does not apply rotation to AURORA emoji', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'AURORA', label: 'AURORA ALERT' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-AURORA');
+      const emojiSpan = pill.children[0].children[0].children[0];
+      expect(emojiSpan.style.transform).toBe('');
+    });
+  });
+
+  describe('title brightness filter', () => {
+    it('applies brightness(1.4) filter to BLUEBELL label', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const label = screen.getByText('BLUEBELL CONDITIONS');
+      expect(label.style.filter).toBe('brightness(1.4)');
+    });
+
+    it('applies brightness(1.4) filter to unknown type label', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'UNKNOWN', label: 'UNKNOWN' })]}
+        />,
+      );
+      const label = screen.getByText('UNKNOWN');
+      expect(label.style.filter).toBe('brightness(1.4)');
+    });
+  });
+
+  describe('infotip accent wrapper', () => {
+    it('wraps infotip in a span with accent colour at 99 hex opacity', () => {
+      render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+      const infotip = screen.getByTestId('infotip-trigger');
+      // InfoTip trigger is inside <span className="relative ..."> inside our colour wrapper <span>
+      const colourWrapper = infotip.closest('span.relative').parentElement;
+      expect(colourWrapper.tagName).toBe('SPAN');
+      expect(colourWrapper.style.color).toBe('rgba(139, 92, 246, 0.6)');
+    });
+
+    it('uses AURORA accent colour on infotip wrapper for AURORA pill', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'AURORA', label: 'AURORA ALERT' })]}
+        />,
+      );
+      const infotip = screen.getByTestId('infotip-trigger');
+      const colourWrapper = infotip.closest('span.relative').parentElement;
+      expect(colourWrapper.style.color).toBe('rgba(74, 222, 128, 0.6)');
+    });
+  });
+
+  describe('per-type colour differentiation', () => {
+    it('AURORA pill uses green accent (#4ade80)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'AURORA', label: 'AURORA ALERT' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-AURORA');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(74, 222, 128)');
+      const label = screen.getByText('AURORA ALERT');
+      expect(label.style.color).toBe('rgb(74, 222, 128)');
+    });
+
+    it('KING_TIDE pill uses royal blue accent (#3b82f6)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'KING_TIDE', label: 'KING TIDE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-KING_TIDE');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(59, 130, 246)');
+      const label = screen.getByText('KING TIDE');
+      expect(label.style.color).toBe('rgb(59, 130, 246)');
+    });
+
+    it('STORM_SURGE pill uses amber accent (#f59e0b)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'STORM_SURGE', label: 'STORM SURGE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-STORM_SURGE');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(245, 158, 11)');
+      const label = screen.getByText('STORM SURGE');
+      expect(label.style.color).toBe('rgb(245, 158, 11)');
+    });
+
+    it('INVERSION pill uses slate accent (#94a3b8)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'INVERSION', label: 'CLOUD INVERSION' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-INVERSION');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(148, 163, 184)');
+      const label = screen.getByText('CLOUD INVERSION');
+      expect(label.style.color).toBe('rgb(148, 163, 184)');
+    });
+
+    it('DUST pill uses warm orange accent (#f97316)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'DUST', label: 'SAHARA DUST' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-DUST');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(249, 115, 22)');
+      const label = screen.getByText('SAHARA DUST');
+      expect(label.style.color).toBe('rgb(249, 115, 22)');
+    });
+
+    it('SUPERMOON pill uses golden accent (#fbbf24)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'SUPERMOON', label: 'SUPERMOON' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-SUPERMOON');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(251, 191, 36)');
+      const label = screen.getByText('SUPERMOON');
+      expect(label.style.color).toBe('rgb(251, 191, 36)');
+    });
+
+    it('SPRING_TIDE pill uses lighter blue accent (#60a5fa)', () => {
+      render(
+        <HotTopicStrip
+          hotTopics={[buildTopic({ type: 'SPRING_TIDE', label: 'SPRING TIDE' })]}
+        />,
+      );
+      const pill = screen.getByTestId('hot-topic-pill-SPRING_TIDE');
+      expect(pill.style.borderLeft).toBe('3px solid rgb(96, 165, 250)');
+    });
+
+    it('each topic type in a mixed set has a distinct left border colour', () => {
+      const topics = [
+        buildTopic({ type: 'BLUEBELL', date: '2026-04-16' }),
+        buildTopic({ type: 'AURORA', label: 'AURORA', date: '2026-04-17' }),
+        buildTopic({ type: 'KING_TIDE', label: 'KING TIDE', date: '2026-04-18' }),
+        buildTopic({ type: 'DUST', label: 'DUST', date: '2026-04-19' }),
+      ];
+      render(<HotTopicStrip hotTopics={topics} />);
+      const colours = topics.map((t) => {
+        const pill = screen.getByTestId(`hot-topic-pill-${t.type}`);
+        return pill.style.borderLeft;
+      });
+      const unique = new Set(colours);
+      expect(unique.size).toBe(4);
+    });
+  });
+
+  describe('SNOW_MIST and SNOW_TOPS colour differentiation', () => {
+    it('SNOW_MIST uses cool grey (#cbd5e1) distinct from SNOW_TOPS pale blue (#bfdbfe)', () => {
+      const topics = [
+        buildTopic({ type: 'SNOW_MIST', label: 'SNOW MIST', date: '2026-04-16' }),
+        buildTopic({ type: 'SNOW_TOPS', label: 'SNOW TOPS', date: '2026-04-17' }),
+      ];
+      render(<HotTopicStrip hotTopics={topics} />);
+      const mistPill = screen.getByTestId('hot-topic-pill-SNOW_MIST');
+      const topsPill = screen.getByTestId('hot-topic-pill-SNOW_TOPS');
+      expect(mistPill.style.borderLeft).toBe('3px solid rgb(203, 213, 225)');
+      expect(topsPill.style.borderLeft).toBe('3px solid rgb(191, 219, 254)');
+      expect(mistPill.style.borderLeft).not.toBe(topsPill.style.borderLeft);
+    });
   });
 });
