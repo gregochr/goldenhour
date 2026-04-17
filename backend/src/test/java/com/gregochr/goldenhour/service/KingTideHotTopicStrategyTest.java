@@ -68,7 +68,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topic.priority()).isEqualTo(1);
         assertThat(topic.date()).isEqualTo(TODAY);
         assertThat(topic.detail()).contains("today");
-        assertThat(topic.detail()).contains("Rare extreme tidal range");
+        assertThat(topic.detail()).contains("Rare king tide");
         assertThat(topic.regions()).containsExactly("Northumberland",
                 "The North Yorkshire Coast");
         assertThat(topic.description()).contains("King tides");
@@ -468,6 +468,87 @@ class KingTideHotTopicStrategyTest {
         var metrics = topics.get(0).expandedDetail().tideMetrics();
         assertThat(metrics.sunriseAlignedCount()).isEqualTo(0);
         assertThat(metrics.sunsetAlignedCount()).isEqualTo(0);
+    }
+
+    // ── Detail line copy tests ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("detail line — both sunrise and sunset aligned")
+    void detect_bothAligned_detailShowsBothCounts() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 9L},
+                        new Object[]{TargetType.SUNSET, 5L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Rare king tide \u2014 9 locations catch sunrise,"
+                        + " 5 catch sunset today");
+    }
+
+    @Test
+    @DisplayName("detail line — sunrise only aligned")
+    void detect_sunriseOnlyAligned_detailShowsSunrise() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 9L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Rare king tide \u2014 9 locations aligned with sunrise today");
+    }
+
+    @Test
+    @DisplayName("detail line — no alignment")
+    void detect_noAlignment_detailShowsFallback() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Rare king tide today \u2014 no sunrise or sunset"
+                        + " alignment, but exceptional coastal foreground");
+    }
+
+    @Test
+    @DisplayName("detail line — singular location uses 'catches' not 'catch'")
+    void detect_singularLocation_usesCorrectGrammar() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 1L},
+                        new Object[]{TargetType.SUNSET, 1L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Rare king tide \u2014 1 location catches sunrise,"
+                        + " 1 catches sunset today");
+    }
+
+    @Test
+    @DisplayName("detail line — sunset only aligned with singular")
+    void detect_sunsetOnlySingular_detailShowsSunset() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNSET, 1L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Rare king tide \u2014 1 location aligned with sunset today");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

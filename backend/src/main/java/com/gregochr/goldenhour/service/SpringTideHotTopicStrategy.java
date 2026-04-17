@@ -75,6 +75,10 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 Map<TargetType, Long> alignmentCounts =
                         KingTideHotTopicStrategy.parseTideAlignmentCounts(
                                 forecastEvaluationRepository, date);
+                int sunriseCount = alignmentCounts
+                        .getOrDefault(TargetType.SUNRISE, 0L).intValue();
+                int sunsetCount = alignmentCounts
+                        .getOrDefault(TargetType.SUNSET, 0L).intValue();
                 ExpandedHotTopicDetail expandedDetail =
                         KingTideHotTopicStrategy.buildExpandedDetail(
                                 coastalLocations, "Spring tide",
@@ -84,7 +88,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 return List.of(new HotTopic(
                         "SPRING_TIDE",
                         "Spring tide",
-                        String.format("Large tidal range at coastal locations %s",
+                        buildSpringTideDetail(sunriseCount, sunsetCount,
                                 dayLabel),
                         date,
                         2,
@@ -116,5 +120,35 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
         }
         DayOfWeek dow = date.getDayOfWeek();
         return dow.getDisplayName(TextStyle.FULL, Locale.UK);
+    }
+
+    /**
+     * Builds the detail line for a spring tide pill based on alignment counts.
+     *
+     * @param sunriseCount number of coastal locations aligned with sunrise
+     * @param sunsetCount  number of coastal locations aligned with sunset
+     * @param dayLabel     "today", "tomorrow", or day-of-week name
+     * @return human-readable detail line
+     */
+    static String buildSpringTideDetail(int sunriseCount, int sunsetCount,
+            String dayLabel) {
+        if (sunriseCount > 0 && sunsetCount > 0) {
+            return String.format("Spring tide \u2014 %s, %s %s",
+                    KingTideHotTopicStrategy.formatCatch(sunriseCount, "sunrise"),
+                    KingTideHotTopicStrategy.formatCatchShort(sunsetCount, "sunset"),
+                    dayLabel);
+        }
+        if (sunriseCount > 0) {
+            return String.format("Spring tide \u2014 %s aligned with sunrise %s",
+                    KingTideHotTopicStrategy.formatLocationCount(sunriseCount),
+                    dayLabel);
+        }
+        if (sunsetCount > 0) {
+            return String.format("Spring tide \u2014 %s aligned with sunset %s",
+                    KingTideHotTopicStrategy.formatLocationCount(sunsetCount),
+                    dayLabel);
+        }
+        return String.format("Spring tide %s \u2014 no sunrise or sunset"
+                + " alignment, but good coastal foreground", dayLabel);
     }
 }

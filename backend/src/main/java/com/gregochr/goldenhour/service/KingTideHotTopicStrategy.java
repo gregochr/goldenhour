@@ -82,6 +82,10 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 List<String> coastalRegions = extractRegionNames(coastalLocations);
                 Map<TargetType, Long> alignmentCounts =
                         parseTideAlignmentCounts(forecastEvaluationRepository, date);
+                int sunriseCount = alignmentCounts
+                        .getOrDefault(TargetType.SUNRISE, 0L).intValue();
+                int sunsetCount = alignmentCounts
+                        .getOrDefault(TargetType.SUNSET, 0L).intValue();
                 ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                         coastalLocations, "King tide",
                         lunarPhaseService.getMoonPhase(date), alignmentCounts);
@@ -89,8 +93,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 return List.of(new HotTopic(
                         "KING_TIDE",
                         "King tide",
-                        String.format("Rare extreme tidal range — exceptional coastal"
-                                + " foreground %s", dayLabel),
+                        buildKingTideDetail(sunriseCount, sunsetCount, dayLabel),
                         date,
                         1,
                         null,
@@ -188,5 +191,49 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         }
         DayOfWeek dow = date.getDayOfWeek();
         return dow.getDisplayName(TextStyle.FULL, Locale.UK);
+    }
+
+    /**
+     * Builds the detail line for a king tide pill based on alignment counts.
+     *
+     * @param sunriseCount number of coastal locations aligned with sunrise
+     * @param sunsetCount  number of coastal locations aligned with sunset
+     * @param dayLabel     "today", "tomorrow", or day-of-week name
+     * @return human-readable detail line
+     */
+    static String buildKingTideDetail(int sunriseCount, int sunsetCount,
+            String dayLabel) {
+        if (sunriseCount > 0 && sunsetCount > 0) {
+            return String.format("Rare king tide \u2014 %s, %s %s",
+                    formatCatch(sunriseCount, "sunrise"),
+                    formatCatchShort(sunsetCount, "sunset"),
+                    dayLabel);
+        }
+        if (sunriseCount > 0) {
+            return String.format("Rare king tide \u2014 %s aligned with sunrise %s",
+                    formatLocationCount(sunriseCount), dayLabel);
+        }
+        if (sunsetCount > 0) {
+            return String.format("Rare king tide \u2014 %s aligned with sunset %s",
+                    formatLocationCount(sunsetCount), dayLabel);
+        }
+        return String.format("Rare king tide %s \u2014 no sunrise or sunset"
+                + " alignment, but exceptional coastal foreground", dayLabel);
+    }
+
+    static String formatCatch(int count, String event) {
+        return count == 1
+                ? String.format("1 location catches %s", event)
+                : String.format("%d locations catch %s", count, event);
+    }
+
+    static String formatCatchShort(int count, String event) {
+        return count == 1
+                ? String.format("1 catches %s", event)
+                : String.format("%d catch %s", count, event);
+    }
+
+    static String formatLocationCount(int count) {
+        return count == 1 ? "1 location" : count + " locations";
     }
 }

@@ -68,7 +68,7 @@ class SpringTideHotTopicStrategyTest {
         assertThat(topic.priority()).isEqualTo(2);
         assertThat(topic.date()).isEqualTo(TODAY);
         assertThat(topic.detail()).contains("today");
-        assertThat(topic.detail()).contains("Large tidal range");
+        assertThat(topic.detail()).contains("Spring tide");
         assertThat(topic.regions()).containsExactly("The North Yorkshire Coast");
         assertThat(topic.description()).contains("Spring tides");
         assertThat(topic.filterAction()).isNull();
@@ -396,6 +396,57 @@ class SpringTideHotTopicStrategyTest {
         assertThat(metrics.tidalClassification()).isEqualTo("Spring tide");
         assertThat(metrics.sunriseAlignedCount()).isEqualTo(4);
         assertThat(metrics.sunsetAlignedCount()).isEqualTo(3);
+    }
+
+    // ── Detail line copy tests ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("detail line — both sunrise and sunset aligned")
+    void detect_bothAligned_detailShowsBothCounts() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 3L},
+                        new Object[]{TargetType.SUNSET, 2L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Spring tide \u2014 3 locations catch sunrise,"
+                        + " 2 catch sunset today");
+    }
+
+    @Test
+    @DisplayName("detail line — no alignment")
+    void detect_noAlignment_detailShowsFallback() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Spring tide today \u2014 no sunrise or sunset"
+                        + " alignment, but good coastal foreground");
+    }
+
+    @Test
+    @DisplayName("detail line — singular location uses 'catches' not 'catch'")
+    void detect_singularLocation_usesCorrectGrammar() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 1L},
+                        new Object[]{TargetType.SUNSET, 3L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Spring tide \u2014 1 location catches sunrise,"
+                        + " 3 catch sunset today");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
