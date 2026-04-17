@@ -572,6 +572,20 @@ describe('AuroraBanner', () => {
     expect(banner.style.animation).toBeFalsy();
   });
 
+  it('applies pulse animation when triggerType is null and Bz is favourable (backwards compat)', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: -6.0,
+      triggerType: null,
+    });
+    const banner = screen.getByTestId('aurora-banner');
+    expect(banner.style.animation).toMatch(/aurora-pulse/);
+  });
+
   it('does not apply pulse animation when triggerType is forecast even with favourable Bz', () => {
     renderBanner({
       level: 'MODERATE',

@@ -474,6 +474,7 @@ class NoaaSwpcClientTest {
         AuroraViewlineResponse result = client.parseViewline(json, 5);
 
         assertThat(result.active()).isTrue();
+        assertThat(result.isForecast()).isFalse();
         assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(55.0);
         assertThat(result.points()).isNotEmpty();
         assertThat(result.forecastTime().getYear()).isEqualTo(2026);
@@ -830,6 +831,17 @@ class NoaaSwpcClientTest {
         assertThat(capped.summary()).isEqualTo("Visible as far south as northern England");
     }
 
+    @Test
+    @DisplayName("applyKpCap preserves isForecast as false (live OVATION data)")
+    void applyKpCap_preservesIsForecastFalse() {
+        AuroraViewlineResponse raw = viewlineAt(49.0);
+        assertThat(raw.isForecast()).isFalse();
+
+        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
+
+        assertThat(capped.isForecast()).isFalse();
+    }
+
     // -------------------------------------------------------------------------
     // buildForecastViewline
     // -------------------------------------------------------------------------
@@ -873,6 +885,17 @@ class NoaaSwpcClientTest {
 
         assertThat(result.southernmostLatitude()).isEqualTo(52.0);
         assertThat(result.summary()).contains("Midlands");
+    }
+
+    @Test
+    @DisplayName("buildForecastViewline Kp < 4 uses DEFAULT_KP_CAP (60°N)")
+    void buildForecastViewline_kpBelow4_usesDefaultCap() {
+        AuroraViewlineResponse result = client.buildForecastViewline(3.7);
+
+        assertThat(result.southernmostLatitude()).isEqualTo(NoaaSwpcClient.DEFAULT_KP_CAP);
+        assertThat(result.points()).hasSize(2);
+        assertThat(result.points().get(0).latitude()).isEqualTo(60.0);
+        assertThat(result.isForecast()).isTrue();
     }
 
     /** Creates a simple active viewline response with the given southernmost latitude. */
