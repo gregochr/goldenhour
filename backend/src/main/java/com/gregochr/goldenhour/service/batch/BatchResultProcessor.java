@@ -1,11 +1,13 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
+import com.anthropic.models.ErrorObject;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
+import com.anthropic.models.messages.batches.MessageBatchResult;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
@@ -42,6 +44,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Fetches completed Anthropic Batch API results and writes them to the appropriate cache.
@@ -166,6 +169,8 @@ public class BatchResultProcessor {
         long totalCacheRead = 0;
         long totalCacheCreate = 0;
         String firstModelId = null;
+        Map<String, Integer> errorTypeCounts = new HashMap<>();
+        boolean firstError = true;
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -174,7 +179,15 @@ public class BatchResultProcessor {
                 String customId = response.customId();
 
                 if (!response.result().isSucceeded()) {
-                    LOG.warn("Forecast batch: request '{}' did not succeed", customId);
+                    String[] detail = describeFailedResult(response.result());
+                    LOG.warn("Forecast batch: request '{}' {} — {}", customId,
+                            detail[0], detail[1]);
+                    if (firstError) {
+                        LOG.info("Forecast batch: first error sample — customId={}, "
+                                + "resultObject={}", customId, response.result());
+                        firstError = false;
+                    }
+                    errorTypeCounts.merge(detail[0], 1, Integer::sum);
                     errored++;
                     continue;
                 }
@@ -293,6 +306,16 @@ public class BatchResultProcessor {
             return;
         }
 
+        // Log error type summary if there were failures
+        if (!errorTypeCounts.isEmpty()) {
+            String errorSummary = errorTypeCounts.entrySet().stream()
+                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(Collectors.joining(", "));
+            LOG.warn("Forecast batch {}: error summary — [{}]",
+                    batch.getAnthropicBatchId(), errorSummary);
+        }
+
         // Write each group to the evaluation cache
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
             briefingEvaluationService.writeFromBatch(entry.getKey(), entry.getValue());
@@ -338,8 +361,13 @@ public class BatchResultProcessor {
                 String customId = response.customId();
 
                 if (!response.result().isSucceeded()) {
-                    LOG.warn("Aurora batch: request '{}' did not succeed", customId);
-                    markFailed(batch, "Aurora batch request did not succeed");
+                    String[] detail = describeFailedResult(response.result());
+                    LOG.warn("Aurora batch: request '{}' {} — {}", customId,
+                            detail[0], detail[1]);
+                    LOG.info("Aurora batch: error detail — resultObject={}",
+                            response.result());
+                    markFailed(batch, "Aurora batch request " + detail[0]
+                            + ": " + detail[1]);
                     return;
                 }
 
@@ -520,6 +548,99 @@ public class BatchResultProcessor {
         }
         LOG.warn("Unknown model for pricing: {} — using Sonnet rates", modelId);
         return EvaluationModel.SONNET;
+    }
+
+    /**
+     * Describes a non-succeeded batch result as a two-element array: [type, detail].
+     *
+     * <p>For errored results, drills into the {@link ErrorObject} to extract the specific
+     * error type (e.g. "overloaded_error") and message. For expired/canceled results,
+     * returns a descriptive status string.
+     *
+     * @param result the non-succeeded batch result
+     * @return {@code [statusType, detailMessage]}
+     */
+    static String[] describeFailedResult(MessageBatchResult result) {
+        if (result.isErrored()) {
+            var errResult = result.asErrored();
+            ErrorObject err = errResult.error().error();
+            return new String[]{resolveErrorType(err), resolveErrorMessage(err)};
+        }
+        if (result.isExpired()) {
+            return new String[]{"expired", "request expired before processing"};
+        }
+        if (result.isCanceled()) {
+            return new String[]{"canceled", "request was canceled"};
+        }
+        return new String[]{"unknown", result.toString()};
+    }
+
+    /**
+     * Resolves the Anthropic error type string from an {@link ErrorObject}.
+     */
+    static String resolveErrorType(ErrorObject err) {
+        if (err.isOverloadedError()) {
+            return "overloaded_error";
+        }
+        if (err.isInvalidRequestError()) {
+            return "invalid_request_error";
+        }
+        if (err.isRateLimitError()) {
+            return "rate_limit_error";
+        }
+        if (err.isAuthenticationError()) {
+            return "authentication_error";
+        }
+        if (err.isBillingError()) {
+            return "billing_error";
+        }
+        if (err.isPermissionError()) {
+            return "permission_error";
+        }
+        if (err.isNotFoundError()) {
+            return "not_found_error";
+        }
+        if (err.isTimeoutError()) {
+            return "timeout_error";
+        }
+        if (err.isApiError()) {
+            return "api_error";
+        }
+        return "unknown";
+    }
+
+    /**
+     * Extracts the error message from an {@link ErrorObject}.
+     */
+    static String resolveErrorMessage(ErrorObject err) {
+        if (err.isOverloadedError()) {
+            return err.asOverloadedError().message();
+        }
+        if (err.isInvalidRequestError()) {
+            return err.asInvalidRequestError().message();
+        }
+        if (err.isRateLimitError()) {
+            return err.asRateLimitError().message();
+        }
+        if (err.isAuthenticationError()) {
+            return err.asAuthenticationError().message();
+        }
+        if (err.isBillingError()) {
+            return err.asBillingError().message();
+        }
+        if (err.isPermissionError()) {
+            return err.asPermissionError().message();
+        }
+        if (err.isNotFoundError()) {
+            return err.asNotFoundError().message();
+        }
+        if (err.isTimeoutError()) {
+            return err.asTimeoutError().message();
+        }
+        if (err.isApiError()) {
+            return err.asApiError().message();
+        }
+        return err.toString();
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {

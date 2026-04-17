@@ -1165,7 +1165,220 @@ class BatchResultProcessorTest {
                 .isEqualTo(EvaluationModel.SONNET);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // ── describeFailedResult + resolveErrorType ────────────────────────────
+
+    @Test
+    @DisplayName("describeFailedResult returns overloaded_error type and message for overloaded response")
+    void describeFailedResult_overloaded_returnsTypeAndMessage() {
+        var result = mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        var erroredResult =
+                mock(com.anthropic.models.messages.batches.MessageBatchErroredResult.class);
+        var errorResponse = mock(com.anthropic.models.ErrorResponse.class);
+        var errorObject = mock(com.anthropic.models.ErrorObject.class);
+        var overloadedError = mock(com.anthropic.models.OverloadedError.class);
+
+        when(result.isErrored()).thenReturn(true);
+        when(result.asErrored()).thenReturn(erroredResult);
+        when(erroredResult.error()).thenReturn(errorResponse);
+        when(errorResponse.error()).thenReturn(errorObject);
+        when(errorObject.isOverloadedError()).thenReturn(true);
+        when(errorObject.asOverloadedError()).thenReturn(overloadedError);
+        when(overloadedError.message()).thenReturn("Overloaded");
+
+        String[] detail = BatchResultProcessor.describeFailedResult(result);
+
+        assertThat(detail[0]).isEqualTo("overloaded_error");
+        assertThat(detail[1]).isEqualTo("Overloaded");
+    }
+
+    @Test
+    @DisplayName("describeFailedResult returns invalid_request_error for invalid request response")
+    void describeFailedResult_invalidRequest_returnsTypeAndMessage() {
+        var result = mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        var erroredResult =
+                mock(com.anthropic.models.messages.batches.MessageBatchErroredResult.class);
+        var errorResponse = mock(com.anthropic.models.ErrorResponse.class);
+        var errorObject = mock(com.anthropic.models.ErrorObject.class);
+        var invalidRequestError = mock(com.anthropic.models.InvalidRequestError.class);
+
+        when(result.isErrored()).thenReturn(true);
+        when(result.asErrored()).thenReturn(erroredResult);
+        when(erroredResult.error()).thenReturn(errorResponse);
+        when(errorResponse.error()).thenReturn(errorObject);
+        when(errorObject.isInvalidRequestError()).thenReturn(true);
+        when(errorObject.asInvalidRequestError()).thenReturn(invalidRequestError);
+        when(invalidRequestError.message()).thenReturn("model not found");
+
+        String[] detail = BatchResultProcessor.describeFailedResult(result);
+
+        assertThat(detail[0]).isEqualTo("invalid_request_error");
+        assertThat(detail[1]).isEqualTo("model not found");
+    }
+
+    @Test
+    @DisplayName("describeFailedResult returns rate_limit_error for rate-limited response")
+    void describeFailedResult_rateLimitError_returnsTypeAndMessage() {
+        var result = mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        var erroredResult =
+                mock(com.anthropic.models.messages.batches.MessageBatchErroredResult.class);
+        var errorResponse = mock(com.anthropic.models.ErrorResponse.class);
+        var errorObject = mock(com.anthropic.models.ErrorObject.class);
+        var rateLimitError = mock(com.anthropic.models.RateLimitError.class);
+
+        when(result.isErrored()).thenReturn(true);
+        when(result.asErrored()).thenReturn(erroredResult);
+        when(erroredResult.error()).thenReturn(errorResponse);
+        when(errorResponse.error()).thenReturn(errorObject);
+        when(errorObject.isRateLimitError()).thenReturn(true);
+        when(errorObject.asRateLimitError()).thenReturn(rateLimitError);
+        when(rateLimitError.message()).thenReturn("Rate limit exceeded");
+
+        String[] detail = BatchResultProcessor.describeFailedResult(result);
+
+        assertThat(detail[0]).isEqualTo("rate_limit_error");
+        assertThat(detail[1]).isEqualTo("Rate limit exceeded");
+    }
+
+    @Test
+    @DisplayName("describeFailedResult returns 'expired' for expired responses")
+    void describeFailedResult_expired_returnsExpiredStatus() {
+        var result = mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        when(result.isExpired()).thenReturn(true);
+
+        String[] detail = BatchResultProcessor.describeFailedResult(result);
+
+        assertThat(detail[0]).isEqualTo("expired");
+        assertThat(detail[1]).isEqualTo("request expired before processing");
+    }
+
+    @Test
+    @DisplayName("describeFailedResult returns 'canceled' for canceled responses")
+    void describeFailedResult_canceled_returnsCanceledStatus() {
+        var result = mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        when(result.isCanceled()).thenReturn(true);
+
+        String[] detail = BatchResultProcessor.describeFailedResult(result);
+
+        assertThat(detail[0]).isEqualTo("canceled");
+    }
+
+    @Test
+    @DisplayName("describeFailedResult returns 'unknown' when no status predicates match")
+    void describeFailedResult_noPredicatesMatch_returnsUnknown() {
+        var result = mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        // All predicates default to false
+
+        String[] detail = BatchResultProcessor.describeFailedResult(result);
+
+        assertThat(detail[0]).isEqualTo("unknown");
+    }
+
+    // ── FORECAST: SDK-errored response tracking ────────────────────────────
+
+    @Test
+    @DisplayName("processResults for FORECAST counts SDK-errored response and sets erroredCount")
+    void processResults_forecastBatch_sdkErroredResponse_setsErroredCount() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        MessageBatchIndividualResponse response = erroredResponse(
+                "fc-42-2026-04-07-SUNRISE", "overloaded_error", "Server overloaded");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(0);
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST: mixed succeeded + SDK-errored"
+            + " — correct counts and only succeeded writes to cache")
+    void processResults_forecastBatch_mixedSucceededAndSdkErrored_correctCountsAndCacheWrites()
+            throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"Good\"}";
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse succeeded = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", responseText);
+        MessageBatchIndividualResponse errored = erroredResponse(
+                "fc-99-2026-04-07-SUNSET", "rate_limit_error", "Rate limit exceeded");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(succeeded, errored));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(4, 70, 65, "Good"));
+
+        processor.processResults(batch);
+
+        // Only the succeeded response writes to cache
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North East|2026-04-07|SUNRISE"), resultsCaptor.capture());
+        assertThat(resultsCaptor.getValue()).hasSize(1);
+        assertThat(resultsCaptor.getValue().get(0).locationName()).isEqualTo("Durham UK");
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(1);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
+    }
+
+    // ── AURORA: SDK-errored response ────────────────────────────────────────
+
+    @Test
+    @DisplayName("processResults for AURORA: errored response stores error detail in failure message and skips triage")
+    void processResults_auroraBatch_sdkErroredResponse_storesErrorDetailAndSkipsTriage() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+
+        MessageBatchIndividualResponse response = erroredResponse(
+                "au-MODERATE-2026-04-14", "overloaded_error", "Server is overloaded");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        // Failure message includes the error type and message
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(captor.getValue().getErrorMessage()).contains("overloaded_error");
+        assertThat(captor.getValue().getErrorMessage()).contains("Server is overloaded");
+
+        // Short-circuits before triage or score updates
+        verifyNoInteractions(weatherTriageService);
+        verifyNoInteractions(auroraStateCache);
+        verifyNoInteractions(claudeAuroraInterpreter);
+    }
 
     // ── Job run tracking: FORECAST ───────────────────────────────────────────
 
@@ -1348,6 +1561,57 @@ class BatchResultProcessorTest {
         when(usage.outputTokens()).thenReturn(200L);
         when(usage.cacheReadInputTokens()).thenReturn(Optional.of(1000L));
         when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(0L));
+
+        return response;
+    }
+
+    /**
+     * Builds a minimal errored {@link MessageBatchIndividualResponse} with an overloaded error.
+     */
+    private MessageBatchIndividualResponse erroredResponse(String customId,
+            String errorType, String errorMessage) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchErroredResult erroredResult =
+                mock(com.anthropic.models.messages.batches.MessageBatchErroredResult.class);
+        com.anthropic.models.ErrorResponse errorResponse =
+                mock(com.anthropic.models.ErrorResponse.class);
+        com.anthropic.models.ErrorObject errorObject =
+                mock(com.anthropic.models.ErrorObject.class);
+
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn(customId);
+        when(result.isSucceeded()).thenReturn(false);
+        when(result.isErrored()).thenReturn(true);
+        when(result.asErrored()).thenReturn(erroredResult);
+        when(erroredResult.error()).thenReturn(errorResponse);
+        when(errorResponse.error()).thenReturn(errorObject);
+
+        // Wire up the specific error type based on the errorType parameter
+        switch (errorType) {
+            case "overloaded_error" -> {
+                var typed = mock(com.anthropic.models.OverloadedError.class);
+                when(errorObject.isOverloadedError()).thenReturn(true);
+                when(errorObject.asOverloadedError()).thenReturn(typed);
+                when(typed.message()).thenReturn(errorMessage);
+            }
+            case "rate_limit_error" -> {
+                var typed = mock(com.anthropic.models.RateLimitError.class);
+                when(errorObject.isRateLimitError()).thenReturn(true);
+                when(errorObject.asRateLimitError()).thenReturn(typed);
+                when(typed.message()).thenReturn(errorMessage);
+            }
+            case "invalid_request_error" -> {
+                var typed = mock(com.anthropic.models.InvalidRequestError.class);
+                when(errorObject.isInvalidRequestError()).thenReturn(true);
+                when(errorObject.asInvalidRequestError()).thenReturn(typed);
+                when(typed.message()).thenReturn(errorMessage);
+            }
+            default -> {
+                // Falls through to "unknown" in resolveErrorType
+            }
+        }
 
         return response;
     }
