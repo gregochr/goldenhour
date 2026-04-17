@@ -3,9 +3,11 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -39,11 +42,15 @@ class SpringTideHotTopicStrategyTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private ForecastEvaluationRepository forecastEvaluationRepository;
+
     private SpringTideHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new SpringTideHotTopicStrategy(lunarPhaseService, locationRepository);
+        strategy = new SpringTideHotTopicStrategy(lunarPhaseService, locationRepository,
+                forecastEvaluationRepository);
     }
 
     @Test
@@ -220,6 +227,8 @@ class SpringTideHotTopicStrategyTest {
     @DisplayName("duplicate regions from multiple coastal locations are deduplicated")
     void detect_duplicateRegions_deduplicated() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -242,6 +251,8 @@ class SpringTideHotTopicStrategyTest {
     @DisplayName("locations with null region are filtered out")
     void detect_nullRegion_filteredOut() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity validRegion = new RegionEntity();
         validRegion.setName("Northumberland");
@@ -266,6 +277,8 @@ class SpringTideHotTopicStrategyTest {
     void detect_noCoastalLocations_emptyRegions() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
         when(locationRepository.findCoastalLocations()).thenReturn(List.of());
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
@@ -289,6 +302,7 @@ class SpringTideHotTopicStrategyTest {
         strategy.detect(TODAY, TO_DATE);
 
         verifyNoInteractions(locationRepository);
+        verifyNoInteractions(forecastEvaluationRepository);
     }
 
     @Test
@@ -317,6 +331,8 @@ class SpringTideHotTopicStrategyTest {
     void detect_expandedDetail_populatedWithRegionGroups() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
         when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("New Moon");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -341,6 +357,8 @@ class SpringTideHotTopicStrategyTest {
     void detect_expandedDetail_tideLocationMetricsCorrect() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
         when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -354,6 +372,30 @@ class SpringTideHotTopicStrategyTest {
         var tideMetrics = topics.get(0).expandedDetail()
                 .regionGroups().get(0).locations().get(0).tideLocationMetrics();
         assertThat(tideMetrics.tidePreference()).isEqualTo("LOW");
+    }
+
+    // ── Alignment count tests ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("alignment query is called with the spring tide date, not fromDate")
+    void detect_springTideOnT1_queriesAlignmentForCorrectDate() {
+        LocalDate springTideDate = TODAY.plusDays(1);
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(springTideDate))
+                .thenReturn(LunarTideType.SPRING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(springTideDate))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 4L},
+                        new Object[]{TargetType.SUNSET, 3L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        verify(forecastEvaluationRepository).countTideAlignedByTargetType(springTideDate);
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.tidalClassification()).isEqualTo("Spring tide");
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(4);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(3);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -374,5 +416,7 @@ class SpringTideHotTopicStrategyTest {
                     .build());
         }
         when(locationRepository.findCoastalLocations()).thenReturn(locations);
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(any()))
+                .thenReturn(List.of());
     }
 }

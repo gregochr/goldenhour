@@ -3,12 +3,14 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.LocationEntry;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideLocationMetrics;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideMetrics;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Component;
 
@@ -46,17 +48,21 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
 
     private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
+    private final ForecastEvaluationRepository forecastEvaluationRepository;
 
     /**
      * Constructs a {@code KingTideHotTopicStrategy}.
      *
-     * @param lunarPhaseService  service for lunar tide classification
-     * @param locationRepository repository for location lookups
+     * @param lunarPhaseService            service for lunar tide classification
+     * @param locationRepository           repository for location lookups
+     * @param forecastEvaluationRepository repository for tide alignment queries
      */
     public KingTideHotTopicStrategy(LunarPhaseService lunarPhaseService,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            ForecastEvaluationRepository forecastEvaluationRepository) {
         this.lunarPhaseService = lunarPhaseService;
         this.locationRepository = locationRepository;
+        this.forecastEvaluationRepository = forecastEvaluationRepository;
     }
 
     /**
@@ -74,9 +80,11 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 List<LocationEntity> coastalLocations =
                         locationRepository.findCoastalLocations();
                 List<String> coastalRegions = extractRegionNames(coastalLocations);
+                Map<TargetType, Long> alignmentCounts =
+                        parseTideAlignmentCounts(forecastEvaluationRepository, date);
                 ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                         coastalLocations, "King tide",
-                        lunarPhaseService.getMoonPhase(date));
+                        lunarPhaseService.getMoonPhase(date), alignmentCounts);
 
                 return List.of(new HotTopic(
                         "KING_TIDE",
@@ -101,10 +109,12 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param coastalLocations     all enabled coastal locations
      * @param tidalClassification  "King tide" or "Spring tide"
      * @param lunarPhase           current moon phase name
+     * @param alignmentCounts      tide alignment counts by target type
      * @return populated expanded detail
      */
     static ExpandedHotTopicDetail buildExpandedDetail(List<LocationEntity> coastalLocations,
-            String tidalClassification, String lunarPhase) {
+            String tidalClassification, String lunarPhase,
+            Map<TargetType, Long> alignmentCounts) {
         Map<String, List<LocationEntity>> byRegion = coastalLocations.stream()
                 .filter(loc -> loc.getRegion() != null)
                 .collect(Collectors.groupingBy(
@@ -132,10 +142,32 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                     entry.getKey(), null, null, null, locations));
         }
 
+        int sunriseCount = alignmentCounts
+                .getOrDefault(TargetType.SUNRISE, 0L).intValue();
+        int sunsetCount = alignmentCounts
+                .getOrDefault(TargetType.SUNSET, 0L).intValue();
+
         return new ExpandedHotTopicDetail(
                 regionGroups, null,
                 new TideMetrics(tidalClassification, lunarPhase,
-                        coastalLocations.size()));
+                        sunriseCount, sunsetCount));
+    }
+
+    /**
+     * Parses the raw query result into a map of target type to alignment count.
+     *
+     * @param repository the forecast evaluation repository
+     * @param date       the date to query
+     * @return map of target type to count of aligned coastal locations
+     */
+    static Map<TargetType, Long> parseTideAlignmentCounts(
+            ForecastEvaluationRepository repository, LocalDate date) {
+        List<Object[]> rows = repository.countTideAlignedByTargetType(date);
+        Map<TargetType, Long> counts = new java.util.EnumMap<>(TargetType.class);
+        for (Object[] row : rows) {
+            counts.put((TargetType) row[0], (Long) row[1]);
+        }
+        return counts;
     }
 
     private List<String> extractRegionNames(List<LocationEntity> locations) {

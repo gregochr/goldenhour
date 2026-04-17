@@ -3,9 +3,11 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -39,11 +42,15 @@ class KingTideHotTopicStrategyTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private ForecastEvaluationRepository forecastEvaluationRepository;
+
     private KingTideHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new KingTideHotTopicStrategy(lunarPhaseService, locationRepository);
+        strategy = new KingTideHotTopicStrategy(lunarPhaseService, locationRepository,
+                forecastEvaluationRepository);
     }
 
     @Test
@@ -208,6 +215,8 @@ class KingTideHotTopicStrategyTest {
     @DisplayName("duplicate regions from multiple coastal locations are deduplicated")
     void detect_duplicateRegions_deduplicated() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -230,6 +239,8 @@ class KingTideHotTopicStrategyTest {
     @DisplayName("locations with null region are filtered out")
     void detect_nullRegion_filteredOut() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity validRegion = new RegionEntity();
         validRegion.setName("Northumberland");
@@ -254,6 +265,8 @@ class KingTideHotTopicStrategyTest {
     void detect_noCoastalLocations_emptyRegions() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
         when(locationRepository.findCoastalLocations()).thenReturn(List.of());
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
@@ -277,6 +290,7 @@ class KingTideHotTopicStrategyTest {
         strategy.detect(TODAY, TO_DATE);
 
         verifyNoInteractions(locationRepository);
+        verifyNoInteractions(forecastEvaluationRepository);
     }
 
     // ── expandedDetail tests ────────────────────────────────────────────────
@@ -286,6 +300,8 @@ class KingTideHotTopicStrategyTest {
     void detect_expandedDetail_populatedWithRegionGroups() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
         when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -308,18 +324,23 @@ class KingTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("tideMetrics has correct classification and lunar phase")
+    @DisplayName("tideMetrics has correct classification, lunar phase, and alignment counts")
     void detect_expandedDetail_tideMetricsCorrect() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
         when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("New Moon");
         stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 3L},
+                        new Object[]{TargetType.SUNSET, 2L}));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         var metrics = topics.get(0).expandedDetail().tideMetrics();
         assertThat(metrics.tidalClassification()).isEqualTo("King tide");
         assertThat(metrics.lunarPhase()).isEqualTo("New Moon");
-        assertThat(metrics.coastalLocationCount()).isEqualTo(1);
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(3);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(2);
     }
 
     @Test
@@ -327,6 +348,8 @@ class KingTideHotTopicStrategyTest {
     void detect_expandedDetail_locationsSortedAlphabetically() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
         when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -351,6 +374,8 @@ class KingTideHotTopicStrategyTest {
     void detect_expandedDetail_regionsSortedAlphabetically() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
         when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
 
         RegionEntity r1 = new RegionEntity();
         r1.setName("The North Yorkshire Coast");
@@ -373,6 +398,78 @@ class KingTideHotTopicStrategyTest {
         assertThat(groups.get(1).regionName()).isEqualTo("The North Yorkshire Coast");
     }
 
+    // ── Alignment count tests ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("alignment query is called with the king tide date, not fromDate")
+    void detect_kingTideOnT2_queriesAlignmentForCorrectDate() {
+        LocalDate kingTideDate = TODAY.plusDays(2);
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
+                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(lunarPhaseService.classifyTide(kingTideDate))
+                .thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(kingTideDate))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 5L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        verify(forecastEvaluationRepository).countTideAlignedByTargetType(kingTideDate);
+        assertThat(topics.get(0).expandedDetail().tideMetrics().sunriseAlignedCount())
+                .isEqualTo(5);
+        assertThat(topics.get(0).expandedDetail().tideMetrics().sunsetAlignedCount())
+                .isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("only sunrise alignment — sunset count is zero")
+    void detect_onlySunriseAligned_sunsetCountIsZero() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 7L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(7);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("only sunset alignment — sunrise count is zero")
+    void detect_onlySunsetAligned_sunriseCountIsZero() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNSET, 4L}));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(0);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("no aligned locations — both counts are zero")
+    void detect_noAlignedLocations_bothCountsZero() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        stubCoastalLocations("Northumberland");
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(0);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(0);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private void stubCoastalLocations(String... regionNames) {
@@ -391,5 +488,7 @@ class KingTideHotTopicStrategyTest {
                     .build());
         }
         when(locationRepository.findCoastalLocations()).thenReturn(locations);
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(any()))
+                .thenReturn(List.of());
     }
 }

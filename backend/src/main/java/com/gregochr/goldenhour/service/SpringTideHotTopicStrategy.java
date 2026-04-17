@@ -3,8 +3,10 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +15,7 @@ import java.time.LocalDate;
 import java.time.format.TextStyle;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -37,17 +40,21 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
 
     private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
+    private final ForecastEvaluationRepository forecastEvaluationRepository;
 
     /**
      * Constructs a {@code SpringTideHotTopicStrategy}.
      *
-     * @param lunarPhaseService  service for lunar tide classification
-     * @param locationRepository repository for location lookups
+     * @param lunarPhaseService            service for lunar tide classification
+     * @param locationRepository           repository for location lookups
+     * @param forecastEvaluationRepository repository for tide alignment queries
      */
     public SpringTideHotTopicStrategy(LunarPhaseService lunarPhaseService,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            ForecastEvaluationRepository forecastEvaluationRepository) {
         this.lunarPhaseService = lunarPhaseService;
         this.locationRepository = locationRepository;
+        this.forecastEvaluationRepository = forecastEvaluationRepository;
     }
 
     /**
@@ -65,10 +72,14 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 List<LocationEntity> coastalLocations =
                         locationRepository.findCoastalLocations();
                 List<String> coastalRegions = extractRegionNames(coastalLocations);
+                Map<TargetType, Long> alignmentCounts =
+                        KingTideHotTopicStrategy.parseTideAlignmentCounts(
+                                forecastEvaluationRepository, date);
                 ExpandedHotTopicDetail expandedDetail =
                         KingTideHotTopicStrategy.buildExpandedDetail(
                                 coastalLocations, "Spring tide",
-                                lunarPhaseService.getMoonPhase(date));
+                                lunarPhaseService.getMoonPhase(date),
+                                alignmentCounts);
 
                 return List.of(new HotTopic(
                         "SPRING_TIDE",

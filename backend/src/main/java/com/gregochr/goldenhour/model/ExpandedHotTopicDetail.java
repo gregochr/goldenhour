@@ -75,12 +75,13 @@ public record ExpandedHotTopicDetail(
     /**
      * Pill-level tide metrics.
      *
-     * @param tidalClassification "King tide" or "Spring tide"
-     * @param lunarPhase          current moon phase name (e.g. "Full Moon")
-     * @param coastalLocationCount number of coastal locations
+     * @param tidalClassification  "King tide" or "Spring tide"
+     * @param lunarPhase           current moon phase name (e.g. "Full Moon")
+     * @param sunriseAlignedCount  coastal locations with tide aligned at sunrise
+     * @param sunsetAlignedCount   coastal locations with tide aligned at sunset
      */
     public record TideMetrics(String tidalClassification, String lunarPhase,
-            int coastalLocationCount) {
+            int sunriseAlignedCount, int sunsetAlignedCount) {
     }
 
     // ── Per-location typed metrics ─────────────────────────────────────────

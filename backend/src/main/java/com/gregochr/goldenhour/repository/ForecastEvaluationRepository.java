@@ -89,4 +89,20 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             @Param("locationIds") Collection<Long> locationIds,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    /**
+     * Counts coastal locations with tide alignment for a given date, grouped by target type.
+     *
+     * <p>Used by king/spring tide hot topic strategies to populate pill subtitles
+     * with sunrise/sunset alignment counts.
+     *
+     * @param date the target date to query
+     * @return rows of [TargetType, count] for coastal locations where tideAligned is true
+     */
+    @Query("SELECT e.targetType, COUNT(DISTINCT e.location.id)"
+            + " FROM ForecastEvaluationEntity e"
+            + " JOIN e.location l JOIN l.tideType tt"
+            + " WHERE e.targetDate = :date AND e.tideAligned = true"
+            + " GROUP BY e.targetType")
+    List<Object[]> countTideAlignedByTargetType(@Param("date") LocalDate date);
 }

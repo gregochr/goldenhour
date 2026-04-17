@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,7 +15,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -162,6 +166,135 @@ class ForecastEvaluationRepositoryTest {
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).getTargetType()).isEqualTo(TargetType.SUNSET);
+    }
+
+    // ── countTideAlignedByTargetType ────────────────────────────────────────
+
+    @Test
+    @DisplayName("countTideAlignedByTargetType groups aligned coastal evaluations by target type")
+    void countTideAlignedByTargetType_groupsByTargetType() {
+        LocationEntity coastal = locationRepository.save(LocationEntity.builder()
+                .name("Bamburgh").lat(55.61).lon(-1.71)
+                .tideType(Set.of(TideType.HIGH))
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+        LocationEntity coastal2 = locationRepository.save(LocationEntity.builder()
+                .name("Craster").lat(55.47).lon(-1.59)
+                .tideType(Set.of(TideType.MID))
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+
+        LocalDate date = LocalDate.of(2026, 4, 20);
+        LocalDateTime run = LocalDateTime.of(2026, 4, 18, 6, 0);
+
+        // 2 aligned at sunrise, 1 aligned at sunset
+        repository.save(buildEvaluation(coastal, date, TargetType.SUNRISE, run, true));
+        repository.save(buildEvaluation(coastal2, date, TargetType.SUNRISE, run, true));
+        repository.save(buildEvaluation(coastal, date, TargetType.SUNSET, run, true));
+        // Not aligned — should be excluded
+        repository.save(buildEvaluation(coastal2, date, TargetType.SUNSET, run, false));
+
+        List<Object[]> rows = repository.countTideAlignedByTargetType(date);
+        Map<TargetType, Long> counts = rows.stream()
+                .collect(Collectors.toMap(r -> (TargetType) r[0], r -> (Long) r[1]));
+
+        assertThat(counts.get(TargetType.SUNRISE)).isEqualTo(2);
+        assertThat(counts.get(TargetType.SUNSET)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("countTideAlignedByTargetType excludes inland locations")
+    void countTideAlignedByTargetType_excludesInlandLocations() {
+        LocationEntity inland = locationRepository.save(LocationEntity.builder()
+                .name("Durham Hills").lat(54.77).lon(-1.58)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+
+        LocalDate date = LocalDate.of(2026, 4, 20);
+        repository.save(buildEvaluation(inland, date, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 18, 6, 0), true));
+
+        List<Object[]> rows = repository.countTideAlignedByTargetType(date);
+
+        assertThat(rows).isEmpty();
+    }
+
+    @Test
+    @DisplayName("countTideAlignedByTargetType excludes evaluations on different dates")
+    void countTideAlignedByTargetType_excludesDifferentDates() {
+        LocationEntity coastal = locationRepository.save(LocationEntity.builder()
+                .name("Bamburgh").lat(55.61).lon(-1.71)
+                .tideType(Set.of(TideType.HIGH))
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+
+        LocalDate targetDate = LocalDate.of(2026, 4, 20);
+        LocalDate otherDate = LocalDate.of(2026, 4, 21);
+        LocalDateTime run = LocalDateTime.of(2026, 4, 18, 6, 0);
+
+        repository.save(buildEvaluation(coastal, otherDate, TargetType.SUNRISE, run, true));
+
+        List<Object[]> rows = repository.countTideAlignedByTargetType(targetDate);
+
+        assertThat(rows).isEmpty();
+    }
+
+    @Test
+    @DisplayName("countTideAlignedByTargetType counts distinct locations, not duplicate evaluations")
+    void countTideAlignedByTargetType_countsDistinctLocations() {
+        LocationEntity coastal = locationRepository.save(LocationEntity.builder()
+                .name("Bamburgh").lat(55.61).lon(-1.71)
+                .tideType(Set.of(TideType.HIGH))
+                .createdAt(LocalDateTime.of(2026, 1, 1, 0, 0))
+                .build());
+
+        LocalDate date = LocalDate.of(2026, 4, 20);
+        // Two evaluations for the same location (e.g. Haiku then Sonnet run)
+        repository.save(buildEvaluation(coastal, date, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 18, 6, 0), true));
+        repository.save(buildEvaluation(coastal, date, TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 19, 6, 0), true));
+
+        List<Object[]> rows = repository.countTideAlignedByTargetType(date);
+        Map<TargetType, Long> counts = rows.stream()
+                .collect(Collectors.toMap(r -> (TargetType) r[0], r -> (Long) r[1]));
+
+        assertThat(counts.get(TargetType.SUNRISE)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("countTideAlignedByTargetType returns empty list when no aligned evaluations exist")
+    void countTideAlignedByTargetType_noAligned_returnsEmpty() {
+        List<Object[]> rows = repository.countTideAlignedByTargetType(
+                LocalDate.of(2026, 4, 20));
+
+        assertThat(rows).isEmpty();
+    }
+
+    private ForecastEvaluationEntity buildEvaluation(LocationEntity location,
+            LocalDate targetDate, TargetType targetType, LocalDateTime forecastRunAt,
+            boolean tideAligned) {
+        return ForecastEvaluationEntity.builder()
+                .locationLat(new BigDecimal("54.775300"))
+                .locationLon(new BigDecimal("-1.584900"))
+                .location(location)
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .forecastRunAt(forecastRunAt)
+                .daysAhead(2)
+                .lowCloud(20)
+                .midCloud(60)
+                .highCloud(40)
+                .visibility(20000)
+                .windSpeed(new BigDecimal("5.50"))
+                .windDirection(225)
+                .precipitation(new BigDecimal("0.10"))
+                .evaluationModel(EvaluationModel.SONNET)
+                .fierySkyPotential(65)
+                .goldenHourPotential(72)
+                .tideAligned(tideAligned)
+                .summary("Test evaluation.")
+                .build();
     }
 
     private ForecastEvaluationEntity buildSonnetEvaluation(LocationEntity location,

@@ -207,7 +207,7 @@ public class HotTopicSimulationService {
                                             new ExpandedHotTopicDetail.TideLocationMetrics(
                                                     "HIGH"))))),
             null,
-            new ExpandedHotTopicDetail.TideMetrics("King tide", "New Moon", 4));
+            new ExpandedHotTopicDetail.TideMetrics("King tide", "New Moon", 3, 2));
 
     private static final ExpandedHotTopicDetail SPRING_TIDE_SIM_DETAIL = new ExpandedHotTopicDetail(
             List.of(
@@ -222,7 +222,7 @@ public class HotTopicSimulationService {
                                             new ExpandedHotTopicDetail.TideLocationMetrics(
                                                     "HIGH"))))),
             null,
-            new ExpandedHotTopicDetail.TideMetrics("Spring tide", "Full Moon", 2));
+            new ExpandedHotTopicDetail.TideMetrics("Spring tide", "Full Moon", 1, 1));
 
     private static final List<SimulationTemplate> ALL_SIMULATIONS = List.of(
             new SimulationTemplate(

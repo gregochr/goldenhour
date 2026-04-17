@@ -92,9 +92,18 @@ function buildSubtitle(topic, auroraData) {
   if ((topic.type === 'KING_TIDE' || topic.type === 'SPRING_TIDE')
       && topic.expandedDetail?.tideMetrics) {
     const m = topic.expandedDetail.tideMetrics;
-    const parts = [m.tidalClassification, m.lunarPhase,
-      `${m.coastalLocationCount} coastal locations`].filter(Boolean);
-    return parts.join(' \u00b7 ');
+    const parts = [m.tidalClassification, m.lunarPhase];
+    const sr = m.sunriseAlignedCount ?? 0;
+    const ss = m.sunsetAlignedCount ?? 0;
+    if (sr > 0 || ss > 0) {
+      const alignParts = [];
+      if (sr > 0) alignParts.push(`${sr} ${sr === 1 ? 'tide' : 'tides'} aligned at sunrise`);
+      if (ss > 0) alignParts.push(`${ss} ${ss === 1 ? 'tide' : 'tides'} aligned at sunset`);
+      parts.push(alignParts.join(' \u00b7 '));
+    } else {
+      parts.push('no tide alignments today');
+    }
+    return parts.filter(Boolean).join(' \u00b7 ');
   }
   return null;
 }

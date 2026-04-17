@@ -1733,7 +1733,7 @@ describe('HotTopicStrip — expandable pill click behaviour', () => {
       regions: ['Northumberland'],
       expandedDetail: {
         regionGroups: [{ regionName: 'Northumberland', locations: [] }],
-        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 2 },
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 2, sunsetAlignedCount: 0 },
       },
     };
     render(<HotTopicStrip hotTopics={[topic]} onTopicTap={onTap} />);
@@ -1956,7 +1956,7 @@ describe('HotTopicStrip — tide expanded card', () => {
         ],
       },
     ],
-    tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 3 },
+    tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 2, sunsetAlignedCount: 1 },
   };
 
   const kingTideTopic = {
@@ -2042,7 +2042,7 @@ describe('HotTopicStrip — subtitle line', () => {
     expect(subtitle.textContent).toContain('best 8/10');
   });
 
-  it('tide subtitle shows classification, lunar phase and location count', () => {
+  it('tide subtitle shows classification, lunar phase and alignment counts', () => {
     const topic = {
       type: 'KING_TIDE',
       label: 'King tide',
@@ -2052,14 +2052,92 @@ describe('HotTopicStrip — subtitle line', () => {
       regions: [],
       expandedDetail: {
         regionGroups: [],
-        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 4 },
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 9, sunsetAlignedCount: 5 },
       },
     };
     render(<HotTopicStrip hotTopics={[topic]} />);
     const subtitle = screen.getByTestId('subtitle-KING_TIDE');
     expect(subtitle.textContent).toContain('King tide');
     expect(subtitle.textContent).toContain('New Moon');
-    expect(subtitle.textContent).toContain('4 coastal locations');
+    expect(subtitle.textContent).toContain('9 tides aligned at sunrise');
+    expect(subtitle.textContent).toContain('5 tides aligned at sunset');
+  });
+
+  it('tide subtitle handles singular count correctly', () => {
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail text',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 1, sunsetAlignedCount: 0 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const subtitle = screen.getByTestId('subtitle-KING_TIDE');
+    expect(subtitle.textContent).toContain('1 tide aligned at sunrise');
+    expect(subtitle.textContent).not.toContain('sunset');
+  });
+
+  it('tide subtitle shows only sunset when sunrise count is zero', () => {
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail text',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'Full Moon', sunriseAlignedCount: 0, sunsetAlignedCount: 3 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const subtitle = screen.getByTestId('subtitle-KING_TIDE');
+    expect(subtitle.textContent).toContain('3 tides aligned at sunset');
+    expect(subtitle.textContent).not.toContain('sunrise');
+  });
+
+  it('tide subtitle shows fallback when both alignment counts are zero', () => {
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail text',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 0, sunsetAlignedCount: 0 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const subtitle = screen.getByTestId('subtitle-KING_TIDE');
+    expect(subtitle.textContent).toContain('no tide alignments today');
+  });
+
+  it('spring tide subtitle shows alignment counts with correct classification', () => {
+    const topic = {
+      type: 'SPRING_TIDE',
+      label: 'Spring tide',
+      detail: 'Detail text',
+      date: '2026-04-20',
+      priority: 2,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        tideMetrics: { tidalClassification: 'Spring tide', lunarPhase: 'Full Moon', sunriseAlignedCount: 4, sunsetAlignedCount: 2 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const subtitle = screen.getByTestId('subtitle-SPRING_TIDE');
+    expect(subtitle.textContent).toContain('Spring tide');
+    expect(subtitle.textContent).toContain('Full Moon');
+    expect(subtitle.textContent).toContain('4 tides aligned at sunrise');
+    expect(subtitle.textContent).toContain('2 tides aligned at sunset');
   });
 
   it('aurora subtitle shows Kp and clear location count', () => {
@@ -2207,7 +2285,7 @@ describe('HotTopicStrip — chevron rotation on non-AURORA expandable pills', ()
       regions: [],
       expandedDetail: {
         regionGroups: [{ regionName: 'R1', locations: [] }],
-        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 2 },
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 1, sunsetAlignedCount: 1 },
       },
     };
     render(<HotTopicStrip hotTopics={[topic]} />);
@@ -2265,7 +2343,7 @@ describe('HotTopicStrip — null metrics guards', () => {
             tideLocationMetrics: null,
           }],
         }],
-        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 1 },
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', sunriseAlignedCount: 1, sunsetAlignedCount: 0 },
       },
     };
     render(<HotTopicStrip hotTopics={[topic]} />);
@@ -2373,7 +2451,7 @@ describe('HotTopicStrip — generic expand behaviour', () => {
       regions: [],
       expandedDetail: {
         regionGroups: [{ regionName: 'R1', locations: [] }],
-        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'Full Moon', coastalLocationCount: 2 },
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'Full Moon', sunriseAlignedCount: 1, sunsetAlignedCount: 1 },
       },
     };
 
