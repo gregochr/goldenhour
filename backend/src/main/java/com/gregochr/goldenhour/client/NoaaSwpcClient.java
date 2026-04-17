@@ -63,17 +63,22 @@ public class NoaaSwpcClient {
     /**
      * Aurora probability threshold (%) for viewline extraction.
      *
-     * <p>The viewline marks the southernmost latitude where aurora probability
-     * meets this threshold. Set to 10% to represent realistic naked-eye
-     * detection from a dark sky site. The previous 5% value produced viewlines
-     * that extended unrealistically far south, creating contradictions between
-     * the banner headline (e.g. "aurora possible from northern England") and
-     * the viewline summary (e.g. "Visible across the whole of the UK").
+     * <p>The viewline marks the southernmost latitude where aurora
+     * probability meets this threshold. Set to 5% based on real-world
+     * calibration — on a Kp 6 event, aurora was visibly active from
+     * Northumberland (~55°N) but the 10% threshold placed the viewline
+     * north of Edinburgh (~56°N), producing a false negative.
      *
-     * <p>If the viewline still appears too optimistic or conservative in
-     * practice, this is the single value to adjust.
+     * <p>A 5% threshold represents "aurora possible from a dark sky site
+     * with a clear northern horizon" — appropriate for a photography app
+     * where photographers will make their own go/no-go judgement. The
+     * viewline is advisory, not a guarantee.
+     *
+     * <p>The active: false threshold uses the same value — if nothing
+     * reaches 5% anywhere in the UK longitude range, the viewline
+     * is inactive.
      */
-    static final int VIEWLINE_THRESHOLD = 10;
+    static final int VIEWLINE_THRESHOLD = 5;
 
     /** Western bound for UK viewline longitude range (°W expressed as negative). */
     static final double VIEWLINE_LON_WEST = -12.0;
@@ -321,7 +326,7 @@ public class NoaaSwpcClient {
             LOG.warn("NOAA viewline fetch failed: {}", e.getMessage());
             return new AuroraViewlineResponse(
                     List.of(), "Aurora viewline unavailable", 90.0,
-                    ZonedDateTime.now(ZoneOffset.UTC), false);
+                    ZonedDateTime.now(ZoneOffset.UTC), false, false);
         }
     }
 
@@ -575,7 +580,7 @@ public class NoaaSwpcClient {
         JsonNode coords = root.path("coordinates");
         if (coords.isMissingNode() || coords.isEmpty()) {
             return new AuroraViewlineResponse(
-                    List.of(), "No OVATION data available", 90.0, forecastTime, false);
+                    List.of(), "No OVATION data available", 90.0, forecastTime, false, false);
         }
 
         // Collect: for each longitude in the UK range, find the southernmost lat above threshold.
@@ -607,7 +612,7 @@ public class NoaaSwpcClient {
 
         if (southernmostByLon.isEmpty()) {
             return new AuroraViewlineResponse(
-                    List.of(), "No significant aurora in UK range", 90.0, forecastTime, false);
+                    List.of(), "No significant aurora in UK range", 90.0, forecastTime, false, false);
         }
 
         // Convert to list and smooth with moving average
@@ -633,7 +638,7 @@ public class NoaaSwpcClient {
 
         String summary = viewlineSummary(southernmost);
 
-        return new AuroraViewlineResponse(smoothed, summary, southernmost, forecastTime, true);
+        return new AuroraViewlineResponse(smoothed, summary, southernmost, forecastTime, true, false);
     }
 
     /**
@@ -702,7 +707,26 @@ public class NoaaSwpcClient {
         String summary = viewlineSummary(clampedSouthernmost);
 
         return new AuroraViewlineResponse(
-                clampedPoints, summary, clampedSouthernmost, raw.forecastTime(), true);
+                clampedPoints, summary, clampedSouthernmost, raw.forecastTime(), true, false);
+    }
+
+    /**
+     * Builds a forecast extent viewline from the Kp-to-latitude cap table.
+     *
+     * <p>Returns a straight horizontal line at the cap latitude across the UK longitude
+     * range. Used when triggerType is FORECAST_LOOKAHEAD and no live OVATION data applies.
+     *
+     * @param forecastKp the forecast Kp index
+     * @return forecast viewline with {@code isForecast: true}
+     */
+    public AuroraViewlineResponse buildForecastViewline(double forecastKp) {
+        double capLatitude = getKpLatitudeCap(forecastKp);
+        List<ViewlinePoint> points = List.of(
+                new ViewlinePoint(VIEWLINE_LON_WEST, capLatitude),
+                new ViewlinePoint(VIEWLINE_LON_EAST, capLatitude));
+        String summary = viewlineSummary(capLatitude);
+        return new AuroraViewlineResponse(
+                points, summary, capLatitude, ZonedDateTime.now(ZoneOffset.UTC), true, true);
     }
 
     // -------------------------------------------------------------------------

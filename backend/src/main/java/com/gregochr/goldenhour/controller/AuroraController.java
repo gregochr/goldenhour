@@ -134,6 +134,25 @@ public class AuroraController {
     }
 
     /**
+     * Returns a forecast aurora extent line based on the Kp-to-latitude lookup table.
+     *
+     * <p>Used when the alert was triggered by a forecast (not live data). Returns a
+     * straight line at the cap latitude for the forecast Kp value.
+     *
+     * @return forecast viewline response with {@code isForecast: true}
+     */
+    @GetMapping("/viewline/forecast")
+    public AuroraViewlineResponse getForecastViewline() {
+        Double forecastKp = stateCache.getLastTriggerKp();
+        if (forecastKp == null) {
+            return new AuroraViewlineResponse(
+                    List.of(), "No forecast available", 90.0,
+                    ZonedDateTime.now(ZoneOffset.UTC), false, true);
+        }
+        return noaaClient.buildForecastViewline(forecastKp);
+    }
+
+    /**
      * Resolves the current Kp index for viewline capping.
      *
      * <p>Uses the latest real-time Kp reading (same source as the banner). Falls back to

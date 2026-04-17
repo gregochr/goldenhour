@@ -150,6 +150,24 @@ export async function getAuroraForecastAvailableDates() {
 }
 
 /**
+ * Fetches the forecast aurora extent line based on the Kp-to-latitude lookup table.
+ * Returns null for free-tier users (403).
+ *
+ * @returns {Promise<object|null>} forecast viewline response or null
+ */
+export async function getAuroraForecastViewline() {
+  try {
+    const response = await axios.get(`${BASE_URL}/viewline/forecast`);
+    return response.data;
+  } catch (err) {
+    if (err.response?.status === 403 || err.response?.status === 401) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
  * Fetches the aurora viewline — the southernmost visible aurora boundary for UK longitudes.
  * Returns null for free-tier users (403).
  *

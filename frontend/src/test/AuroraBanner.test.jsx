@@ -519,7 +519,7 @@ describe('AuroraBanner', () => {
   // Pulse animation
   // ---------------------------------------------------------------------------
 
-  it('applies pulse animation when bzNanoTesla < −1', () => {
+  it('applies pulse animation when bzNanoTesla < −1 and triggerType is realtime', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
@@ -527,6 +527,7 @@ describe('AuroraBanner', () => {
       active: true,
       eligibleLocations: 3,
       bzNanoTesla: -6.0,
+      triggerType: 'realtime',
     });
     const banner = screen.getByTestId('aurora-banner');
     expect(banner.style.animation).toMatch(/aurora-pulse/);
@@ -569,6 +570,69 @@ describe('AuroraBanner', () => {
     });
     const banner = screen.getByTestId('aurora-banner');
     expect(banner.style.animation).toBeFalsy();
+  });
+
+  it('does not apply pulse animation when triggerType is forecast even with favourable Bz', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      bzNanoTesla: -6.0,
+      triggerType: 'forecast',
+      forecastKp: 6.0,
+    });
+    const banner = screen.getByTestId('aurora-banner');
+    expect(banner.style.animation).toBeFalsy();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Forecast vs active headline
+  // ---------------------------------------------------------------------------
+
+  it('shows "Aurora Forecast" headline when triggerType is forecast', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      forecastKp: 6.0,
+      triggerType: 'forecast',
+    });
+    expect(screen.getByText(/Aurora Forecast/)).toBeInTheDocument();
+    expect(screen.queryByText(/Aurora Active Now/)).not.toBeInTheDocument();
+  });
+
+  it('shows "Aurora Active Now" headline when triggerType is realtime', () => {
+    renderBanner({
+      level: 'STRONG',
+      hexColour: '#ff0000',
+      description: 'Red alert',
+      active: true,
+      eligibleLocations: 5,
+      forecastKp: 7.0,
+      triggerType: 'realtime',
+    });
+    expect(screen.getByText(/Aurora Active Now/)).toBeInTheDocument();
+    expect(screen.queryByText(/Aurora Forecast/)).not.toBeInTheDocument();
+  });
+
+  it('does not show detected timestamp when triggerType is forecast', () => {
+    const thirtyMinsAgo = new Date();
+    thirtyMinsAgo.setMinutes(thirtyMinsAgo.getMinutes() - 30);
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+      forecastKp: 6.0,
+      triggerType: 'forecast',
+      detectedAt: thirtyMinsAgo.toISOString(),
+    });
+    expect(screen.queryByTestId('aurora-banner-detected')).not.toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------

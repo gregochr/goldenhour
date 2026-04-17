@@ -16,13 +16,16 @@ import java.util.List;
  * @param forecastTime         OVATION model run timestamp
  * @param active               {@code true} when aurora probability above threshold exists
  *                             in the UK longitude range; {@code false} otherwise
+ * @param isForecast           {@code true} when derived from the Kp-to-latitude cap table
+ *                             (forecast trigger), {@code false} for live OVATION data
  */
 public record AuroraViewlineResponse(
         List<ViewlinePoint> points,
         String summary,
         double southernmostLatitude,
         ZonedDateTime forecastTime,
-        boolean active) {
+        boolean active,
+        boolean isForecast) {
 
     /** Defensive copy. */
     public AuroraViewlineResponse {

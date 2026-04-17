@@ -211,7 +211,7 @@ class AuroraControllerTest extends AbstractControllerTest {
         when(noaaClient.fetchKp()).thenReturn(List.of(new KpReading(now, 6.0)));
         AuroraViewlineResponse viewline = new AuroraViewlineResponse(
                 List.of(), "Visible as far south as northern England",
-                54.0, now, true);
+                54.0, now, true, false);
         when(noaaClient.fetchViewline(6.0)).thenReturn(viewline);
 
         mockMvc.perform(get("/api/aurora/viewline"))
@@ -230,7 +230,7 @@ class AuroraControllerTest extends AbstractControllerTest {
         when(noaaClient.fetchKpForecast()).thenReturn(List.of());
         AuroraViewlineResponse viewline = new AuroraViewlineResponse(
                 List.of(), "Visible as far south as northern Scotland",
-                58.0, now, true);
+                58.0, now, true, false);
         when(noaaClient.fetchViewline(4.0)).thenReturn(viewline);
 
         mockMvc.perform(get("/api/aurora/viewline"))
@@ -244,6 +244,50 @@ class AuroraControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"LITE_USER"})
     void getViewline_liteUser_returns403() throws Exception {
         mockMvc.perform(get("/api/aurora/viewline"))
+                .andExpect(status().isForbidden());
+    }
+
+    // -------------------------------------------------------------------------
+    // Forecast viewline endpoint
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline/forecast returns forecast viewline with isForecast=true")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_withTriggerKp_returnsForecastViewline() throws Exception {
+        when(stateCache.getLastTriggerKp()).thenReturn(6.0);
+        AuroraViewlineResponse forecast = new AuroraViewlineResponse(
+                List.of(new AuroraViewlineResponse.ViewlinePoint(-12.0, 54.0),
+                        new AuroraViewlineResponse.ViewlinePoint(4.0, 54.0)),
+                "Visible as far south as northern England",
+                54.0, ZonedDateTime.now(ZoneOffset.UTC), true, true);
+        when(noaaClient.buildForecastViewline(6.0)).thenReturn(forecast);
+
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isForecast").value(true))
+                .andExpect(jsonPath("$.active").value(true))
+                .andExpect(jsonPath("$.southernmostLatitude").value(54.0));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline/forecast returns inactive when no trigger Kp")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_noTriggerKp_returnsInactive() throws Exception {
+        when(stateCache.getLastTriggerKp()).thenReturn(null);
+
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isForecast").value(true))
+                .andExpect(jsonPath("$.active").value(false))
+                .andExpect(jsonPath("$.summary").value("No forecast available"));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline/forecast returns 403 for LITE_USER")
+    @WithMockUser(roles = {"LITE_USER"})
+    void getForecastViewline_liteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
                 .andExpect(status().isForbidden());
     }
 

@@ -597,12 +597,12 @@ class NoaaSwpcClientTest {
     }
 
     // -------------------------------------------------------------------------
-    // Viewline threshold tests (using VIEWLINE_THRESHOLD = 10)
+    // Viewline threshold tests (using VIEWLINE_THRESHOLD = 5)
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("Kp 6 profile: viewline stops at ~55°N, not whole UK")
-    void parseViewline_moderateStorm_viewlineStopsAtNorthernEngland() throws Exception {
+    @DisplayName("Kp 6 profile: viewline extends to ~54°N (northern England)")
+    void parseViewline_moderateStorm_viewlineReachesNorthernEngland() throws Exception {
         // Probabilities taper realistically for a Kp 6 event
         String json = """
                 {
@@ -623,14 +623,14 @@ class NoaaSwpcClientTest {
         AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
 
         assertThat(result.active()).isTrue();
-        // 54°N has 8% (below 10%), so viewline should stop at 56°N
-        assertThat(result.southernmostLatitude()).isGreaterThanOrEqualTo(55.0);
-        assertThat(result.summary()).doesNotContain("whole of the UK");
+        // 54°N has 8% (above 5%), so viewline extends to northern England
+        assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(55.0);
+        assertThat(result.summary()).contains("northern England");
     }
 
     @Test
-    @DisplayName("Kp 8+ profile: viewline reaches ~52°N (Midlands)")
-    void parseViewline_strongStorm_viewlineReachesMidlands() throws Exception {
+    @DisplayName("Kp 8+ profile: viewline reaches ~50°N (whole UK)")
+    void parseViewline_strongStorm_viewlineReachesWholeUk() throws Exception {
         // Higher probabilities reach further south
         String json = """
                 {
@@ -651,22 +651,22 @@ class NoaaSwpcClientTest {
         AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
 
         assertThat(result.active()).isTrue();
-        // 52°N has 15% (above 10%), 50°N has 8% (below)
-        assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(53.0);
-        assertThat(result.summary()).containsAnyOf("Midlands", "whole of the UK");
+        // 50°N has 8% (above 5%), viewline extends across the whole UK
+        assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(51.0);
+        assertThat(result.summary()).contains("whole of the UK");
     }
 
     @Test
-    @DisplayName("All probabilities below 10% threshold → inactive")
+    @DisplayName("All probabilities below 5% threshold → inactive")
     void parseViewline_allBelowThreshold_inactive() throws Exception {
         String json = """
                 {
                   "Forecast Time": "2026-04-01T22:00:00Z",
                   "coordinates": [
-                    [355, 60, 8],
-                    [355, 56, 5],
-                    [0, 60, 9],
-                    [0, 56, 3]
+                    [355, 60, 4],
+                    [355, 56, 3],
+                    [0, 60, 4],
+                    [0, 56, 2]
                   ]
                 }
                 """;
@@ -678,14 +678,35 @@ class NoaaSwpcClientTest {
     }
 
     @Test
-    @DisplayName("Exactly 10% probability is included; 9% is excluded")
-    void parseViewline_exactBoundary_10pctIncluded_9pctExcluded() throws Exception {
+    @DisplayName("Max UK probability 4% → inactive (below 5% threshold)")
+    void parseViewline_maxProbability4pct_inactive() throws Exception {
         String json = """
                 {
                   "Forecast Time": "2026-04-01T22:00:00Z",
                   "coordinates": [
-                    [0, 56, 10],
-                    [0, 54, 9],
+                    [355, 60, 4],
+                    [355, 56, 3],
+                    [0, 60, 4],
+                    [0, 56, 1]
+                  ]
+                }
+                """;
+
+        AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
+
+        assertThat(result.active()).isFalse();
+        assertThat(result.points()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Exactly 5% probability is included; 4% is excluded")
+    void parseViewline_exactBoundary_5pctIncluded_4pctExcluded() throws Exception {
+        String json = """
+                {
+                  "Forecast Time": "2026-04-01T22:00:00Z",
+                  "coordinates": [
+                    [0, 56, 5],
+                    [0, 54, 4],
                     [0, 60, 30]
                   ]
                 }
@@ -694,7 +715,7 @@ class NoaaSwpcClientTest {
         AuroraViewlineResponse result = client.parseViewline(json, NoaaSwpcClient.VIEWLINE_THRESHOLD);
 
         assertThat(result.active()).isTrue();
-        // 56°N at exactly 10% should be included; 54°N at 9% should not
+        // 56°N at exactly 5% should be included; 54°N at 4% should not
         assertThat(result.southernmostLatitude()).isGreaterThanOrEqualTo(56.0);
         assertThat(result.southernmostLatitude()).isLessThanOrEqualTo(56.5);
     }
@@ -789,7 +810,7 @@ class NoaaSwpcClientTest {
                 new ViewlinePoint(0, 55.0),
                 new ViewlinePoint(2, 48.0));
         AuroraViewlineResponse raw = new AuroraViewlineResponse(
-                points, "test", 48.0, ZonedDateTime.now(ZoneOffset.UTC), true);
+                points, "test", 48.0, ZonedDateTime.now(ZoneOffset.UTC), true, false);
 
         AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
 
@@ -809,6 +830,51 @@ class NoaaSwpcClientTest {
         assertThat(capped.summary()).isEqualTo("Visible as far south as northern England");
     }
 
+    // -------------------------------------------------------------------------
+    // buildForecastViewline
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("buildForecastViewline Kp 6 returns horizontal line at 54°N")
+    void buildForecastViewline_kp6_lineAt54() {
+        AuroraViewlineResponse result = client.buildForecastViewline(6.0);
+
+        assertThat(result.southernmostLatitude()).isEqualTo(54.0);
+        assertThat(result.points()).hasSize(2);
+        assertThat(result.points().get(0).latitude()).isEqualTo(54.0);
+        assertThat(result.points().get(1).latitude()).isEqualTo(54.0);
+        assertThat(result.points().get(0).longitude()).isEqualTo(NoaaSwpcClient.VIEWLINE_LON_WEST);
+        assertThat(result.points().get(1).longitude()).isEqualTo(NoaaSwpcClient.VIEWLINE_LON_EAST);
+    }
+
+    @Test
+    @DisplayName("buildForecastViewline Kp 5 returns horizontal line at 56°N")
+    void buildForecastViewline_kp5_lineAt56() {
+        AuroraViewlineResponse result = client.buildForecastViewline(5.0);
+
+        assertThat(result.southernmostLatitude()).isEqualTo(56.0);
+        assertThat(result.points()).hasSize(2);
+        assertThat(result.points().get(0).latitude()).isEqualTo(56.0);
+    }
+
+    @Test
+    @DisplayName("buildForecastViewline sets isForecast to true")
+    void buildForecastViewline_isForecastTrue() {
+        AuroraViewlineResponse result = client.buildForecastViewline(6.0);
+
+        assertThat(result.isForecast()).isTrue();
+        assertThat(result.active()).isTrue();
+    }
+
+    @Test
+    @DisplayName("buildForecastViewline summary matches latitude band")
+    void buildForecastViewline_summaryMatchesLatitude() {
+        AuroraViewlineResponse result = client.buildForecastViewline(7.0);
+
+        assertThat(result.southernmostLatitude()).isEqualTo(52.0);
+        assertThat(result.summary()).contains("Midlands");
+    }
+
     /** Creates a simple active viewline response with the given southernmost latitude. */
     private AuroraViewlineResponse viewlineAt(double southernmostLat) {
         List<ViewlinePoint> points = List.of(
@@ -817,7 +883,7 @@ class NoaaSwpcClientTest {
                 new ViewlinePoint(3, southernmostLat + 2));
         return new AuroraViewlineResponse(
                 points, client.viewlineSummary(southernmostLat),
-                southernmostLat, ZonedDateTime.now(ZoneOffset.UTC), true);
+                southernmostLat, ZonedDateTime.now(ZoneOffset.UTC), true, false);
     }
 
     // -------------------------------------------------------------------------

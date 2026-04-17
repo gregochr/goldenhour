@@ -279,7 +279,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
   const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
     && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
-  const { viewline } = useAuroraViewline(viewlineEnabled);
+  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType);
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
@@ -753,7 +753,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
           <ZoomTracker onZoom={setZoom} />
           <FlyToController target={flyTarget} />
           {viewlineEnabled && eventType === 'AURORA' && date === new Date().toLocaleDateString('en-CA') && (
-            <AuroraViewlineOverlay viewline={viewline} />
+            <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
           {/* Azimuth lines for the selected location */}

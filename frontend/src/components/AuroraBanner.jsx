@@ -155,7 +155,7 @@ export default function AuroraBanner() {
   const viewlineSummary = !isSimulated && viewline?.active ? viewline.summary : null;
   const subtitleParts = [kpText, actionHint].filter(Boolean);
 
-  const isFavourable = !isSimulated && bz != null && bz < -1;
+  const isFavourable = !isSimulated && !isForecastTrigger && bz != null && bz < -1;
 
   function handleDismiss(e) {
     e.stopPropagation();
@@ -189,8 +189,12 @@ export default function AuroraBanner() {
             <span className="text-lg shrink-0" aria-hidden="true">{isSimulated ? '🧪' : '🌌'}</span>
             <div className="min-w-0">
               <p className="text-sm font-bold leading-tight">
-                {isSimulated ? 'SIMULATED — ' : 'Aurora Alert — '}
-                {!isSimulated && detectedLabel && <><span data-testid="aurora-banner-detected">Detected {detectedLabel}</span> — </>}
+                {isSimulated
+                  ? 'SIMULATED — '
+                  : isForecastTrigger
+                    ? 'Aurora Forecast — '
+                    : 'Aurora Active Now — '}
+                {!isSimulated && !isForecastTrigger && detectedLabel && <><span data-testid="aurora-banner-detected">Detected {detectedLabel}</span> — </>}
                 {status.description}
               </p>
               {subtitleParts.length > 0 && (
