@@ -53,7 +53,7 @@ A full-stack app that evaluates sunrise/sunset colour potential at configured lo
 
 **Admin features**: User management | Expandable health status widget with live SSE service probes (mail, Claude API, Open-Meteo, tides) | Model comparison test harness (A/B/C across regions) | Prompt test harness (async, replay, comparison) | URL hash navigation | Client-side pagination | Confirmation dialog before Claude evaluation with cost estimate
 
-**Deployment**: Docker (alpine, health checks, non-root) | Cloudflare Tunnel (`photocast.online`) | H2 volume-mounted to Mac filesystem | Daily backups (keep last 7)
+**Deployment**: Docker (alpine, health checks, non-root) | Cloudflare Tunnel (`photocast.online`) | H2 volume-mounted to Mac filesystem | Daily backups (keep last 7) | Persistent logs at `/Users/gregochr/goldenhour-data/logs/` (volume-mounted to `/app/logs` in container; rolling `goldenhour.log` 50MB×30 days + `surge-calibration.log` 90 days)
 
 ---
 

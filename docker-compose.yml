@@ -16,6 +16,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   goldenhour-frontend:
     image: ghcr.io/gregochr/goldenhour-frontend:latest
@@ -43,6 +48,8 @@ services:
       JAVA_TOOL_OPTIONS: >-
         -Djdk.virtualThreadScheduler.maxPoolSize=256
         -Djdk.tracePinnedThreads=short
+    volumes:
+      - /Users/gregochr/goldenhour-data/logs:/app/logs
     depends_on:
       goldenhour-db:
         condition: service_healthy
@@ -53,3 +60,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

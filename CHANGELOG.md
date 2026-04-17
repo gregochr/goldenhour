@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Persistent logs across deploys
+- **Rolling application log** — added `FILE` appender to `logback-spring.xml` writing `goldenhour.log` with size+time rolling (50MB max file, 30 days, 1GB total cap); attached to root logger alongside console
+- **Volume mount** — `docker-compose.yml` mounts `/Users/gregochr/goldenhour-data/logs` to `/app/logs` so both `goldenhour.log` and `surge-calibration.log` survive container recreation
+- **Deploy workflow** — `mkdir -p` for log directory added to GitHub Actions deploy step before `docker compose up`
+- **Docker log rotation** — `json-file` driver with 10MB×3 cap on backend and database services to prevent unbounded Docker stdout logs
+
 ### Added — Add Location enrichment
 - **`LocationEnrichmentService`** — new service that auto-detects bortle class, sky brightness (SQM), elevation, and Open-Meteo grid cell coordinates via three parallel API calls (lightpollutionmap.info, Open-Meteo elevation, Open-Meteo forecast); each source fails independently, returning null for failed fields
 - **`GET /api/locations/enrich`** — new ADMIN-only endpoint on `LocationController` that returns a `LocationEnrichmentResult` record for a given lat/lon

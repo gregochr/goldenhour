@@ -69,6 +69,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             cd ~/goldenhour
+            mkdir -p /Users/gregochr/goldenhour-data/logs
             docker compose pull goldenhour-backend goldenhour-frontend
             docker compose up -d --no-deps goldenhour-backend goldenhour-frontend
             sleep 30
