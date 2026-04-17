@@ -61,7 +61,9 @@ class AuroraHotTopicStrategyTest {
     void detect_moderateAlert_emitsTonightPillPriority1() {
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(5.2);
-        when(auroraStateCache.getClearLocationCount()).thenReturn(8);
+        when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
+                new AuroraTonightSummary(AlertLevel.MODERATE, 5.2, 8,
+                        List.of(), null, null, null, null, null, null, null));
         stubDarkSkyLocations("Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
