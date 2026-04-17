@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Aurora hot topic pill uses consistent clear count
+- **`AuroraHotTopicStrategy`** — tonight detail line now reads the cloud-triaged clear count from `BriefingAuroraSummaryBuilder.buildAuroraTonightCached()` (fresh Open-Meteo weather) instead of `AuroraStateCache.getClearLocationCount()` (stale polling-cycle count); falls back to state cache when briefing summary is unavailable
+- **Tests** — 2 new tests: briefing summary count preferred when available, state cache fallback when null (32 total)
+
 ### Fixed — Persistent logs across deploys
 - **Rolling application log** — added `FILE` appender to `logback-spring.xml` writing `goldenhour.log` with size+time rolling (50MB max file, 30 days, 1GB total cap); attached to root logger alongside console
 - **Volume mount** — `docker-compose.yml` mounts `/Users/gregochr/goldenhour-data/logs` to `/app/logs` so both `goldenhour.log` and `surge-calibration.log` survive container recreation

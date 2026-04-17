@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -42,12 +43,15 @@ class AuroraHotTopicStrategyTest {
     @Mock
     private LocationRepository locationRepository;
 
+    @Mock
+    private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
+
     private AuroraHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
         strategy = new AuroraHotTopicStrategy(auroraStateCache, noaaSwpcClient,
-                locationRepository);
+                locationRepository, auroraSummaryBuilder);
     }
 
     // ── Tonight detection ────────────────────────────────────────────────────
@@ -512,6 +516,44 @@ class AuroraHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).regions()).isEmpty();
+    }
+
+    // ── Clear count consistency (briefing summary vs state cache) ────────────
+
+    @Test
+    @DisplayName("tonight pill uses briefing summary clear count when available")
+    void detect_briefingSummaryAvailable_usesSummaryClearCount() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
+        when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
+                new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 72,
+                        List.of(), null, null, null, null, null, null, null));
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        HotTopic tonight = topics.stream()
+                .filter(t -> t.date().equals(TODAY))
+                .findFirst().orElseThrow();
+        assertThat(tonight.detail()).contains("72 dark-sky locations");
+        assertThat(tonight.detail()).doesNotContain("214");
+    }
+
+    @Test
+    @DisplayName("tonight pill falls back to state cache when briefing summary is null")
+    void detect_briefingSummaryNull_fallsBackToStateCache() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
+        when(auroraStateCache.getClearLocationCount()).thenReturn(42);
+        when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(null);
+        stubDarkSkyLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        HotTopic tonight = topics.stream()
+                .filter(t -> t.date().equals(TODAY))
+                .findFirst().orElseThrow();
+        assertThat(tonight.detail()).contains("42 dark-sky locations");
     }
 
     // ── Interaction verification ─────────────────────────────────────────────

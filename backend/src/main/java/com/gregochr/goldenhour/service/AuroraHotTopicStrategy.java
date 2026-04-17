@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -43,20 +44,24 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
     private final AuroraStateCache auroraStateCache;
     private final NoaaSwpcClient noaaSwpcClient;
     private final LocationRepository locationRepository;
+    private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
 
     /**
      * Constructs an {@code AuroraHotTopicStrategy}.
      *
-     * @param auroraStateCache  cache holding the current aurora alert state
-     * @param noaaSwpcClient    client for cached Kp forecast data
-     * @param locationRepository repository for location lookups
+     * @param auroraStateCache      cache holding the current aurora alert state
+     * @param noaaSwpcClient        client for cached Kp forecast data
+     * @param locationRepository    repository for location lookups
+     * @param auroraSummaryBuilder  builder for tonight's aurora summary (cloud-triaged counts)
      */
     public AuroraHotTopicStrategy(AuroraStateCache auroraStateCache,
             NoaaSwpcClient noaaSwpcClient,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            BriefingAuroraSummaryBuilder auroraSummaryBuilder) {
         this.auroraStateCache = auroraStateCache;
         this.noaaSwpcClient = noaaSwpcClient;
         this.locationRepository = locationRepository;
+        this.auroraSummaryBuilder = auroraSummaryBuilder;
     }
 
     /**
@@ -85,7 +90,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         }
 
         Double kp = auroraStateCache.getLastTriggerKp();
-        Integer clearCount = auroraStateCache.getClearLocationCount();
+        Integer clearCount = resolveClearCount();
 
         int priority = (level == AlertLevel.STRONG || level == AlertLevel.MODERATE) ? 1 : 2;
         String detail = buildTonightDetail(kp, clearCount);
@@ -120,6 +125,22 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
                 findAuroraRegions(),
                 AURORA_DESCRIPTION,
                 null));
+    }
+
+    /**
+     * Resolves the cloud-triaged clear location count, preferring the briefing summary's
+     * fresh weather data over the aurora state cache's potentially stale count.
+     *
+     * <p>During a briefing run, {@link BriefingAuroraSummaryBuilder#buildAuroraTonight()} is
+     * called before hot topics are detected, so the cached summary uses fresh Open-Meteo data.
+     * This ensures the hot topic detail line matches the subtitle count in the briefing response.
+     */
+    private Integer resolveClearCount() {
+        AuroraTonightSummary tonight = auroraSummaryBuilder.buildAuroraTonightCached();
+        if (tonight != null) {
+            return tonight.clearLocationCount();
+        }
+        return auroraStateCache.getClearLocationCount();
     }
 
     private String buildTonightDetail(Double kp, Integer clearCount) {
