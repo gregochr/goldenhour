@@ -2545,4 +2545,70 @@ describe('HotTopicStrip — aurora pill moon line', () => {
     expect(phaseSpan).toBeDefined();
     expect(phaseSpan.style.color).toBe('rgba(255, 255, 255, 0.5)');
   });
+
+  it('tonight and tomorrow pills rendered together each show their own moon data', () => {
+    render(
+      <HotTopicStrip
+        hotTopics={[auroraTopic, auroraTomorrowTopic]}
+        auroraTonight={tonightData}
+        auroraTomorrow={tomorrowData}
+      />,
+    );
+    const moonLines = screen.getAllByTestId('aurora-pill-moon-line');
+    expect(moonLines).toHaveLength(2);
+    // Tonight pill gets tonightData (NEW_MOON, 3%)
+    expect(moonLines[0].textContent).toContain('New moon');
+    expect(moonLines[0].textContent).toContain('3%');
+    // Tomorrow pill gets tomorrowData (WAXING_CRESCENT, 9%)
+    expect(moonLines[1].textContent).toContain('Waxing crescent');
+    expect(moonLines[1].textContent).toContain('9%');
+  });
+
+  it('tomorrow pill without windowQuality uses illumination fallback colour', () => {
+    // AuroraTomorrowSummary has no windowQuality — should fall through
+    // to illumination-only logic (8.5% < 20 → green / "dark all night")
+    render(
+      <HotTopicStrip
+        hotTopics={[auroraTomorrowTopic]}
+        auroraTomorrow={tomorrowData}
+      />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('dark all night');
+    const colourSpan = moonLine.querySelector('.text-green-400\\/70');
+    expect(colourSpan).not.toBeNull();
+  });
+
+  it('moonIlluminationPct null with moonPhase present shows 0% without error', () => {
+    const data = { ...tonightData, moonIlluminationPct: null };
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={data} />,
+    );
+    const moonLine = screen.getByTestId('aurora-pill-moon-line');
+    expect(moonLine.textContent).toContain('New moon');
+    expect(moonLine.textContent).toContain('0%');
+  });
+
+  it('moon line appears after subtitle and before detail text in DOM order', () => {
+    render(
+      <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={tonightData} />,
+    );
+    const pill = screen.getByTestId('hot-topic-pill-AURORA');
+    const children = Array.from(pill.children);
+    const subtitleIdx = children.findIndex(
+      (el) => el.dataset.testid === 'subtitle-AURORA',
+    );
+    const moonIdx = children.findIndex(
+      (el) => el.dataset.testid === 'aurora-pill-moon-line',
+    );
+    // Detail is the last span (no testid) — find the span containing the detail text
+    const detailIdx = children.findIndex(
+      (el) => el.textContent === 'Moderate activity tonight',
+    );
+    expect(subtitleIdx).toBeGreaterThan(-1);
+    expect(moonIdx).toBeGreaterThan(-1);
+    expect(detailIdx).toBeGreaterThan(-1);
+    expect(subtitleIdx).toBeLessThan(moonIdx);
+    expect(moonIdx).toBeLessThan(detailIdx);
+  });
 });

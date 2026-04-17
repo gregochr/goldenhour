@@ -15,6 +15,7 @@ import {
   formatTideHighlight,
   moonIlluminationStyle,
   MOON_EMOJI,
+  MOON_PHASE_NAME,
 } from '../utils/conversions.js';
 
 describe('mpsToMph', () => {
@@ -587,5 +588,34 @@ describe('MOON_EMOJI', () => {
 
   it('WANING_CRESCENT maps to 🌘', () => {
     expect(MOON_EMOJI.WANING_CRESCENT).toBe('🌘');
+  });
+});
+
+describe('MOON_PHASE_NAME', () => {
+  it('maps all 8 lunar phases', () => {
+    expect(Object.keys(MOON_PHASE_NAME)).toHaveLength(8);
+  });
+
+  it('has exactly the same keys as MOON_EMOJI', () => {
+    expect(Object.keys(MOON_PHASE_NAME).sort()).toEqual(Object.keys(MOON_EMOJI).sort());
+  });
+
+  it('NEW_MOON maps to "New moon"', () => {
+    expect(MOON_PHASE_NAME.NEW_MOON).toBe('New moon');
+  });
+
+  it('FULL_MOON maps to "Full moon"', () => {
+    expect(MOON_PHASE_NAME.FULL_MOON).toBe('Full moon');
+  });
+
+  it('WAXING_GIBBOUS maps to "Waxing gibbous"', () => {
+    expect(MOON_PHASE_NAME.WAXING_GIBBOUS).toBe('Waxing gibbous');
+  });
+
+  it('all values are human-readable strings (no underscores)', () => {
+    Object.values(MOON_PHASE_NAME).forEach((name) => {
+      expect(name).not.toContain('_');
+      expect(name.length).toBeGreaterThan(0);
+    });
   });
 });
