@@ -99,7 +99,8 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
                 priority,
                 null,
                 regions,
-                AURORA_DESCRIPTION));
+                AURORA_DESCRIPTION,
+                null));
     }
 
     private void detectTomorrow(LocalDate fromDate, List<HotTopic> topics) {
@@ -117,7 +118,8 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
                 3,
                 null,
                 findAuroraRegions(),
-                AURORA_DESCRIPTION));
+                AURORA_DESCRIPTION,
+                null));
     }
 
     private String buildTonightDetail(Double kp, Integer clearCount) {

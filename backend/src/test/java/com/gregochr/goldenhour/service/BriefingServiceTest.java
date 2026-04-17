@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
+import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
@@ -74,6 +75,8 @@ class BriefingServiceTest {
     @Mock
     private BriefingGlossService glossService;
     @Mock
+    private BluebellGlossService bluebellGlossService;
+    @Mock
     private BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -94,6 +97,10 @@ class BriefingServiceTest {
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        // Bluebell gloss service: pass-through by default
+        org.mockito.Mockito.lenient().when(bluebellGlossService.enrichGlosses(
+                org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(inv -> inv.getArgument(0));
         // Default batch mock: return a forecast response for each coordinate in the batch
         org.mockito.Mockito.lenient().when(openMeteoClient.fetchForecastBriefingBatch(
                 org.mockito.ArgumentMatchers.anyList()))
@@ -111,7 +118,7 @@ class BriefingServiceTest {
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
-                auroraSummaryBuilder,
+                bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator);
     }
@@ -419,7 +426,7 @@ class BriefingServiceTest {
                 locationService, openMeteoClient,
                 jobRunService, briefingCacheRepository, locationRepository, mapper,
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
-                auroraSummaryBuilder,
+                bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator);
         freshService.loadPersistedBriefing();
@@ -448,7 +455,7 @@ class BriefingServiceTest {
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
-                auroraSummaryBuilder,
+                bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator);
         freshService.loadPersistedBriefing();
@@ -470,7 +477,7 @@ class BriefingServiceTest {
                 jobRunService, briefingCacheRepository, locationRepository,
                 new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
-                auroraSummaryBuilder,
+                bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator);
         freshService.loadPersistedBriefing();
@@ -1006,7 +1013,8 @@ class BriefingServiceTest {
                     locationService, openMeteoClient,
                     jobRunService, briefingCacheRepository, locationRepository, mapper,
                     new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
-                    auroraSummaryBuilder, new BriefingHierarchyBuilder(verdictEvaluator),
+                    bluebellGlossService, auroraSummaryBuilder,
+                    new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator);
             freshService.loadPersistedBriefing();
 
@@ -1126,7 +1134,7 @@ class BriefingServiceTest {
             // Now simulation is toggled on — aggregator returns topics
             HotTopic bluebell = new HotTopic("BLUEBELL", "Bluebell conditions",
                     "Misty and still", LocalDate.now(), 1, "BLUEBELL",
-                    List.of("Northumberland"), "Bluebell season description");
+                    List.of("Northumberland"), "Bluebell season description", null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(bluebell));
 
@@ -1159,7 +1167,7 @@ class BriefingServiceTest {
         void simulationToggledOff_revertsToRealDetectorOutput() {
             HotTopic aurora = new HotTopic("AURORA", "Aurora possible",
                     "Kp 5 tonight", LocalDate.now(), 1, null,
-                    List.of("Northumberland"), "Aurora description");
+                    List.of("Northumberland"), "Aurora description", null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(aurora));
             refreshWithOneLocation();
@@ -1183,7 +1191,7 @@ class BriefingServiceTest {
         void hotTopicsChange_responseCarriesUpdatedList() {
             HotTopic bluebell = new HotTopic("BLUEBELL", "Bluebell conditions",
                     "Misty and still", LocalDate.now(), 1, "BLUEBELL",
-                    List.of("Northumberland"), null);
+                    List.of("Northumberland"), null, null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(bluebell));
             refreshWithOneLocation();
@@ -1191,7 +1199,7 @@ class BriefingServiceTest {
             // A second topic is now active
             HotTopic dust = new HotTopic("DUST", "Elevated dust",
                     "Saharan dust at sunset", LocalDate.now(), 3, null,
-                    List.of("Northumberland"), null);
+                    List.of("Northumberland"), null, null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(bluebell, dust));
 
@@ -1215,7 +1223,7 @@ class BriefingServiceTest {
             // Change hot topics so a new response is built
             HotTopic topic = new HotTopic("INVERSION", "Cloud inversion",
                     "Strong inversion forecast", LocalDate.now(), 2, null,
-                    List.of("The North York Moors"), null);
+                    List.of("The North York Moors"), null, null);
             when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
                     .thenReturn(List.of(topic));
 

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -150,11 +151,13 @@ class KingTideHotTopicStrategyTest {
     @DisplayName("stops scanning after first king tide — does not call classifyTide for later days")
     void detect_kingTideOnFirstDay_stopsScanning() {
         when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
         stubCoastalLocations("Northumberland");
 
         strategy.detect(TODAY, TO_DATE);
 
         verify(lunarPhaseService).classifyTide(TODAY);
+        verify(lunarPhaseService).getMoonPhase(TODAY);
         verifyNoMoreInteractions(lunarPhaseService);
     }
 
@@ -274,6 +277,100 @@ class KingTideHotTopicStrategyTest {
         strategy.detect(TODAY, TO_DATE);
 
         verifyNoInteractions(locationRepository);
+    }
+
+    // ── expandedDetail tests ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("expandedDetail populated with regionGroups of coastal locations")
+    void detect_expandedDetail_populatedWithRegionGroups() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Craster").lat(55.47).lon(-1.59)
+                .tideType(Set.of(TideType.HIGH)).region(region).enabled(true).build();
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(loc));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        ExpandedHotTopicDetail detail = topics.get(0).expandedDetail();
+        assertThat(detail).isNotNull();
+        assertThat(detail.regionGroups()).hasSize(1);
+        assertThat(detail.regionGroups().get(0).regionName()).isEqualTo("Northumberland");
+        assertThat(detail.regionGroups().get(0).locations()).hasSize(1);
+        assertThat(detail.regionGroups().get(0).locations().get(0).locationName())
+                .isEqualTo("Craster");
+        assertThat(detail.regionGroups().get(0).locations().get(0).locationType())
+                .isEqualTo("Coastal");
+    }
+
+    @Test
+    @DisplayName("tideMetrics has correct classification and lunar phase")
+    void detect_expandedDetail_tideMetricsCorrect() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("New Moon");
+        stubCoastalLocations("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.tidalClassification()).isEqualTo("King tide");
+        assertThat(metrics.lunarPhase()).isEqualTo("New Moon");
+        assertThat(metrics.coastalLocationCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("locations sorted alphabetically within regions")
+    void detect_expandedDetail_locationsSortedAlphabetically() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Craster").lat(55.47).lon(-1.59)
+                .tideType(Set.of(TideType.HIGH)).region(region).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Bamburgh").lat(55.61).lon(-1.71)
+                .tideType(Set.of(TideType.LOW)).region(region).enabled(true).build();
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(loc1, loc2));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var locations = topics.get(0).expandedDetail().regionGroups().get(0).locations();
+        assertThat(locations).hasSize(2);
+        assertThat(locations.get(0).locationName()).isEqualTo("Bamburgh");
+        assertThat(locations.get(1).locationName()).isEqualTo("Craster");
+    }
+
+    @Test
+    @DisplayName("regions sorted alphabetically in expandedDetail")
+    void detect_expandedDetail_regionsSortedAlphabetically() {
+        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
+        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+
+        RegionEntity r1 = new RegionEntity();
+        r1.setName("The North Yorkshire Coast");
+        RegionEntity r2 = new RegionEntity();
+        r2.setName("Northumberland");
+
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Whitby").lat(54.48).lon(-0.62)
+                .tideType(Set.of(TideType.HIGH)).region(r1).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Craster").lat(55.47).lon(-1.59)
+                .tideType(Set.of(TideType.HIGH)).region(r2).enabled(true).build();
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(loc1, loc2));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var groups = topics.get(0).expandedDetail().regionGroups();
+        assertThat(groups).hasSize(2);
+        assertThat(groups.get(0).regionName()).isEqualTo("Northumberland");
+        assertThat(groups.get(1).regionName()).isEqualTo("The North Yorkshire Coast");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

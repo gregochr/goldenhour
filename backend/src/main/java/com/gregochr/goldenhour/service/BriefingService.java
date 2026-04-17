@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
 import com.gregochr.goldenhour.util.GeoUtils;
@@ -65,6 +66,7 @@ public class BriefingService {
     private final BriefingHeadlineGenerator headlineGenerator;
     private final BriefingBestBetAdvisor bestBetAdvisor;
     private final BriefingGlossService glossService;
+    private final BluebellGlossService bluebellGlossService;
     private final BriefingAuroraSummaryBuilder auroraSummaryBuilder;
     private final BriefingHierarchyBuilder hierarchyBuilder;
     private final BriefingSlotBuilder slotBuilder;
@@ -97,6 +99,7 @@ public class BriefingService {
      * @param headlineGenerator       generator for the briefing headline
      * @param bestBetAdvisor          Claude Haiku advisor producing ranked best-bet picks
      * @param glossService            Claude gloss service for per-region commentary
+     * @param bluebellGlossService    Claude gloss service for bluebell region commentary
      * @param auroraSummaryBuilder    builder for aurora tonight/tomorrow summaries
      * @param hierarchyBuilder        builder for the day/event/region hierarchy
      * @param slotBuilder             builder for individual briefing slots
@@ -110,6 +113,7 @@ public class BriefingService {
             ObjectMapper objectMapper,
             BriefingHeadlineGenerator headlineGenerator, BriefingBestBetAdvisor bestBetAdvisor,
             BriefingGlossService glossService,
+            BluebellGlossService bluebellGlossService,
             BriefingAuroraSummaryBuilder auroraSummaryBuilder,
             BriefingHierarchyBuilder hierarchyBuilder,
             BriefingSlotBuilder slotBuilder,
@@ -124,6 +128,7 @@ public class BriefingService {
         this.headlineGenerator = headlineGenerator;
         this.bestBetAdvisor = bestBetAdvisor;
         this.glossService = glossService;
+        this.bluebellGlossService = bluebellGlossService;
         this.auroraSummaryBuilder = auroraSummaryBuilder;
         this.hierarchyBuilder = hierarchyBuilder;
         this.slotBuilder = slotBuilder;
@@ -276,6 +281,7 @@ public class BriefingService {
         String circuit = circuitState();
 
         List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
+        hotTopics = bluebellGlossService.enrichGlosses(hotTopics);
         List<String> seasonalFeatures = SeasonalWindow.BLUEBELL.isActive(today)
                 ? List.of("BLUEBELL") : List.of();
 

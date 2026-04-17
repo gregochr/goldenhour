@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import org.springframework.stereotype.Service;
 
@@ -127,7 +128,8 @@ public class HotTopicSimulationService {
             int priority,
             String filterAction,
             List<String> regions,
-            int dayOffset) {
+            int dayOffset,
+            ExpandedHotTopicDetail expandedDetail) {
 
         /**
          * Materialises this template into a {@link HotTopic} using the supplied date references.
@@ -150,9 +152,77 @@ public class HotTopicSimulationService {
             };
             return new HotTopic(type, label,
                     detail + " " + dayLabel,
-                    date, priority, filterAction, regions, description);
+                    date, priority, filterAction, regions, description,
+                    expandedDetail);
         }
     }
+
+    private static final ExpandedHotTopicDetail BLUEBELL_SIM_DETAIL = new ExpandedHotTopicDetail(
+            List.of(
+                    new ExpandedHotTopicDetail.RegionGroup("Northumberland", null, null, null,
+                            List.of(
+                                    new ExpandedHotTopicDetail.LocationEntry("Allen Banks",
+                                            "Woodland", "Best",
+                                            new ExpandedHotTopicDetail.BluebellLocationMetrics(
+                                                    9, "WOODLAND", "Misty and still — ideal"),
+                                            null),
+                                    new ExpandedHotTopicDetail.LocationEntry("Briarwood Banks",
+                                            "Woodland", null,
+                                            new ExpandedHotTopicDetail.BluebellLocationMetrics(
+                                                    7, "WOODLAND", "Calm morning conditions"),
+                                            null))),
+                    new ExpandedHotTopicDetail.RegionGroup("The Lake District", null, null, null,
+                            List.of(
+                                    new ExpandedHotTopicDetail.LocationEntry("Rannerdale",
+                                            "Open fell", "Best",
+                                            new ExpandedHotTopicDetail.BluebellLocationMetrics(
+                                                    8, "OPEN_FELL", "Golden hour light on open fell"),
+                                            null),
+                                    new ExpandedHotTopicDetail.LocationEntry("Loughrigg Terrace",
+                                            "Woodland", null,
+                                            new ExpandedHotTopicDetail.BluebellLocationMetrics(
+                                                    6, "WOODLAND", "Sheltered from wind"),
+                                            null)))),
+            new ExpandedHotTopicDetail.BluebellMetrics(9, "Excellent", 4),
+            null);
+
+    private static final ExpandedHotTopicDetail KING_TIDE_SIM_DETAIL = new ExpandedHotTopicDetail(
+            List.of(
+                    new ExpandedHotTopicDetail.RegionGroup("Northumberland", null, null, null,
+                            List.of(
+                                    new ExpandedHotTopicDetail.LocationEntry("Dunstanburgh Castle",
+                                            "Coastal", null, null,
+                                            new ExpandedHotTopicDetail.TideLocationMetrics("HIGH")),
+                                    new ExpandedHotTopicDetail.LocationEntry("Bamburgh",
+                                            "Coastal", null, null,
+                                            new ExpandedHotTopicDetail.TideLocationMetrics("HIGH")))),
+                    new ExpandedHotTopicDetail.RegionGroup("The North Yorkshire Coast", null,
+                            null, null,
+                            List.of(
+                                    new ExpandedHotTopicDetail.LocationEntry("Saltwick Bay",
+                                            "Coastal", null, null,
+                                            new ExpandedHotTopicDetail.TideLocationMetrics("MID")),
+                                    new ExpandedHotTopicDetail.LocationEntry("Whitby Piers",
+                                            "Coastal", null, null,
+                                            new ExpandedHotTopicDetail.TideLocationMetrics(
+                                                    "HIGH"))))),
+            null,
+            new ExpandedHotTopicDetail.TideMetrics("King tide", "New Moon", 4));
+
+    private static final ExpandedHotTopicDetail SPRING_TIDE_SIM_DETAIL = new ExpandedHotTopicDetail(
+            List.of(
+                    new ExpandedHotTopicDetail.RegionGroup("The North Yorkshire Coast", null,
+                            null, null,
+                            List.of(
+                                    new ExpandedHotTopicDetail.LocationEntry("Saltwick Bay",
+                                            "Coastal", null, null,
+                                            new ExpandedHotTopicDetail.TideLocationMetrics("MID")),
+                                    new ExpandedHotTopicDetail.LocationEntry("Whitby Piers",
+                                            "Coastal", null, null,
+                                            new ExpandedHotTopicDetail.TideLocationMetrics(
+                                                    "HIGH"))))),
+            null,
+            new ExpandedHotTopicDetail.TideMetrics("Spring tide", "Full Moon", 2));
 
     private static final List<SimulationTemplate> ALL_SIMULATIONS = List.of(
             new SimulationTemplate(
@@ -162,7 +232,8 @@ public class HotTopicSimulationService {
                             + " recent rain to find the best mornings for woodland and"
                             + " open-fell bluebell photography.",
                     1, "BLUEBELL",
-                    List.of("Northumberland", "The Lake District"), 1),
+                    List.of("Northumberland", "The Lake District"), 1,
+                    BLUEBELL_SIM_DETAIL),
             new SimulationTemplate(
                     "KING_TIDE", "King tide",
                     "Rare extreme tidal range — exceptional coastal foreground",
@@ -171,7 +242,8 @@ public class HotTopicSimulationService {
                             + " Only happens 5–10 times per year — rare dramatic foreground at"
                             + " coastal locations.",
                     1, null,
-                    List.of("Northumberland", "The North Yorkshire Coast"), 2),
+                    List.of("Northumberland", "The North Yorkshire Coast"), 2,
+                    KING_TIDE_SIM_DETAIL),
             new SimulationTemplate(
                     "SPRING_TIDE", "Spring tide",
                     "Aligned with sunrise",
@@ -179,7 +251,8 @@ public class HotTopicSimulationService {
                             + " tidal ranges. Higher water at coastal locations means more"
                             + " dramatic foreground and wave action.",
                     2, null,
-                    List.of("The North Yorkshire Coast"), 2),
+                    List.of("The North Yorkshire Coast"), 2,
+                    SPRING_TIDE_SIM_DETAIL),
             new SimulationTemplate(
                     "STORM_SURGE", "Storm surge",
                     "Onshore wind + high tide — dramatic coastal conditions",
@@ -187,7 +260,7 @@ public class HotTopicSimulationService {
                             + " Combined with high tide, this creates crashing waves and"
                             + " dramatic coastal conditions — even midday.",
                     2, null,
-                    List.of("Northumberland"), 1),
+                    List.of("Northumberland"), 1, null),
             new SimulationTemplate(
                     "AURORA", "Aurora possible",
                     "Kp 5 forecast tonight — 12 dark-sky locations",
@@ -195,14 +268,14 @@ public class HotTopicSimulationService {
                             + " solar activity is high. Best seen from dark-sky locations with"
                             + " a clear northern horizon.",
                     1, null,
-                    List.of("Northumberland"), 0),
+                    List.of("Northumberland"), 0, null),
             new SimulationTemplate(
                     "DUST", "Elevated dust",
                     "Saharan dust at sunset",
                     "Saharan dust carried north by upper winds scatters light at sunrise and"
                             + " sunset, producing unusually vivid orange and red skies.",
                     3, null,
-                    List.of("Northumberland", "The North Yorkshire Coast"), 2),
+                    List.of("Northumberland", "The North Yorkshire Coast"), 2, null),
             new SimulationTemplate(
                     "INVERSION", "Cloud inversion",
                     "Strong inversion forecast at elevated locations",
@@ -210,7 +283,7 @@ public class HotTopicSimulationService {
                             + " 'sea of clouds' effect. Best seen from high ground overlooking"
                             + " water at dawn.",
                     2, null,
-                    List.of("The North York Moors"), 1),
+                    List.of("The North York Moors"), 1, null),
             new SimulationTemplate(
                     "SUPERMOON", "Supermoon",
                     "Full moon at perigee — moonrise over the coast",
@@ -218,7 +291,7 @@ public class HotTopicSimulationService {
                             + " to Earth, appearing larger and brighter. Moonrise over the coast"
                             + " or behind a landmark is a classic shot.",
                     3, null,
-                    List.of("Northumberland", "The North Yorkshire Coast"), 0),
+                    List.of("Northumberland", "The North Yorkshire Coast"), 0, null),
             new SimulationTemplate(
                     "SNOW_FRESH", "Fresh snow",
                     "Snow overnight — sunrise on white landscapes",
@@ -226,7 +299,7 @@ public class HotTopicSimulationService {
                             + " mean the snow holds — sunrise on fresh white ground is a"
                             + " rare opportunity.",
                     1, null,
-                    List.of("The Lake District", "The North York Moors"), 1),
+                    List.of("The Lake District", "The North York Moors"), 1, null),
             new SimulationTemplate(
                     "SNOW_MIST", "Fresh snow with mist",
                     "Overnight snow and morning mist — extraordinary conditions",
@@ -234,7 +307,7 @@ public class HotTopicSimulationService {
                             + " Trees and landmarks emerge from fog against a white landscape"
                             + " — among the most dramatic photography conditions possible.",
                     1, null,
-                    List.of("The Lake District", "The North York Moors"), 1),
+                    List.of("The Lake District", "The North York Moors"), 1, null),
             new SimulationTemplate(
                     "SNOW_TOPS", "Snow on the fells",
                     "Tops white above 600m",
@@ -242,7 +315,7 @@ public class HotTopicSimulationService {
                             + " snow while valleys stay green. A classic Lake District and"
                             + " Pennine composition.",
                     2, null,
-                    List.of("The Lake District"), 1),
+                    List.of("The Lake District"), 1, null),
             new SimulationTemplate(
                     "NLC", "Noctilucent cloud season",
                     "NLC season active — check north-facing locations after sunset",
@@ -250,7 +323,7 @@ public class HotTopicSimulationService {
                             + " sunset, glowing electric blue on the northern horizon."
                             + " Visible late May to early August.",
                     3, null,
-                    List.of("Northumberland"), 0),
+                    List.of("Northumberland"), 0, null),
             new SimulationTemplate(
                     "METEOR", "Meteor shower",
                     "Perseids peak tonight — 8 Bortle 3 or darker locations",
@@ -258,7 +331,7 @@ public class HotTopicSimulationService {
                             + " Best photographed from dark-sky locations with a wide-angle"
                             + " lens on a long exposure.",
                     2, null,
-                    List.of("Northumberland"), 0),
+                    List.of("Northumberland"), 0, null),
             new SimulationTemplate(
                     "EQUINOX", "Equinox alignment",
                     "Sun rises due east — aligns with river valleys",
@@ -266,7 +339,7 @@ public class HotTopicSimulationService {
                             + " and sets almost exactly due west — a rare solar alignment with"
                             + " valleys, rivers and roads.",
                     3, null,
-                    List.of("Tyne and Wear"), 1),
+                    List.of("Tyne and Wear"), 1, null),
             new SimulationTemplate(
                     "CLEARANCE", "Dramatic clearance",
                     "Cloud clearing forecast during golden hour",
@@ -274,6 +347,6 @@ public class HotTopicSimulationService {
                             + " shafts of dramatic light and contrast between the bright sky"
                             + " and retreating dark cloud.",
                     2, null,
-                    List.of("Northumberland", "The North Yorkshire Coast"), 2)
+                    List.of("Northumberland", "The North Yorkshire Coast"), 2, null)
     );
 }

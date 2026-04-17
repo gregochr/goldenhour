@@ -368,6 +368,50 @@ class HotTopicSimulationServiceTest {
         assertThat(topic.detail()).contains("tomorrow");
     }
 
+    // ── expandedDetail on simulated topics ───────────────────────────────────
+
+    @Test
+    @DisplayName("simulated BLUEBELL topic has expandedDetail with regionGroups")
+    void getSimulatedTopics_bluebell_hasExpandedDetailWithRegionGroups() {
+        service.setEnabled(true);
+        service.setTypeActive("BLUEBELL", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.expandedDetail()).isNotNull();
+        assertThat(topic.expandedDetail().regionGroups()).isNotEmpty();
+        assertThat(topic.expandedDetail().bluebellMetrics()).isNotNull();
+        assertThat(topic.expandedDetail().bluebellMetrics().bestScore()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("simulated KING_TIDE topic has expandedDetail with locations")
+    void getSimulatedTopics_kingTide_hasExpandedDetailWithLocations() {
+        service.setEnabled(true);
+        service.setTypeActive("KING_TIDE", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.expandedDetail()).isNotNull();
+        assertThat(topic.expandedDetail().regionGroups()).isNotEmpty();
+        assertThat(topic.expandedDetail().tideMetrics()).isNotNull();
+        assertThat(topic.expandedDetail().tideMetrics().tidalClassification())
+                .isEqualTo("King tide");
+    }
+
+    @Test
+    @DisplayName("simulated AURORA topic has null expandedDetail")
+    void getSimulatedTopics_aurora_hasNullExpandedDetail() {
+        service.setEnabled(true);
+        service.setTypeActive("AURORA", true);
+
+        HotTopic topic = service.getSimulatedTopics(TODAY, TODAY.plusDays(3)).get(0);
+
+        assertThat(topic.expandedDetail()).isNull();
+    }
+
+    // ── Day label in detail string ────────────────────────────────────────────
+
     @Test
     @DisplayName("SPRING_TIDE (dayOffset=2) detail contains weekday name")
     void getSimulatedTopics_springTide_detailContainsWeekdayName() {

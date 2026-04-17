@@ -32,6 +32,13 @@ const AURORA_LEVEL_COLOUR = {
 
 const AURORA_LEVEL_LABEL = { MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong' };
 
+/** Score colour for bluebell scores. */
+function bluebellScoreColour(score) {
+  if (score >= 9) return 'rgb(74, 222, 128)';
+  if (score >= 7) return 'rgb(251, 191, 36)';
+  return 'rgba(255,255,255,0.45)';
+}
+
 function formatAlertLevel(level) {
   const label = AURORA_LEVEL_LABEL[level] || level;
   return level && level !== 'QUIET' && AURORA_LEVEL_LABEL[level] ? `${label} aurora` : label;
@@ -59,12 +66,37 @@ function msToMph(ms) {
  */
 function resolveAuroraData(topic, auroraTonight, auroraTomorrow) {
   if (!topic || topic.type !== 'AURORA') return null;
-  // Match by checking which aurora object has a date matching the topic.
-  // The backend sets topic.date to the calendar date of the aurora event.
   if (auroraTonight && topic.detail?.toLowerCase().includes('tonight')) return auroraTonight;
   if (auroraTomorrow && topic.detail?.toLowerCase().includes('tomorrow')) return auroraTomorrow;
-  // Fallback: prefer tonight, then tomorrow
   return auroraTonight || auroraTomorrow || null;
+}
+
+/**
+ * Builds a subtitle line for expandable pills.
+ */
+function buildSubtitle(topic, auroraData) {
+  if (topic.type === 'AURORA' && auroraData) {
+    const kp = auroraData.kp ?? auroraData.peakKp;
+    const timing = topic.detail?.toLowerCase().includes('tonight') ? 'tonight' : 'tomorrow';
+    const clearCount = auroraData.regions
+      ?.reduce((sum, r) => sum + (r.clearLocationCount || 0), 0) ?? 0;
+    const parts = [];
+    if (kp != null) parts.push(`Kp ${kp.toFixed(1)} forecast ${timing}`);
+    if (clearCount > 0) parts.push(`${clearCount} locations clear`);
+    return parts.join(' \u00b7 ') || null;
+  }
+  if (topic.type === 'BLUEBELL' && topic.expandedDetail?.bluebellMetrics) {
+    const m = topic.expandedDetail.bluebellMetrics;
+    return `${m.scoringLocationCount} locations scoring \u00b7 best ${m.bestScore}/10`;
+  }
+  if ((topic.type === 'KING_TIDE' || topic.type === 'SPRING_TIDE')
+      && topic.expandedDetail?.tideMetrics) {
+    const m = topic.expandedDetail.tideMetrics;
+    const parts = [m.tidalClassification, m.lunarPhase,
+      `${m.coastalLocationCount} coastal locations`].filter(Boolean);
+    return parts.join(' \u00b7 ');
+  }
+  return null;
 }
 
 /**
@@ -228,16 +260,206 @@ function AuroraExpandedCard({ auroraData }) {
 }
 
 /**
+ * Expanded bluebell detail card rendered below a BLUEBELL pill.
+ */
+function BluebellExpandedCard({ expandedDetail }) {
+  if (!expandedDetail?.regionGroups) return null;
+
+  const accentColor = HOT_TOPIC_STYLES.BLUEBELL.color;
+
+  return (
+    <div
+      data-testid="bluebell-expanded-card"
+      style={{
+        marginTop: '6px',
+        padding: '10px 12px',
+        borderRadius: '6px',
+        border: `1px solid ${accentColor}25`,
+        background: `${accentColor}08`,
+      }}
+    >
+      {expandedDetail.regionGroups.map((region) => (
+        <div key={region.regionName} style={{ marginBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+              {region.regionName}
+            </span>
+            {region.glossHeadline && (
+              <span
+                data-testid="bluebell-gloss-headline"
+                style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontStyle: 'italic' }}
+              >
+                {region.glossHeadline}
+              </span>
+            )}
+          </div>
+
+          {(region.locations || []).map((loc) => {
+            const metrics = loc.bluebellLocationMetrics;
+            const score = metrics?.score;
+            return (
+              <div
+                key={loc.locationName}
+                data-testid="bluebell-expanded-location"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 6px',
+                  marginTop: '2px',
+                  borderRadius: '4px',
+                  background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <span style={{ fontSize: '12px' }}>{'\uD83C\uDF3F'}</span>
+                <span style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
+                  {loc.locationName}
+                </span>
+                {loc.locationType && (
+                  <span
+                    data-testid="bluebell-exposure-chip"
+                    style={{
+                      fontSize: '9px',
+                      padding: '0 4px',
+                      borderRadius: '3px',
+                      background: `${accentColor}20`,
+                      color: `${accentColor}`,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {loc.locationType}
+                  </span>
+                )}
+                {score != null && (
+                  <span
+                    data-testid="bluebell-score"
+                    style={{
+                      fontSize: '10px',
+                      color: bluebellScoreColour(score),
+                      fontWeight: 600,
+                    }}
+                  >
+                    {score}/10
+                  </span>
+                )}
+                {loc.badge && (
+                  <span
+                    data-testid="bluebell-badge"
+                    style={{
+                      fontSize: '9px',
+                      padding: '0 4px',
+                      borderRadius: '3px',
+                      background: 'rgba(74, 222, 128, 0.15)',
+                      color: 'rgb(74, 222, 128)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {loc.badge}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Expanded tide detail card rendered below a KING_TIDE or SPRING_TIDE pill.
+ */
+function TideExpandedCard({ expandedDetail }) {
+  if (!expandedDetail?.regionGroups) return null;
+
+  const accentColor = HOT_TOPIC_STYLES.KING_TIDE.color;
+
+  return (
+    <div
+      data-testid="tide-expanded-card"
+      style={{
+        marginTop: '6px',
+        padding: '10px 12px',
+        borderRadius: '6px',
+        border: `1px solid ${accentColor}25`,
+        background: `${accentColor}08`,
+      }}
+    >
+      {expandedDetail.regionGroups.map((region) => (
+        <div key={region.regionName} style={{ marginBottom: '8px' }}>
+          <div style={{ marginBottom: '3px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+              {region.regionName}
+            </span>
+          </div>
+
+          {(region.locations || []).map((loc) => {
+            const tidePreference = loc.tideLocationMetrics?.tidePreference;
+            return (
+              <div
+                key={loc.locationName}
+                data-testid="tide-expanded-location"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '3px 6px',
+                  marginTop: '2px',
+                  borderRadius: '4px',
+                  background: 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <span style={{ fontSize: '12px' }}>{'\uD83C\uDF0A'}</span>
+                <span style={{ fontSize: '12px', fontWeight: 500, color: 'rgba(255,255,255,0.8)' }}>
+                  {loc.locationName}
+                </span>
+                {tidePreference && (
+                  <span
+                    data-testid="tide-preference-label"
+                    style={{
+                      fontSize: '9px',
+                      padding: '0 4px',
+                      borderRadius: '3px',
+                      background: `${accentColor}20`,
+                      color: `${accentColor}`,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {tidePreference}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Renders the appropriate expanded card for the given topic type.
+ */
+function ExpandedCard({ topic, auroraData }) {
+  if (topic.type === 'AURORA') return <AuroraExpandedCard auroraData={auroraData} />;
+  if (topic.type === 'BLUEBELL') return <BluebellExpandedCard expandedDetail={topic.expandedDetail} />;
+  if (topic.type === 'KING_TIDE' || topic.type === 'SPRING_TIDE') {
+    return <TideExpandedCard expandedDetail={topic.expandedDetail} />;
+  }
+  return null;
+}
+
+/**
  * Two-column responsive grid of Hot Topic pills shown between the Best Bet
  * cards and the quality slider in the briefing planner.
  *
- * AURORA pills are expandable — tapping toggles a detail card with region
- * breakdown, Bortle badges, moon data, and per-location weather.
+ * Expandable pills: AURORA (via frontend aurora data join), BLUEBELL / KING_TIDE /
+ * SPRING_TIDE (via backend expandedDetail). Only one pill expanded at a time.
  *
  * @param {Object}   props
  * @param {Array}    props.hotTopics        array of hot topic objects from the API
  * @param {boolean}  props.isLiteUser       true when role === 'LITE_USER'
- * @param {Function} props.onTopicTap       callback(topic) invoked when a non-AURORA pill is tapped
+ * @param {Function} props.onTopicTap       callback(topic) invoked when a non-expandable pill is tapped
  * @param {Object}   props.auroraTonight    aurora summary for tonight (optional)
  * @param {Object}   props.auroraTomorrow   aurora summary for tomorrow (optional)
  */
@@ -259,18 +481,28 @@ export default function HotTopicStrip({
     >
       {hotTopics.map((topic) => {
         const style = HOT_TOPIC_STYLES[topic.type] ?? DEFAULT_STYLE;
-        const regionLine = topic.regions?.length > 0 ? topic.regions.join(', ') : null;
         const isAurora = topic.type === 'AURORA';
         const pillKey = `${topic.type}-${topic.date}`;
         const isExpanded = expandedKey === pillKey;
         const auroraData = isAurora ? resolveAuroraData(topic, auroraTonight, auroraTomorrow) : null;
-        const canExpand = isAurora && !isLiteUser && auroraData != null;
+
+        // Generic expand: aurora uses frontend join, others use expandedDetail
+        const canExpand = !isLiteUser
+          && ((isAurora && auroraData != null) || topic.expandedDetail != null);
+
+        const subtitle = canExpand ? buildSubtitle(topic, auroraData) : null;
+
+        // For expandable pills, regions are shown in the expanded body, not the collapsed pill
+        const regionLine = !canExpand && topic.regions?.length > 0
+          ? topic.regions.join(', ')
+          : null;
 
         const handleClick = () => {
           if (isLiteUser) return;
-          if (isAurora) {
-            if (canExpand) setExpandedKey(isExpanded ? null : pillKey);
-          } else {
+          if (canExpand) {
+            setExpandedKey(isExpanded ? null : pillKey);
+          } else if (!isAurora) {
+            // AURORA pills without data don't expand and don't trigger onTopicTap
             onTopicTap?.(topic);
           }
         };
@@ -361,7 +593,7 @@ export default function HotTopicStrip({
                   )}
                   {canExpand && (
                     <span
-                      data-testid="aurora-expand-chevron"
+                      data-testid={`expand-chevron-${topic.type}`}
                       style={{
                         fontSize: '10px',
                         color: 'rgba(255,255,255,0.4)',
@@ -370,21 +602,34 @@ export default function HotTopicStrip({
                         flexShrink: 0,
                       }}
                     >
-                      ▶
+                      {'\u25B6'}
                     </span>
                   )}
                 </div>
               </div>
+              {subtitle && (
+                <span
+                  data-testid={`subtitle-${topic.type}`}
+                  style={{
+                    fontSize: '11px',
+                    color: 'rgba(255, 255, 255, 0.5)',
+                    marginBottom: '2px',
+                  }}
+                >
+                  {subtitle}
+                </span>
+              )}
               <span
                 style={{
                   fontSize: '12px',
                   color: 'rgba(255, 255, 255, 0.55)',
+                  ...(canExpand ? { fontStyle: 'italic' } : {}),
                 }}
               >
                 {topic.detail}
               </span>
             </button>
-            {isExpanded && <AuroraExpandedCard auroraData={auroraData} />}
+            {isExpanded && <ExpandedCard topic={topic} auroraData={auroraData} />}
           </div>
         );
       })}
@@ -419,6 +664,7 @@ HotTopicStrip.propTypes = {
       filterAction: PropTypes.string,
       regions: PropTypes.arrayOf(PropTypes.string),
       description: PropTypes.string,
+      expandedDetail: PropTypes.object,
     }),
   ).isRequired,
   isLiteUser: PropTypes.bool,

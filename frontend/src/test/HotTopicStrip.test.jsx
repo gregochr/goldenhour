@@ -1105,12 +1105,12 @@ describe('HotTopicStrip', () => {
           auroraTonight={auroraData}
         />,
       );
-      expect(screen.getByTestId('aurora-expand-chevron')).toBeInTheDocument();
+      expect(screen.getByTestId('expand-chevron-AURORA')).toBeInTheDocument();
     });
 
     it('does not render expand chevron on non-AURORA pill', () => {
       render(<HotTopicStrip hotTopics={[buildTopic()]} />);
-      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('expand-chevron-AURORA')).not.toBeInTheDocument();
     });
 
     it('does not render expand chevron when aurora data is null', () => {
@@ -1120,7 +1120,7 @@ describe('HotTopicStrip', () => {
           auroraTonight={null}
         />,
       );
-      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('expand-chevron-AURORA')).not.toBeInTheDocument();
     });
 
     it('clicking AURORA pill toggles expanded card', () => {
@@ -1246,7 +1246,7 @@ describe('HotTopicStrip', () => {
           isLiteUser
         />,
       );
-      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('expand-chevron-AURORA')).not.toBeInTheDocument();
     });
 
     it('only one aurora pill can be expanded at a time', () => {
@@ -1287,7 +1287,7 @@ describe('HotTopicStrip', () => {
         />,
       );
       expect(screen.getByTestId('hot-topic-pill-AURORA')).toBeInTheDocument();
-      expect(screen.queryByTestId('aurora-expand-chevron')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('expand-chevron-AURORA')).not.toBeInTheDocument();
       // Clicking should not expand and should not call onTopicTap (AURORA pills never call onTopicTap)
       fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
       expect(screen.queryByTestId('aurora-expanded-card')).not.toBeInTheDocument();
@@ -1616,7 +1616,7 @@ describe('HotTopicStrip', () => {
       render(
         <HotTopicStrip hotTopics={[auroraTopic]} auroraTonight={auroraData} />,
       );
-      const chevron = screen.getByTestId('aurora-expand-chevron');
+      const chevron = screen.getByTestId('expand-chevron-AURORA');
       expect(chevron.style.transform).toBe('rotate(0deg)');
 
       fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
@@ -1697,5 +1697,696 @@ describe('HotTopicStrip', () => {
       const infotips = card.querySelectorAll('[data-testid="infotip-trigger"]');
       expect(infotips).toHaveLength(0);
     });
+  });
+});
+
+describe('HotTopicStrip — expandable pill click behaviour', () => {
+  it('expandable BLUEBELL pill does not call onTopicTap — toggles expand instead', () => {
+    const onTap = vi.fn();
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: ['Northumberland'],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'Northumberland', locations: [] }],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 3 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} onTopicTap={onTap} />);
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(onTap).not.toHaveBeenCalled();
+    expect(screen.getByTestId('bluebell-expanded-card')).toBeInTheDocument();
+  });
+
+  it('expandable KING_TIDE pill does not call onTopicTap — toggles expand instead', () => {
+    const onTap = vi.fn();
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: ['Northumberland'],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'Northumberland', locations: [] }],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 2 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} onTopicTap={onTap} />);
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+    expect(onTap).not.toHaveBeenCalled();
+    expect(screen.getByTestId('tide-expanded-card')).toBeInTheDocument();
+  });
+
+  it('BLUEBELL pill without expandedDetail still calls onTopicTap', () => {
+    const onTap = vi.fn();
+    const topic = buildTopic({ expandedDetail: undefined });
+    render(<HotTopicStrip hotTopics={[topic]} onTopicTap={onTap} />);
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(onTap).toHaveBeenCalledWith(topic);
+  });
+});
+
+describe('HotTopicStrip — regions hidden when expandable', () => {
+  it('expandable BLUEBELL pill hides regions from collapsed view', () => {
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: ['Northumberland', 'The Lake District'],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'Northumberland', locations: [] }],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 3 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+
+    // Regions should NOT appear in the collapsed pill
+    expect(screen.queryByText('Northumberland, The Lake District')).not.toBeInTheDocument();
+  });
+
+  it('non-expandable BLUEBELL pill shows regions in collapsed view', () => {
+    const topic = buildTopic({ regions: ['Northumberland', 'The Lake District'] });
+    render(<HotTopicStrip hotTopics={[topic]} />);
+
+    expect(screen.getByText('Northumberland, The Lake District')).toBeInTheDocument();
+  });
+});
+
+describe('HotTopicStrip — detail text italic on expandable pills', () => {
+  it('expandable BLUEBELL pill renders detail text in italic', () => {
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Misty and still today',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 3 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+
+    const detail = screen.getByText('Misty and still today');
+    expect(detail.style.fontStyle).toBe('italic');
+  });
+
+  it('non-expandable pill renders detail text without italic', () => {
+    render(<HotTopicStrip hotTopics={[buildTopic()]} />);
+
+    const detail = screen.getByText('Misty and still — perfect morning conditions');
+    expect(detail.style.fontStyle).toBe('');
+  });
+});
+
+describe('HotTopicStrip — bluebell expanded card', () => {
+  const bluebellDetail = {
+    regionGroups: [
+      {
+        regionName: 'Northumberland',
+        glossHeadline: 'Misty dawn — ideal woodland light',
+        locations: [
+          {
+            locationName: 'Allen Banks',
+            locationType: 'Woodland',
+            badge: 'Best',
+            bluebellLocationMetrics: { score: 9, exposure: 'WOODLAND', summary: 'Misty and still' },
+          },
+          {
+            locationName: 'Briarwood Banks',
+            locationType: 'Woodland',
+            badge: null,
+            bluebellLocationMetrics: { score: 7, exposure: 'WOODLAND', summary: 'Calm morning' },
+          },
+        ],
+      },
+      {
+        regionName: 'The Lake District',
+        glossHeadline: null,
+        locations: [
+          {
+            locationName: 'Rannerdale',
+            locationType: 'Open fell',
+            badge: 'Best',
+            bluebellLocationMetrics: { score: 8, exposure: 'OPEN_FELL', summary: 'Golden hour light' },
+          },
+        ],
+      },
+    ],
+    bluebellMetrics: { bestScore: 9, qualityLabel: 'Excellent', scoringLocationCount: 3 },
+  };
+
+  const bluebellTopic = {
+    type: 'BLUEBELL',
+    label: 'Bluebell conditions',
+    detail: 'Misty and still today',
+    date: '2026-04-20',
+    priority: 1,
+    regions: ['Northumberland', 'The Lake District'],
+    description: 'Bluebell season description',
+    expandedDetail: bluebellDetail,
+  };
+
+  it('shows chevron when expandedDetail is present', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    expect(screen.getByTestId('expand-chevron-BLUEBELL')).toBeInTheDocument();
+  });
+
+  it('click toggles expanded card', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    expect(screen.queryByTestId('bluebell-expanded-card')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(screen.getByTestId('bluebell-expanded-card')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(screen.queryByTestId('bluebell-expanded-card')).not.toBeInTheDocument();
+  });
+
+  it('shows region groups with locations', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    expect(screen.getByText('Northumberland')).toBeInTheDocument();
+    expect(screen.getByText('The Lake District')).toBeInTheDocument();
+    expect(screen.getByText('Allen Banks')).toBeInTheDocument();
+    expect(screen.getByText('Rannerdale')).toBeInTheDocument();
+  });
+
+  it('shows exposure chip per location', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    const chips = screen.getAllByTestId('bluebell-exposure-chip');
+    const chipTexts = chips.map((c) => c.textContent);
+    expect(chipTexts).toContain('Woodland');
+    expect(chipTexts).toContain('Open fell');
+  });
+
+  it('shows score with colour coding', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    const scores = screen.getAllByTestId('bluebell-score');
+    expect(scores.some((s) => s.textContent === '9/10')).toBe(true);
+    // Score 9 should be green
+    const score9 = scores.find((s) => s.textContent === '9/10');
+    expect(score9.style.color).toBe('rgb(74, 222, 128)');
+  });
+
+  it('shows Best badge on top location', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    const badges = screen.getAllByTestId('bluebell-badge');
+    expect(badges).toHaveLength(2); // One per region's top location
+    expect(badges[0].textContent).toBe('Best');
+  });
+
+  it('shows gloss headline per region', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    expect(screen.getByTestId('bluebell-gloss-headline')).toBeInTheDocument();
+    expect(screen.getByText(/Misty dawn/)).toBeInTheDocument();
+  });
+
+  it('LITE user cannot expand', () => {
+    render(<HotTopicStrip hotTopics={[bluebellTopic]} isLiteUser={true} />);
+    expect(screen.queryByTestId('expand-chevron-BLUEBELL')).not.toBeInTheDocument();
+  });
+});
+
+describe('HotTopicStrip — tide expanded card', () => {
+  const tideDetail = {
+    regionGroups: [
+      {
+        regionName: 'Northumberland',
+        locations: [
+          {
+            locationName: 'Bamburgh',
+            locationType: 'Coastal',
+            tideLocationMetrics: { tidePreference: 'HIGH' },
+          },
+          {
+            locationName: 'Dunstanburgh Castle',
+            locationType: 'Coastal',
+            tideLocationMetrics: { tidePreference: 'HIGH' },
+          },
+        ],
+      },
+      {
+        regionName: 'The North Yorkshire Coast',
+        locations: [
+          {
+            locationName: 'Saltwick Bay',
+            locationType: 'Coastal',
+            tideLocationMetrics: { tidePreference: 'MID' },
+          },
+        ],
+      },
+    ],
+    tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 3 },
+  };
+
+  const kingTideTopic = {
+    type: 'KING_TIDE',
+    label: 'King tide',
+    detail: 'Rare extreme tidal range today',
+    date: '2026-04-20',
+    priority: 1,
+    regions: ['Northumberland', 'The North Yorkshire Coast'],
+    description: 'King tide description',
+    expandedDetail: tideDetail,
+  };
+
+  it('shows chevron when expandedDetail is present', () => {
+    render(<HotTopicStrip hotTopics={[kingTideTopic]} />);
+    expect(screen.getByTestId('expand-chevron-KING_TIDE')).toBeInTheDocument();
+  });
+
+  it('click toggles expanded card', () => {
+    render(<HotTopicStrip hotTopics={[kingTideTopic]} />);
+    expect(screen.queryByTestId('tide-expanded-card')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+    expect(screen.getByTestId('tide-expanded-card')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+    expect(screen.queryByTestId('tide-expanded-card')).not.toBeInTheDocument();
+  });
+
+  it('shows region groups as section headers', () => {
+    render(<HotTopicStrip hotTopics={[kingTideTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+
+    expect(screen.getByText('Northumberland')).toBeInTheDocument();
+    expect(screen.getByText('The North Yorkshire Coast')).toBeInTheDocument();
+  });
+
+  it('shows locations with tide preference', () => {
+    render(<HotTopicStrip hotTopics={[kingTideTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+
+    const locations = screen.getAllByTestId('tide-expanded-location');
+    expect(locations).toHaveLength(3);
+    const prefs = screen.getAllByTestId('tide-preference-label');
+    const prefTexts = prefs.map((p) => p.textContent);
+    expect(prefTexts).toContain('HIGH');
+    expect(prefTexts).toContain('MID');
+  });
+
+  it('spring tide works identically', () => {
+    const springTopic = {
+      ...kingTideTopic,
+      type: 'SPRING_TIDE',
+      label: 'Spring tide',
+      expandedDetail: {
+        ...tideDetail,
+        tideMetrics: { ...tideDetail.tideMetrics, tidalClassification: 'Spring tide' },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[springTopic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-SPRING_TIDE'));
+    expect(screen.getByTestId('tide-expanded-card')).toBeInTheDocument();
+  });
+});
+
+describe('HotTopicStrip — subtitle line', () => {
+  it('bluebell subtitle shows scoring count and best score', () => {
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail text',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 5 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const subtitle = screen.getByTestId('subtitle-BLUEBELL');
+    expect(subtitle.textContent).toContain('5 locations scoring');
+    expect(subtitle.textContent).toContain('best 8/10');
+  });
+
+  it('tide subtitle shows classification, lunar phase and location count', () => {
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail text',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 4 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const subtitle = screen.getByTestId('subtitle-KING_TIDE');
+    expect(subtitle.textContent).toContain('King tide');
+    expect(subtitle.textContent).toContain('New Moon');
+    expect(subtitle.textContent).toContain('4 coastal locations');
+  });
+
+  it('aurora subtitle shows Kp and clear location count', () => {
+    const topic = {
+      type: 'AURORA',
+      label: 'AURORA TONIGHT',
+      detail: 'Moderate activity tonight',
+      date: '2026-04-17',
+      priority: 1,
+      regions: ['Northumberland'],
+      description: null,
+    };
+    const auroraData = {
+      alertLevel: 'MODERATE',
+      kp: 5.3,
+      regions: [
+        { regionName: 'Northumberland', clearLocationCount: 2, totalDarkSkyLocations: 3 },
+      ],
+    };
+    render(
+      <HotTopicStrip
+        hotTopics={[topic]}
+        auroraTonight={auroraData}
+      />,
+    );
+    const subtitle = screen.getByTestId('subtitle-AURORA');
+    expect(subtitle.textContent).toContain('Kp 5.3 forecast tonight');
+    expect(subtitle.textContent).toContain('2 locations clear');
+  });
+
+  it('non-expandable types show no subtitle', () => {
+    const topic = {
+      type: 'DUST',
+      label: 'Elevated dust',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 3,
+      regions: [],
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    expect(screen.queryByTestId('subtitle-DUST')).not.toBeInTheDocument();
+  });
+});
+
+describe('HotTopicStrip — bluebell score colour coding', () => {
+  const makeBluebellTopic = (score) => ({
+    type: 'BLUEBELL',
+    label: 'Bluebell conditions',
+    detail: 'Detail',
+    date: '2026-04-20',
+    priority: 1,
+    regions: [],
+    expandedDetail: {
+      regionGroups: [{
+        regionName: 'Test Region',
+        locations: [{
+          locationName: 'Test Location',
+          locationType: 'Woodland',
+          badge: null,
+          bluebellLocationMetrics: { score, exposure: 'WOODLAND', summary: 'Summary' },
+        }],
+      }],
+      bluebellMetrics: { bestScore: score, qualityLabel: 'Good', scoringLocationCount: 1 },
+    },
+  });
+
+  it('score 9 renders green', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(9)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.textContent).toBe('9/10');
+    expect(scoreEl.style.color).toBe('rgb(74, 222, 128)');
+  });
+
+  it('score 10 renders green', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(10)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.style.color).toBe('rgb(74, 222, 128)');
+  });
+
+  it('score 7 renders amber', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(7)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.textContent).toBe('7/10');
+    expect(scoreEl.style.color).toBe('rgb(251, 191, 36)');
+  });
+
+  it('score 8 renders amber', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(8)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.style.color).toBe('rgb(251, 191, 36)');
+  });
+
+  it('score 5 renders muted', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(5)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.textContent).toBe('5/10');
+    expect(scoreEl.style.color).toBe('rgba(255, 255, 255, 0.45)');
+  });
+
+  it('score 6 renders muted', () => {
+    render(<HotTopicStrip hotTopics={[makeBluebellTopic(6)]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    const scoreEl = screen.getByTestId('bluebell-score');
+    expect(scoreEl.style.color).toBe('rgba(255, 255, 255, 0.45)');
+  });
+});
+
+describe('HotTopicStrip — chevron rotation on non-AURORA expandable pills', () => {
+  it('BLUEBELL chevron rotates to 90deg when expanded and 0deg when collapsed', () => {
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'R1', locations: [] }],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 3 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const chevron = screen.getByTestId('expand-chevron-BLUEBELL');
+    expect(chevron.style.transform).toBe('rotate(0deg)');
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(chevron.style.transform).toBe('rotate(90deg)');
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(chevron.style.transform).toBe('rotate(0deg)');
+  });
+
+  it('KING_TIDE chevron rotates to 90deg when expanded', () => {
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'R1', locations: [] }],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 2 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    const chevron = screen.getByTestId('expand-chevron-KING_TIDE');
+    expect(chevron.style.transform).toBe('rotate(0deg)');
+
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+    expect(chevron.style.transform).toBe('rotate(90deg)');
+  });
+});
+
+describe('HotTopicStrip — null metrics guards', () => {
+  it('bluebell location with null bluebellLocationMetrics does not render score', () => {
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{
+          regionName: 'Northumberland',
+          locations: [{
+            locationName: 'Allen Banks',
+            locationType: 'Woodland',
+            badge: null,
+            bluebellLocationMetrics: null,
+          }],
+        }],
+        bluebellMetrics: { bestScore: 7, qualityLabel: 'Good', scoringLocationCount: 1 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    expect(screen.getByText('Allen Banks')).toBeInTheDocument();
+    expect(screen.queryByTestId('bluebell-score')).not.toBeInTheDocument();
+  });
+
+  it('tide location with null tideLocationMetrics does not render preference label', () => {
+    const topic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{
+          regionName: 'Northumberland',
+          locations: [{
+            locationName: 'Bamburgh',
+            locationType: 'Coastal',
+            tideLocationMetrics: null,
+          }],
+        }],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'New Moon', coastalLocationCount: 1 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+
+    expect(screen.getByText('Bamburgh')).toBeInTheDocument();
+    expect(screen.queryByTestId('tide-preference-label')).not.toBeInTheDocument();
+  });
+
+  it('region with null glossHeadline does not render gloss element', () => {
+    const topic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{
+          regionName: 'Northumberland',
+          glossHeadline: null,
+          locations: [{
+            locationName: 'Allen Banks',
+            locationType: 'Woodland',
+            badge: null,
+            bluebellLocationMetrics: { score: 7, exposure: 'WOODLAND', summary: 'Calm' },
+          }],
+        }],
+        bluebellMetrics: { bestScore: 7, qualityLabel: 'Good', scoringLocationCount: 1 },
+      },
+    };
+    render(<HotTopicStrip hotTopics={[topic]} />);
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+
+    expect(screen.getByText('Northumberland')).toBeInTheDocument();
+    expect(screen.queryByTestId('bluebell-gloss-headline')).not.toBeInTheDocument();
+  });
+});
+
+describe('HotTopicStrip — generic expand behaviour', () => {
+  it('expanding aurora collapses bluebell', () => {
+    const auroraTopic = {
+      type: 'AURORA',
+      label: 'AURORA TONIGHT',
+      detail: 'Moderate activity tonight',
+      date: '2026-04-17',
+      priority: 1,
+      regions: ['Northumberland'],
+      description: null,
+    };
+    const auroraData = {
+      alertLevel: 'MODERATE',
+      kp: 5.0,
+      regions: [{ regionName: 'Northumberland', clearLocationCount: 1, totalDarkSkyLocations: 2 }],
+    };
+    const bluebellTopic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'R1', locations: [] }],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 3 },
+      },
+    };
+
+    render(
+      <HotTopicStrip
+        hotTopics={[bluebellTopic, auroraTopic]}
+        auroraTonight={auroraData}
+      />,
+    );
+
+    // Expand bluebell
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(screen.getByTestId('bluebell-expanded-card')).toBeInTheDocument();
+
+    // Expand aurora — bluebell should collapse
+    fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
+    expect(screen.queryByTestId('bluebell-expanded-card')).not.toBeInTheDocument();
+    expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
+  });
+
+  it('only one pill expanded at a time across different types', () => {
+    const bluebellTopic = {
+      type: 'BLUEBELL',
+      label: 'Bluebell conditions',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'R1', locations: [] }],
+        bluebellMetrics: { bestScore: 8, qualityLabel: 'Good', scoringLocationCount: 3 },
+      },
+    };
+    const tideTopic = {
+      type: 'KING_TIDE',
+      label: 'King tide',
+      detail: 'Detail',
+      date: '2026-04-20',
+      priority: 1,
+      regions: [],
+      expandedDetail: {
+        regionGroups: [{ regionName: 'R1', locations: [] }],
+        tideMetrics: { tidalClassification: 'King tide', lunarPhase: 'Full Moon', coastalLocationCount: 2 },
+      },
+    };
+
+    render(<HotTopicStrip hotTopics={[bluebellTopic, tideTopic]} />);
+
+    // Expand bluebell
+    fireEvent.click(screen.getByTestId('hot-topic-pill-BLUEBELL'));
+    expect(screen.getByTestId('bluebell-expanded-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('tide-expanded-card')).not.toBeInTheDocument();
+
+    // Expand tide — bluebell should collapse
+    fireEvent.click(screen.getByTestId('hot-topic-pill-KING_TIDE'));
+    expect(screen.queryByTestId('bluebell-expanded-card')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tide-expanded-card')).toBeInTheDocument();
   });
 });

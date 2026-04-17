@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -474,5 +476,183 @@ class BluebellHotTopicStrategyTest {
 
         verify(evaluationRepository).findBluebellEvaluations(
                 eq(List.of(42L)), eq(IN_SEASON), eq(IN_SEASON.plusDays(3)));
+    }
+
+    // ── expandedDetail tests ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("expandedDetail populated with regionGroups when score >= 5")
+    void detect_expandedDetail_populatedWhenScoreGte5() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Lake District");
+
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Rannerdale Knotts").lat(54.5).lon(-3.2)
+                .region(region).bluebellExposure(BluebellExposure.WOODLAND).enabled(true).build();
+
+        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc));
+
+        ForecastEvaluationEntity eval = new ForecastEvaluationEntity();
+        eval.setTargetDate(IN_SEASON);
+        eval.setBluebellScore(7);
+        eval.setBluebellSummary("Misty and still");
+        eval.setLocation(loc);
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
+                .thenReturn(List.of(eval));
+
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
+
+        assertThat(topics).hasSize(1);
+        ExpandedHotTopicDetail detail = topics.get(0).expandedDetail();
+        assertThat(detail).isNotNull();
+        assertThat(detail.regionGroups()).hasSize(1);
+        assertThat(detail.regionGroups().get(0).regionName()).isEqualTo("Lake District");
+        assertThat(detail.regionGroups().get(0).locations()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("region with score below 5 is excluded from regionGroups")
+    void detect_expandedDetail_scoreBelowThresholdExcluded() {
+        RegionEntity r1 = new RegionEntity();
+        r1.setName("Lake District");
+        RegionEntity r2 = new RegionEntity();
+        r2.setName("Northumberland");
+
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Rannerdale").lat(54.5).lon(-3.2)
+                .region(r1).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("Allen Banks").lat(54.9).lon(-2.2)
+                .region(r2).enabled(true).build();
+
+        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
+
+        ForecastEvaluationEntity highEval = new ForecastEvaluationEntity();
+        highEval.setTargetDate(IN_SEASON);
+        highEval.setBluebellScore(7);
+        highEval.setLocation(loc1);
+        ForecastEvaluationEntity lowEval = new ForecastEvaluationEntity();
+        lowEval.setTargetDate(IN_SEASON);
+        lowEval.setBluebellScore(4);
+        lowEval.setLocation(loc2);
+
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+                .thenReturn(List.of(highEval, lowEval));
+
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
+
+        ExpandedHotTopicDetail detail = topics.get(0).expandedDetail();
+        assertThat(detail.regionGroups()).hasSize(1);
+        assertThat(detail.regionGroups().get(0).regionName()).isEqualTo("Lake District");
+    }
+
+    @Test
+    @DisplayName("locations sorted by score descending within region")
+    void detect_expandedDetail_locationsSortedByScoreDescending() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Lake District");
+
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Low Scorer").lat(54.5).lon(-3.2)
+                .region(region).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("High Scorer").lat(54.6).lon(-3.1)
+                .region(region).enabled(true).build();
+
+        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
+
+        ForecastEvaluationEntity e1 = new ForecastEvaluationEntity();
+        e1.setTargetDate(IN_SEASON);
+        e1.setBluebellScore(5);
+        e1.setLocation(loc1);
+        ForecastEvaluationEntity e2 = new ForecastEvaluationEntity();
+        e2.setTargetDate(IN_SEASON);
+        e2.setBluebellScore(8);
+        e2.setLocation(loc2);
+
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+                .thenReturn(List.of(e1, e2));
+
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
+
+        var locations = topics.get(0).expandedDetail().regionGroups().get(0).locations();
+        assertThat(locations).hasSize(2);
+        assertThat(locations.get(0).locationName()).isEqualTo("High Scorer");
+        assertThat(locations.get(1).locationName()).isEqualTo("Low Scorer");
+    }
+
+    @Test
+    @DisplayName("highest scoring location per region has 'Best' badge")
+    void detect_expandedDetail_bestBadgeOnHighestScoringLocation() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Lake District");
+
+        LocationEntity loc1 = LocationEntity.builder()
+                .id(1L).name("Second").lat(54.5).lon(-3.2)
+                .region(region).enabled(true).build();
+        LocationEntity loc2 = LocationEntity.builder()
+                .id(2L).name("First").lat(54.6).lon(-3.1)
+                .region(region).enabled(true).build();
+
+        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc1, loc2));
+
+        ForecastEvaluationEntity e1 = new ForecastEvaluationEntity();
+        e1.setTargetDate(IN_SEASON);
+        e1.setBluebellScore(6);
+        e1.setLocation(loc1);
+        ForecastEvaluationEntity e2 = new ForecastEvaluationEntity();
+        e2.setTargetDate(IN_SEASON);
+        e2.setBluebellScore(9);
+        e2.setLocation(loc2);
+
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L, 2L)), eq(IN_SEASON), eq(IN_SEASON)))
+                .thenReturn(List.of(e1, e2));
+
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
+
+        var locations = topics.get(0).expandedDetail().regionGroups().get(0).locations();
+        assertThat(locations.get(0).badge()).isEqualTo("Best");
+        assertThat(locations.get(1).badge()).isNull();
+    }
+
+    @Test
+    @DisplayName("bluebellMetrics bestScore matches highest score")
+    void detect_expandedDetail_bluebellMetricsBestScoreCorrect() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Lake District");
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Test").lat(54.0).lon(-3.0)
+                .region(region).enabled(true).build();
+
+        when(locationRepository.findBluebellLocations()).thenReturn(List.of(loc));
+
+        ForecastEvaluationEntity eval = new ForecastEvaluationEntity();
+        eval.setTargetDate(IN_SEASON);
+        eval.setBluebellScore(9);
+        eval.setLocation(loc);
+        when(evaluationRepository.findBluebellEvaluations(
+                eq(List.of(1L)), eq(IN_SEASON), eq(IN_SEASON)))
+                .thenReturn(List.of(eval));
+
+        List<HotTopic> topics = strategy.detect(IN_SEASON, IN_SEASON);
+
+        var metrics = topics.get(0).expandedDetail().bluebellMetrics();
+        assertThat(metrics.bestScore()).isEqualTo(9);
+        assertThat(metrics.scoringLocationCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("qualityLabel correct for each score range")
+    void deriveQualityLabel_correctForEachRange() {
+        assertThat(BluebellHotTopicStrategy.deriveQualityLabel(10)).isEqualTo("Excellent");
+        assertThat(BluebellHotTopicStrategy.deriveQualityLabel(9)).isEqualTo("Excellent");
+        assertThat(BluebellHotTopicStrategy.deriveQualityLabel(8)).isEqualTo("Good");
+        assertThat(BluebellHotTopicStrategy.deriveQualityLabel(7)).isEqualTo("Good");
+        assertThat(BluebellHotTopicStrategy.deriveQualityLabel(6)).isEqualTo("Fair");
+        assertThat(BluebellHotTopicStrategy.deriveQualityLabel(5)).isEqualTo("Fair");
     }
 }

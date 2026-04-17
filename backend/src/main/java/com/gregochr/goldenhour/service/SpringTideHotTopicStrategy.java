@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.springframework.stereotype.Component;
@@ -61,7 +62,13 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
             LunarTideType tideType = lunarPhaseService.classifyTide(date);
             if (tideType == LunarTideType.SPRING_TIDE) {
                 String dayLabel = formatDayLabel(date, fromDate);
-                List<String> coastalRegions = findCoastalRegions();
+                List<LocationEntity> coastalLocations =
+                        locationRepository.findCoastalLocations();
+                List<String> coastalRegions = extractRegionNames(coastalLocations);
+                ExpandedHotTopicDetail expandedDetail =
+                        KingTideHotTopicStrategy.buildExpandedDetail(
+                                coastalLocations, "Spring tide",
+                                lunarPhaseService.getMoonPhase(date));
 
                 return List.of(new HotTopic(
                         "SPRING_TIDE",
@@ -72,15 +79,16 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                         2,
                         null,
                         coastalRegions,
-                        SPRING_TIDE_DESCRIPTION));
+                        SPRING_TIDE_DESCRIPTION,
+                        expandedDetail));
             }
         }
 
         return List.of();
     }
 
-    private List<String> findCoastalRegions() {
-        return locationRepository.findCoastalLocations().stream()
+    private List<String> extractRegionNames(List<LocationEntity> locations) {
+        return locations.stream()
                 .map(LocationEntity::getRegion)
                 .filter(Objects::nonNull)
                 .map(RegionEntity::getName)

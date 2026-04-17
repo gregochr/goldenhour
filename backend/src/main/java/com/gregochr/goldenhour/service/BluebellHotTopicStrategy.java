@@ -2,6 +2,11 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.BluebellLocationMetrics;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.BluebellMetrics;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.LocationEntry;
+import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
@@ -17,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Detects bluebell photography hot topics from stored forecast evaluations.
@@ -32,6 +38,9 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
     /** Minimum bluebell score to surface as a hot topic. */
     private static final int HOT_TOPIC_THRESHOLD = 6;
+
+    /** Minimum bluebell score for a location to appear in expanded detail. */
+    private static final int EXPANDED_DETAIL_THRESHOLD = 5;
 
     /** Maximum number of region names to include in the detail string. */
     private static final int MAX_REGIONS = 2;
@@ -122,6 +131,8 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
 
             int priority = bestScore >= 8 ? 1 : 3;
 
+            ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(dayEvals, bestScore);
+
             topics.add(new HotTopic(
                     "BLUEBELL",
                     "Bluebell conditions",
@@ -132,10 +143,107 @@ public class BluebellHotTopicStrategy implements HotTopicStrategy {
                     topRegions,
                     "Bluebell season runs mid-April to mid-May. We score mist, wind, light and"
                             + " recent rain to find the best mornings for woodland and"
-                            + " open-fell bluebell photography."));
+                            + " open-fell bluebell photography.",
+                    expandedDetail));
         }
 
         return topics;
+    }
+
+    /**
+     * Builds the expanded detail for a BLUEBELL hot topic from all evaluations for a single day.
+     *
+     * <p>Groups locations by region, sorted by score descending within each region.
+     * Locations with score &ge; 5 are included (broader than the topic threshold of 6).
+     *
+     * @param dayEvals  all evaluations for the day
+     * @param bestScore the highest score across all evaluations
+     * @return populated expanded detail
+     */
+    private ExpandedHotTopicDetail buildExpandedDetail(
+            List<ForecastEvaluationEntity> dayEvals, int bestScore) {
+
+        // Filter evaluations with score >= EXPANDED_DETAIL_THRESHOLD and group by region
+        Map<String, List<ForecastEvaluationEntity>> byRegion = dayEvals.stream()
+                .filter(e -> e.getBluebellScore() != null
+                        && e.getBluebellScore() >= EXPANDED_DETAIL_THRESHOLD
+                        && e.getLocation() != null
+                        && e.getLocation().getRegion() != null)
+                .collect(Collectors.groupingBy(
+                        e -> e.getLocation().getRegion().getName(),
+                        LinkedHashMap::new,
+                        Collectors.toList()));
+
+        int scoringLocationCount = 0;
+        List<RegionGroup> regionGroups = new ArrayList<>();
+
+        for (Map.Entry<String, List<ForecastEvaluationEntity>> entry : byRegion.entrySet()) {
+            List<ForecastEvaluationEntity> regionEvals = entry.getValue().stream()
+                    .sorted(Comparator.comparingInt(
+                            (ForecastEvaluationEntity e) -> e.getBluebellScore() != null
+                                    ? e.getBluebellScore() : 0).reversed())
+                    .toList();
+
+            List<LocationEntry> locations = new ArrayList<>();
+            boolean firstInRegion = true;
+            for (ForecastEvaluationEntity e : regionEvals) {
+                int score = e.getBluebellScore();
+                LocationEntity loc = e.getLocation();
+                String exposure = loc.getBluebellExposure() != null
+                        ? loc.getBluebellExposure().name() : null;
+                String locationType = formatExposure(exposure);
+                String badge = firstInRegion ? "Best" : null;
+                firstInRegion = false;
+
+                locations.add(new LocationEntry(
+                        loc.getName(), locationType, badge,
+                        new BluebellLocationMetrics(score, exposure, e.getBluebellSummary()),
+                        null));
+                scoringLocationCount++;
+            }
+
+            regionGroups.add(new RegionGroup(entry.getKey(), null, null, null, locations));
+        }
+
+        String qualityLabel = deriveQualityLabel(bestScore);
+
+        return new ExpandedHotTopicDetail(
+                regionGroups,
+                new BluebellMetrics(bestScore, qualityLabel, scoringLocationCount),
+                null);
+    }
+
+    /**
+     * Returns a human-readable quality label from a bluebell score.
+     *
+     * @param score bluebell score (0–10)
+     * @return quality label
+     */
+    static String deriveQualityLabel(int score) {
+        if (score >= 9) {
+            return "Excellent";
+        }
+        if (score >= 7) {
+            return "Good";
+        }
+        return "Fair";
+    }
+
+    /**
+     * Formats a bluebell exposure enum value as a display label.
+     *
+     * @param exposure enum name, e.g. "WOODLAND" or "OPEN_FELL"
+     * @return display label, e.g. "Woodland" or "Open fell"
+     */
+    private String formatExposure(String exposure) {
+        if (exposure == null) {
+            return null;
+        }
+        return switch (exposure) {
+            case "WOODLAND" -> "Woodland";
+            case "OPEN_FELL" -> "Open fell";
+            default -> exposure;
+        };
     }
 
     /**

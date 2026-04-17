@@ -145,7 +145,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         HotTopic topic = new HotTopic("BLUEBELL", "Bluebell conditions", "Misty and still",
                 LocalDate.of(2026, 4, 20), 1, "BLUEBELL",
-                List.of("Northumberland"), "Peak bluebell season.");
+                List.of("Northumberland"), "Peak bluebell season.", null);
         DailyBriefingResponse original = new DailyBriefingResponse(
                 GENERATED_AT, "Test", List.of(), List.of(), null, null,
                 false, false, 0, null, List.of(topic), List.of());

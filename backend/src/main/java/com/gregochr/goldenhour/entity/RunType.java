@@ -41,6 +41,9 @@ public enum RunType {
     /** Aurora region gloss — per-region Claude-generated one-line commentary. */
     AURORA_GLOSS,
 
+    /** Bluebell region gloss — per-region Claude-generated one-line commentary. */
+    BLUEBELL_GLOSS,
+
     /** Scheduled Anthropic Batch API evaluation — covers both forecast and aurora batch jobs. */
     SCHEDULED_BATCH
 }

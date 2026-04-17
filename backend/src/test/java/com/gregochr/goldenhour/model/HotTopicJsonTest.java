@@ -147,7 +147,8 @@ class HotTopicJsonTest {
                 "INVERSION", "Cloud inversion", "Strong inversion forecast",
                 LocalDate.of(2026, 4, 28), 2, null,
                 List.of("The Lake District"),
-                "A temperature inversion traps cloud below elevated viewpoints.");
+                "A temperature inversion traps cloud below elevated viewpoints.",
+                null);
 
         HotTopic restored = mapper.readValue(mapper.writeValueAsString(original), HotTopic.class);
 
@@ -168,7 +169,7 @@ class HotTopicJsonTest {
         HotTopic original = new HotTopic(
                 "SUPERMOON", "Supermoon", "Full moon at perigee",
                 LocalDate.of(2026, 4, 29), 3, "MOON_FILTER",
-                List.of("Northumberland", "The North Yorkshire Coast"), null);
+                List.of("Northumberland", "The North Yorkshire Coast"), null, null);
 
         HotTopic restored = mapper.readValue(mapper.writeValueAsString(original), HotTopic.class);
 
@@ -179,13 +180,83 @@ class HotTopicJsonTest {
         assertThat(restored.regions()).containsExactly("Northumberland", "The North Yorkshire Coast");
     }
 
+    // ── expandedDetail field ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("expandedDetail null is omitted from serialised JSON")
+    void expandedDetail_null_isOmittedFromJson() throws Exception {
+        HotTopic topic = new HotTopic(
+                "BLUEBELL", "Bluebell conditions", "Good conditions today",
+                LocalDate.of(2026, 4, 25), 1, "BLUEBELL",
+                List.of("Northumberland"), "desc", null);
+
+        String json = mapper.writeValueAsString(topic);
+
+        assertThat(json).doesNotContain("expandedDetail");
+    }
+
+    @Test
+    @DisplayName("expandedDetail round-trips through JSON")
+    void expandedDetail_roundTrips() throws Exception {
+        var metrics = new ExpandedHotTopicDetail.BluebellMetrics(8, "Good", 3);
+        var locMetrics = new ExpandedHotTopicDetail.BluebellLocationMetrics(
+                8, "WOODLAND", "Misty and still");
+        var locEntry = new ExpandedHotTopicDetail.LocationEntry(
+                "Rannerdale Knotts", "Woodland", "Best", locMetrics, null);
+        var regionGroup = new ExpandedHotTopicDetail.RegionGroup(
+                "Lake District", "Misty dawn light", null, null, List.of(locEntry));
+        var detail = new ExpandedHotTopicDetail(List.of(regionGroup), metrics, null);
+
+        HotTopic original = new HotTopic(
+                "BLUEBELL", "Bluebell conditions", "Good today",
+                LocalDate.of(2026, 4, 25), 1, "BLUEBELL",
+                List.of("Lake District"), "desc", detail);
+
+        HotTopic restored = mapper.readValue(mapper.writeValueAsString(original), HotTopic.class);
+
+        assertThat(restored.expandedDetail()).isNotNull();
+        assertThat(restored.expandedDetail().regionGroups()).hasSize(1);
+        assertThat(restored.expandedDetail().regionGroups().get(0).regionName())
+                .isEqualTo("Lake District");
+        assertThat(restored.expandedDetail().regionGroups().get(0).glossHeadline())
+                .isEqualTo("Misty dawn light");
+        assertThat(restored.expandedDetail().regionGroups().get(0).locations()).hasSize(1);
+        assertThat(restored.expandedDetail().regionGroups().get(0).locations().get(0)
+                .bluebellLocationMetrics().score()).isEqualTo(8);
+        assertThat(restored.expandedDetail().bluebellMetrics().bestScore()).isEqualTo(8);
+        assertThat(restored.expandedDetail().bluebellMetrics().qualityLabel()).isEqualTo("Good");
+    }
+
+    @Test
+    @DisplayName("cached JSON without expandedDetail deserialises cleanly — field is null")
+    void cachedJson_withoutExpandedDetail_deserialisesCleanly() throws Exception {
+        String json = """
+                {
+                  "type": "BLUEBELL",
+                  "label": "Bluebell conditions",
+                  "detail": "Misty and still today",
+                  "date": "2026-04-25",
+                  "priority": 1,
+                  "filterAction": "BLUEBELL",
+                  "regions": ["Northumberland"],
+                  "description": "Bluebell season desc."
+                }
+                """;
+
+        HotTopic topic = mapper.readValue(json, HotTopic.class);
+
+        assertThat(topic.expandedDetail()).isNull();
+        assertThat(topic.type()).isEqualTo("BLUEBELL");
+        assertThat(topic.description()).isEqualTo("Bluebell season desc.");
+    }
+
     // ── compareTo ordering ──────────────────────────────────────────────────
 
     @Test
     @DisplayName("compareTo — lower priority sorts before higher priority")
     void compareTo_lowerPriorityFirst() {
-        HotTopic low = new HotTopic("A", "a", "d", LocalDate.of(2026, 5, 1), 1, null, List.of(), null);
-        HotTopic high = new HotTopic("B", "b", "d", LocalDate.of(2026, 5, 1), 3, null, List.of(), null);
+        HotTopic low = new HotTopic("A", "a", "d", LocalDate.of(2026, 5, 1), 1, null, List.of(), null, null);
+        HotTopic high = new HotTopic("B", "b", "d", LocalDate.of(2026, 5, 1), 3, null, List.of(), null, null);
 
         assertThat(low.compareTo(high)).isNegative();
         assertThat(high.compareTo(low)).isPositive();
@@ -196,8 +267,8 @@ class HotTopicJsonTest {
     void compareTo_samePriority_earlierDateFirst() {
         LocalDate earlier = LocalDate.of(2026, 4, 20);
         LocalDate later = LocalDate.of(2026, 4, 22);
-        HotTopic a = new HotTopic("A", "a", "d", earlier, 2, null, List.of(), null);
-        HotTopic b = new HotTopic("B", "b", "d", later, 2, null, List.of(), null);
+        HotTopic a = new HotTopic("A", "a", "d", earlier, 2, null, List.of(), null, null);
+        HotTopic b = new HotTopic("B", "b", "d", later, 2, null, List.of(), null, null);
 
         assertThat(a.compareTo(b)).isNegative();
         assertThat(b.compareTo(a)).isPositive();
@@ -207,8 +278,8 @@ class HotTopicJsonTest {
     @DisplayName("compareTo — same priority and date returns zero")
     void compareTo_samePriorityAndDate_zero() {
         LocalDate date = LocalDate.of(2026, 4, 21);
-        HotTopic a = new HotTopic("X", "x", "d1", date, 2, null, List.of(), null);
-        HotTopic b = new HotTopic("Y", "y", "d2", date, 2, "filter", List.of("R"), "desc");
+        HotTopic a = new HotTopic("X", "x", "d1", date, 2, null, List.of(), null, null);
+        HotTopic b = new HotTopic("Y", "y", "d2", date, 2, "filter", List.of("R"), "desc", null);
 
         assertThat(a.compareTo(b)).isZero();
     }
@@ -217,9 +288,9 @@ class HotTopicJsonTest {
     @DisplayName("compareTo — priority dominates date (lower priority + later date wins)")
     void compareTo_priorityDominatesDate() {
         HotTopic lowPriorityLateDate = new HotTopic(
-                "A", "a", "d", LocalDate.of(2026, 5, 10), 1, null, List.of(), null);
+                "A", "a", "d", LocalDate.of(2026, 5, 10), 1, null, List.of(), null, null);
         HotTopic highPriorityEarlyDate = new HotTopic(
-                "B", "b", "d", LocalDate.of(2026, 4, 1), 3, null, List.of(), null);
+                "B", "b", "d", LocalDate.of(2026, 4, 1), 3, null, List.of(), null, null);
 
         assertThat(lowPriorityLateDate.compareTo(highPriorityEarlyDate)).isNegative();
     }
