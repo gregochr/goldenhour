@@ -141,6 +141,21 @@ public class BriefingBestBetAdvisor {
               never just "aurora alert" or "moderate aurora chance". The reader sees each pick
               as a self-contained card and needs to know whether the aurora coincides with the
               recommended outing or is a separate opportunity on a different night.
+            - AURORA LANGUAGE RULES: When aurora conditions contribute to a pick (either as
+              the primary reason or as supporting context), always use preparatory language —
+              never imperative or urgent action language.
+              Good: "Tonight's aurora forecast is exceptional — worth heading out after dark
+              if skies stay clear"
+              Good: "Conditions are lining up well for aurora tonight — charge your batteries
+              and keep an eye on the banner"
+              Good: "A strong aurora forecast alongside clear skies makes tonight worth watching"
+              Good: "Good aurora potential tonight — dark sky sites in Northumberland are well placed"
+              Never write: "Get out now", "Head out immediately", "Don't miss this",
+              "Go tonight" (as a command), or any language implying the user must act at
+              the moment of reading.
+              Rationale: The best bet card is generated hours in advance and may be stale by
+              the time the user reads it. The aurora banner handles real-time action prompts —
+              the best bet card handles planning and preparation.
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the appeal
             - If multiple events are close in quality, prefer the sooner one

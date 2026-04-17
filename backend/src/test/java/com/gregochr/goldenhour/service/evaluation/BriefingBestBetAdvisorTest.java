@@ -1527,6 +1527,34 @@ class BriefingBestBetAdvisorTest {
             assertThat(systemText).contains("TRANSITIONAL");
             assertThat(systemText).contains("UNSETTLED");
         }
+
+        @Test
+        @DisplayName("System prompt contains aurora preparatory language constraint")
+        void systemPrompt_containsAuroraLanguageRules() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream()
+                    .map(b -> b.text())
+                    .findFirst()
+                    .orElse("");
+
+            assertThat(systemText).contains("AURORA LANGUAGE RULES");
+            assertThat(systemText).contains("preparatory language");
+            assertThat(systemText).contains("never imperative");
+            assertThat(systemText).contains("Get out now");
+        }
     }
 
     // ── Helpers ──
