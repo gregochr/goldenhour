@@ -8,7 +8,7 @@ import com.gregochr.solarutils.LunarPosition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -25,8 +25,8 @@ public final class MoonTransitionCalculator {
 
     private static final Logger LOG = LoggerFactory.getLogger(MoonTransitionCalculator.class);
 
-    private static final DateTimeFormatter TIME_FMT =
-            DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Europe/London"));
+    private static final DateTimeFormatter ISO_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss").withZone(ZoneOffset.UTC);
 
     private MoonTransitionCalculator() {
         // static utility
@@ -93,10 +93,10 @@ public final class MoonTransitionCalculator {
             boolean nowUp = pos.isAboveHorizon();
 
             if (!previousUp && nowUp && riseTime == null) {
-                riseTime = TIME_FMT.format(current);
+                riseTime = ISO_FMT.format(current);
             }
             if (previousUp && !nowUp && setTime == null) {
-                setTime = TIME_FMT.format(current);
+                setTime = ISO_FMT.format(current);
             }
 
             lastUp = nowUp;

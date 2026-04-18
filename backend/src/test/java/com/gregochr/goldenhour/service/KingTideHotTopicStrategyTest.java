@@ -177,7 +177,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
         assertThat(topics.get(0).detail()).contains("today and tomorrow");
         assertThat(topics.get(0).detail())
-                .contains("best aligned with today sunrise");
+                .contains("3 tides aligned with today sunrise");
     }
 
     @Test
@@ -201,7 +201,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
         assertThat(topics.get(0).detail()).contains("today and tomorrow");
         assertThat(topics.get(0).detail())
-                .contains("best aligned with tomorrow sunset");
+                .contains("5 tides aligned with tomorrow sunset");
     }
 
     @Test
@@ -226,7 +226,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
         assertThat(topics.get(0).detail()).contains("today and tomorrow");
         assertThat(topics.get(0).detail())
-                .contains("best aligned with tomorrow sunset");
+                .contains("4 tides aligned with tomorrow sunset");
     }
 
     @Test
@@ -254,7 +254,7 @@ class KingTideHotTopicStrategyTest {
         assertThat(topics.get(0).detail())
                 .contains("today through Saturday");
         assertThat(topics.get(0).detail())
-                .contains("best aligned with Saturday sunset");
+                .contains("6 tides aligned with Saturday sunset");
     }
 
     @Test
@@ -277,7 +277,7 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today and tomorrow \u00b7 best aligned with"
+                "King tide today and tomorrow \u00b7 7 tides aligned with"
                         + " tomorrow sunrise \u00b7 1 coastal location");
         var metrics = topics.get(0).expandedDetail().tideMetrics();
         assertThat(metrics.sunriseAlignedCount()).isEqualTo(7);
@@ -642,7 +642,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 best aligned with sunrise"
+                "King tide today \u00b7 9 tides aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -660,13 +660,13 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 best aligned with sunrise"
+                "King tide today \u00b7 9 tides aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — no alignment omits alignment segment")
-    void detect_noAlignment_detailOmitsAlignment() {
+    @DisplayName("detail line — no alignment shows fallback text")
+    void detect_noAlignment_detailShowsFallback() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -677,7 +677,8 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 1 coastal location");
+                "King tide today \u00b7 no tide alignments \u2014 but exceptional"
+                        + " coastal foreground \u00b7 1 coastal location");
     }
 
     @Test
@@ -695,7 +696,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 best aligned with sunrise"
+                "King tide today \u00b7 1 tide aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -713,7 +714,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 best aligned with sunset"
+                "King tide today \u00b7 1 tide aligned with sunset"
                         + " \u00b7 1 coastal location");
     }
 
@@ -732,7 +733,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 best aligned with sunset"
+                "King tide today \u00b7 5 tides aligned with sunset"
                         + " \u00b7 1 coastal location");
     }
 
@@ -751,7 +752,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide tomorrow \u00b7 best aligned with sunrise"
+                "King tide tomorrow \u00b7 3 tides aligned with sunrise"
                         + " \u00b7 1 coastal location");
     }
 
@@ -903,7 +904,9 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today and tomorrow \u00b7 1 coastal location");
+                "King tide today and tomorrow \u00b7 no tide alignments"
+                        + " \u2014 but exceptional coastal foreground"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
@@ -927,7 +930,7 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today through Saturday \u00b7 best aligned"
+                "King tide today through Saturday \u00b7 4 tides aligned"
                         + " with Saturday sunrise \u00b7 1 coastal location");
     }
 
@@ -1016,7 +1019,8 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "King tide today \u00b7 3 coastal locations");
+                "King tide today \u00b7 no tide alignments \u2014 but exceptional"
+                        + " coastal foreground \u00b7 3 coastal locations");
     }
 
     // ── findBestAlignment unit tests ─────────────────────────────────────────
@@ -1162,7 +1166,7 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
                 best, false, TODAY))
-                .isEqualTo("best aligned with sunrise");
+                .isEqualTo("3 tides aligned with sunrise");
     }
 
     @Test
@@ -1173,7 +1177,7 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
                 best, true, TODAY))
-                .isEqualTo("best aligned with tomorrow sunset");
+                .isEqualTo("5 tides aligned with tomorrow sunset");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

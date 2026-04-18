@@ -17,8 +17,8 @@ import java.util.List;
  * @param moonIlluminationPct     lunar illumination percentage (0–100), or {@code null}
  * @param moonAboveHorizon        whether the moon is above the horizon at window start, or {@code null}
  * @param windowQuality           moon window quality (e.g. {@code "DARK_THEN_MOONLIT"}), or {@code null}
- * @param moonRiseTime            moonrise time within the window as "HH:mm" UK, or {@code null}
- * @param moonSetTime             moonset time within the window as "HH:mm" UK, or {@code null}
+ * @param moonRiseTime            moonrise time within the window as ISO UTC datetime, or {@code null}
+ * @param moonSetTime             moonset time within the window as ISO UTC datetime, or {@code null}
  */
 public record AuroraTonightSummary(
         AlertLevel alertLevel,

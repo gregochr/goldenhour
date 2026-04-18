@@ -127,9 +127,11 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 extractRegionNames(coastalLocations);
         String dateRange =
                 formatDateRange(kingTideDates, fromDate);
-        String alignmentInfo = buildAlignmentInfo(
-                bestAlignment, kingTideDates.size() > 1,
-                fromDate);
+        String alignmentInfo = bestAlignment != null
+                ? buildAlignmentInfo(
+                        bestAlignment, kingTideDates.size() > 1,
+                        fromDate)
+                : "no tide alignments \u2014 but exceptional coastal foreground";
         ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                 coastalLocations, "King tide",
                 kingTide.lunarPhase(), bestCounts);
@@ -342,12 +344,15 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         }
         String event = best.event() == TargetType.SUNRISE
                 ? "sunrise" : "sunset";
+        String countPrefix = best.count() == 1
+                ? "1 tide aligned with "
+                : best.count() + " tides aligned with ";
         if (multiDay) {
-            return "best aligned with "
+            return countPrefix
                     + formatDayLabel(best.date(), today)
                     + " " + event;
         }
-        return "best aligned with " + event;
+        return countPrefix + event;
     }
 
     /**

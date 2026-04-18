@@ -85,8 +85,8 @@ class MoonTransitionCalculatorTest {
         assertThat(data.windowQuality()).isEqualTo(WindowQuality.DARK_THEN_MOONLIT);
         assertThat(data.moonUpAtStart()).isFalse();
         assertThat(data.moonUpAtEnd()).isTrue();
-        // 23:00 UTC in April (BST = UTC+1) is 00:00 UK time
-        assertThat(data.moonRiseTime()).isEqualTo("00:00");
+        // 23:00 UTC — ISO UTC datetime
+        assertThat(data.moonRiseTime()).isEqualTo("2026-04-10T23:00:00");
         assertThat(data.moonSetTime()).isNull();
         assertThat(data.illuminationPct()).isEqualTo(82.0);
     }
@@ -118,8 +118,8 @@ class MoonTransitionCalculatorTest {
         assertThat(data.windowQuality()).isEqualTo(WindowQuality.MOONLIT_THEN_DARK);
         assertThat(data.moonUpAtStart()).isTrue();
         assertThat(data.moonUpAtEnd()).isFalse();
-        // 02:00 UTC in April (BST = UTC+1) is 03:00 UK time
-        assertThat(data.moonSetTime()).isEqualTo("03:00");
+        // 02:00 UTC — ISO UTC datetime
+        assertThat(data.moonSetTime()).isEqualTo("2026-04-11T02:00:00");
         assertThat(data.moonRiseTime()).isNull();
     }
 
@@ -254,8 +254,8 @@ class MoonTransitionCalculatorTest {
         MoonTransitionData data = MoonTransitionCalculator.calculate(
                 lunarCalculator, window, LAT, LON);
 
-        // In GMT: 22:00 UTC = 22:00 UK time (no BST offset)
-        assertThat(data.moonRiseTime()).isEqualTo("22:00");
+        // 22:00 UTC — ISO UTC datetime
+        assertThat(data.moonRiseTime()).isEqualTo("2026-01-15T22:00:00");
         assertThat(data.windowQuality()).isEqualTo(WindowQuality.DARK_THEN_MOONLIT);
     }
 
@@ -281,9 +281,9 @@ class MoonTransitionCalculatorTest {
         MoonTransitionData data = MoonTransitionCalculator.calculate(
                 lunarCalculator, window, LAT, LON);
 
-        // First rise at 21:00 UTC → 22:00 BST
-        assertThat(data.moonRiseTime()).isEqualTo("22:00");
-        // First set at 23:00 UTC → 00:00 BST
-        assertThat(data.moonSetTime()).isEqualTo("00:00");
+        // First rise at 21:00 UTC — ISO UTC datetime
+        assertThat(data.moonRiseTime()).isEqualTo("2026-04-10T21:00:00");
+        // First set at 23:00 UTC — ISO UTC datetime
+        assertThat(data.moonSetTime()).isEqualTo("2026-04-10T23:00:00");
     }
 }

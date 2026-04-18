@@ -12,8 +12,10 @@ import com.gregochr.solarutils.LunarPhase;
  * @param phase             lunar phase (from first sample in window)
  * @param illuminationPct   illumination percentage 0–100 (from first sample)
  * @param windowQuality     temporal moon quality across the entire dark window
- * @param moonRiseTime      "HH:mm" UK time of first below→above transition, or {@code null}
- * @param moonSetTime       "HH:mm" UK time of first above→below transition, or {@code null}
+ * @param moonRiseTime      ISO UTC datetime of first below→above transition,
+ *                          or {@code null}
+ * @param moonSetTime       ISO UTC datetime of first above→below transition,
+ *                          or {@code null}
  * @param moonUpAtStart     whether the moon is above the horizon at window start
  * @param moonUpAtEnd       whether the moon is above the horizon at window end
  */
