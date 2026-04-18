@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Spring Data repository for {@link ForecastBatchEntity}.
@@ -25,4 +26,12 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
      * @return recent batch records
      */
     List<ForecastBatchEntity> findTop20ByOrderBySubmittedAtDesc();
+
+    /**
+     * Finds the batch linked to a given job run.
+     *
+     * @param jobRunId the job run ID
+     * @return the batch entity if found
+     */
+    Optional<ForecastBatchEntity> findByJobRunId(Long jobRunId);
 }

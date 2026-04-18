@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -13,7 +14,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST endpoints for job run metrics and API call logging.
@@ -80,5 +84,39 @@ public class JobMetricsController {
     public ResponseEntity<?> getApiCalls(@RequestParam Long jobRunId) {
         List<ApiCallLogEntity> calls = jobRunService.getApiCallsForRun(jobRunId);
         return ResponseEntity.ok(calls);
+    }
+
+    /**
+     * Returns a token usage and cost summary for a batch job run.
+     *
+     * @param jobRunId the job run ID linked to a forecast batch
+     * @return batch summary map, or 404 if no batch is linked
+     */
+    @GetMapping("/batch-summary")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getBatchSummary(@RequestParam Long jobRunId) {
+        return jobRunService.getBatchForJobRun(jobRunId)
+                .map(this::toBatchSummaryMap)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    private Map<String, Object> toBatchSummaryMap(ForecastBatchEntity batch) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("totalInputTokens", batch.getTotalInputTokens());
+        map.put("totalOutputTokens", batch.getTotalOutputTokens());
+        map.put("totalCacheReadTokens", batch.getTotalCacheReadTokens());
+        map.put("totalCacheCreationTokens", batch.getTotalCacheCreationTokens());
+
+        BigDecimal costUsd = batch.getEstimatedCostUsd();
+        long costMicro = costUsd != null
+                ? costUsd.multiply(BigDecimal.valueOf(1_000_000)).longValue() : 0L;
+        map.put("estimatedCostMicroDollars", costMicro);
+
+        map.put("requestCount", batch.getRequestCount());
+        map.put("succeededCount", batch.getSucceededCount());
+        map.put("erroredCount", batch.getErroredCount());
+        map.put("status", batch.getStatus() != null ? batch.getStatus().name() : null);
+        return map;
     }
 }

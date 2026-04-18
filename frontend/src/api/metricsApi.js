@@ -32,6 +32,16 @@ export const getApiCalls = (jobRunId) => {
 };
 
 /**
+ * Fetch batch token/cost summary for a batch job run.
+ *
+ * @param {number} jobRunId - Job run ID linked to a forecast batch
+ * @returns {Promise} Batch summary with token counts, cost, and status
+ */
+export const getBatchSummary = (jobRunId) => {
+  return axios.get(`/api/metrics/batch-summary?jobRunId=${jobRunId}`);
+};
+
+/**
  * Fetch the application build and deploy metadata.
  *
  * @returns {Promise<{version: string, deployedAt: string}>} version and ISO deploy timestamp

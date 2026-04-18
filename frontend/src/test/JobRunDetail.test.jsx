@@ -4,9 +4,10 @@ import JobRunDetail from '../components/JobRunDetail.jsx';
 
 vi.mock('../api/metricsApi', () => ({
   getApiCalls: vi.fn(),
+  getBatchSummary: vi.fn(),
 }));
 
-import { getApiCalls } from '../api/metricsApi';
+import { getApiCalls, getBatchSummary } from '../api/metricsApi';
 
 const BASE_JOB_RUN = {
   id: 42,
@@ -54,6 +55,7 @@ const OPEN_METEO_CALL = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getBatchSummary.mockRejectedValue(new Error('not found'));
 });
 
 describe('JobRunDetail — loading and error states', () => {
@@ -547,5 +549,92 @@ describe('JobRunDetail — Total Cost section', () => {
       expect(screen.getByText('Total Cost')).toBeInTheDocument();
     });
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument();
+  });
+});
+
+describe('JobRunDetail — Batch Summary Card', () => {
+  const BATCH_JOB_RUN = {
+    ...BASE_JOB_RUN,
+    runType: 'SCHEDULED_BATCH',
+    notes: 'Anthropic batch: msgbatch_abc123',
+    locationsProcessed: 20,
+  };
+
+  it('shows batch token summary card when batch summary is available', async () => {
+    getBatchSummary.mockResolvedValue({ data: {
+      totalInputTokens: 120000,
+      totalOutputTokens: 8000,
+      totalCacheReadTokens: 90000,
+      totalCacheCreationTokens: 5000,
+      estimatedCostMicroDollars: 35000,
+      requestCount: 20,
+      succeededCount: 18,
+      erroredCount: 2,
+      status: 'COMPLETED',
+    }});
+    getApiCalls.mockResolvedValue({ data: [] });
+    render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('ANTHROPIC (Batch)')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/20 requests: 18 succeeded, 2 errored/)).toBeInTheDocument();
+    expect(screen.getByText('COMPLETED')).toBeInTheDocument();
+    // Token breakdown
+    expect(screen.getByText(/120,000/)).toBeInTheDocument();
+    expect(screen.getByText(/8,000/)).toBeInTheDocument();
+  });
+
+  it('shows fallback message when batch has no token data', async () => {
+    getBatchSummary.mockResolvedValue({ data: {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      estimatedCostMicroDollars: 0,
+      requestCount: 10,
+      succeededCount: 0,
+      erroredCount: 0,
+      status: 'FAILED',
+    }});
+    getApiCalls.mockResolvedValue({ data: [] });
+    render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('ANTHROPIC (Batch)')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/No token data/)).toBeInTheDocument();
+    expect(screen.getByText('FAILED')).toBeInTheDocument();
+  });
+
+  it('uses batch cost for Total Cost section instead of empty apiCalls total', async () => {
+    getBatchSummary.mockResolvedValue({ data: {
+      totalInputTokens: 50000,
+      totalOutputTokens: 5000,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      estimatedCostMicroDollars: 75000,
+      requestCount: 10,
+      succeededCount: 10,
+      erroredCount: 0,
+      status: 'COMPLETED',
+    }});
+    getApiCalls.mockResolvedValue({ data: [] });
+    render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Total Cost')).toBeInTheDocument();
+    });
+    // £0.0600 appears in both the batch card cost and the Total Cost section —
+    // the important thing is that Total Cost is present (it wouldn't be without
+    // the batchSummary, since apiCalls is empty and would yield zero cost)
+    const costElements = screen.getAllByText(/£0\.0600/);
+    expect(costElements.length).toBe(2); // batch card inline + Total Cost bold
+  });
+
+  it('falls back to "No API calls recorded" when batch summary fetch fails', async () => {
+    getBatchSummary.mockRejectedValue(new Error('404'));
+    getApiCalls.mockResolvedValue({ data: [] });
+    render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('No API calls recorded')).toBeInTheDocument();
+    });
   });
 });

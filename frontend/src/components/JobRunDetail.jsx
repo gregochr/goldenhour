@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { getApiCalls } from '../api/metricsApi';
+import { getApiCalls, getBatchSummary } from '../api/metricsApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 
 /**
@@ -13,17 +13,30 @@ import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost'
  * - Cost (token-based micro-dollars with GBP conversion)
  * - Token breakdown for Anthropic calls
  * - Error count and rate
+ *
+ * For SCHEDULED_BATCH runs, shows a batch token summary instead of individual API calls.
  */
 const JobRunDetail = ({ jobRun }) => {
   const [apiCalls, setApiCalls] = useState([]);
+  const [batchSummary, setBatchSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchApiCalls = async () => {
+    const fetchData = async () => {
       try {
-        const response = await getApiCalls(jobRun.id);
-        setApiCalls(response.data || []);
+        if (jobRun.runType === 'SCHEDULED_BATCH') {
+          const batchResp = await getBatchSummary(jobRun.id).catch(() => null);
+          if (batchResp?.data) {
+            setBatchSummary(batchResp.data);
+          }
+          // Also fetch api calls in case there are any
+          const apiResp = await getApiCalls(jobRun.id);
+          setApiCalls(apiResp.data || []);
+        } else {
+          const response = await getApiCalls(jobRun.id);
+          setApiCalls(response.data || []);
+        }
       } catch (err) {
         setError(err.message || 'Failed to load API calls');
       } finally {
@@ -31,8 +44,8 @@ const JobRunDetail = ({ jobRun }) => {
       }
     };
 
-    fetchApiCalls();
-  }, [jobRun.id]);
+    fetchData();
+  }, [jobRun.id, jobRun.runType]);
 
   if (loading) {
     return <div className="text-plex-text-muted text-sm">Loading...</div>;
@@ -77,8 +90,8 @@ const JobRunDetail = ({ jobRun }) => {
   }, {});
 
   // Calculate grand total cost
-  const totalCostMicroDollars = Object.values(serviceStats)
-    .reduce((sum, stats) => sum + stats.totalCostMicroDollars, 0);
+  const totalCostMicroDollars = batchSummary?.estimatedCostMicroDollars
+    || Object.values(serviceStats).reduce((sum, stats) => sum + stats.totalCostMicroDollars, 0);
   const totalCostPence = Object.values(serviceStats)
     .reduce((sum, stats) => sum + stats.totalCostPence, 0);
 
@@ -89,6 +102,8 @@ const JobRunDetail = ({ jobRun }) => {
   const daysCount = minDate && maxDate
     ? Math.floor((new Date(maxDate) - new Date(minDate)) / (1000 * 60 * 60 * 24)) + 1
     : 0;
+
+  const isBatchWithNoApiCalls = batchSummary && Object.entries(serviceStats).length === 0;
 
   return (
     <div className="mt-4 space-y-3 bg-plex-bg p-4 rounded-lg border border-plex-border">
@@ -127,7 +142,53 @@ const JobRunDetail = ({ jobRun }) => {
 
       <h4 className="font-semibold text-plex-text text-sm">API Call Breakdown</h4>
 
-      {Object.entries(serviceStats).length === 0 ? (
+      {isBatchWithNoApiCalls ? (
+        <div className="bg-plex-surface p-3 rounded border border-plex-border text-sm">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="font-medium text-plex-text">ANTHROPIC (Batch)</div>
+              <div className="text-xs text-plex-text-muted mt-1">
+                {batchSummary.requestCount} requests: {batchSummary.succeededCount ?? 0} succeeded, {batchSummary.erroredCount ?? 0} errored
+              </div>
+              <div className="text-xs text-plex-gold mt-1 font-semibold">
+                Cost: {formatCostGbp(batchSummary.estimatedCostMicroDollars, exchangeRate, 0)}
+                {batchSummary.estimatedCostMicroDollars > 0 && (
+                  <span className="text-plex-text-muted font-normal ml-2">
+                    ({formatCostUsd(batchSummary.estimatedCostMicroDollars)})
+                  </span>
+                )}
+              </div>
+              {(batchSummary.totalInputTokens > 0 || batchSummary.totalOutputTokens > 0) ? (
+                <div className="text-xs text-plex-text-muted mt-1">
+                  Tokens: {formatTokens(batchSummary.totalInputTokens)} in
+                  {' / '}{formatTokens(batchSummary.totalOutputTokens)} out
+                  {batchSummary.totalCacheCreationTokens > 0 && (
+                    <> / {formatTokens(batchSummary.totalCacheCreationTokens)} cache write</>
+                  )}
+                  {batchSummary.totalCacheReadTokens > 0 && (
+                    <> / {formatTokens(batchSummary.totalCacheReadTokens)} cache read</>
+                  )}
+                </div>
+              ) : (
+                <div className="text-xs text-plex-text-muted mt-1">
+                  No token data — batch failed before processing
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1">
+              <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                batchSummary.status === 'COMPLETED'
+                  ? 'bg-green-900/30 text-green-400'
+                  : batchSummary.status === 'FAILED'
+                    ? 'bg-red-900/30 text-red-400'
+                    : 'bg-yellow-900/30 text-yellow-400'
+              }`}>
+                {batchSummary.status}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : Object.entries(serviceStats).length === 0 ? (
         <p className="text-plex-text-muted text-sm">No API calls recorded</p>
       ) : (
         <div className="space-y-2">

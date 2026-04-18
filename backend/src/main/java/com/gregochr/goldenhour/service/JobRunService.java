@@ -7,7 +7,9 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +22,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service for tracking scheduled job runs and API call timings for observability and debugging.
@@ -31,6 +34,7 @@ public class JobRunService {
 
     private final JobRunRepository jobRunRepository;
     private final ApiCallLogRepository apiCallLogRepository;
+    private final ForecastBatchRepository forecastBatchRepository;
     private final CostCalculator costCalculator;
     private final ExchangeRateService exchangeRateService;
     private final String appVersion;
@@ -38,19 +42,22 @@ public class JobRunService {
     /**
      * Constructs a {@code JobRunService}.
      *
-     * @param jobRunRepository     repository for job run entities
-     * @param apiCallLogRepository repository for API call log entities
-     * @param costCalculator       service for calculating API call costs
-     * @param exchangeRateService  service for fetching exchange rates
-     * @param appVersion           application version stamped on each run, from {@code APP_VERSION}
+     * @param jobRunRepository        repository for job run entities
+     * @param apiCallLogRepository    repository for API call log entities
+     * @param forecastBatchRepository repository for forecast batch entities
+     * @param costCalculator          service for calculating API call costs
+     * @param exchangeRateService     service for fetching exchange rates
+     * @param appVersion              application version stamped on each run, from {@code APP_VERSION}
      */
     public JobRunService(JobRunRepository jobRunRepository,
             ApiCallLogRepository apiCallLogRepository,
+            ForecastBatchRepository forecastBatchRepository,
             CostCalculator costCalculator,
             ExchangeRateService exchangeRateService,
             @Value("${APP_VERSION:dev}") String appVersion) {
         this.jobRunRepository = jobRunRepository;
         this.apiCallLogRepository = apiCallLogRepository;
+        this.forecastBatchRepository = forecastBatchRepository;
         this.costCalculator = costCalculator;
         this.exchangeRateService = exchangeRateService;
         this.appVersion = appVersion;
@@ -373,14 +380,40 @@ public class JobRunService {
      * @param failed    number of requests that errored or were skipped
      */
     public void completeBatchRun(Long jobRunId, int succeeded, int failed) {
+        completeBatchRun(jobRunId, succeeded, failed, 0L);
+    }
+
+    /**
+     * Completes a batch job run with final success/failure counts and cost.
+     *
+     * <p>Sets {@code completedAt}, {@code durationMs}, and {@code totalCostMicroDollars}.
+     * Does not query {@code api_call_log} — batch runs do not log individual API calls.
+     *
+     * @param jobRunId          the job run ID
+     * @param succeeded         number of requests that succeeded
+     * @param failed            number of requests that errored or were skipped
+     * @param costMicroDollars  total cost in micro-dollars from the batch
+     */
+    public void completeBatchRun(Long jobRunId, int succeeded, int failed, long costMicroDollars) {
         jobRunRepository.findById(jobRunId).ifPresent(jobRun -> {
             LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             jobRun.setCompletedAt(now);
             jobRun.setDurationMs(ChronoUnit.MILLIS.between(jobRun.getStartedAt(), now));
             jobRun.setSucceeded(succeeded);
             jobRun.setFailed(failed);
+            jobRun.setTotalCostMicroDollars(costMicroDollars);
             jobRunRepository.save(jobRun);
         });
+    }
+
+    /**
+     * Returns the batch entity linked to a given job run, if any.
+     *
+     * @param jobRunId the job run ID
+     * @return the batch entity if found
+     */
+    public Optional<ForecastBatchEntity> getBatchForJobRun(Long jobRunId) {
+        return forecastBatchRepository.findByJobRunId(jobRunId);
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import org.junit.jupiter.api.DisplayName;
@@ -9,8 +10,11 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -106,6 +110,74 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "PRO_USER")
     void getApiCalls_requiresAdminRole() throws Exception {
         mockMvc.perform(get("/api/metrics/api-calls?jobRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/batch-summary returns batch summary for ADMIN")
+    @WithMockUser(roles = "ADMIN")
+    void getBatchSummary_returnsData() throws Exception {
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                "msgbatch_test", ForecastBatchEntity.BatchType.FORECAST, 10,
+                Instant.now().plusSeconds(86400));
+        batch.setTotalInputTokens(50000L);
+        batch.setTotalOutputTokens(5000L);
+        batch.setTotalCacheReadTokens(40000L);
+        batch.setTotalCacheCreationTokens(10000L);
+        batch.setEstimatedCostUsd(new BigDecimal("0.025000"));
+        batch.setSucceededCount(8);
+        batch.setErroredCount(2);
+        batch.setStatus(ForecastBatchEntity.BatchStatus.COMPLETED);
+        when(jobRunService.getBatchForJobRun(1L)).thenReturn(Optional.of(batch));
+
+        mockMvc.perform(get("/api/metrics/batch-summary?jobRunId=1")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalInputTokens").value(50000))
+                .andExpect(jsonPath("$.totalOutputTokens").value(5000))
+                .andExpect(jsonPath("$.estimatedCostMicroDollars").value(25000))
+                .andExpect(jsonPath("$.succeededCount").value(8))
+                .andExpect(jsonPath("$.erroredCount").value(2))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/batch-summary returns 404 when no batch found")
+    @WithMockUser(roles = "ADMIN")
+    void getBatchSummary_noBatch_returns404() throws Exception {
+        when(jobRunService.getBatchForJobRun(999L)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/metrics/batch-summary?jobRunId=999")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/batch-summary returns zero cost when estimatedCostUsd is null")
+    @WithMockUser(roles = "ADMIN")
+    void getBatchSummary_nullCost_returnsZeroCostMicroDollars() throws Exception {
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                "msgbatch_nocost", ForecastBatchEntity.BatchType.FORECAST, 5,
+                Instant.now().plusSeconds(86400));
+        batch.setStatus(ForecastBatchEntity.BatchStatus.FAILED);
+        // estimatedCostUsd is null (batch failed before token processing)
+        when(jobRunService.getBatchForJobRun(7L)).thenReturn(Optional.of(batch));
+
+        mockMvc.perform(get("/api/metrics/batch-summary?jobRunId=7")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estimatedCostMicroDollars").value(0))
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.totalInputTokens").isEmpty())
+                .andExpect(jsonPath("$.requestCount").value(5));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/batch-summary requires ADMIN role")
+    @WithMockUser(roles = "LITE_USER")
+    void getBatchSummary_requiresAdminRole() throws Exception {
+        mockMvc.perform(get("/api/metrics/batch-summary?jobRunId=1")
                 .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden());
     }

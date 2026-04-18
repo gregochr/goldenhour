@@ -2,12 +2,14 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -48,6 +50,9 @@ class JobRunServiceTest {
     private ApiCallLogRepository apiCallLogRepository;
 
     @Mock
+    private ForecastBatchRepository forecastBatchRepository;
+
+    @Mock
     private CostCalculator costCalculator;
 
     @Mock
@@ -58,7 +63,7 @@ class JobRunServiceTest {
     @BeforeEach
     void setUp() {
         jobRunService = new JobRunService(
-                jobRunRepository, apiCallLogRepository,
+                jobRunRepository, apiCallLogRepository, forecastBatchRepository,
                 costCalculator, exchangeRateService, "v2.8.19");
     }
 
@@ -736,6 +741,45 @@ class JobRunServiceTest {
         }
 
         @Test
+        @DisplayName("4-param overload sets totalCostMicroDollars on the entity")
+        void completeBatchRun_withCost_setsTotalCostMicroDollars() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(24L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .build();
+            when(jobRunRepository.findById(24L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.completeBatchRun(24L, 10, 2, 123456L);
+
+            JobRunEntity saved = captor.getValue();
+            assertThat(saved.getTotalCostMicroDollars()).isEqualTo(123456L);
+            assertThat(saved.getSucceeded()).isEqualTo(10);
+            assertThat(saved.getFailed()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("3-param overload defaults cost to zero")
+        void completeBatchRun_3param_defaultsCostToZero() {
+            LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5);
+            JobRunEntity jobRun = JobRunEntity.builder()
+                    .id(25L)
+                    .runType(RunType.SCHEDULED_BATCH)
+                    .startedAt(startTime)
+                    .build();
+            when(jobRunRepository.findById(25L)).thenReturn(Optional.of(jobRun));
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.completeBatchRun(25L, 5, 0);
+
+            assertThat(captor.getValue().getTotalCostMicroDollars()).isEqualTo(0L);
+        }
+
+        @Test
         @DisplayName("does not query apiCallLogRepository (batch runs have no individual call logs)")
         void completeBatchRun_doesNotQueryApiCallLog() {
             LocalDateTime startTime = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(5);
@@ -799,6 +843,36 @@ class JobRunServiceTest {
             LocalDateTime sevenDaysAgo = LocalDateTime.now(ZoneOffset.UTC).minusDays(7);
             assertThat(since).isAfterOrEqualTo(sevenDaysAgo.minusSeconds(5));
             assertThat(since).isBeforeOrEqualTo(sevenDaysAgo.plusSeconds(5));
+        }
+    }
+
+    @Nested
+    @DisplayName("getBatchForJobRun()")
+    class GetBatchForJobRunTests {
+
+        @Test
+        @DisplayName("returns batch entity when found")
+        void getBatchForJobRun_found_returnsBatch() {
+            ForecastBatchEntity batch = new ForecastBatchEntity(
+                    "msgbatch_test", ForecastBatchEntity.BatchType.FORECAST, 10,
+                    java.time.Instant.now().plusSeconds(86400));
+            batch.setJobRunId(42L);
+            when(forecastBatchRepository.findByJobRunId(42L)).thenReturn(Optional.of(batch));
+
+            Optional<ForecastBatchEntity> result = jobRunService.getBatchForJobRun(42L);
+
+            assertThat(result).isPresent();
+            assertThat(result.get().getAnthropicBatchId()).isEqualTo("msgbatch_test");
+        }
+
+        @Test
+        @DisplayName("returns empty when no batch linked to job run")
+        void getBatchForJobRun_notFound_returnsEmpty() {
+            when(forecastBatchRepository.findByJobRunId(999L)).thenReturn(Optional.empty());
+
+            Optional<ForecastBatchEntity> result = jobRunService.getBatchForJobRun(999L);
+
+            assertThat(result).isEmpty();
         }
     }
 }

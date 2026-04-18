@@ -1410,7 +1410,7 @@ class BatchResultProcessorTest {
     }
 
     @Test
-    @DisplayName("all-errored forecast: markFailed calls completeBatchRun(jobRunId, 0, requestCount)")
+    @DisplayName("all-errored forecast: completeBatchRun called with (jobRunId, 0, requestCount, 0) and zero cost")
     void processResults_allErrored_completesJobRunAsFailed() {
         stubBatchService();
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_jrt03", 4, 88L);
@@ -1429,7 +1429,7 @@ class BatchResultProcessorTest {
 
         processor.processResults(batch);
 
-        verify(jobRunService).completeBatchRun(88L, 0, 4);
+        verify(jobRunService).completeBatchRun(88L, 0, 4, 0L);
     }
 
     // ── Job run tracking: AURORA ─────────────────────────────────────────────
@@ -1496,6 +1496,93 @@ class BatchResultProcessorTest {
         processor.processResults(batch);
 
         verify(jobRunService).completeBatchRun(102L, 0, 1);
+    }
+
+    // ── Job run tracking: success path with cost ────────────────────────────
+
+    @Test
+    @DisplayName("forecast success: completeBatchRun receives micro-dollar cost from batch estimatedCostUsd")
+    void processResults_forecastSuccess_propagatesCostToJobRun() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(
+                BatchType.FORECAST, "msgbatch_cost01", 1, 200L);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
+                + "\"summary\":\"Good conditions\"}";
+
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_cost01")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        4, 72, 68, "Good conditions"));
+
+        // CostCalculator returns 45000 micro-dollars = $0.045000
+        when(costCalculator.calculateCostMicroDollars(EvaluationModel.SONNET,
+                new com.gregochr.goldenhour.model.TokenUsage(500, 200, 0, 1000), true))
+                .thenReturn(45000L);
+
+        processor.processResults(batch);
+
+        // $0.045000 → 45000 micro-dollars
+        verify(jobRunService).completeBatchRun(200L, 1, 0, 45000L);
+    }
+
+    @Test
+    @DisplayName("aurora success: completeBatchRun receives micro-dollar cost from batch estimatedCostUsd")
+    void processResults_auroraSuccess_propagatesCostToJobRun() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(
+                BatchType.AURORA, "msgbatch_cost02", 1, 201L);
+
+        String rawResponse = "[{\"name\":\"Dark Sky\",\"stars\":3}]";
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-14", rawResponse);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_cost02")).thenReturn(streamResp);
+
+        AuroraProperties.BortleThreshold threshold = mock(AuroraProperties.BortleThreshold.class);
+        when(auroraProperties.getBortleThreshold()).thenReturn(threshold);
+        when(threshold.getModerate()).thenReturn(4);
+
+        LocationEntity loc = new LocationEntity();
+        loc.setName("Dark Sky Site");
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(loc));
+
+        WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
+                List.of(loc), List.of(), Map.of());
+        when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
+
+        AuroraForecastScore score = mock(AuroraForecastScore.class);
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq(rawResponse), eq(AlertLevel.MODERATE), eq(List.of(loc)), eq(Map.of())))
+                .thenReturn(List.of(score));
+
+        // CostCalculator returns 8200 micro-dollars = $0.008200
+        when(costCalculator.calculateCostMicroDollars(EvaluationModel.SONNET,
+                new com.gregochr.goldenhour.model.TokenUsage(500, 200, 0, 1000), true))
+                .thenReturn(8200L);
+
+        processor.processResults(batch);
+
+        // $0.008200 → 8200 micro-dollars
+        verify(jobRunService).completeBatchRun(201L, 1, 0, 8200L);
     }
 
     // ── Job run tracking: markFailed partial success ─────────────────────────

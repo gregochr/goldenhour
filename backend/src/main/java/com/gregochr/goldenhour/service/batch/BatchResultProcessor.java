@@ -335,7 +335,8 @@ public class BatchResultProcessor {
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
             jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
-                    batch.getRequestCount() - succeeded);
+                    batch.getRequestCount() - succeeded,
+                    toMicroDollars(batch.getEstimatedCostUsd()));
         }
     }
 
@@ -468,7 +469,8 @@ public class BatchResultProcessor {
 
             batchRepository.save(batch);
             if (batch.getJobRunId() != null) {
-                jobRunService.completeBatchRun(batch.getJobRunId(), allScores.size(), 0);
+                jobRunService.completeBatchRun(batch.getJobRunId(), allScores.size(), 0,
+                        toMicroDollars(batch.getEstimatedCostUsd()));
             }
 
         } catch (Exception e) {
@@ -641,6 +643,19 @@ public class BatchResultProcessor {
             return err.asApiError().message();
         }
         return err.toString();
+    }
+
+    /**
+     * Converts a USD cost (as {@link BigDecimal}) to micro-dollars.
+     *
+     * @param costUsd the cost in USD, or null
+     * @return cost in micro-dollars, or 0 if null
+     */
+    private static long toMicroDollars(BigDecimal costUsd) {
+        if (costUsd == null) {
+            return 0L;
+        }
+        return costUsd.multiply(BigDecimal.valueOf(1_000_000)).longValue();
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {

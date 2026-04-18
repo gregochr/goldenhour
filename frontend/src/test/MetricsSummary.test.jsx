@@ -143,4 +143,28 @@ describe('MetricsSummary', () => {
     fireEvent.click(screen.getByTestId('summary-range-7d'));
     expect(onRangeChange).toHaveBeenCalledWith('7d');
   });
+
+  it('shows batch vs real-time cost breakdown when both present', () => {
+    const runs = [
+      {
+        id: 1, runType: 'SHORT_TERM',
+        startedAt: `${todayStr}T06:00:00Z`, durationMs: 5000,
+        succeeded: 50, failed: 0,
+        totalCostMicroDollars: 100000, totalCostPence: 0,
+        exchangeRateGbpPerUsd: 0.80,
+      },
+      {
+        id: 2, runType: 'SCHEDULED_BATCH',
+        startedAt: `${todayStr}T07:00:00Z`, durationMs: 60000,
+        succeeded: 80, failed: 2,
+        totalCostMicroDollars: 200000, totalCostPence: 0,
+        exchangeRateGbpPerUsd: 0.80,
+      },
+    ];
+    render(<MetricsSummary runs={runs} apiCalls={[]} range="today" onRangeChange={noop} />);
+    const breakdown = screen.getByTestId('cost-breakdown');
+    expect(breakdown).toBeInTheDocument();
+    expect(breakdown.textContent).toContain('Real-time');
+    expect(breakdown.textContent).toContain('Batch');
+  });
 });

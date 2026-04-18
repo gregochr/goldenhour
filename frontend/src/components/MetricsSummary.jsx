@@ -209,6 +209,23 @@ const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
                   {hasMixedPricing && ' (token-based only)'}
                 </div>
               )}
+              {(() => {
+                const batchMicro = filteredRuns
+                  .filter((r) => r.runType === 'SCHEDULED_BATCH')
+                  .reduce((sum, r) => sum + (r.totalCostMicroDollars || 0), 0);
+                const realtimeMicro = totalCostMicroDollars - batchMicro;
+                if (batchMicro > 0 && realtimeMicro > 0 && exchangeRate) {
+                  const rtGbp = (realtimeMicro / 1_000_000) * exchangeRate;
+                  const bGbp = (batchMicro / 1_000_000) * exchangeRate;
+                  const fmt = (v) => v < 0.01 ? `${(v * 100).toFixed(2)}p` : `\u00a3${v.toFixed(2)}`;
+                  return (
+                    <div className="mt-1 text-xs text-plex-text-muted" data-testid="cost-breakdown">
+                      Real-time: {fmt(rtGbp)} · Batch: {fmt(bGbp)}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
               <div className="mt-2 text-xs text-plex-text-muted">
                 {totalRuns} runs, {totalEvaluations} evaluations
               </div>
