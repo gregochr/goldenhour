@@ -590,9 +590,11 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   const cellClickable = !cellDisabled;
 
   return (
-    <button
+    <div
       data-testid="heatmap-cell"
-      disabled={cellDisabled}
+      role="button"
+      tabIndex={cellDisabled ? -1 : 0}
+      aria-disabled={cellDisabled || undefined}
       aria-hidden={!visible}
       className={`relative rounded border text-left p-1.5 transition-all ${visibilityClass}
         ${tierBg[cellTier] || ''}
@@ -603,6 +605,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         opacity: isStanddown ? (visible ? 0.55 : 0.04) : undefined,
       }}
       onClick={cellClickable ? () => onToggle(date, regionName, targetType) : undefined}
+      onKeyDown={cellClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(date, regionName, targetType); } } : undefined}
     >
       <div className={`font-medium ${verdictTextColour}`} style={{ fontSize: '11px' }}>
         {verdictLabel}
@@ -704,7 +707,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
           />
         );
       })()}
-    </button>
+    </div>
   );
 }
 

@@ -82,6 +82,30 @@ describe('InfoTip', () => {
     expect(parentHandler).not.toHaveBeenCalled();
   });
 
+  it('popover keyDown does not propagate to parent handler', () => {
+    const parentHandler = vi.fn();
+    render(
+      <div onKeyDown={parentHandler} data-testid="parent">
+        <InfoTip text="help text" />
+      </div>,
+    );
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+    fireEvent.keyDown(screen.getByTestId('infotip-popover'), { key: 'a' });
+    expect(parentHandler).not.toHaveBeenCalled();
+  });
+
+  it('trigger has aria-label for screen readers', () => {
+    render(<InfoTip text="Some help text" />);
+    expect(screen.getByTestId('infotip-trigger')).toHaveAttribute('aria-label', 'More info');
+  });
+
+  it('trigger has the extended click target pseudo-element class', () => {
+    render(<InfoTip text="Some help text" />);
+    const trigger = screen.getByTestId('infotip-trigger');
+    expect(trigger.className).toContain('before:absolute');
+    expect(trigger.className).toContain('before:-inset-1');
+  });
+
   it('popover has role="presentation" to suppress interaction semantics', () => {
     render(<InfoTip text="Some help text" />);
     fireEvent.click(screen.getByTestId('infotip-trigger'));

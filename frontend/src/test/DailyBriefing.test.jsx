@@ -1430,7 +1430,7 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('briefing-heatmap'));
       const cells = screen.getAllByTestId('heatmap-cell');
-      const disabledCells = cells.filter((c) => c.disabled);
+      const disabledCells = cells.filter((c) => c.getAttribute('aria-disabled') === 'true');
       expect(disabledCells.length).toBeGreaterThanOrEqual(1);
     });
 

@@ -75,7 +75,7 @@ export default function InfoTip({ text, className = '', position = 'above' }) {
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((prev) => !prev); }}
-        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current opacity-50 hover:opacity-80 transition-opacity cursor-pointer"
+        className="relative inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current opacity-50 hover:opacity-80 transition-opacity cursor-pointer before:content-[''] before:absolute before:-inset-1"
         aria-label="More info"
         data-testid="infotip-trigger"
       >

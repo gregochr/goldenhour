@@ -146,7 +146,7 @@ describe('HeatmapGrid — verdict labels', () => {
 
     const cells = screen.getAllByTestId('heatmap-cell');
     // STANDDOWN cells are disabled and show "Poor" — not "Worth it" or "Maybe"
-    const standdownCell = cells.find((c) => c.disabled);
+    const standdownCell = cells.find((c) => c.getAttribute('aria-disabled') === 'true');
     expect(standdownCell).toBeTruthy();
     expect(standdownCell.textContent).not.toContain('Worth it');
     expect(standdownCell.textContent).not.toContain('Maybe');
@@ -426,7 +426,7 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
     });
 
     const cell = screen.getByTestId('heatmap-cell');
-    expect(cell.disabled).toBe(true);
+    expect(cell.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('fully-STANDDOWN region becomes clickable and shows slots when showAllLocations is true', () => {
@@ -439,7 +439,7 @@ describe('HeatmapGrid — STANDDOWN slots in drill-down', () => {
 
     // Cell is now enabled because showAllLocations overrides the STANDDOWN disable
     const cell = screen.getByTestId('heatmap-cell');
-    expect(cell.disabled).toBe(false);
+    expect(cell.hasAttribute('aria-disabled')).toBe(false);
 
     // Click cell to open drill-down
     fireEvent.click(cell);
@@ -630,6 +630,154 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
     expect(screen.getByTestId('drill-down-panel').textContent).not.toContain('▶');
   });
 
+});
+
+// ── Cell element type and accessibility ──────────────────────────────────────
+
+describe('HeatmapGrid — cell accessibility and keyboard', () => {
+  it('enabled cell has role="button" and tabIndex=0', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.getAttribute('role')).toBe('button');
+    expect(cell.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('disabled STANDDOWN cell has tabIndex=-1', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: false,
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('disabled cell has pointer-events: none', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: false,
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.style.pointerEvents).toBe('none');
+  });
+
+  it('enabled cell does not set pointer-events', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.style.pointerEvents).toBe('');
+  });
+
+  it('Enter key opens drill-down on enabled cell', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.getByTestId('drill-down-panel')).toBeTruthy();
+  });
+
+  it('Space key opens drill-down on enabled cell', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.keyDown(cell, { key: ' ' });
+    expect(screen.getByTestId('drill-down-panel')).toBeTruthy();
+  });
+
+  it('non-activation keys do not open drill-down', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.keyDown(cell, { key: 'Tab' });
+    expect(screen.queryByTestId('drill-down-panel')).toBeNull();
+  });
+
+  it('disabled cell does not respond to Enter key', () => {
+    const days = buildMixedBriefingDays(DATE_1, 'North East', ['STANDDOWN', 'STANDDOWN']);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: false,
+    });
+
+    const cell = screen.getByTestId('heatmap-cell');
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(screen.queryByTestId('drill-down-panel')).toBeNull();
+  });
+});
+
+describe('HeatmapGrid — InfoTip click does not trigger cell drill-down', () => {
+  it('clicking InfoTip inside a cell does not open drill-down', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: 'Cloud detail text.',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    // Click the InfoTip — not the cell
+    fireEvent.click(screen.getByTestId('infotip-trigger'));
+
+    // Popover should show
+    expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
+    // Drill-down must NOT open
+    expect(screen.queryByTestId('drill-down-panel')).toBeNull();
+  });
+
+  it('clicking cell body still opens drill-down when InfoTip is present', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          glossHeadline: 'High cirrus canvas',
+          glossDetail: 'Cloud detail text.',
+          slots: [{ locationName: 'Bamburgh', verdict: 'GO', solarEventTime: `${date}T19:30:00` }],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    // Click the cell itself (not the InfoTip)
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.getByTestId('drill-down-panel')).toBeInTheDocument();
+  });
 });
 
 // ── Day header solar times ───────────────────────────────────────────────────
