@@ -120,7 +120,7 @@ class ClaudeAuroraInterpreterTest {
         when(mockTextBlock.text()).thenReturn(jsonResponse);
 
         List<AuroraForecastScore> scores = interpreter.interpret(
-                AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30), data, null,
+                AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30), data,
                 TriggerType.REALTIME, null);
 
         assertThat(scores).hasSize(1);
@@ -149,7 +149,7 @@ class ClaudeAuroraInterpreterTest {
         when(mockTextBlock.text()).thenReturn(jsonResponse);
 
         interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                data, null, TriggerType.REALTIME, null);
+                data, TriggerType.REALTIME, null);
 
         ArgumentCaptor<MessageCreateParams> captor =
                 ArgumentCaptor.forClass(MessageCreateParams.class);
@@ -164,7 +164,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
         List<AuroraForecastScore> scores = interpreter.interpret(
-                AlertLevel.MODERATE, List.of(), Map.of(), data, null,
+                AlertLevel.MODERATE, List.of(), Map.of(), data,
                 TriggerType.REALTIME, null);
 
         assertThat(scores).isEmpty();
@@ -182,7 +182,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 40), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("TRIGGER TYPE: realtime");
         assertThat(msg).doesNotContain("TONIGHT'S DARK WINDOW");
@@ -198,7 +198,7 @@ class ClaudeAuroraInterpreterTest {
         TonightWindow window = new TonightWindow(now.plusHours(6), now.plusHours(14));
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+                Map.of(loc, 40), data, TriggerType.FORECAST_LOOKAHEAD, window);
 
         assertThat(msg).contains("TRIGGER TYPE: forecast_lookahead");
         assertThat(msg).contains("TONIGHT'S DARK WINDOW");
@@ -212,7 +212,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 40), data, TriggerType.REALTIME, null);
 
         assertThat(msg).doesNotContain("TONIGHT'S DARK WINDOW");
     }
@@ -230,7 +230,7 @@ class ClaudeAuroraInterpreterTest {
 
         // Default mock: all samples above horizon (MOONLIT_ALL_WINDOW)
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 30), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("LUNAR CONDITIONS:");
         assertThat(msg).contains("Phase: FIRST_QUARTER");
@@ -250,7 +250,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 30), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("Phase: FULL_MOON");
         assertThat(msg).contains("Illumination: 92%");
@@ -267,7 +267,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 30), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("LUNAR CONDITIONS:");
         assertThat(msg).contains("Phase: WAXING_GIBBOUS");
@@ -298,7 +298,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+                Map.of(loc, 40), data, TriggerType.FORECAST_LOOKAHEAD, window);
 
         assertThat(msg).contains("Window quality: DARK_THEN_MOONLIT");
         assertThat(msg).contains("Moon rises:");
@@ -327,7 +327,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+                Map.of(loc, 40), data, TriggerType.FORECAST_LOOKAHEAD, window);
 
         assertThat(msg).contains("Window quality: MOONLIT_THEN_DARK");
         assertThat(msg).contains("Moon sets:");
@@ -343,7 +343,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 40), data, TriggerType.REALTIME, null);
 
         assertThat(msg).doesNotContain("LUNAR CONDITIONS");
         // The rest of the message should still be built correctly
@@ -366,7 +366,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.FORECAST_LOOKAHEAD, window);
+                Map.of(loc, 40), data, TriggerType.FORECAST_LOOKAHEAD, window);
 
         // Should have sampled and produced a LUNAR CONDITIONS block
         assertThat(msg).contains("LUNAR CONDITIONS:");
@@ -385,7 +385,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(6.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 40), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 40), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("MODERATE");
         assertThat(msg).contains("LOCATIONS TO SCORE (1 locations)");
@@ -400,7 +400,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(5.5);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 50), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 50), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("KP TREND");
         assertThat(msg).contains("Kp=5.5");
@@ -417,37 +417,10 @@ class ClaudeAuroraInterpreterTest {
                 List.of(new KpReading(now, 5.5)), List.of(), ovation, List.of(), List.of());
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 30), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 30), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("OVATION");
         assertThat(msg).contains("35.0%");
-    }
-
-    @Test
-    @DisplayName("buildUserMessage includes Met Office text when provided")
-    void buildUserMessage_includesMetOfficeText() {
-        stubDefaultMoon();
-        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
-        SpaceWeatherData data = minimalSpaceWeather(5.0);
-
-        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 50), data, "G2 storm in progress", TriggerType.REALTIME, null);
-
-        assertThat(msg).contains("MET OFFICE");
-        assertThat(msg).contains("G2 storm in progress");
-    }
-
-    @Test
-    @DisplayName("buildUserMessage omits Met Office section when text is blank")
-    void buildUserMessage_omitsMetOfficeWhenBlank() {
-        stubDefaultMoon();
-        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
-        SpaceWeatherData data = minimalSpaceWeather(5.0);
-
-        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 50), data, "", TriggerType.REALTIME, null);
-
-        assertThat(msg).doesNotContain("MET OFFICE");
     }
 
     @Test
@@ -461,7 +434,7 @@ class ClaudeAuroraInterpreterTest {
                 List.of(new KpReading(now, 5.5)), List.of(), null, List.of(wind), List.of());
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 50), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 50), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("SOLAR WIND");
         assertThat(msg).contains("Bz=-8.5 nT");
@@ -479,7 +452,7 @@ class ClaudeAuroraInterpreterTest {
                 List.of(new KpReading(now, 5.5)), List.of(), null, List.of(), List.of(alert));
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 50), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 50), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("NOAA ALERTS");
         assertThat(msg).contains("G2 Watch");
@@ -505,7 +478,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = new SpaceWeatherData(kpReadings, List.of(), null, List.of(), List.of());
 
         String msg = interpreter.buildUserMessage(AlertLevel.STRONG, List.of(loc),
-                Map.of(loc, 20), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 20), data, TriggerType.REALTIME, null);
 
         // Reading at index 0 (Kp=1.0) and 1 (Kp=2.0) should not appear; last 5 are 4.0–8.0
         assertThat(msg).doesNotContain("Kp=1.0");
@@ -733,7 +706,7 @@ class ClaudeAuroraInterpreterTest {
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE,
                 List.of(locA, locB), Map.of(locA, 20, locB, 40),
-                data, null, TriggerType.REALTIME, null);
+                data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("LOCATIONS TO SCORE (2 locations)");
         assertThat(msg).contains("1. Galloway");
@@ -751,7 +724,7 @@ class ClaudeAuroraInterpreterTest {
         SpaceWeatherData data = minimalSpaceWeather(5.0);
 
         String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
-                Map.of(loc, 50), data, null, TriggerType.REALTIME, null);
+                Map.of(loc, 50), data, TriggerType.REALTIME, null);
 
         assertThat(msg).contains("Bortle=unknown");
     }
@@ -793,7 +766,7 @@ class ClaudeAuroraInterpreterTest {
             mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
 
             interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                    data, null, TriggerType.REALTIME, null);
+                    data, TriggerType.REALTIME, null);
 
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);
@@ -816,7 +789,7 @@ class ClaudeAuroraInterpreterTest {
             mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
 
             interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                    data, null, TriggerType.REALTIME, null);
+                    data, TriggerType.REALTIME, null);
 
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);
@@ -842,7 +815,7 @@ class ClaudeAuroraInterpreterTest {
             mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
 
             interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                    data, null, TriggerType.REALTIME, null);
+                    data, TriggerType.REALTIME, null);
 
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);
@@ -865,7 +838,7 @@ class ClaudeAuroraInterpreterTest {
             mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
 
             interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                    data, null, TriggerType.REALTIME, null);
+                    data, TriggerType.REALTIME, null);
 
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);
@@ -891,7 +864,7 @@ class ClaudeAuroraInterpreterTest {
             mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
 
             interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                    data, null, TriggerType.REALTIME, null);
+                    data, TriggerType.REALTIME, null);
 
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);
@@ -914,7 +887,7 @@ class ClaudeAuroraInterpreterTest {
             mockClaudeResponse("[{\"name\":\"Test\",\"stars\":3,\"summary\":\"OK\",\"detail\":\"–\"}]");
 
             interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
-                    data, null, TriggerType.REALTIME, null);
+                    data, TriggerType.REALTIME, null);
 
             ArgumentCaptor<MessageCreateParams> captor =
                     ArgumentCaptor.forClass(MessageCreateParams.class);

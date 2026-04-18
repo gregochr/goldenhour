@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -53,7 +52,6 @@ import static org.mockito.Mockito.when;
 class AuroraForecastRunServiceTest {
 
     @Mock private NoaaSwpcClient noaaClient;
-    @Mock private MetOfficeSpaceWeatherScraper metOfficeScraper;
     @Mock private WeatherTriageService weatherTriage;
     @Mock private ClaudeAuroraInterpreter claudeInterpreter;
     @Mock private LocationRepository locationRepository;
@@ -67,7 +65,7 @@ class AuroraForecastRunServiceTest {
     @BeforeEach
     void setUp() {
         properties = new AuroraProperties();
-        service = new AuroraForecastRunService(noaaClient, metOfficeScraper, weatherTriage,
+        service = new AuroraForecastRunService(noaaClient, weatherTriage,
                 claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
                 stateCache);
         when(stateCache.isSimulated()).thenReturn(false);
@@ -227,7 +225,7 @@ class AuroraForecastRunServiceTest {
     @DisplayName("runForecast returns no_activity when Kp is near zero")
     void runForecast_noActivity_whenKpLow() {
         when(noaaClient.fetchAll()).thenReturn(quietSpaceWeather());
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
+
 
         LocalDate date = LocalDate.now(ZoneId.of("UTC"));
         AuroraForecastRunResponse response = service.runForecast(
@@ -236,7 +234,7 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights()).hasSize(1);
         assertThat(response.nights().get(0).status()).isEqualTo("no_activity");
         assertThat(response.totalClaudeCalls()).isZero();
-        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any(), any());
+        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -256,12 +254,12 @@ class AuroraForecastRunServiceTest {
                 .id(1L).name("Test Location").lat(55.0).lon(-1.5).bortleClass(3).build();
 
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(metOfficeScraper.getForecastText()).thenReturn("Met Office text");
+
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of(loc));
         when(weatherTriage.triage(any())).thenReturn(
                 new WeatherTriageService.TriageResult(List.of(loc), List.of(), Map.of(loc, 30)));
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 30,
                         "Excellent conditions", "✓ Geomagnetic: MODERATE\n✓ Cloud: 30%")));
         when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
@@ -293,14 +291,14 @@ class AuroraForecastRunServiceTest {
                 .id(2L).name("Overcast Bay").lat(54.0).lon(-2.0).bortleClass(2).build();
 
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
+
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of(viableLoc, triageLoc));
         when(weatherTriage.triage(any())).thenReturn(
                 new WeatherTriageService.TriageResult(
                         List.of(viableLoc), List.of(triageLoc),
                         Map.of(viableLoc, 20, triageLoc, 95)));
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(viableLoc, 3, AlertLevel.MODERATE, 20,
                         "Good conditions", "✓ Cloud: 20%")));
 
@@ -330,7 +328,7 @@ class AuroraForecastRunServiceTest {
     void runForecast_deletesExistingResults() {
         LocalDate tonight = LocalDate.now(ZoneId.of("UTC"));
         when(noaaClient.fetchAll()).thenReturn(quietSpaceWeather());
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
+
 
         service.runForecast(new AuroraForecastRunRequest(List.of(tonight)));
 
@@ -354,7 +352,7 @@ class AuroraForecastRunServiceTest {
                 .id(1L).name("Overcast").lat(55.0).lon(-1.5).bortleClass(2).build();
 
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
+
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of(overcastLoc));
         when(weatherTriage.triage(any())).thenReturn(
@@ -365,7 +363,7 @@ class AuroraForecastRunServiceTest {
         AuroraForecastRunResponse response = service.runForecast(
                 new AuroraForecastRunRequest(List.of(tonight)));
 
-        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any(), any());
+        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
         assertThat(response.nights().get(0).status()).isEqualTo("all_triaged");
         assertThat(response.totalClaudeCalls()).isZero();
     }
@@ -400,10 +398,10 @@ class AuroraForecastRunServiceTest {
                 .id(1L).name("Future Location").lat(55.0).lon(-1.5).bortleClass(3).build();
 
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
+
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of(loc));
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 3, AlertLevel.MODERATE, 50,
                         "Possible aurora", "✓ Geomagnetic: MODERATE")));
         when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));
@@ -412,7 +410,7 @@ class AuroraForecastRunServiceTest {
 
         // weatherTriage.triage() should NOT be called for a future date
         verify(weatherTriage, never()).triage(any());
-        verify(claudeInterpreter, times(1)).interpret(any(), any(), any(), any(), any(), any(), any());
+        verify(claudeInterpreter, times(1)).interpret(any(), any(), any(), any(), any(), any());
     }
 
     // -------------------------------------------------------------------------
@@ -456,7 +454,7 @@ class AuroraForecastRunServiceTest {
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
         when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
-        when(metOfficeScraper.getForecastText()).thenReturn("Met Office text");
+
 
         LocationEntity loc = LocationEntity.builder()
                 .id(1L).name("Sim Location").lat(55.0).lon(-1.5).bortleClass(3).build();
@@ -467,7 +465,7 @@ class AuroraForecastRunServiceTest {
         LocalDate tonight = LocalDate.now(ZoneId.of("UTC"));
         when(weatherTriage.triage(any())).thenReturn(
                 new WeatherTriageService.TriageResult(List.of(loc), List.of(), Map.of(loc, 30)));
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.STRONG, 30,
                         "Strong conditions", "✓ Geomagnetic: STRONG")));
         when(resultRepository.save(any())).thenAnswer(i -> i.getArgument(0));

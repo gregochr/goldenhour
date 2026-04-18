@@ -171,12 +171,12 @@ class DynamicSchedulerServiceTest {
     @Test
     @DisplayName("resume rejects DISABLED_BY_CONFIG jobs")
     void resume_rejectsDisabledByConfig() {
-        SchedulerJobConfigEntity config = fixedDelayJob("met_office_scrape", 3600000L,
+        SchedulerJobConfigEntity config = fixedDelayJob("aurora_polling", 300000L,
                 SchedulerJobStatus.DISABLED_BY_CONFIG);
         config.setConfigSource("aurora.enabled");
-        when(repository.findByJobKey("met_office_scrape")).thenReturn(Optional.of(config));
+        when(repository.findByJobKey("aurora_polling")).thenReturn(Optional.of(config));
 
-        assertThatThrownBy(() -> service.resume("met_office_scrape"))
+        assertThatThrownBy(() -> service.resume("aurora_polling"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("disabled by config");
     }

@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -43,8 +42,6 @@ class AuroraOrchestratorTest {
     @Mock
     private NoaaSwpcClient noaaClient;
     @Mock
-    private MetOfficeSpaceWeatherScraper metOfficeScraper;
-    @Mock
     private WeatherTriageService weatherTriage;
     @Mock
     private ClaudeAuroraInterpreter claudeInterpreter;
@@ -60,7 +57,7 @@ class AuroraOrchestratorTest {
     void setUp() {
         properties = new AuroraProperties(); // uses all defaults: kpThreshold=5, ovation=20, etc.
         orchestrator = new AuroraOrchestrator(
-                noaaClient, metOfficeScraper, weatherTriage, claudeInterpreter,
+                noaaClient, weatherTriage, claudeInterpreter,
                 stateCache, locationRepository, properties);
     }
 
@@ -173,8 +170,7 @@ class AuroraOrchestratorTest {
 
         AuroraForecastScore score = new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 30,
                 "Good aurora conditions", "✓ Active geomagnetic storm");
-        when(metOfficeScraper.getForecastText()).thenReturn("Active G2 storm");
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(score));
 
         AuroraStateCache.Action action = orchestrator.run();
@@ -185,7 +181,6 @@ class AuroraOrchestratorTest {
                 eq(List.of(loc)),
                 any(),
                 any(),
-                eq("Active G2 storm"),
                 org.mockito.ArgumentMatchers.eq(TriggerType.REALTIME),
                 org.mockito.ArgumentMatchers.isNull());
         verify(stateCache).updateScores(any());
@@ -205,14 +200,13 @@ class AuroraOrchestratorTest {
         WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
                 List.of(loc), List.of(), Map.of(loc, 20));
         when(weatherTriage.triage(any())).thenReturn(triage);
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 20, "ok", "")));
 
         orchestrator.run();
 
         verify(claudeInterpreter).interpret(
-                any(), any(), any(), any(), any(),
+                any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.eq(TriggerType.REALTIME),
                 org.mockito.ArgumentMatchers.isNull());
     }
@@ -238,7 +232,7 @@ class AuroraOrchestratorTest {
         verify(stateCache).updateScores(
                 org.mockito.ArgumentMatchers.argThat(scores ->
                         scores.size() == 1 && scores.get(0).stars() == 1));
-        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any(), any());
+        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -310,15 +304,14 @@ class AuroraOrchestratorTest {
         WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
                 List.of(loc), List.of(), Map.of(loc, 10));
         when(weatherTriage.triage(any())).thenReturn(triage);
-        when(metOfficeScraper.getForecastText()).thenReturn(null);
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any(), any()))
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 5, AlertLevel.STRONG, 10,
                         "Forecast strong aurora tonight", "")));
 
         orchestrator.runForecastLookahead(window);
 
         verify(claudeInterpreter).interpret(
-                any(), any(), any(), any(), any(),
+                any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.eq(TriggerType.FORECAST_LOOKAHEAD),
                 org.mockito.ArgumentMatchers.eq(window));
     }

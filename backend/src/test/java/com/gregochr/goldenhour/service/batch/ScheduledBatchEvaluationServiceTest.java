@@ -9,7 +9,6 @@ import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
-import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -125,8 +124,6 @@ class ScheduledBatchEvaluationServiceTest {
     @Mock
     private AuroraProperties auroraProperties;
     @Mock
-    private MetOfficeSpaceWeatherScraper metOfficeScraper;
-    @Mock
     private DynamicSchedulerService dynamicSchedulerService;
     @Mock
     private JobRunService jobRunService;
@@ -144,7 +141,7 @@ class ScheduledBatchEvaluationServiceTest {
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
-                locationRepository, auroraProperties, metOfficeScraper, dynamicSchedulerService,
+                locationRepository, auroraProperties, dynamicSchedulerService,
                 jobRunService, openMeteoService, solarService);
     }
 
@@ -419,8 +416,8 @@ class ScheduledBatchEvaluationServiceTest {
                 List.of(loc), List.of(), java.util.Map.of());
         when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
 
-        when(metOfficeScraper.getForecastText()).thenReturn("Met Office narrative");
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any(),
+
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(),
                 any())).thenReturn("aurora user message");
         when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
                 .thenReturn(EvaluationModel.HAIKU);
@@ -672,8 +669,8 @@ class ScheduledBatchEvaluationServiceTest {
                 List.of(loc), List.of(), java.util.Map.of());
         when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
 
-        when(metOfficeScraper.getForecastText()).thenReturn("Met Office narrative");
-        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any(),
+
+        when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(),
                 any())).thenReturn("aurora user message");
         when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
                 .thenReturn(EvaluationModel.HAIKU);

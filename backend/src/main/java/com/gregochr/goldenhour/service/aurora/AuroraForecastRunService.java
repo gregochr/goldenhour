@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -73,7 +72,6 @@ public class AuroraForecastRunService {
             DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.of("Europe/London"));
 
     private final NoaaSwpcClient noaaClient;
-    private final MetOfficeSpaceWeatherScraper metOfficeScraper;
     private final WeatherTriageService weatherTriage;
     private final ClaudeAuroraInterpreter claudeInterpreter;
     private final LocationRepository locationRepository;
@@ -86,7 +84,6 @@ public class AuroraForecastRunService {
      * Constructs the service with all required dependencies.
      *
      * @param noaaClient         NOAA SWPC client for Kp forecast data
-     * @param metOfficeScraper   Met Office space weather scraper
      * @param weatherTriage      cloud cover triage service (used for tonight only)
      * @param claudeInterpreter  Claude aurora scoring service
      * @param locationRepository location data access
@@ -96,7 +93,6 @@ public class AuroraForecastRunService {
      * @param stateCache         aurora state machine (checked for simulation mode)
      */
     public AuroraForecastRunService(NoaaSwpcClient noaaClient,
-            MetOfficeSpaceWeatherScraper metOfficeScraper,
             WeatherTriageService weatherTriage,
             ClaudeAuroraInterpreter claudeInterpreter,
             LocationRepository locationRepository,
@@ -105,7 +101,6 @@ public class AuroraForecastRunService {
             SolarCalculator solarCalculator,
             AuroraStateCache stateCache) {
         this.noaaClient = noaaClient;
-        this.metOfficeScraper = metOfficeScraper;
         this.weatherTriage = weatherTriage;
         this.claudeInterpreter = claudeInterpreter;
         this.locationRepository = locationRepository;
@@ -198,7 +193,6 @@ public class AuroraForecastRunService {
         SpaceWeatherData spaceWeather = stateCache.isSimulated()
                 ? buildSimulatedSpaceWeather(stateCache.getSimulatedData())
                 : noaaClient.fetchAll();
-        String metOfficeText = metOfficeScraper.getForecastText();
         List<KpForecast> kpForecast = spaceWeather.kpForecast();
         LocalDate today = LocalDate.now(ZoneId.of("UTC"));
 
@@ -265,7 +259,7 @@ public class AuroraForecastRunService {
                         date, triage.viable().size(), level, maxKp);
                 claudeScores = claudeInterpreter.interpret(
                         level, triage.viable(), triage.cloudByLocation(),
-                        spaceWeather, metOfficeText, TriggerType.FORECAST_LOOKAHEAD, window);
+                        spaceWeather, TriggerType.FORECAST_LOOKAHEAD, window);
                 totalClaudeCalls++;
 
                 for (AuroraForecastScore score : claudeScores) {

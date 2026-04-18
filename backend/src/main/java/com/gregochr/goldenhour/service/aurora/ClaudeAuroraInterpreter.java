@@ -147,7 +147,6 @@ public class ClaudeAuroraInterpreter {
      * @param viableLocations  locations that passed weather triage
      * @param cloudByLocation  average cloud cover (0–100) per location
      * @param spaceWeather     NOAA SWPC data for context
-     * @param metOfficeText    Met Office space weather narrative (may be null)
      * @param triggerType      whether this alert is forecast-based or real-time
      * @param tonightWindow    tonight's dark period (may be null for real-time alerts)
      * @return scored aurora forecast results, one per viable location
@@ -156,7 +155,6 @@ public class ClaudeAuroraInterpreter {
             List<LocationEntity> viableLocations,
             Map<LocationEntity, Integer> cloudByLocation,
             SpaceWeatherData spaceWeather,
-            String metOfficeText,
             TriggerType triggerType,
             TonightWindow tonightWindow) {
         if (viableLocations.isEmpty()) {
@@ -164,7 +162,7 @@ public class ClaudeAuroraInterpreter {
         }
 
         String userMessage = buildUserMessage(level, viableLocations, cloudByLocation,
-                spaceWeather, metOfficeText, triggerType, tonightWindow);
+                spaceWeather, triggerType, tonightWindow);
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
         LOG.info("Aurora Claude call: {} locations, level={}, trigger={}, model={}",
@@ -216,7 +214,6 @@ public class ClaudeAuroraInterpreter {
      * @param locations      list of viable locations to score
      * @param cloudByLocation average cloud cover (0-100) per location
      * @param spaceWeather   current NOAA SWPC space weather data
-     * @param metOfficeText  Met Office space weather narrative (may be null)
      * @param triggerType    whether this is a forecast lookahead or real-time alert
      * @param tonightWindow  tonight's dark period window (may be null for real-time alerts)
      * @return the formatted user message for Claude
@@ -225,7 +222,6 @@ public class ClaudeAuroraInterpreter {
             List<LocationEntity> locations,
             Map<LocationEntity, Integer> cloudByLocation,
             SpaceWeatherData spaceWeather,
-            String metOfficeText,
             TriggerType triggerType,
             TonightWindow tonightWindow) {
         StringBuilder sb = new StringBuilder();
@@ -306,11 +302,6 @@ public class ClaudeAuroraInterpreter {
                             .append(a.message(), 0, Math.min(200, a.message().length()))
                             .append("\n"));
             sb.append("\n");
-        }
-
-        // Met Office narrative
-        if (metOfficeText != null && !metOfficeText.isBlank()) {
-            sb.append("MET OFFICE SPACE WEATHER FORECAST:\n").append(metOfficeText).append("\n\n");
         }
 
         // Lunar conditions (hourly sampling across the dark window)

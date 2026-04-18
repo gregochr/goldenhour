@@ -33,9 +33,6 @@ public class AuroraProperties {
     /** NOAA SWPC endpoint configuration. */
     private NoaaConfig noaa = new NoaaConfig();
 
-    /** Met Office space weather scraper configuration. */
-    private MetOfficeConfig metOffice = new MetOfficeConfig();
-
     /** Thresholds that trigger a NOTIFY from the state machine. */
     private TriggerConfig triggers = new TriggerConfig();
 
@@ -72,21 +69,6 @@ public class AuroraProperties {
         /** Active G-scale watches/warnings/alerts endpoint. */
         private String alertsUrl =
                 "https://services.swpc.noaa.gov/products/alerts.json";
-    }
-
-    /**
-     * Met Office space weather scraper configuration.
-     */
-    @Getter
-    @Setter
-    public static class MetOfficeConfig {
-
-        /** URL of the Met Office space weather specialist forecast page. */
-        private String spaceWeatherUrl =
-                "https://weather.metoffice.gov.uk/specialist-forecasts/space-weather/";
-
-        /** Minutes between Met Office page scrapes. Defaults to 60. */
-        private int scrapeIntervalMinutes = 60;
     }
 
     /**

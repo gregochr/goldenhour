@@ -51,22 +51,6 @@ const MOCK_JOBS = [
     configSource: '',
     updatedAt: new Date().toISOString(),
   },
-  {
-    id: 3,
-    jobKey: 'met_office_scrape',
-    displayName: 'Met Office Scrape',
-    description: 'Scrapes Met Office space weather',
-    scheduleType: 'FIXED_DELAY',
-    cronExpression: '',
-    fixedDelayMs: 3600000,
-    initialDelayMs: 300000,
-    status: 'DISABLED_BY_CONFIG',
-    lastFireTime: '',
-    lastCompletionTime: '',
-    nextFireTime: '',
-    configSource: 'aurora.enabled',
-    updatedAt: new Date().toISOString(),
-  },
 ];
 
 describe('SchedulerView', () => {
@@ -80,7 +64,6 @@ describe('SchedulerView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scheduler-job-tide_refresh')).toBeInTheDocument();
       expect(screen.getByTestId('scheduler-job-aurora_polling')).toBeInTheDocument();
-      expect(screen.getByTestId('scheduler-job-met_office_scrape')).toBeInTheDocument();
     });
   });
 
@@ -89,9 +72,6 @@ describe('SchedulerView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('status-pill-tide_refresh')).toHaveTextContent('Active');
       expect(screen.getByTestId('status-pill-aurora_polling')).toHaveTextContent('Paused');
-      expect(screen.getByTestId('status-pill-met_office_scrape')).toHaveTextContent(
-        'Disabled by Config',
-      );
     });
   });
 
@@ -136,11 +116,14 @@ describe('SchedulerView', () => {
   });
 
   it('DISABLED_BY_CONFIG disables Resume and Run Now', async () => {
+    fetchSchedulerJobs.mockResolvedValue([
+      { ...MOCK_JOBS[1], status: 'DISABLED_BY_CONFIG', configSource: 'aurora.enabled' },
+    ]);
     render(<SchedulerView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('resume-btn-met_office_scrape')).toBeDisabled();
-      expect(screen.getByTestId('trigger-btn-met_office_scrape')).toBeDisabled();
+      expect(screen.getByTestId('resume-btn-aurora_polling')).toBeDisabled();
+      expect(screen.getByTestId('trigger-btn-aurora_polling')).toBeDisabled();
     });
   });
 
@@ -184,24 +167,29 @@ describe('SchedulerView', () => {
 
     await waitFor(() => screen.getByTestId('scheduler-job-aurora_polling'));
     expect(screen.getByTestId('scheduler-job-aurora_polling').textContent).not.toContain('300000ms');
-    expect(screen.getByTestId('scheduler-job-met_office_scrape').textContent).not.toContain('3600000ms');
   });
 
   it('fixed delay hourly job shows human-readable description', async () => {
+    fetchSchedulerJobs.mockResolvedValue([
+      { ...MOCK_JOBS[1], fixedDelayMs: 3600000 },
+    ]);
     render(<SchedulerView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('scheduler-job-met_office_scrape')).toHaveTextContent(
+      expect(screen.getByTestId('scheduler-job-aurora_polling')).toHaveTextContent(
         'Every hour',
       );
     });
   });
 
   it('shows config source for disabled jobs', async () => {
+    fetchSchedulerJobs.mockResolvedValue([
+      { ...MOCK_JOBS[1], status: 'DISABLED_BY_CONFIG', configSource: 'aurora.enabled' },
+    ]);
     render(<SchedulerView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('scheduler-job-met_office_scrape')).toHaveTextContent(
+      expect(screen.getByTestId('scheduler-job-aurora_polling')).toHaveTextContent(
         'aurora.enabled',
       );
     });

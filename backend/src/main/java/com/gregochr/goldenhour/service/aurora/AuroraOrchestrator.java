@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.aurora;
 
-import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -49,7 +48,6 @@ public class AuroraOrchestrator {
     private static final Logger LOG = LoggerFactory.getLogger(AuroraOrchestrator.class);
 
     private final NoaaSwpcClient noaaClient;
-    private final MetOfficeSpaceWeatherScraper metOfficeScraper;
     private final WeatherTriageService weatherTriage;
     private final ClaudeAuroraInterpreter claudeInterpreter;
     private final AuroraStateCache stateCache;
@@ -60,7 +58,6 @@ public class AuroraOrchestrator {
      * Constructs the orchestrator with all required dependencies.
      *
      * @param noaaClient         NOAA SWPC data client
-     * @param metOfficeScraper   Met Office space weather scraper
      * @param weatherTriage      cloud cover triage service
      * @param claudeInterpreter  Claude aurora scoring service
      * @param stateCache         aurora state machine
@@ -68,14 +65,12 @@ public class AuroraOrchestrator {
      * @param properties         aurora configuration
      */
     public AuroraOrchestrator(NoaaSwpcClient noaaClient,
-            MetOfficeSpaceWeatherScraper metOfficeScraper,
             WeatherTriageService weatherTriage,
             ClaudeAuroraInterpreter claudeInterpreter,
             AuroraStateCache stateCache,
             LocationRepository locationRepository,
             AuroraProperties properties) {
         this.noaaClient = noaaClient;
-        this.metOfficeScraper = metOfficeScraper;
         this.weatherTriage = weatherTriage;
         this.claudeInterpreter = claudeInterpreter;
         this.stateCache = stateCache;
@@ -250,9 +245,8 @@ public class AuroraOrchestrator {
 
         // Claude call for viable locations
         if (!triage.viable().isEmpty()) {
-            String metOfficeText = metOfficeScraper.getForecastText();
             List<AuroraForecastScore> claudeScores = claudeInterpreter.interpret(
-                    level, triage.viable(), triage.cloudByLocation(), spaceWeather, metOfficeText,
+                    level, triage.viable(), triage.cloudByLocation(), spaceWeather,
                     triggerType, tonightWindow);
             allScores.addAll(claudeScores);
         }

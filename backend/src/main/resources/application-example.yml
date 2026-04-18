@@ -109,9 +109,6 @@ aurora:
     solar-wind-url: https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json
     solar-wind-plasma-url: https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json
     alerts-url: https://services.swpc.noaa.gov/products/alerts.json
-  met-office:
-    space-weather-url: https://weather.metoffice.gov.uk/specialist-forecasts/space-weather/
-    scrape-interval-minutes: 60
   triggers:
     kp-threshold: 5.0
     ovation-probability-threshold: 20.0

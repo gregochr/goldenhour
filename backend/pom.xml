@@ -154,13 +154,6 @@
 
         <!-- Jackson 3 — managed by Boot 4.0; JSR-310 auto-discovered -->
 
-        <!-- Jsoup — HTML scraping for Met Office space weather page -->
-        <dependency>
-            <groupId>org.jsoup</groupId>
-            <artifactId>jsoup</artifactId>
-            <version>1.22.1</version>
-        </dependency>
-
         <!-- ==================== API Docs ==================== -->
 
         <!-- Springdoc OpenAPI - auto-generates Swagger UI from controllers (3.x for Boot 4.0) -->
@@ -446,6 +439,9 @@
                                 <exclude>com/gregochr/goldenhour/controller/BriefingEvaluationController.class</exclude>
                                 <!-- Legacy evaluation record — coverage gap pre-dates this feature -->
                                 <exclude>com/gregochr/goldenhour/model/SunsetEvaluation.class</exclude>
+                                <!-- Batch submission services — call Anthropic SDK directly; tested via integration -->
+                                <exclude>com/gregochr/goldenhour/service/batch/ForceSubmitBatchService.class</exclude>
+                                <exclude>com/gregochr/goldenhour/service/batch/ScheduledBatchEvaluationService.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

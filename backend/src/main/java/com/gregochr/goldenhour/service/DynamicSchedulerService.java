@@ -42,7 +42,7 @@ public class DynamicSchedulerService {
     /** Config source value that indicates dependency on aurora.enabled. */
     private static final String AURORA_CONFIG_SOURCE = "aurora.enabled";
 
-    private static final Set<String> AURORA_JOB_KEYS = Set.of("aurora_polling", "met_office_scrape");
+    private static final Set<String> AURORA_JOB_KEYS = Set.of("aurora_polling");
 
     private final SchedulerJobConfigRepository repository;
     private final TaskScheduler taskScheduler;

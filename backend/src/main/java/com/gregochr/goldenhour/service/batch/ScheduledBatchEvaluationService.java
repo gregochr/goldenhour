@@ -44,7 +44,6 @@ import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
-import com.gregochr.goldenhour.client.MetOfficeSpaceWeatherScraper;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import jakarta.annotation.PostConstruct;
@@ -101,7 +100,6 @@ public class ScheduledBatchEvaluationService {
     private final AuroraOrchestrator auroraOrchestrator;
     private final LocationRepository locationRepository;
     private final AuroraProperties auroraProperties;
-    private final MetOfficeSpaceWeatherScraper metOfficeScraper;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final JobRunService jobRunService;
     private final OpenMeteoService openMeteoService;
@@ -132,7 +130,6 @@ public class ScheduledBatchEvaluationService {
      * @param auroraOrchestrator          derives alert level from space weather data
      * @param locationRepository          location JPA repository for Bortle-filtered candidates
      * @param auroraProperties            aurora configuration (Bortle thresholds)
-     * @param metOfficeScraper            Met Office space weather narrative
      * @param dynamicSchedulerService     scheduler to register job targets
      * @param jobRunService               service for creating and updating job run records
      * @param openMeteoService            Open-Meteo service for bulk weather pre-fetch
@@ -154,7 +151,6 @@ public class ScheduledBatchEvaluationService {
             AuroraOrchestrator auroraOrchestrator,
             LocationRepository locationRepository,
             AuroraProperties auroraProperties,
-            MetOfficeSpaceWeatherScraper metOfficeScraper,
             DynamicSchedulerService dynamicSchedulerService,
             JobRunService jobRunService,
             OpenMeteoService openMeteoService,
@@ -175,7 +171,6 @@ public class ScheduledBatchEvaluationService {
         this.auroraOrchestrator = auroraOrchestrator;
         this.locationRepository = locationRepository;
         this.auroraProperties = auroraProperties;
-        this.metOfficeScraper = metOfficeScraper;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.jobRunService = jobRunService;
         this.openMeteoService = openMeteoService;
@@ -432,10 +427,9 @@ public class ScheduledBatchEvaluationService {
             return;
         }
 
-        String metOfficeText = metOfficeScraper.getForecastText();
         String userMessage = claudeAuroraInterpreter.buildUserMessage(
                 level, triage.viable(), triage.cloudByLocation(), spaceWeather,
-                metOfficeText, TriggerType.FORECAST_LOOKAHEAD, null);
+                TriggerType.FORECAST_LOOKAHEAD, null);
 
         EvaluationModel model =
                 modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
