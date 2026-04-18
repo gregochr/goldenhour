@@ -4,31 +4,38 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.TextStyle;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * Detects Spring Tide hot topics using lunar phase calculations.
+ * Detects Spring Tide hot topics from the cached briefing triage data.
  *
  * <p>A spring tide occurs around new and full moons when gravitational
  * alignment produces larger-than-normal tidal ranges. Emits a topic only
- * when the tide is classified as {@link LunarTideType#SPRING_TIDE} — king
- * tides (spring + perigee) are handled separately by
- * {@link KingTideHotTopicStrategy} to avoid duplication.
+ * when the tide is classified as a spring tide but NOT a king tide — king
+ * tides are handled separately by {@link KingTideHotTopicStrategy} to
+ * avoid duplication.
  *
- * <p>Makes no external API calls — uses only the deterministic
- * {@link LunarPhaseService} calculation and the location repository.
+ * <p>Reads from the briefing cache ({@link BriefingService#getCachedDays()})
+ * so that the pill is consistent with what the heatmap grid and Best Bet show.
+ * Falls back to empty when no briefing has been generated yet.
  */
 @Component
 public class SpringTideHotTopicStrategy implements HotTopicStrategy {
@@ -38,21 +45,22 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                     + " tidal ranges. Higher water at coastal locations means more"
                     + " dramatic foreground and wave action.";
 
-    private final LunarPhaseService lunarPhaseService;
+    private final BriefingService briefingService;
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
 
     /**
      * Constructs a {@code SpringTideHotTopicStrategy}.
      *
-     * @param lunarPhaseService            service for lunar tide classification
+     * @param briefingService              cached briefing data (injected lazily
+     *                                     to break circular dependency)
      * @param locationRepository           repository for location lookups
      * @param forecastEvaluationRepository repository for tide alignment queries
      */
-    public SpringTideHotTopicStrategy(LunarPhaseService lunarPhaseService,
+    public SpringTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.lunarPhaseService = lunarPhaseService;
+        this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
     }
@@ -60,14 +68,26 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Scans each day in the window for a spring tide that is NOT a king tide.
-     * Emits at most one topic (one pill is sufficient for a spring tide window).
+     * <p>Scans the cached briefing days for any slot whose tide data indicates
+     * a spring tide (but NOT a king tide). Emits at most one topic. Returns
+     * empty when no briefing has been cached yet.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
-            LunarTideType tideType = lunarPhaseService.classifyTide(date);
-            if (tideType == LunarTideType.SPRING_TIDE) {
+        List<BriefingDay> days = briefingService.getCachedDays();
+        if (days == null) {
+            return List.of();
+        }
+
+        List<BriefingDay> sorted = days.stream()
+                .filter(d -> !d.date().isBefore(fromDate) && !d.date().isAfter(toDate))
+                .sorted(Comparator.comparing(BriefingDay::date))
+                .toList();
+
+        for (BriefingDay day : sorted) {
+            BriefingSlot.TideInfo springTide = findSpringTide(day);
+            if (springTide != null) {
+                LocalDate date = day.date();
                 String dayLabel = formatDayLabel(date, fromDate);
                 List<LocationEntity> coastalLocations =
                         locationRepository.findCoastalLocations();
@@ -82,8 +102,7 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 ExpandedHotTopicDetail expandedDetail =
                         KingTideHotTopicStrategy.buildExpandedDetail(
                                 coastalLocations, "Spring tide",
-                                lunarPhaseService.getMoonPhase(date),
-                                alignmentCounts);
+                                springTide.lunarPhase(), alignmentCounts);
 
                 return List.of(new HotTopic(
                         "SPRING_TIDE",
@@ -100,6 +119,43 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
         }
 
         return List.of();
+    }
+
+    /**
+     * Returns the first spring-but-not-king tide info found in the given day.
+     *
+     * @param day the briefing day to scan
+     * @return first matching {@link BriefingSlot.TideInfo}, or null if none
+     */
+    static BriefingSlot.TideInfo findSpringTide(BriefingDay day) {
+        for (BriefingEventSummary event : day.eventSummaries()) {
+            for (BriefingRegion region : event.regions()) {
+                for (BriefingSlot slot : region.slots()) {
+                    if (isSpringNotKing(slot.tide())) {
+                        return slot.tide();
+                    }
+                }
+            }
+            for (BriefingSlot slot : event.unregioned()) {
+                if (isSpringNotKing(slot.tide())) {
+                    return slot.tide();
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isSpringNotKing(BriefingSlot.TideInfo tide) {
+        if (tide == null) {
+            return false;
+        }
+        boolean isKing = tide.isKingTide()
+                || tide.lunarTideType() == LunarTideType.KING_TIDE;
+        if (isKing) {
+            return false;
+        }
+        return tide.isSpringTide()
+                || tide.lunarTideType() == LunarTideType.SPRING_TIDE;
     }
 
     private List<String> extractRegionNames(List<LocationEntity> locations) {

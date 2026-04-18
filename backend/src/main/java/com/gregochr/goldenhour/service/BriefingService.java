@@ -199,6 +199,19 @@ public class BriefingService {
     }
 
     /**
+     * Returns the cached briefing days without overlaying live state.
+     *
+     * <p>Used by hot topic strategies to scan triage data (e.g. tide
+     * classifications) without triggering a recursive hot topic re-detection.
+     *
+     * @return cached briefing days, or null if no briefing has been generated yet
+     */
+    public List<BriefingDay> getCachedDays() {
+        DailyBriefingResponse cached = cache.get();
+        return cached != null ? cached.days() : null;
+    }
+
+    /**
      * Refreshes the daily briefing by fetching live weather data for all enabled colour
      * locations across today and tomorrow, rolling up by region per solar event.
      *

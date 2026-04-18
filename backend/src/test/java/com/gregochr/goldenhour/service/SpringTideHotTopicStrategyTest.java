@@ -5,8 +5,13 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,7 +28,6 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -36,7 +40,7 @@ class SpringTideHotTopicStrategyTest {
     private static final LocalDate TO_DATE = TODAY.plusDays(3);
 
     @Mock
-    private LunarPhaseService lunarPhaseService;
+    private BriefingService briefingService;
 
     @Mock
     private LocationRepository locationRepository;
@@ -48,14 +52,16 @@ class SpringTideHotTopicStrategyTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new SpringTideHotTopicStrategy(lunarPhaseService, locationRepository,
+        strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository,
                 forecastEvaluationRepository);
     }
 
     @Test
     @DisplayName("spring tide today emits pill with priority 2 and 'today' label")
     void detect_springTideToday_emitsPriority2() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "The North Yorkshire Coast");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
@@ -76,13 +82,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("king tide emits nothing from spring tide strategy (no duplication)")
     void detect_kingTide_emitsNothing() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.KING_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.KING_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(3)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
@@ -92,13 +94,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("regular tide emits nothing")
     void detect_regularTide_emitsNothing() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(3)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
@@ -108,9 +106,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("spring tide on T+1 emits pill with 'tomorrow' label")
     void detect_springTideTomorrow_emitsWithTomorrowLabel() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.SPRING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY.plusDays(1), "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
@@ -123,11 +121,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("spring tide on T+2 emits pill with day-of-week label")
     void detect_springTideInTwoDays_emitsWithDayName() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY.plusDays(2), "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
@@ -140,7 +136,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("only one pill emitted even when multiple spring tide days exist")
     void detect_multipleSpringTideDays_emitsOnlyFirst() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.SPRING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
@@ -152,7 +150,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("multiple coastal regions included in pill")
     void detect_multipleCoastalRegions_allIncluded() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland", "The North Yorkshire Coast",
                 "Tyne and Wear");
 
@@ -163,32 +163,14 @@ class SpringTideHotTopicStrategyTest {
                 "The North Yorkshire Coast", "Tyne and Wear");
     }
 
-    // ── Early return / loop boundary ─────────────────────────────────────────
-
-    @Test
-    @DisplayName("stops scanning after first spring tide — does not call classifyTide for later days")
-    void detect_springTideOnFirstDay_stopsScanning() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
-        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("New Moon");
-        stubCoastalLocations(TODAY, "Northumberland");
-
-        strategy.detect(TODAY, TO_DATE);
-
-        verify(lunarPhaseService).classifyTide(TODAY);
-        verify(lunarPhaseService).getMoonPhase(TODAY);
-        verifyNoMoreInteractions(lunarPhaseService);
-    }
+    // ── Boundary tests ────────────────────────────────────────────────────────
 
     @Test
     @DisplayName("spring tide on toDate boundary (last day of window) is detected")
     void detect_springTideOnLastDay_detected() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TO_DATE))
-                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.SPRING_TIDE));
         stubCoastalLocations(TO_DATE, "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
@@ -200,7 +182,8 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("single-day window with spring tide emits pill")
     void detect_singleDayWindow_springTide_emits() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.SPRING_TIDE)));
         stubCoastalLocations(TODAY, "Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TODAY);
@@ -213,11 +196,24 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("single-day window with regular tide emits nothing")
     void detect_singleDayWindow_regularTide_emitsNothing() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.REGULAR_TIDE)));
 
         List<HotTopic> topics = strategy.detect(TODAY, TODAY);
 
         assertThat(topics).isEmpty();
+    }
+
+    @Test
+    @DisplayName("cached days null returns empty")
+    void detect_cachedDaysNull_returnsEmpty() {
+        when(briefingService.getCachedDays()).thenReturn(null);
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+        verifyNoInteractions(locationRepository);
+        verifyNoInteractions(forecastEvaluationRepository);
     }
 
     // ── Region edge cases ────────────────────────────────────────────────────
@@ -225,7 +221,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("duplicate regions from multiple coastal locations are deduplicated")
     void detect_duplicateRegions_deduplicated() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.of());
 
@@ -249,7 +247,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("locations with null region are filtered out")
     void detect_nullRegion_filteredOut() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.of());
 
@@ -274,7 +274,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("no coastal locations produces empty regions list")
     void detect_noCoastalLocations_emptyRegions() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         when(locationRepository.findCoastalLocations()).thenReturn(List.of());
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.of());
@@ -290,13 +292,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("does not query location repository when no spring tide found")
     void detect_noSpringTide_noLocationQuery() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(3)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
 
         strategy.detect(TODAY, TO_DATE);
 
@@ -305,22 +303,16 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("scans all four days when no spring tide until toDate")
-    void detect_noSpringTide_scansAllDays() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.KING_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(3)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
+    @DisplayName("king tide days are skipped — no location query")
+    void detect_kingTideDays_skippedNoLocationQuery() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
 
         strategy.detect(TODAY, TO_DATE);
 
-        verify(lunarPhaseService).classifyTide(TODAY);
-        verify(lunarPhaseService).classifyTide(TODAY.plusDays(1));
-        verify(lunarPhaseService).classifyTide(TODAY.plusDays(2));
-        verify(lunarPhaseService).classifyTide(TODAY.plusDays(3));
+        verifyNoInteractions(locationRepository);
+        verifyNoInteractions(forecastEvaluationRepository);
     }
 
     // ── expandedDetail tests ────────────────────────────────────────────────
@@ -328,8 +320,8 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("expandedDetail populated with regionGroups of coastal locations")
     void detect_expandedDetail_populatedWithRegionGroups() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
-        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("New Moon");
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.SPRING_TIDE, "New Moon")));
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.of());
 
@@ -354,8 +346,8 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("tideLocationMetrics has correct tidePreference")
     void detect_expandedDetail_tideLocationMetricsCorrect() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
-        when(lunarPhaseService.getMoonPhase(TODAY)).thenReturn("Full Moon");
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.SPRING_TIDE, "Full Moon")));
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.of());
 
@@ -379,9 +371,9 @@ class SpringTideHotTopicStrategyTest {
     @DisplayName("alignment query is called with the spring tide date, not fromDate")
     void detect_springTideOnT1_queriesAlignmentForCorrectDate() {
         LocalDate springTideDate = TODAY.plusDays(1);
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(springTideDate))
-                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.SPRING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(springTideDate, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(springTideDate))
                 .thenReturn(List.<Object[]>of(
@@ -402,7 +394,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("detail line — both sunrise and sunset aligned")
     void detect_bothAligned_detailShowsBothCounts() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.<Object[]>of(
@@ -419,7 +413,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("detail line — no alignment")
     void detect_noAlignment_detailShowsFallback() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.of());
@@ -434,7 +430,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("detail line — singular location uses 'catches' not 'catch'")
     void detect_singularLocation_usesCorrectGrammar() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.<Object[]>of(
@@ -451,7 +449,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("detail line — sunrise only aligned")
     void detect_sunriseOnlyAligned_detailShowsSunrise() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.<Object[]>of(
@@ -466,7 +466,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("detail line — sunset only aligned")
     void detect_sunsetOnlyAligned_detailShowsSunset() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY, "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
                 .thenReturn(List.<Object[]>of(
@@ -481,11 +483,9 @@ class SpringTideHotTopicStrategyTest {
     @Test
     @DisplayName("detail line — alignment with Saturday label ends with day name")
     void detect_alignedWithSaturdayLabel_detailEndsWithDayName() {
-        when(lunarPhaseService.classifyTide(TODAY)).thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(1)))
-                .thenReturn(LunarTideType.REGULAR_TIDE);
-        when(lunarPhaseService.classifyTide(TODAY.plusDays(2)))
-                .thenReturn(LunarTideType.SPRING_TIDE);
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE));
         stubCoastalLocations(TODAY.plusDays(2), "Northumberland");
         when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY.plusDays(2)))
                 .thenReturn(List.<Object[]>of(
@@ -500,7 +500,81 @@ class SpringTideHotTopicStrategyTest {
                         + " 2 catch sunset Saturday");
     }
 
+    // ── Statistical spring tide detection ─────────────────────────────────────
+
+    @Test
+    @DisplayName("statistical spring tide (isSpringTide=true, lunarTideType=REGULAR) emits pill")
+    void detect_statisticalSpringTide_emitsPill() {
+        BriefingSlot.TideInfo statisticalSpring = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, false, true, LunarTideType.REGULAR_TIDE,
+                "Waxing Crescent", false);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, statisticalSpring)));
+        stubCoastalLocations(TODAY, "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+    }
+
+    @Test
+    @DisplayName("statistical king tide does not emit spring tide pill")
+    void detect_statisticalKingTide_noSpringPill() {
+        BriefingSlot.TideInfo statisticalKing = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, true, true, LunarTideType.REGULAR_TIDE,
+                "Full Moon", false);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithTide(TODAY, statisticalKing)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private BriefingDay buildDay(LocalDate date, LunarTideType tideType) {
+        String moonPhase = (tideType == LunarTideType.KING_TIDE
+                || tideType == LunarTideType.SPRING_TIDE) ? "Full Moon" : null;
+        return buildDay(date, tideType, moonPhase);
+    }
+
+    private BriefingDay buildDay(LocalDate date, LunarTideType tideType, String moonPhase) {
+        BriefingSlot.TideInfo tideInfo;
+        if (tideType == LunarTideType.KING_TIDE) {
+            tideInfo = new BriefingSlot.TideInfo(
+                    "HIGH", true, null, null, true, true,
+                    LunarTideType.KING_TIDE, moonPhase, true);
+        } else if (tideType == LunarTideType.SPRING_TIDE) {
+            tideInfo = new BriefingSlot.TideInfo(
+                    "HIGH", true, null, null, false, true,
+                    LunarTideType.SPRING_TIDE, moonPhase, false);
+        } else {
+            tideInfo = BriefingSlot.TideInfo.NONE;
+        }
+        return buildDayWithTide(date, tideInfo);
+    }
+
+    private BriefingDay buildDayWithTide(LocalDate date, BriefingSlot.TideInfo tideInfo) {
+        BriefingSlot slot = new BriefingSlot(
+                "Coastal", null, Verdict.GO, null, tideInfo, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "Northumberland", Verdict.GO, null, List.of(), List.of(slot),
+                null, null, null, null, null, null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        return new BriefingDay(date, List.of(event));
+    }
+
+    private List<BriefingDay> buildDays(LunarTideType d0, LunarTideType d1,
+            LunarTideType d2, LunarTideType d3) {
+        return List.of(
+                buildDay(TODAY, d0),
+                buildDay(TODAY.plusDays(1), d1),
+                buildDay(TODAY.plusDays(2), d2),
+                buildDay(TODAY.plusDays(3), d3));
+    }
 
     private void stubCoastalLocations(LocalDate tideDate, String... regionNames) {
         List<LocationEntity> locations = new java.util.ArrayList<>();

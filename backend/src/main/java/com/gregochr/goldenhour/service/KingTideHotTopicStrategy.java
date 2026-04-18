@@ -4,6 +4,10 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.LocationEntry;
 import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.RegionGroup;
@@ -12,6 +16,7 @@ import com.gregochr.goldenhour.model.ExpandedHotTopicDetail.TideMetrics;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.time.DayOfWeek;
@@ -27,15 +32,16 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Detects King Tide hot topics using lunar phase calculations.
+ * Detects King Tide hot topics from the cached briefing triage data.
  *
  * <p>A king tide occurs when a new or full moon coincides with the moon's
  * closest approach to Earth (perigee), producing the strongest tidal forcing.
  * This happens only 5–10 times per year and warrants a high-priority alert
  * for coastal photography.
  *
- * <p>Makes no external API calls — uses only the deterministic
- * {@link LunarPhaseService} calculation and the location repository.
+ * <p>Reads from the briefing cache ({@link BriefingService#getCachedDays()})
+ * so that the pill is consistent with what the heatmap grid and Best Bet show.
+ * Falls back to empty when no briefing has been generated yet.
  */
 @Component
 public class KingTideHotTopicStrategy implements HotTopicStrategy {
@@ -46,21 +52,22 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                     + " Only happens 5\u201310 times per year — rare dramatic foreground at"
                     + " coastal locations.";
 
-    private final LunarPhaseService lunarPhaseService;
+    private final BriefingService briefingService;
     private final LocationRepository locationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
 
     /**
      * Constructs a {@code KingTideHotTopicStrategy}.
      *
-     * @param lunarPhaseService            service for lunar tide classification
+     * @param briefingService              cached briefing data (injected lazily
+     *                                     to break circular dependency)
      * @param locationRepository           repository for location lookups
      * @param forecastEvaluationRepository repository for tide alignment queries
      */
-    public KingTideHotTopicStrategy(LunarPhaseService lunarPhaseService,
+    public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
             LocationRepository locationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository) {
-        this.lunarPhaseService = lunarPhaseService;
+        this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
     }
@@ -68,14 +75,26 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Scans each day in the window for a king tide. Emits at most one topic
-     * (king tides last 1–2 days, so one pill is sufficient).
+     * <p>Scans the cached briefing days for any slot whose tide data indicates
+     * a king tide. Emits at most one topic (king tides last 1–2 days, so one
+     * pill is sufficient). Returns empty when no briefing has been cached yet.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
-        for (LocalDate date = fromDate; !date.isAfter(toDate); date = date.plusDays(1)) {
-            LunarTideType tideType = lunarPhaseService.classifyTide(date);
-            if (tideType == LunarTideType.KING_TIDE) {
+        List<BriefingDay> days = briefingService.getCachedDays();
+        if (days == null) {
+            return List.of();
+        }
+
+        List<BriefingDay> sorted = days.stream()
+                .filter(d -> !d.date().isBefore(fromDate) && !d.date().isAfter(toDate))
+                .sorted(Comparator.comparing(BriefingDay::date))
+                .toList();
+
+        for (BriefingDay day : sorted) {
+            BriefingSlot.TideInfo kingTide = findKingTide(day);
+            if (kingTide != null) {
+                LocalDate date = day.date();
                 String dayLabel = formatDayLabel(date, fromDate);
                 List<LocationEntity> coastalLocations =
                         locationRepository.findCoastalLocations();
@@ -88,7 +107,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                         .getOrDefault(TargetType.SUNSET, 0L).intValue();
                 ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                         coastalLocations, "King tide",
-                        lunarPhaseService.getMoonPhase(date), alignmentCounts);
+                        kingTide.lunarPhase(), alignmentCounts);
 
                 return List.of(new HotTopic(
                         "KING_TIDE",
@@ -104,6 +123,36 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         }
 
         return List.of();
+    }
+
+    /**
+     * Returns the first king tide info found in the given briefing day.
+     *
+     * @param day the briefing day to scan
+     * @return first matching {@link BriefingSlot.TideInfo}, or null if none
+     */
+    static BriefingSlot.TideInfo findKingTide(BriefingDay day) {
+        for (BriefingEventSummary event : day.eventSummaries()) {
+            for (BriefingRegion region : event.regions()) {
+                for (BriefingSlot slot : region.slots()) {
+                    if (isKingTide(slot.tide())) {
+                        return slot.tide();
+                    }
+                }
+            }
+            for (BriefingSlot slot : event.unregioned()) {
+                if (isKingTide(slot.tide())) {
+                    return slot.tide();
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean isKingTide(BriefingSlot.TideInfo tide) {
+        return tide != null
+                && (tide.isKingTide()
+                        || tide.lunarTideType() == LunarTideType.KING_TIDE);
     }
 
     /**
