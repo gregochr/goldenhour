@@ -16,8 +16,10 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -285,5 +287,96 @@ class MoonTransitionCalculatorTest {
         assertThat(data.moonRiseTime()).isEqualTo("2026-04-10T21:00:00");
         // First set at 23:00 UTC — ISO UTC datetime
         assertThat(data.moonSetTime()).isEqualTo("2026-04-10T23:00:00");
+    }
+
+    // ── Lat/lon passed through correctly ──
+
+    @Test
+    @DisplayName("Latitude and longitude are passed to the calculator, not swapped or zeroed")
+    void latLonPassedThrough() {
+        ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 21, 0, 0, 0, ZoneOffset.UTC);
+        ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 3, 0, 0, 0, ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(dusk, dawn);
+
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), eq(LAT), eq(LON)))
+                .thenReturn(new LunarPosition(-15.0, 180.0, 0.10,
+                        LunarPhase.NEW_MOON, 384400));
+
+        MoonTransitionCalculator.calculate(lunarCalculator, window, LAT, LON);
+
+        // Verify dusk sample uses exact lat/lon (first call)
+        verify(lunarCalculator).calculate(dusk, LAT, LON);
+    }
+
+    // ── Dawn boundary transition ──
+
+    @Test
+    @DisplayName("Transition at exactly dawn hour is detected (loop includes dawn)")
+    void transitionAtDawnBoundary() {
+        ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 21, 0, 0, 0, ZoneOffset.UTC);
+        ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 3, 0, 0, 0, ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(dusk, dawn);
+
+        // Moon below until dawn, then rises at exactly dawn (03:00 UTC)
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> {
+                    ZonedDateTime time = inv.getArgument(0);
+                    boolean above = time.getHour() == 3;
+                    double alt = above ? 10.0 : -10.0;
+                    return new LunarPosition(alt, 180.0, 0.30,
+                            LunarPhase.WAXING_CRESCENT, 384400);
+                });
+
+        MoonTransitionData data = MoonTransitionCalculator.calculate(
+                lunarCalculator, window, LAT, LON);
+
+        assertThat(data).isNotNull();
+        assertThat(data.windowQuality()).isEqualTo(WindowQuality.DARK_THEN_MOONLIT);
+        assertThat(data.moonRiseTime()).isEqualTo("2026-04-11T03:00:00");
+        assertThat(data.moonUpAtEnd()).isTrue();
+    }
+
+    // ── Minimum window ──
+
+    @Test
+    @DisplayName("Two-hour window detects transition at first sample after dusk")
+    void twoHourWindow_transitionDetected() {
+        ZonedDateTime dusk = ZonedDateTime.of(2026, 4, 10, 22, 0, 0, 0, ZoneOffset.UTC);
+        ZonedDateTime dawn = ZonedDateTime.of(2026, 4, 11, 0, 0, 0, 0, ZoneOffset.UTC);
+        TonightWindow window = new TonightWindow(dusk, dawn);
+
+        // Above at dusk (22:00), below at 23:00, below at 00:00
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), anyDouble(), anyDouble()))
+                .thenAnswer(inv -> {
+                    ZonedDateTime time = inv.getArgument(0);
+                    boolean above = time.getHour() == 22;
+                    double alt = above ? 20.0 : -5.0;
+                    return new LunarPosition(alt, 180.0, 0.55,
+                            LunarPhase.FIRST_QUARTER, 384400);
+                });
+
+        MoonTransitionData data = MoonTransitionCalculator.calculate(
+                lunarCalculator, window, LAT, LON);
+
+        assertThat(data.windowQuality()).isEqualTo(WindowQuality.MOONLIT_THEN_DARK);
+        assertThat(data.moonSetTime()).isEqualTo("2026-04-10T23:00:00");
+        assertThat(data.moonUpAtStart()).isTrue();
+        assertThat(data.moonUpAtEnd()).isFalse();
+    }
+
+    // ── Single-point fallback illumination passthrough ──
+
+    @Test
+    @DisplayName("Single-point fallback passes illumination through from calculator")
+    void singlePointFallback_illuminationPassthrough() {
+        when(lunarCalculator.calculate(any(ZonedDateTime.class), eq(LAT), eq(LON)))
+                .thenReturn(new LunarPosition(-20.0, 180.0, 0.03,
+                        LunarPhase.NEW_MOON, 384400));
+
+        MoonTransitionData data = MoonTransitionCalculator.calculate(
+                lunarCalculator, null, LAT, LON);
+
+        assertThat(data.illuminationPct()).isEqualTo(3.0);
+        assertThat(data.phase()).isEqualTo(LunarPhase.NEW_MOON);
     }
 }

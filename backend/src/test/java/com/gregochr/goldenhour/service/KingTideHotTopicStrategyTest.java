@@ -23,9 +23,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -1178,6 +1180,194 @@ class KingTideHotTopicStrategyTest {
         assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
                 best, true, TODAY))
                 .isEqualTo("5 tides aligned with tomorrow sunset");
+    }
+
+    // ── buildAlignmentInfo count boundary ─────────────────────────────────
+
+    @Test
+    @DisplayName("buildAlignmentInfo — count=1 singular, single day")
+    void buildAlignmentInfo_count1_singleDay_singular() {
+        var best = new KingTideHotTopicStrategy.BestAlignment(
+                TODAY, TargetType.SUNSET, 1L);
+
+        assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
+                best, false, TODAY))
+                .isEqualTo("1 tide aligned with sunset");
+    }
+
+    @Test
+    @DisplayName("buildAlignmentInfo — count=1 singular, multi-day")
+    void buildAlignmentInfo_count1_multiDay_singular() {
+        var best = new KingTideHotTopicStrategy.BestAlignment(
+                TODAY.plusDays(1), TargetType.SUNRISE, 1L);
+
+        assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
+                best, true, TODAY))
+                .isEqualTo("1 tide aligned with tomorrow sunrise");
+    }
+
+    @Test
+    @DisplayName("buildAlignmentInfo — count=2 plural")
+    void buildAlignmentInfo_count2_plural() {
+        var best = new KingTideHotTopicStrategy.BestAlignment(
+                TODAY, TargetType.SUNRISE, 2L);
+
+        assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
+                best, false, TODAY))
+                .isEqualTo("2 tides aligned with sunrise");
+    }
+
+    // ── buildKingTideDetail direct unit tests ──────────────────────────────
+
+    @Test
+    @DisplayName("buildKingTideDetail — null alignment omits segment")
+    void buildKingTideDetail_nullAlignment_omitsSegment() {
+        assertThat(KingTideHotTopicStrategy.buildKingTideDetail(
+                "today", null, 5))
+                .isEqualTo("King tide today \u00b7 5 coastal locations");
+    }
+
+    @Test
+    @DisplayName("buildKingTideDetail — non-null alignment included")
+    void buildKingTideDetail_withAlignment_includesSegment() {
+        assertThat(KingTideHotTopicStrategy.buildKingTideDetail(
+                "today and tomorrow",
+                "7 tides aligned with tomorrow sunrise", 12))
+                .isEqualTo("King tide today and tomorrow"
+                        + " \u00b7 7 tides aligned with tomorrow sunrise"
+                        + " \u00b7 12 coastal locations");
+    }
+
+    @Test
+    @DisplayName("buildKingTideDetail — singular coastal location")
+    void buildKingTideDetail_singularCoastal() {
+        assertThat(KingTideHotTopicStrategy.buildKingTideDetail(
+                "today", "3 tides aligned with sunrise", 1))
+                .isEqualTo("King tide today"
+                        + " \u00b7 3 tides aligned with sunrise"
+                        + " \u00b7 1 coastal location");
+    }
+
+    @Test
+    @DisplayName("buildKingTideDetail — plural coastal locations")
+    void buildKingTideDetail_pluralCoastal() {
+        assertThat(KingTideHotTopicStrategy.buildKingTideDetail(
+                "today", "3 tides aligned with sunrise", 2))
+                .isEqualTo("King tide today"
+                        + " \u00b7 3 tides aligned with sunrise"
+                        + " \u00b7 2 coastal locations");
+    }
+
+    // ── formatCatch / formatCatchShort / formatLocationCount ─────────────
+
+    @Test
+    @DisplayName("formatCatch — singular and plural")
+    void formatCatch_singularAndPlural() {
+        assertThat(KingTideHotTopicStrategy.formatCatch(1, "sunrise"))
+                .isEqualTo("1 location catches sunrise");
+        assertThat(KingTideHotTopicStrategy.formatCatch(3, "sunset"))
+                .isEqualTo("3 locations catch sunset");
+    }
+
+    @Test
+    @DisplayName("formatCatchShort — singular and plural")
+    void formatCatchShort_singularAndPlural() {
+        assertThat(KingTideHotTopicStrategy.formatCatchShort(1, "sunrise"))
+                .isEqualTo("1 catches sunrise");
+        assertThat(KingTideHotTopicStrategy.formatCatchShort(4, "sunset"))
+                .isEqualTo("4 catch sunset");
+    }
+
+    @Test
+    @DisplayName("formatLocationCount — singular and plural")
+    void formatLocationCount_singularAndPlural() {
+        assertThat(KingTideHotTopicStrategy.formatLocationCount(1))
+                .isEqualTo("1 location");
+        assertThat(KingTideHotTopicStrategy.formatLocationCount(7))
+                .isEqualTo("7 locations");
+    }
+
+    // ── findBestAlignment — zero mixed with positive on same date ────────
+
+    @Test
+    @DisplayName("findBestAlignment — zero sunrise, positive sunset on same date")
+    void findBestAlignment_zeroAndPositiveOnSameDate() {
+        var counts = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        counts.put(TargetType.SUNRISE, 0L);
+        counts.put(TargetType.SUNSET, 4L);
+        var alignments = new java.util.LinkedHashMap<LocalDate,
+                java.util.Map<TargetType, Long>>();
+        alignments.put(TODAY, counts);
+
+        var result = KingTideHotTopicStrategy
+                .findBestAlignment(alignments);
+
+        assertThat(result).isNotNull();
+        assertThat(result.event()).isEqualTo(TargetType.SUNSET);
+        assertThat(result.count()).isEqualTo(4L);
+    }
+
+    // ── buildExpandedDetail — empty tideType ────────────────────────────
+
+    @Test
+    @DisplayName("buildExpandedDetail — location with empty tideType set yields null preference")
+    void buildExpandedDetail_emptyTideType_nullPreference() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Mystery Cove").lat(55.0).lon(-1.5)
+                .tideType(Set.of()).region(region).enabled(true).build();
+
+        ExpandedHotTopicDetail detail = KingTideHotTopicStrategy
+                .buildExpandedDetail(List.of(loc), "King tide",
+                        "Full Moon", Map.of());
+
+        assertThat(detail.regionGroups()).hasSize(1);
+        assertThat(detail.regionGroups().get(0).locations().get(0)
+                .tideLocationMetrics().tidePreference()).isNull();
+    }
+
+    // ── Alignment query skips non-king-tide dates ────────────────────────
+
+    @Test
+    @DisplayName("multi-day window only queries alignment for king tide dates")
+    void detect_multiDay_onlyQueriesKingTideDates() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(2)))
+                .thenReturn(List.of());
+        stubLocationRepoOnly("Northumberland");
+
+        strategy.detect(TODAY, TO_DATE);
+
+        verify(forecastEvaluationRepository)
+                .countTideAlignedByTargetType(TODAY);
+        verify(forecastEvaluationRepository)
+                .countTideAlignedByTargetType(TODAY.plusDays(2));
+        // Regular tide dates must NOT be queried
+        verify(forecastEvaluationRepository, never())
+                .countTideAlignedByTargetType(TODAY.plusDays(1));
+        verify(forecastEvaluationRepository, never())
+                .countTideAlignedByTargetType(TODAY.plusDays(3));
+    }
+
+    // ── isKingTide negative — neither flag matches ──────────────────────
+
+    @Test
+    @DisplayName("findKingTide returns null when all slots have isKingTide=false and REGULAR_TIDE")
+    void findKingTide_noKingTideFlags_returnsNull() {
+        BriefingSlot.TideInfo notKing = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, false, true,
+                LunarTideType.REGULAR_TIDE, null, false);
+        BriefingDay day = buildDayWithTide(TODAY, notKing);
+
+        assertThat(KingTideHotTopicStrategy.findKingTide(day)).isNull();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
