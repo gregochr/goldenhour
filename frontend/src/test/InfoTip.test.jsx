@@ -85,7 +85,7 @@ describe('InfoTip', () => {
   it('popover keyDown does not propagate to parent handler', () => {
     const parentHandler = vi.fn();
     render(
-      <div onKeyDown={parentHandler} data-testid="parent">
+      <div role="toolbar" onKeyDown={parentHandler} data-testid="parent">
         <InfoTip text="help text" />
       </div>,
     );
