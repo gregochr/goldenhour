@@ -75,9 +75,11 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Scans the cached briefing days for any slot whose tide data indicates
-     * a king tide. Emits at most one topic (king tides last 1–2 days, so one
-     * pill is sufficient). Returns empty when no briefing has been cached yet.
+     * <p>Scans the cached briefing days for king tide candidates and picks
+     * the best date: prefers dates with tide alignment; when none have
+     * alignment, prefers a future date over today (more actionable).
+     * Emits at most one topic. Returns empty when no briefing has been
+     * cached yet.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -86,43 +88,43 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        List<BriefingDay> sorted = days.stream()
-                .filter(d -> !d.date().isBefore(fromDate) && !d.date().isAfter(toDate))
+        List<BriefingDay> candidates = days.stream()
+                .filter(d -> !d.date().isBefore(fromDate)
+                        && !d.date().isAfter(toDate))
                 .sorted(Comparator.comparing(BriefingDay::date))
+                .filter(d -> findKingTide(d) != null)
                 .toList();
 
-        for (BriefingDay day : sorted) {
-            BriefingSlot.TideInfo kingTide = findKingTide(day);
-            if (kingTide != null) {
-                LocalDate date = day.date();
-                String dayLabel = formatDayLabel(date, fromDate);
-                List<LocationEntity> coastalLocations =
-                        locationRepository.findCoastalLocations();
-                List<String> coastalRegions = extractRegionNames(coastalLocations);
-                Map<TargetType, Long> alignmentCounts =
-                        parseTideAlignmentCounts(forecastEvaluationRepository, date);
-                int sunriseCount = alignmentCounts
-                        .getOrDefault(TargetType.SUNRISE, 0L).intValue();
-                int sunsetCount = alignmentCounts
-                        .getOrDefault(TargetType.SUNSET, 0L).intValue();
-                ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
-                        coastalLocations, "King tide",
-                        kingTide.lunarPhase(), alignmentCounts);
-
-                return List.of(new HotTopic(
-                        "KING_TIDE",
-                        "King tide",
-                        buildKingTideDetail(sunriseCount, sunsetCount, dayLabel),
-                        date,
-                        1,
-                        null,
-                        coastalRegions,
-                        KING_TIDE_DESCRIPTION,
-                        expandedDetail));
-            }
+        if (candidates.isEmpty()) {
+            return List.of();
         }
 
-        return List.of();
+        CandidateResult best = pickBestCandidate(candidates, fromDate);
+        BriefingSlot.TideInfo kingTide = findKingTide(best.day());
+        LocalDate date = best.day().date();
+        String dayLabel = formatDayLabel(date, fromDate);
+        List<LocationEntity> coastalLocations =
+                locationRepository.findCoastalLocations();
+        List<String> coastalRegions = extractRegionNames(coastalLocations);
+        Map<TargetType, Long> alignmentCounts = best.alignmentCounts();
+        int sunriseCount = alignmentCounts
+                .getOrDefault(TargetType.SUNRISE, 0L).intValue();
+        int sunsetCount = alignmentCounts
+                .getOrDefault(TargetType.SUNSET, 0L).intValue();
+        ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
+                coastalLocations, "King tide",
+                kingTide.lunarPhase(), alignmentCounts);
+
+        return List.of(new HotTopic(
+                "KING_TIDE",
+                "King tide",
+                buildKingTideDetail(sunriseCount, sunsetCount, dayLabel),
+                date,
+                1,
+                null,
+                coastalRegions,
+                KING_TIDE_DESCRIPTION,
+                expandedDetail));
     }
 
     /**
@@ -153,6 +155,52 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         return tide != null
                 && (tide.isKingTide()
                         || tide.lunarTideType() == LunarTideType.KING_TIDE);
+    }
+
+    /**
+     * Result of evaluating a king tide candidate date.
+     */
+    private record CandidateResult(BriefingDay day,
+            Map<TargetType, Long> alignmentCounts) {}
+
+    /**
+     * Picks the best king tide date from the candidates.
+     *
+     * <p>Prefers a date with tide alignment (sunrise or sunset). When
+     * no candidate has alignment, prefers a future date over today
+     * because it is more actionable (the user still has time to plan).
+     *
+     * @param candidates date-sorted list of days with king tides
+     * @param today      the reference date (typically {@code fromDate})
+     * @return the best candidate with its alignment counts
+     */
+    private CandidateResult pickBestCandidate(
+            List<BriefingDay> candidates, LocalDate today) {
+        CandidateResult bestAligned = null;
+        CandidateResult bestUnaligned = null;
+
+        for (BriefingDay candidate : candidates) {
+            Map<TargetType, Long> counts = parseTideAlignmentCounts(
+                    forecastEvaluationRepository, candidate.date());
+            boolean hasAlignment = counts.values().stream()
+                    .anyMatch(v -> v > 0);
+            CandidateResult result =
+                    new CandidateResult(candidate, counts);
+
+            if (hasAlignment) {
+                if (bestAligned == null) {
+                    bestAligned = result;
+                }
+            } else {
+                if (bestUnaligned == null
+                        || (bestUnaligned.day.date().equals(today)
+                                && !candidate.date().equals(today))) {
+                    bestUnaligned = result;
+                }
+            }
+        }
+
+        return bestAligned != null ? bestAligned : bestUnaligned;
     }
 
     /**

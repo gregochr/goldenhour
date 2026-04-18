@@ -136,17 +136,165 @@ class KingTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("only one pill emitted even when multiple king tide days exist")
-    void detect_multipleKingTideDays_emitsOnlyFirst() {
+    @DisplayName("multiple king tide days without alignment picks tomorrow")
+    void detect_multipleKingTideDays_noAlignment_picksTomorrow() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
-        stubCoastalLocations(TODAY, "Northumberland");
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(topics.get(0).detail()).contains("tomorrow");
+    }
+
+    @Test
+    @DisplayName("multiple king tide days — today aligned, picks today")
+    void detect_multipleKingTideDays_todayAligned_picksToday() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 3L}));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        stubLocationRepoOnly("Northumberland");
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        assertThat(topics.get(0).detail()).contains("today");
+    }
+
+    @Test
+    @DisplayName("multiple king tide days — tomorrow aligned, picks tomorrow")
+    void detect_multipleKingTideDays_tomorrowAligned_picksTomorrow() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNSET, 5L}));
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(topics.get(0).detail()).contains("tomorrow");
+    }
+
+    @Test
+    @DisplayName("multiple king tide days — both aligned, picks earliest")
+    void detect_multipleKingTideDays_bothAligned_picksEarliest() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 2L}));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNSET, 4L}));
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        assertThat(topics.get(0).detail()).contains("today");
+    }
+
+    @Test
+    @DisplayName("three consecutive king tides — only third aligned, picks T+2")
+    void detect_threeKingTideDays_thirdAligned_picksThird() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(2)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNSET, 6L}));
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
+        // 2026-04-18 is a Saturday
+        assertThat(topics.get(0).detail()).contains("Saturday");
+    }
+
+    @Test
+    @DisplayName("chosen candidate alignment counts flow into detail and expandedDetail")
+    void detect_tomorrowAligned_detailReflectsTomorrowCounts() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 7L},
+                        new Object[]{TargetType.SUNSET, 3L}));
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "Rare king tide \u2014 7 locations catch sunrise,"
+                        + " 3 catch sunset tomorrow");
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(7);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("two future king tides without alignment picks earliest future")
+    void detect_twoFutureKingTides_noAlignment_picksEarliestFuture() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.REGULAR_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(2)))
+                .thenReturn(List.of());
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(topics.get(0).detail()).contains("tomorrow");
     }
 
     // ── Boundary tests ────────────────────────────────────────────────────────
@@ -787,6 +935,24 @@ class KingTideHotTopicStrategyTest {
         BriefingEventSummary event = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of(slot));
         return new BriefingDay(date, List.of(event));
+    }
+
+    private void stubLocationRepoOnly(String... regionNames) {
+        List<LocationEntity> locations = new java.util.ArrayList<>();
+        for (int i = 0; i < regionNames.length; i++) {
+            RegionEntity region = new RegionEntity();
+            region.setName(regionNames[i]);
+            locations.add(LocationEntity.builder()
+                    .id((long) (i + 1))
+                    .name("Coastal " + (i + 1))
+                    .lat(55.0 - i)
+                    .lon(-1.5)
+                    .tideType(Set.of(TideType.HIGH))
+                    .region(region)
+                    .enabled(true)
+                    .build());
+        }
+        when(locationRepository.findCoastalLocations()).thenReturn(locations);
     }
 
     private void stubCoastalLocations(LocalDate tideDate, String... regionNames) {

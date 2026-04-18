@@ -92,6 +92,53 @@ class SpringTideHotTopicStrategyTest {
     }
 
     @Test
+    @DisplayName("spring tide suppressed when king tide exists elsewhere in window")
+    void detect_springTideWithKingTideElsewhereInWindow_suppressed() {
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(TODAY, LunarTideType.KING_TIDE),
+                buildDay(TODAY.plusDays(1), LunarTideType.REGULAR_TIDE),
+                buildDay(TODAY.plusDays(2), LunarTideType.SPRING_TIDE),
+                buildDay(TODAY.plusDays(3), LunarTideType.REGULAR_TIDE)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+        verifyNoInteractions(locationRepository);
+        verifyNoInteractions(forecastEvaluationRepository);
+    }
+
+    @Test
+    @DisplayName("king tide outside window does not suppress spring tide inside")
+    void detect_kingTideOutsideWindow_doesNotSuppressSpringTide() {
+        LocalDate beforeWindow = TODAY.minusDays(1);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(beforeWindow, LunarTideType.KING_TIDE),
+                buildDay(TODAY, LunarTideType.SPRING_TIDE),
+                buildDay(TODAY.plusDays(1), LunarTideType.REGULAR_TIDE)));
+        stubCoastalLocations(TODAY, "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+    }
+
+    @Test
+    @DisplayName("king tide on last day of window suppresses spring tide on first")
+    void detect_kingTideOnLastDay_suppressesSpringOnFirstDay() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.KING_TIDE));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+        verifyNoInteractions(locationRepository);
+        verifyNoInteractions(forecastEvaluationRepository);
+    }
+
+    @Test
     @DisplayName("regular tide emits nothing")
     void detect_regularTide_emitsNothing() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(

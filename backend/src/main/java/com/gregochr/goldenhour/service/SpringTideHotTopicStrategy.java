@@ -28,10 +28,10 @@ import java.util.Objects;
  * Detects Spring Tide hot topics from the cached briefing triage data.
  *
  * <p>A spring tide occurs around new and full moons when gravitational
- * alignment produces larger-than-normal tidal ranges. Emits a topic only
- * when the tide is classified as a spring tide but NOT a king tide — king
- * tides are handled separately by {@link KingTideHotTopicStrategy} to
- * avoid duplication.
+ * alignment produces larger-than-normal tidal ranges. Suppressed entirely
+ * when any king tide exists in the detection window — they are redundant
+ * (a king tide is a stronger spring tide). Per-slot exclusion also filters
+ * individual king-tide slots via {@link KingTideHotTopicStrategy}.
  *
  * <p>Reads from the briefing cache ({@link BriefingService#getCachedDays()})
  * so that the pill is consistent with what the heatmap grid and Best Bet show.
@@ -68,8 +68,9 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Scans the cached briefing days for any slot whose tide data indicates
-     * a spring tide (but NOT a king tide). Emits at most one topic. Returns
+     * <p>Returns empty if any king tide exists anywhere in the detection
+     * window — king tide trumps spring tide. Otherwise scans for the
+     * earliest spring-not-king date and emits at most one topic. Returns
      * empty when no briefing has been cached yet.
      */
     @Override
@@ -83,6 +84,13 @@ public class SpringTideHotTopicStrategy implements HotTopicStrategy {
                 .filter(d -> !d.date().isBefore(fromDate) && !d.date().isAfter(toDate))
                 .sorted(Comparator.comparing(BriefingDay::date))
                 .toList();
+
+        boolean kingTideInWindow = sorted.stream()
+                .anyMatch(d -> KingTideHotTopicStrategy.findKingTide(d)
+                        != null);
+        if (kingTideInWindow) {
+            return List.of();
+        }
 
         for (BriefingDay day : sorted) {
             BriefingSlot.TideInfo springTide = findSpringTide(day);
