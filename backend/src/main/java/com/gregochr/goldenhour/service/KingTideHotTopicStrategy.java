@@ -75,11 +75,12 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Scans the cached briefing days for king tide candidates and picks
-     * the best date: prefers dates with tide alignment; when none have
-     * alignment, prefers a future date over today (more actionable).
-     * Emits at most one topic. Returns empty when no briefing has been
-     * cached yet.
+     * <p>Scans the cached briefing days for king tide candidates. When
+     * king tides span multiple consecutive dates the pill communicates
+     * the full window (e.g. "today and tomorrow") and highlights which
+     * specific event has the best tide alignment. The pill date is set
+     * to the first day of the window. Emits at most one topic. Returns
+     * empty when no briefing has been cached yet.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -99,27 +100,46 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             return List.of();
         }
 
-        CandidateResult best = pickBestCandidate(candidates, fromDate);
-        BriefingSlot.TideInfo kingTide = findKingTide(best.day());
-        LocalDate date = best.day().date();
-        String dayLabel = formatDayLabel(date, fromDate);
+        List<LocalDate> kingTideDates = candidates.stream()
+                .map(BriefingDay::date).toList();
+        LocalDate pillDate = kingTideDates.get(0);
+        BriefingSlot.TideInfo kingTide =
+                findKingTide(candidates.get(0));
+
+        Map<LocalDate, Map<TargetType, Long>> allAlignments =
+                new LinkedHashMap<>();
+        for (BriefingDay candidate : candidates) {
+            allAlignments.put(candidate.date(),
+                    parseTideAlignmentCounts(
+                            forecastEvaluationRepository,
+                            candidate.date()));
+        }
+
+        BestAlignment bestAlignment =
+                findBestAlignment(allAlignments);
+        Map<TargetType, Long> bestCounts = bestAlignment != null
+                ? allAlignments.get(bestAlignment.date())
+                : Map.of();
+
         List<LocationEntity> coastalLocations =
                 locationRepository.findCoastalLocations();
-        List<String> coastalRegions = extractRegionNames(coastalLocations);
-        Map<TargetType, Long> alignmentCounts = best.alignmentCounts();
-        int sunriseCount = alignmentCounts
-                .getOrDefault(TargetType.SUNRISE, 0L).intValue();
-        int sunsetCount = alignmentCounts
-                .getOrDefault(TargetType.SUNSET, 0L).intValue();
+        List<String> coastalRegions =
+                extractRegionNames(coastalLocations);
+        String dateRange =
+                formatDateRange(kingTideDates, fromDate);
+        String alignmentInfo = buildAlignmentInfo(
+                bestAlignment, kingTideDates.size() > 1,
+                fromDate);
         ExpandedHotTopicDetail expandedDetail = buildExpandedDetail(
                 coastalLocations, "King tide",
-                kingTide.lunarPhase(), alignmentCounts);
+                kingTide.lunarPhase(), bestCounts);
 
         return List.of(new HotTopic(
                 "KING_TIDE",
                 "King tide",
-                buildKingTideDetail(sunriseCount, sunsetCount, dayLabel),
-                date,
+                buildKingTideDetail(dateRange, alignmentInfo,
+                        coastalLocations.size()),
+                pillDate,
                 1,
                 null,
                 coastalRegions,
@@ -158,49 +178,41 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Result of evaluating a king tide candidate date.
+     * Best alignment result across all king tide dates in the window.
+     *
+     * @param date  the date of the best alignment
+     * @param event the event type with the most aligned locations
+     * @param count the number of aligned coastal locations
      */
-    private record CandidateResult(BriefingDay day,
-            Map<TargetType, Long> alignmentCounts) {}
+    record BestAlignment(LocalDate date, TargetType event,
+            long count) {}
 
     /**
-     * Picks the best king tide date from the candidates.
+     * Finds the single best tide alignment across all candidate dates.
      *
-     * <p>Prefers a date with tide alignment (sunrise or sunset). When
-     * no candidate has alignment, prefers a future date over today
-     * because it is more actionable (the user still has time to plan).
+     * <p>Iterates every (date, event) pair and returns the one with the
+     * highest aligned-location count. Ties are broken by date order
+     * (earliest first), then enum declaration order (sunrise before
+     * sunset).
      *
-     * @param candidates date-sorted list of days with king tides
-     * @param today      the reference date (typically {@code fromDate})
-     * @return the best candidate with its alignment counts
+     * @param allAlignments alignment counts keyed by date
+     * @return the best alignment, or {@code null} when no date has any
      */
-    private CandidateResult pickBestCandidate(
-            List<BriefingDay> candidates, LocalDate today) {
-        CandidateResult bestAligned = null;
-        CandidateResult bestUnaligned = null;
-
-        for (BriefingDay candidate : candidates) {
-            Map<TargetType, Long> counts = parseTideAlignmentCounts(
-                    forecastEvaluationRepository, candidate.date());
-            boolean hasAlignment = counts.values().stream()
-                    .anyMatch(v -> v > 0);
-            CandidateResult result =
-                    new CandidateResult(candidate, counts);
-
-            if (hasAlignment) {
-                if (bestAligned == null) {
-                    bestAligned = result;
-                }
-            } else {
-                if (bestUnaligned == null
-                        || (bestUnaligned.day.date().equals(today)
-                                && !candidate.date().equals(today))) {
-                    bestUnaligned = result;
+    static BestAlignment findBestAlignment(
+            Map<LocalDate, Map<TargetType, Long>> allAlignments) {
+        BestAlignment best = null;
+        for (var entry : allAlignments.entrySet()) {
+            for (var countEntry : entry.getValue().entrySet()) {
+                long count = countEntry.getValue();
+                if (count > 0
+                        && (best == null
+                                || count > best.count())) {
+                    best = new BestAlignment(entry.getKey(),
+                            countEntry.getKey(), count);
                 }
             }
         }
-
-        return bestAligned != null ? bestAligned : bestUnaligned;
+        return best;
     }
 
     /**
@@ -279,7 +291,8 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                 .toList();
     }
 
-    private String formatDayLabel(LocalDate date, LocalDate today) {
+    private static String formatDayLabel(LocalDate date,
+            LocalDate today) {
         if (date.equals(today)) {
             return "today";
         }
@@ -291,31 +304,75 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     }
 
     /**
-     * Builds the detail line for a king tide pill based on alignment counts.
+     * Formats a date range label from a list of king tide dates.
      *
-     * @param sunriseCount number of coastal locations aligned with sunrise
-     * @param sunsetCount  number of coastal locations aligned with sunset
-     * @param dayLabel     "today", "tomorrow", or day-of-week name
+     * <p>Examples: "today", "today and tomorrow",
+     * "today through Saturday".
+     *
+     * @param dates sorted list of king tide dates
+     * @param today the reference date for relative labels
+     * @return human-readable date range
+     */
+    static String formatDateRange(List<LocalDate> dates,
+            LocalDate today) {
+        if (dates.size() == 1) {
+            return formatDayLabel(dates.get(0), today);
+        }
+        String first = formatDayLabel(dates.get(0), today);
+        String last = formatDayLabel(
+                dates.get(dates.size() - 1), today);
+        if (dates.size() == 2) {
+            return first + " and " + last;
+        }
+        return first + " through " + last;
+    }
+
+    /**
+     * Builds the alignment info segment for the detail line.
+     *
+     * @param best     best alignment result, or {@code null} if none
+     * @param multiDay whether the window spans multiple days
+     * @param today    the reference date for relative day labels
+     * @return alignment info string, or {@code null} when no alignment
+     */
+    static String buildAlignmentInfo(BestAlignment best,
+            boolean multiDay, LocalDate today) {
+        if (best == null) {
+            return null;
+        }
+        String event = best.event() == TargetType.SUNRISE
+                ? "sunrise" : "sunset";
+        if (multiDay) {
+            return "best aligned with "
+                    + formatDayLabel(best.date(), today)
+                    + " " + event;
+        }
+        return "best aligned with " + event;
+    }
+
+    /**
+     * Builds the detail line for a king tide pill.
+     *
+     * <p>Format: {@code King tide [dateRange] · [alignmentInfo]
+     * · N coastal locations}
+     *
+     * @param dateRange     date range label
+     * @param alignmentInfo alignment info or {@code null}
+     * @param coastalCount  total number of coastal locations
      * @return human-readable detail line
      */
-    static String buildKingTideDetail(int sunriseCount, int sunsetCount,
-            String dayLabel) {
-        if (sunriseCount > 0 && sunsetCount > 0) {
-            return String.format("Rare king tide \u2014 %s, %s %s",
-                    formatCatch(sunriseCount, "sunrise"),
-                    formatCatchShort(sunsetCount, "sunset"),
-                    dayLabel);
+    static String buildKingTideDetail(String dateRange,
+            String alignmentInfo, int coastalCount) {
+        StringBuilder sb = new StringBuilder("King tide ");
+        sb.append(dateRange);
+        if (alignmentInfo != null) {
+            sb.append(" \u00b7 ").append(alignmentInfo);
         }
-        if (sunriseCount > 0) {
-            return String.format("Rare king tide \u2014 %s aligned with sunrise %s",
-                    formatLocationCount(sunriseCount), dayLabel);
-        }
-        if (sunsetCount > 0) {
-            return String.format("Rare king tide \u2014 %s aligned with sunset %s",
-                    formatLocationCount(sunsetCount), dayLabel);
-        }
-        return String.format("Rare king tide %s \u2014 no sunrise or sunset"
-                + " alignment, but exceptional coastal foreground", dayLabel);
+        sb.append(" \u00b7 ").append(coastalCount)
+                .append(coastalCount == 1
+                        ? " coastal location"
+                        : " coastal locations");
+        return sb.toString();
     }
 
     static String formatCatch(int count, String event) {

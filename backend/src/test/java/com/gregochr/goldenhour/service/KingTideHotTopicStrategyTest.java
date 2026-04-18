@@ -72,8 +72,8 @@ class KingTideHotTopicStrategyTest {
         assertThat(topic.label()).isEqualTo("King tide");
         assertThat(topic.priority()).isEqualTo(1);
         assertThat(topic.date()).isEqualTo(TODAY);
-        assertThat(topic.detail()).contains("today");
-        assertThat(topic.detail()).contains("Rare king tide");
+        assertThat(topic.detail()).startsWith("King tide today");
+        assertThat(topic.detail()).contains("2 coastal locations");
         assertThat(topic.regions()).containsExactly("Northumberland",
                 "The North Yorkshire Coast");
         assertThat(topic.description()).contains("King tides");
@@ -136,8 +136,8 @@ class KingTideHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("multiple king tide days without alignment picks tomorrow")
-    void detect_multipleKingTideDays_noAlignment_picksTomorrow() {
+    @DisplayName("multiple king tide days — window from today, date set to first day")
+    void detect_multipleKingTideDays_noAlignment_windowFromToday() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -152,13 +152,13 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
-        assertThat(topics.get(0).detail()).contains("tomorrow");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        assertThat(topics.get(0).detail()).contains("today and tomorrow");
     }
 
     @Test
-    @DisplayName("multiple king tide days — today aligned, picks today")
-    void detect_multipleKingTideDays_todayAligned_picksToday() {
+    @DisplayName("multiple king tide days — today aligned, highlights today sunrise")
+    void detect_multipleKingTideDays_todayAligned_highlightsTodaySunrise() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -175,12 +175,14 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
-        assertThat(topics.get(0).detail()).contains("today");
+        assertThat(topics.get(0).detail()).contains("today and tomorrow");
+        assertThat(topics.get(0).detail())
+                .contains("best aligned with today sunrise");
     }
 
     @Test
-    @DisplayName("multiple king tide days — tomorrow aligned, picks tomorrow")
-    void detect_multipleKingTideDays_tomorrowAligned_picksTomorrow() {
+    @DisplayName("multiple king tide days — tomorrow aligned, window with alignment info")
+    void detect_multipleKingTideDays_tomorrowAligned_windowWithAlignment() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -196,13 +198,15 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
-        assertThat(topics.get(0).detail()).contains("tomorrow");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        assertThat(topics.get(0).detail()).contains("today and tomorrow");
+        assertThat(topics.get(0).detail())
+                .contains("best aligned with tomorrow sunset");
     }
 
     @Test
-    @DisplayName("multiple king tide days — both aligned, picks earliest")
-    void detect_multipleKingTideDays_bothAligned_picksEarliest() {
+    @DisplayName("multiple king tide days — both aligned, best alignment highlighted")
+    void detect_multipleKingTideDays_bothAligned_bestHighlighted() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -220,12 +224,14 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(TODAY);
-        assertThat(topics.get(0).detail()).contains("today");
+        assertThat(topics.get(0).detail()).contains("today and tomorrow");
+        assertThat(topics.get(0).detail())
+                .contains("best aligned with tomorrow sunset");
     }
 
     @Test
-    @DisplayName("three consecutive king tides — only third aligned, picks T+2")
-    void detect_threeKingTideDays_thirdAligned_picksThird() {
+    @DisplayName("three consecutive king tides — window 'today through Saturday'")
+    void detect_threeKingTideDays_thirdAligned_windowThroughSaturday() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
@@ -244,13 +250,15 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics).hasSize(1);
-        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(2));
-        // 2026-04-18 is a Saturday
-        assertThat(topics.get(0).detail()).contains("Saturday");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+        assertThat(topics.get(0).detail())
+                .contains("today through Saturday");
+        assertThat(topics.get(0).detail())
+                .contains("best aligned with Saturday sunset");
     }
 
     @Test
-    @DisplayName("chosen candidate alignment counts flow into detail and expandedDetail")
+    @DisplayName("best alignment info and expandedDetail reflect tomorrow counts")
     void detect_tomorrowAligned_detailReflectsTomorrowCounts() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
@@ -267,10 +275,10 @@ class KingTideHotTopicStrategyTest {
 
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
-        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 7 locations catch sunrise,"
-                        + " 3 catch sunset tomorrow");
+                "King tide today and tomorrow \u00b7 best aligned with"
+                        + " tomorrow sunrise \u00b7 1 coastal location");
         var metrics = topics.get(0).expandedDetail().tideMetrics();
         assertThat(metrics.sunriseAlignedCount()).isEqualTo(7);
         assertThat(metrics.sunsetAlignedCount()).isEqualTo(3);
@@ -620,8 +628,8 @@ class KingTideHotTopicStrategyTest {
     // ── Detail line copy tests ──────────────────────────────────────────────
 
     @Test
-    @DisplayName("detail line — both sunrise and sunset aligned")
-    void detect_bothAligned_detailShowsBothCounts() {
+    @DisplayName("detail line — both aligned, shows best event")
+    void detect_bothAligned_detailShowsBestEvent() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -634,8 +642,8 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 9 locations catch sunrise,"
-                        + " 5 catch sunset today");
+                "King tide today \u00b7 best aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
@@ -652,12 +660,13 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 9 locations aligned with sunrise today");
+                "King tide today \u00b7 best aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — no alignment")
-    void detect_noAlignment_detailShowsFallback() {
+    @DisplayName("detail line — no alignment omits alignment segment")
+    void detect_noAlignment_detailOmitsAlignment() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -668,13 +677,12 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide today \u2014 no sunrise or sunset"
-                        + " alignment, but exceptional coastal foreground");
+                "King tide today \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — singular location uses 'catches' not 'catch'")
-    void detect_singularLocation_usesCorrectGrammar() {
+    @DisplayName("detail line — tied alignment picks sunrise (enum order)")
+    void detect_tiedAlignment_picksSunrise() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -687,13 +695,13 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 1 location catches sunrise,"
-                        + " 1 catches sunset today");
+                "King tide today \u00b7 best aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — sunset only aligned with singular")
-    void detect_sunsetOnlySingular_detailShowsSunset() {
+    @DisplayName("detail line — sunset only aligned")
+    void detect_sunsetOnlyAligned_detailShowsSunset() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -705,12 +713,13 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 1 location aligned with sunset today");
+                "King tide today \u00b7 best aligned with sunset"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — mixed singular sunrise, plural sunset")
-    void detect_mixedSingularPlural_detailShowsCorrectGrammar() {
+    @DisplayName("detail line — sunset beats sunrise when higher count")
+    void detect_sunsetHigherCount_detailShowsSunset() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -723,13 +732,13 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 1 location catches sunrise,"
-                        + " 5 catch sunset today");
+                "King tide today \u00b7 best aligned with sunset"
+                        + " \u00b7 1 coastal location");
     }
 
     @Test
-    @DisplayName("detail line — alignment with tomorrow label ends with 'tomorrow'")
-    void detect_alignedWithTomorrowLabel_detailEndsWithTomorrow() {
+    @DisplayName("detail line — single king tide tomorrow, alignment without day label")
+    void detect_singleKingTideTomorrow_alignmentWithoutDayLabel() {
         when(briefingService.getCachedDays()).thenReturn(buildDays(
                 LunarTideType.REGULAR_TIDE, LunarTideType.KING_TIDE,
                 LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
@@ -742,8 +751,8 @@ class KingTideHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.get(0).detail()).isEqualTo(
-                "Rare king tide \u2014 3 locations catch sunrise,"
-                        + " 2 catch sunset tomorrow");
+                "King tide tomorrow \u00b7 best aligned with sunrise"
+                        + " \u00b7 1 coastal location");
     }
 
     // ── Statistical king tide detection ───────────────────────────────────────
@@ -873,6 +882,298 @@ class KingTideHotTopicStrategyTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).type()).isEqualTo("KING_TIDE");
+    }
+
+    // ── Multi-day window exact detail text ──────────────────────────────────
+
+    @Test
+    @DisplayName("two-day window without alignment — exact detail, no alignment segment")
+    void detect_twoDayWindow_noAlignment_exactDetail() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "King tide today and tomorrow \u00b7 1 coastal location");
+    }
+
+    @Test
+    @DisplayName("three-day window with alignment — exact detail includes 'through' and day label")
+    void detect_threeDayWindow_alignment_exactDetail() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(2)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 4L}));
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "King tide today through Saturday \u00b7 best aligned"
+                        + " with Saturday sunrise \u00b7 1 coastal location");
+    }
+
+    @Test
+    @DisplayName("multi-day window alignment queries every candidate date")
+    void detect_threeDayWindow_queriesAllDates() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(2)))
+                .thenReturn(List.of());
+        stubLocationRepoOnly("Northumberland");
+
+        strategy.detect(TODAY, TO_DATE);
+
+        verify(forecastEvaluationRepository)
+                .countTideAlignedByTargetType(TODAY);
+        verify(forecastEvaluationRepository)
+                .countTideAlignedByTargetType(TODAY.plusDays(1));
+        verify(forecastEvaluationRepository)
+                .countTideAlignedByTargetType(TODAY.plusDays(2));
+    }
+
+    @Test
+    @DisplayName("three-day window — expandedDetail uses best alignment date's counts, not first")
+    void detect_threeDayWindow_expandedDetailUsesBestAlignmentCounts() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.KING_TIDE,
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 1L}));
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(1)))
+                .thenReturn(List.of());
+        when(forecastEvaluationRepository
+                .countTideAlignedByTargetType(TODAY.plusDays(2)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{TargetType.SUNRISE, 5L},
+                        new Object[]{TargetType.SUNSET, 3L}));
+        stubLocationRepoOnly("Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        var metrics = topics.get(0).expandedDetail().tideMetrics();
+        assertThat(metrics.sunriseAlignedCount()).isEqualTo(5);
+        assertThat(metrics.sunsetAlignedCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("coastal location count — plural with multiple locations")
+    void detect_multipleCoastalLocations_pluralInDetail() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.KING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        when(forecastEvaluationRepository.countTideAlignedByTargetType(TODAY))
+                .thenReturn(List.of());
+
+        RegionEntity r1 = new RegionEntity();
+        r1.setName("Northumberland");
+        RegionEntity r2 = new RegionEntity();
+        r2.setName("The North Yorkshire Coast");
+        List<LocationEntity> locations = List.of(
+                LocationEntity.builder()
+                        .id(1L).name("Craster").lat(55.47).lon(-1.59)
+                        .tideType(Set.of(TideType.HIGH)).region(r1)
+                        .enabled(true).build(),
+                LocationEntity.builder()
+                        .id(2L).name("Bamburgh").lat(55.61).lon(-1.71)
+                        .tideType(Set.of(TideType.LOW)).region(r1)
+                        .enabled(true).build(),
+                LocationEntity.builder()
+                        .id(3L).name("Whitby").lat(54.48).lon(-0.62)
+                        .tideType(Set.of(TideType.HIGH)).region(r2)
+                        .enabled(true).build());
+        when(locationRepository.findCoastalLocations()).thenReturn(locations);
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.get(0).detail()).isEqualTo(
+                "King tide today \u00b7 3 coastal locations");
+    }
+
+    // ── findBestAlignment unit tests ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("findBestAlignment — empty alignments returns null")
+    void findBestAlignment_emptyAlignments_returnsNull() {
+        var alignments = new java.util.LinkedHashMap<LocalDate,
+                java.util.Map<TargetType, Long>>();
+        alignments.put(TODAY, new java.util.EnumMap<>(TargetType.class));
+
+        assertThat(KingTideHotTopicStrategy.findBestAlignment(alignments))
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("findBestAlignment — all zero counts returns null")
+    void findBestAlignment_allZeroCounts_returnsNull() {
+        var counts = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        counts.put(TargetType.SUNRISE, 0L);
+        counts.put(TargetType.SUNSET, 0L);
+        var alignments = new java.util.LinkedHashMap<LocalDate,
+                java.util.Map<TargetType, Long>>();
+        alignments.put(TODAY, counts);
+
+        assertThat(KingTideHotTopicStrategy.findBestAlignment(alignments))
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("findBestAlignment — single date, single event returns it")
+    void findBestAlignment_singleDateSingleEvent_returnsIt() {
+        var counts = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        counts.put(TargetType.SUNSET, 7L);
+        var alignments = new java.util.LinkedHashMap<LocalDate,
+                java.util.Map<TargetType, Long>>();
+        alignments.put(TODAY, counts);
+
+        var result = KingTideHotTopicStrategy
+                .findBestAlignment(alignments);
+
+        assertThat(result).isNotNull();
+        assertThat(result.date()).isEqualTo(TODAY);
+        assertThat(result.event()).isEqualTo(TargetType.SUNSET);
+        assertThat(result.count()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("findBestAlignment — higher count on later date wins")
+    void findBestAlignment_higherCountLaterDate_wins() {
+        var day1 = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        day1.put(TargetType.SUNRISE, 3L);
+        var day2 = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        day2.put(TargetType.SUNRISE, 8L);
+        var alignments = new java.util.LinkedHashMap<LocalDate,
+                java.util.Map<TargetType, Long>>();
+        alignments.put(TODAY, day1);
+        alignments.put(TODAY.plusDays(1), day2);
+
+        var result = KingTideHotTopicStrategy
+                .findBestAlignment(alignments);
+
+        assertThat(result.date()).isEqualTo(TODAY.plusDays(1));
+        assertThat(result.count()).isEqualTo(8L);
+    }
+
+    @Test
+    @DisplayName("findBestAlignment — tied counts, earlier date wins")
+    void findBestAlignment_tiedCounts_earlierDateWins() {
+        var day1 = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        day1.put(TargetType.SUNRISE, 5L);
+        var day2 = new java.util.EnumMap<TargetType, Long>(
+                TargetType.class);
+        day2.put(TargetType.SUNSET, 5L);
+        var alignments = new java.util.LinkedHashMap<LocalDate,
+                java.util.Map<TargetType, Long>>();
+        alignments.put(TODAY, day1);
+        alignments.put(TODAY.plusDays(1), day2);
+
+        var result = KingTideHotTopicStrategy
+                .findBestAlignment(alignments);
+
+        assertThat(result.date()).isEqualTo(TODAY);
+        assertThat(result.event()).isEqualTo(TargetType.SUNRISE);
+    }
+
+    // ── formatDateRange unit tests ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("formatDateRange — single date returns day label")
+    void formatDateRange_singleDate_returnsDayLabel() {
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY), TODAY)).isEqualTo("today");
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY.plusDays(1)), TODAY)).isEqualTo("tomorrow");
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY.plusDays(2)), TODAY)).isEqualTo("Saturday");
+    }
+
+    @Test
+    @DisplayName("formatDateRange — two dates uses 'and'")
+    void formatDateRange_twoDates_usesAnd() {
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY, TODAY.plusDays(1)), TODAY))
+                .isEqualTo("today and tomorrow");
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY.plusDays(1), TODAY.plusDays(2)), TODAY))
+                .isEqualTo("tomorrow and Saturday");
+    }
+
+    @Test
+    @DisplayName("formatDateRange — three or more dates uses 'through'")
+    void formatDateRange_threeDates_usesThrough() {
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY, TODAY.plusDays(1), TODAY.plusDays(2)), TODAY))
+                .isEqualTo("today through Saturday");
+        assertThat(KingTideHotTopicStrategy.formatDateRange(
+                List.of(TODAY, TODAY.plusDays(1), TODAY.plusDays(2),
+                        TODAY.plusDays(3)),
+                TODAY))
+                .isEqualTo("today through Sunday");
+    }
+
+    // ── buildAlignmentInfo unit tests ────────────────────────────────────────
+
+    @Test
+    @DisplayName("buildAlignmentInfo — null best returns null")
+    void buildAlignmentInfo_nullBest_returnsNull() {
+        assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
+                null, true, TODAY)).isNull();
+    }
+
+    @Test
+    @DisplayName("buildAlignmentInfo — single day omits day label")
+    void buildAlignmentInfo_singleDay_omitsDayLabel() {
+        var best = new KingTideHotTopicStrategy.BestAlignment(
+                TODAY, TargetType.SUNRISE, 3L);
+
+        assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
+                best, false, TODAY))
+                .isEqualTo("best aligned with sunrise");
+    }
+
+    @Test
+    @DisplayName("buildAlignmentInfo — multi-day includes day label")
+    void buildAlignmentInfo_multiDay_includesDayLabel() {
+        var best = new KingTideHotTopicStrategy.BestAlignment(
+                TODAY.plusDays(1), TargetType.SUNSET, 5L);
+
+        assertThat(KingTideHotTopicStrategy.buildAlignmentInfo(
+                best, true, TODAY))
+                .isEqualTo("best aligned with tomorrow sunset");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
