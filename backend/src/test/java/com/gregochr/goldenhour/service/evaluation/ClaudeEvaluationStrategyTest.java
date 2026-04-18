@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
 import com.anthropic.errors.AnthropicServiceException;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.CacheCreation;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
@@ -630,6 +631,30 @@ class ClaudeEvaluationStrategyTest {
         String systemPrompt = params.system().get().asTextBlockParams().get(0).text();
 
         assertThat(systemPrompt).doesNotContain("COASTAL TIDE GUIDANCE:");
+    }
+
+    @Test
+    @DisplayName("SSE path uses default cache TTL (not 1-hour batch TTL)")
+    void evaluateWithDetails_cacheControlUsesDefaultTtl() {
+        AtmosphericData data = TestAtmosphericData.defaults();
+        String rawJson = "{\"rating\": 3, \"fiery_sky\": 50, \"golden_hour\": 55,"
+                + " \"summary\": \"Test.\"}";
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(buildMessage(rawJson));
+
+        strategy.evaluateWithDetails(data);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+
+        // SSE path should have cache control but NO explicit TTL — the API default
+        // (5 min) is appropriate for single-request real-time calls. Only batch
+        // paths should use TTL_1H.
+        var systemBlock = captor.getValue().system().get().asTextBlockParams().get(0);
+        assertThat(systemBlock.cacheControl()).isPresent();
+        assertThat(systemBlock.cacheControl().get().ttl())
+                .isNotEqualTo(java.util.Optional.of(CacheControlEphemeral.Ttl.TTL_1H));
     }
 
     @Test

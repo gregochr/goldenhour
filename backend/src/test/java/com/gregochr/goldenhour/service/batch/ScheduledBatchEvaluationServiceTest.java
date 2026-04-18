@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.OutputConfig;
 import com.anthropic.services.blocking.MessageService;
@@ -225,6 +226,14 @@ class ScheduledBatchEvaluationServiceTest {
         ArgumentCaptor<BatchCreateParams> paramsCaptor =
                 ArgumentCaptor.forClass(BatchCreateParams.class);
         verify(batchService).create(paramsCaptor.capture());
+
+        // Batch requests must use 1-hour cache TTL — 5-minute default expires
+        // before long-running batches finish, causing zero cache reads.
+        var systemBlock = paramsCaptor.getValue().requests().get(0)
+                .params().system().get().asTextBlockParams().get(0);
+        assertThat(systemBlock.cacheControl()).isPresent();
+        assertThat(systemBlock.cacheControl().get().ttl())
+                .hasValue(CacheControlEphemeral.Ttl.TTL_1H);
 
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);

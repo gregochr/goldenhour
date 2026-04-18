@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.batch;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
 import com.anthropic.core.http.StreamResponse;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.Message;
@@ -501,6 +502,13 @@ class ForceSubmitBatchServiceTest {
         assertThat(request.params().model().toString())
                 .isEqualTo(EvaluationModel.SONNET.getModelId());
         assertThat(request.params().maxTokens()).isEqualTo(512);
+
+        // Batch requests must use 1-hour cache TTL — 5-minute default expires
+        // before long-running batches finish, causing zero cache reads.
+        var systemBlock = request.params().system().get().asTextBlockParams().get(0);
+        assertThat(systemBlock.cacheControl()).isPresent();
+        assertThat(systemBlock.cacheControl().get().ttl())
+                .hasValue(CacheControlEphemeral.Ttl.TTL_1H);
     }
 
     // ── forceSubmit: verify persisted entity fields ──────────────────────
