@@ -532,6 +532,135 @@ class SpringTideHotTopicStrategyTest {
         assertThat(topics).isEmpty();
     }
 
+    // ── Unregioned slot detection ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("spring tide in unregioned slot is detected")
+    void detect_springTideInUnregionedSlot_detected() {
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDayWithUnregionedTide(TODAY, LunarTideType.SPRING_TIDE)));
+        stubCoastalLocations(TODAY, "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+        assertThat(topics.get(0).date()).isEqualTo(TODAY);
+    }
+
+    @Test
+    @DisplayName("spring tide only in unregioned — regioned slots have regular tide")
+    void findSpringTide_regionedRegularUnregionedSpring_findsSpringTide() {
+        BriefingSlot.TideInfo springTide = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, false, true,
+                LunarTideType.SPRING_TIDE, "New Moon", false);
+        BriefingSlot regularSlot = new BriefingSlot(
+                "Coastal", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
+                List.of(), null);
+        BriefingSlot springSlot = new BriefingSlot(
+                "Orphan Coastal", null, Verdict.GO, null, springTide,
+                List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "Northumberland", Verdict.GO, null, List.of(),
+                List.of(regularSlot), null, null, null, null, null, null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of(springSlot));
+        BriefingDay day = new BriefingDay(TODAY, List.of(event));
+
+        BriefingSlot.TideInfo result = SpringTideHotTopicStrategy.findSpringTide(day);
+
+        assertThat(result).isNotNull();
+        assertThat(result.lunarTideType()).isEqualTo(LunarTideType.SPRING_TIDE);
+    }
+
+    @Test
+    @DisplayName("king tide in unregioned slot does not emit spring pill")
+    void findSpringTide_unregionedKingTide_returnsNull() {
+        BriefingSlot.TideInfo kingTide = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, true, true,
+                LunarTideType.KING_TIDE, "Full Moon", true);
+        BriefingSlot kingSlot = new BriefingSlot(
+                "Orphan Coastal", null, Verdict.GO, null, kingTide,
+                List.of(), null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(), List.of(kingSlot));
+        BriefingDay day = new BriefingDay(TODAY, List.of(event));
+
+        BriefingSlot.TideInfo result = SpringTideHotTopicStrategy.findSpringTide(day);
+
+        assertThat(result).isNull();
+    }
+
+    // ── Cached days outside detection window ──────────────────────────────────
+
+    @Test
+    @DisplayName("spring tide outside detection window is ignored")
+    void detect_springTideOutsideWindow_ignored() {
+        LocalDate beforeWindow = TODAY.minusDays(1);
+        LocalDate afterWindow = TO_DATE.plusDays(1);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(beforeWindow, LunarTideType.SPRING_TIDE),
+                buildDay(TODAY, LunarTideType.REGULAR_TIDE),
+                buildDay(afterWindow, LunarTideType.SPRING_TIDE)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+        verifyNoInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("spring tide inside window detected despite extra days outside window")
+    void detect_springTideInsideWindowWithExtraDays_detected() {
+        LocalDate beforeWindow = TODAY.minusDays(2);
+        LocalDate afterWindow = TO_DATE.plusDays(2);
+        when(briefingService.getCachedDays()).thenReturn(List.of(
+                buildDay(beforeWindow, LunarTideType.REGULAR_TIDE),
+                buildDay(TODAY, LunarTideType.REGULAR_TIDE),
+                buildDay(TODAY.plusDays(1), LunarTideType.SPRING_TIDE),
+                buildDay(afterWindow, LunarTideType.REGULAR_TIDE)));
+        stubCoastalLocations(TODAY.plusDays(1), "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).date()).isEqualTo(TODAY.plusDays(1));
+    }
+
+    // ── Sunset event detection ────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("spring tide found only in sunset event is detected")
+    void detect_springTideInSunsetEvent_detected() {
+        BriefingSlot.TideInfo springTide = new BriefingSlot.TideInfo(
+                "HIGH", true, null, null, false, true,
+                LunarTideType.SPRING_TIDE, "New Moon", false);
+        BriefingSlot regularSlot = new BriefingSlot(
+                "Coastal", null, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
+                List.of(), null);
+        BriefingSlot springSlot = new BriefingSlot(
+                "Coastal", null, Verdict.GO, null, springTide, List.of(), null);
+        BriefingRegion sunriseRegion = new BriefingRegion(
+                "Northumberland", Verdict.GO, null, List.of(),
+                List.of(regularSlot), null, null, null, null, null, null);
+        BriefingRegion sunsetRegion = new BriefingRegion(
+                "Northumberland", Verdict.GO, null, List.of(),
+                List.of(springSlot), null, null, null, null, null, null);
+        BriefingEventSummary sunrise = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(sunriseRegion), List.of());
+        BriefingEventSummary sunset = new BriefingEventSummary(
+                TargetType.SUNSET, List.of(sunsetRegion), List.of());
+        BriefingDay day = new BriefingDay(TODAY, List.of(sunrise, sunset));
+
+        when(briefingService.getCachedDays()).thenReturn(List.of(day));
+        stubCoastalLocations(TODAY, "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("SPRING_TIDE");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private BriefingDay buildDay(LocalDate date, LunarTideType tideType) {
@@ -574,6 +703,24 @@ class SpringTideHotTopicStrategyTest {
                 buildDay(TODAY.plusDays(1), d1),
                 buildDay(TODAY.plusDays(2), d2),
                 buildDay(TODAY.plusDays(3), d3));
+    }
+
+    private BriefingDay buildDayWithUnregionedTide(LocalDate date, LunarTideType tideType) {
+        String moonPhase = (tideType == LunarTideType.KING_TIDE
+                || tideType == LunarTideType.SPRING_TIDE) ? "Full Moon" : null;
+        BriefingSlot.TideInfo tideInfo;
+        if (tideType == LunarTideType.SPRING_TIDE) {
+            tideInfo = new BriefingSlot.TideInfo(
+                    "HIGH", true, null, null, false, true,
+                    LunarTideType.SPRING_TIDE, moonPhase, false);
+        } else {
+            tideInfo = BriefingSlot.TideInfo.NONE;
+        }
+        BriefingSlot slot = new BriefingSlot(
+                "Orphan Coastal", null, Verdict.GO, null, tideInfo, List.of(), null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(), List.of(slot));
+        return new BriefingDay(date, List.of(event));
     }
 
     private void stubCoastalLocations(LocalDate tideDate, String... regionNames) {
