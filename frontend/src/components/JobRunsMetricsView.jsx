@@ -116,20 +116,54 @@ function getLocationSummary(locations, runType) {
 
 /**
  * Renders the location summary grouped by region inside a confirmation dialog.
+ * When selectedRegions and onToggle are provided, renders interactive checkboxes.
  */
-function LocationSummary({ groups, total }) {
+function LocationSummary({ groups, total, selectedRegions, onToggle }) {
   if (total === 0) {
     return <p className="text-xs text-plex-text-muted italic">No matching locations found.</p>;
   }
+  const interactive = !!(selectedRegions && onToggle);
+  const allSelected = interactive && groups.every((g) => selectedRegions.has(g.region));
+  const selectedTotal = interactive
+    ? groups.filter((g) => selectedRegions.has(g.region)).reduce((sum, g) => sum + g.locations.length, 0)
+    : total;
+
   return (
     <div className="max-h-48 overflow-y-auto text-xs space-y-2">
+      {interactive && (
+        <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid="region-toggle-all">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={() => onToggle('__all__')}
+            className="accent-blue-400"
+          />
+          All regions ({total})
+        </label>
+      )}
       {groups.map((g) => (
         <div key={g.region}>
-          <p className="text-plex-text font-medium">{g.region} ({g.locations.length})</p>
-          <p className="text-plex-text-muted ml-2">{g.locations.join(', ')}</p>
+          {interactive ? (
+            <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid={`region-toggle-${g.region}`}>
+              <input
+                type="checkbox"
+                checked={selectedRegions.has(g.region)}
+                onChange={() => onToggle(g.region)}
+                className="accent-blue-400"
+              />
+              {g.region} ({g.locations.length})
+            </label>
+          ) : (
+            <p className="text-plex-text font-medium">{g.region} ({g.locations.length})</p>
+          )}
+          {(!interactive || selectedRegions.has(g.region)) && (
+            <p className="text-plex-text-muted ml-2">{g.locations.join(', ')}</p>
+          )}
         </div>
       ))}
-      <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">{total} location{total !== 1 ? 's' : ''} total</p>
+      <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
+        {selectedTotal}{interactive && selectedTotal !== total ? ` of ${total}` : ''} location{selectedTotal !== 1 ? 's' : ''} total
+      </p>
     </div>
   );
 }
@@ -140,6 +174,8 @@ LocationSummary.propTypes = {
     locations: PropTypes.arrayOf(PropTypes.string).isRequired,
   })).isRequired,
   total: PropTypes.number.isRequired,
+  selectedRegions: PropTypes.instanceOf(Set),
+  onToggle: PropTypes.func,
 };
 
 /**
@@ -252,13 +288,14 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       confirmLabel,
       destructive: false,
       locationSummary: summary,
+      selectedRegions: new Set(summary.groups.map((g) => g.region)),
       activeStrategies,
       slots,
       runFn,
       setRunning,
       hasDriveTimes,
       driveTimeThreshold: 0,
-      onConfirm: async (resolvedSlots, threshold) => {
+      onConfirm: async (resolvedSlots, threshold, selectedRegions, locationSummary) => {
         closeDialog();
         setRunning(true);
         setRunStatus(null);
@@ -266,11 +303,14 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           const excluded = resolvedSlots
             ? resolvedSlots.filter((s) => !s.selected && !s.isPast).map(({ date, targetType }) => ({ date, targetType }))
             : [];
-          const excludedLocations = threshold > 0
-            ? allLocations
-                .filter(() => false)
-                .map((l) => l.name)
-            : [];
+          const excludedLocations = [];
+          if (selectedRegions && locationSummary) {
+            for (const g of locationSummary.groups) {
+              if (!selectedRegions.has(g.region)) {
+                excludedLocations.push(...g.locations);
+              }
+            }
+          }
           const result = await runFn(excluded, excludedLocations);
           setRunStatus({ type: 'success', message: result.status || 'Run started.' });
           if (result.jobRunId) {
@@ -597,7 +637,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           title={confirmDialog.title}
           message={confirmDialog.message}
           confirmLabel={confirmDialog.confirmLabel}
-          onConfirm={() => confirmDialog.onConfirm(confirmDialog.slots, confirmDialog.driveTimeThreshold || 0)}
+          onConfirm={() => confirmDialog.onConfirm(confirmDialog.slots, confirmDialog.driveTimeThreshold || 0, confirmDialog.selectedRegions, confirmDialog.locationSummary)}
           onCancel={closeDialog}
           destructive={confirmDialog.destructive}
         >
@@ -717,6 +757,22 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             <LocationSummary
               groups={confirmDialog.locationSummary.groups}
               total={confirmDialog.locationSummary.total}
+              selectedRegions={confirmDialog.selectedRegions}
+              onToggle={(region) => {
+                setConfirmDialog((prev) => {
+                  const next = new Set(prev.selectedRegions);
+                  if (region === '__all__') {
+                    if (next.size === prev.locationSummary.groups.length) {
+                      next.clear();
+                    } else {
+                      for (const g of prev.locationSummary.groups) next.add(g.region);
+                    }
+                  } else {
+                    next.has(region) ? next.delete(region) : next.add(region);
+                  }
+                  return { ...prev, selectedRegions: next };
+                });
+              }}
             />
           )}
         </ConfirmDialog>
