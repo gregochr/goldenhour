@@ -23,8 +23,9 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -497,7 +498,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
 
         @Test
         @WithMockUser(roles = {"ADMIN"})
-        @DisplayName("returns regions with location counts sorted alphabetically")
+        @DisplayName("returns regions with IDs, names, and counts sorted alphabetically")
         void returnsRegionsSorted() throws Exception {
             RegionEntity regionA = new RegionEntity();
             regionA.setId(1L);
@@ -519,10 +520,39 @@ class BatchAdminControllerTest extends AbstractControllerTest {
             mockMvc.perform(get("/api/admin/batches/regions"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].id").value(2))
                     .andExpect(jsonPath("$[0].name").value("Ayrshire"))
                     .andExpect(jsonPath("$[0].locationCount").value(1))
+                    .andExpect(jsonPath("$[1].id").value(1))
                     .andExpect(jsonPath("$[1].name").value("Cumbria"))
                     .andExpect(jsonPath("$[1].locationCount").value(2));
+
+            verify(locationService).findAllEnabled();
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("case-insensitive sorting: lowercase name sorts correctly")
+        void caseInsensitiveSorting() throws Exception {
+            RegionEntity regionLower = new RegionEntity();
+            regionLower.setId(10L);
+            regionLower.setName("borders");
+
+            RegionEntity regionUpper = new RegionEntity();
+            regionUpper.setId(20L);
+            regionUpper.setName("Angus");
+
+            LocationEntity loc1 = new LocationEntity();
+            loc1.setRegion(regionLower);
+            LocationEntity loc2 = new LocationEntity();
+            loc2.setRegion(regionUpper);
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].name").value("Angus"))
+                    .andExpect(jsonPath("$[1].name").value("borders"));
         }
 
         @Test
@@ -538,9 +568,28 @@ class BatchAdminControllerTest extends AbstractControllerTest {
         }
 
         @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns empty list when no enabled locations")
+        void emptyLocations() throws Exception {
+            when(locationService.findAllEnabled()).thenReturn(List.of());
+
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(0));
+        }
+
+        @Test
         @WithMockUser(roles = {"PRO_USER"})
         @DisplayName("returns 403 for non-ADMIN")
         void forbidden() throws Exception {
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"LITE_USER"})
+        @DisplayName("returns 403 for LITE_USER")
+        void liteUserForbidden() throws Exception {
             mockMvc.perform(get("/api/admin/batches/regions"))
                     .andExpect(status().isForbidden());
         }
@@ -574,11 +623,28 @@ class BatchAdminControllerTest extends AbstractControllerTest {
 
         @Test
         @WithMockUser(roles = {"ADMIN"})
-        @DisplayName("returns 200 with result on success")
+        @DisplayName("409 does not call the batch evaluation service")
+        void conflictDoesNotCallService() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of(new ForecastBatchEntity()));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[1]}"))
+                    .andExpect(status().isConflict());
+
+            verify(scheduledBatchEvaluationService, never())
+                    .submitScheduledBatchForRegions(eq(List.of(1L)));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 200 and passes exact regionIds to service")
         void success() throws Exception {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
-            when(scheduledBatchEvaluationService.submitScheduledBatchForRegions(any()))
+            when(scheduledBatchEvaluationService
+                    .submitScheduledBatchForRegions(eq(List.of(1L))))
                     .thenReturn(new BatchSubmitResult("batch-123", 42));
 
             mockMvc.perform(post("/api/admin/batches/submit-scheduled")
@@ -587,6 +653,70 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.batchId").value("batch-123"))
                     .andExpect(jsonPath("$.requestCount").value(42));
+
+            verify(scheduledBatchEvaluationService)
+                    .submitScheduledBatchForRegions(eq(List.of(1L)));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("passes multiple regionIds to service in correct order")
+        void multipleRegionIds() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(scheduledBatchEvaluationService
+                    .submitScheduledBatchForRegions(eq(List.of(3L, 7L, 12L))))
+                    .thenReturn(new BatchSubmitResult("batch-multi", 90));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[3,7,12]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.batchId").value("batch-multi"))
+                    .andExpect(jsonPath("$.requestCount").value(90));
+
+            verify(scheduledBatchEvaluationService)
+                    .submitScheduledBatchForRegions(eq(List.of(3L, 7L, 12L)));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("null regionIds when body has null regionIds field")
+        void nullRegionIds() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(scheduledBatchEvaluationService
+                    .submitScheduledBatchForRegions(isNull()))
+                    .thenReturn(new BatchSubmitResult("batch-all", 100));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":null}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.requestCount").value(100));
+
+            verify(scheduledBatchEvaluationService)
+                    .submitScheduledBatchForRegions(isNull());
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("null regionIds when body is empty JSON object")
+        void emptyBody() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(scheduledBatchEvaluationService
+                    .submitScheduledBatchForRegions(isNull()))
+                    .thenReturn(new BatchSubmitResult("batch-empty", 50));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.requestCount").value(50));
+
+            verify(scheduledBatchEvaluationService)
+                    .submitScheduledBatchForRegions(isNull());
         }
 
         @Test
@@ -595,7 +725,8 @@ class BatchAdminControllerTest extends AbstractControllerTest {
         void unprocessable() throws Exception {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
-            when(scheduledBatchEvaluationService.submitScheduledBatchForRegions(any()))
+            when(scheduledBatchEvaluationService
+                    .submitScheduledBatchForRegions(isNull()))
                     .thenReturn(null);
 
             mockMvc.perform(post("/api/admin/batches/submit-scheduled")
@@ -612,6 +743,25 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"LITE_USER"})
+        @DisplayName("returns 403 for LITE_USER")
+        void liteUserForbidden() throws Exception {
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("returns 401 when unauthenticated")
+        void unauthenticated() throws Exception {
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isUnauthorized());
         }
     }
 
@@ -636,11 +786,27 @@ class BatchAdminControllerTest extends AbstractControllerTest {
 
         @Test
         @WithMockUser(roles = {"ADMIN"})
-        @DisplayName("returns 200 with result on success")
+        @DisplayName("409 does not call the JFDI batch service")
+        void conflictDoesNotCallService() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of(new ForecastBatchEntity()));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[2]}"))
+                    .andExpect(status().isConflict());
+
+            verify(forceSubmitBatchService, never())
+                    .submitJfdiBatch(eq(List.of(2L)));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 200 and passes exact regionIds to service")
         void success() throws Exception {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
-            when(forceSubmitBatchService.submitJfdiBatch(any()))
+            when(forceSubmitBatchService.submitJfdiBatch(eq(List.of(2L))))
                     .thenReturn(new BatchSubmitResult("jfdi-456", 80));
 
             mockMvc.perform(post("/api/admin/batches/submit-jfdi")
@@ -649,6 +815,64 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.batchId").value("jfdi-456"))
                     .andExpect(jsonPath("$.requestCount").value(80));
+
+            verify(forceSubmitBatchService).submitJfdiBatch(eq(List.of(2L)));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("passes multiple regionIds to service in correct order")
+        void multipleRegionIds() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(forceSubmitBatchService.submitJfdiBatch(eq(List.of(5L, 10L))))
+                    .thenReturn(new BatchSubmitResult("jfdi-multi", 120));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[5,10]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.batchId").value("jfdi-multi"))
+                    .andExpect(jsonPath("$.requestCount").value(120));
+
+            verify(forceSubmitBatchService)
+                    .submitJfdiBatch(eq(List.of(5L, 10L)));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("null regionIds when body has null regionIds field")
+        void nullRegionIds() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(forceSubmitBatchService.submitJfdiBatch(isNull()))
+                    .thenReturn(new BatchSubmitResult("jfdi-all", 200));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":null}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.requestCount").value(200));
+
+            verify(forceSubmitBatchService).submitJfdiBatch(isNull());
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("null regionIds when body is empty JSON object")
+        void emptyBody() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(forceSubmitBatchService.submitJfdiBatch(isNull()))
+                    .thenReturn(new BatchSubmitResult("jfdi-empty", 60));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.requestCount").value(60));
+
+            verify(forceSubmitBatchService).submitJfdiBatch(isNull());
         }
 
         @Test
@@ -657,7 +881,7 @@ class BatchAdminControllerTest extends AbstractControllerTest {
         void unprocessable() throws Exception {
             when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                     .thenReturn(List.of());
-            when(forceSubmitBatchService.submitJfdiBatch(any()))
+            when(forceSubmitBatchService.submitJfdiBatch(isNull()))
                     .thenReturn(null);
 
             mockMvc.perform(post("/api/admin/batches/submit-jfdi")
@@ -674,6 +898,25 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{}"))
                     .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @WithMockUser(roles = {"LITE_USER"})
+        @DisplayName("returns 403 for LITE_USER")
+        void liteUserForbidden() throws Exception {
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("returns 401 when unauthenticated")
+        void unauthenticated() throws Exception {
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isUnauthorized());
         }
     }
 
