@@ -3,11 +3,15 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultEntry;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultResponse;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmitResult;
+import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService.BatchSubmitResult;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -19,6 +23,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -482,6 +487,194 @@ class BatchAdminControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.cancelled").value(2))
                 .andExpect(jsonPath("$.errored").value(1))
                 .andExpect(jsonPath("$.totalResults").value(6));
+    }
+
+    // ── GET /regions ─────────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("GET /api/admin/batches/regions")
+    class RegionsTests {
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns regions with location counts sorted alphabetically")
+        void returnsRegionsSorted() throws Exception {
+            RegionEntity regionA = new RegionEntity();
+            regionA.setId(1L);
+            regionA.setName("Cumbria");
+
+            RegionEntity regionB = new RegionEntity();
+            regionB.setId(2L);
+            regionB.setName("Ayrshire");
+
+            LocationEntity loc1 = new LocationEntity();
+            loc1.setRegion(regionA);
+            LocationEntity loc2 = new LocationEntity();
+            loc2.setRegion(regionA);
+            LocationEntity loc3 = new LocationEntity();
+            loc3.setRegion(regionB);
+
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
+
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(2))
+                    .andExpect(jsonPath("$[0].name").value("Ayrshire"))
+                    .andExpect(jsonPath("$[0].locationCount").value(1))
+                    .andExpect(jsonPath("$[1].name").value("Cumbria"))
+                    .andExpect(jsonPath("$[1].locationCount").value(2));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("excludes locations with no region")
+        void excludesOrphans() throws Exception {
+            LocationEntity orphan = new LocationEntity();
+            when(locationService.findAllEnabled()).thenReturn(List.of(orphan));
+
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.length()").value(0));
+        }
+
+        @Test
+        @WithMockUser(roles = {"PRO_USER"})
+        @DisplayName("returns 403 for non-ADMIN")
+        void forbidden() throws Exception {
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("returns 401 when unauthenticated")
+        void unauthenticated() throws Exception {
+            mockMvc.perform(get("/api/admin/batches/regions"))
+                    .andExpect(status().isUnauthorized());
+        }
+    }
+
+    // ── POST /submit-scheduled ─────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("POST /api/admin/batches/submit-scheduled")
+    class SubmitScheduledTests {
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 409 when a batch is already in progress")
+        void conflict() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of(new ForecastBatchEntity()));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[1]}"))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 200 with result on success")
+        void success() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(scheduledBatchEvaluationService.submitScheduledBatchForRegions(any()))
+                    .thenReturn(new BatchSubmitResult("batch-123", 42));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[1]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.batchId").value("batch-123"))
+                    .andExpect(jsonPath("$.requestCount").value(42));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 422 when service returns null")
+        void unprocessable() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(scheduledBatchEvaluationService.submitScheduledBatchForRegions(any()))
+                    .thenReturn(null);
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isUnprocessableEntity());
+        }
+
+        @Test
+        @WithMockUser(roles = {"PRO_USER"})
+        @DisplayName("returns 403 for non-ADMIN")
+        void forbidden() throws Exception {
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    // ── POST /submit-jfdi ──────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("POST /api/admin/batches/submit-jfdi")
+    class SubmitJfdiTests {
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 409 when a batch is already in progress")
+        void conflict() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of(new ForecastBatchEntity()));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[2]}"))
+                    .andExpect(status().isConflict());
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 200 with result on success")
+        void success() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(forceSubmitBatchService.submitJfdiBatch(any()))
+                    .thenReturn(new BatchSubmitResult("jfdi-456", 80));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"regionIds\":[2]}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.batchId").value("jfdi-456"))
+                    .andExpect(jsonPath("$.requestCount").value(80));
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("returns 422 when service returns null")
+        void unprocessable() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(forceSubmitBatchService.submitJfdiBatch(any()))
+                    .thenReturn(null);
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isUnprocessableEntity());
+        }
+
+        @Test
+        @WithMockUser(roles = {"PRO_USER"})
+        @DisplayName("returns 403 for non-ADMIN")
+        void forbidden() throws Exception {
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}"))
+                    .andExpect(status().isForbidden());
+        }
     }
 
     private ForecastBatchEntity buildBatch(String anthropicBatchId, BatchType type) {

@@ -229,6 +229,25 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
+     * Submits a forecast batch filtered to the given region IDs, using the same triage
+     * and stability gates as the overnight scheduled job.
+     *
+     * @param regionIds region IDs to include — null or empty means all regions
+     * @return submission result, or null if no requests were built
+     */
+    public BatchSubmitResult submitScheduledBatchForRegions(List<Long> regionIds) {
+        if (!forecastBatchRunning.compareAndSet(false, true)) {
+            LOG.warn("Forecast batch already running — skipping concurrent trigger");
+            return null;
+        }
+        try {
+            return doSubmitForecastBatchForRegions(regionIds);
+        } finally {
+            forecastBatchRunning.set(false);
+        }
+    }
+
+    /**
      * Builds and submits an aurora evaluation batch to the Anthropic Batch API.
      *
      * <p>Guards against concurrent submissions with an {@link AtomicBoolean}. The
@@ -391,6 +410,125 @@ public class ScheduledBatchEvaluationService {
         LOG.warn("[BATCH DIAG] Submitted {} requests — by date: [{}] | by event: [{}] "
                         + "| by region: [{}]",
                 includedTasks.size(), dateBreakdown, eventBreakdown, regionBreakdown);
+    }
+
+    /**
+     * Region-filtered variant of the forecast batch. Same triage and stability gates,
+     * but only locations in the specified regions are considered.
+     */
+    private BatchSubmitResult doSubmitForecastBatchForRegions(List<Long> regionIds) {
+        DailyBriefingResponse briefing = briefingService.getCachedBriefing();
+        if (briefing == null) {
+            LOG.warn("[BATCH] Scheduled batch skipped: no cached briefing available");
+            return null;
+        }
+
+        java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
+                ? new java.util.HashSet<>(regionIds) : null;
+
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+        List<ForecastTask> tasks = collectForecastTasks(briefing);
+
+        if (regionFilter != null) {
+            tasks = tasks.stream()
+                    .filter(t -> t.location().getRegion() != null
+                            && regionFilter.contains(t.location().getRegion().getId()))
+                    .toList();
+        }
+
+        if (tasks.isEmpty()) {
+            LOG.warn("[BATCH] No evaluable locations after region filtering");
+            return null;
+        }
+
+        Map<String, WeatherExtractionResult> prefetchedWeather;
+        try {
+            prefetchedWeather = prefetchBatchWeather(tasks);
+        } catch (Exception e) {
+            LOG.error("[BATCH] Weather pre-fetch failed: {}", e.getMessage(), e);
+            return null;
+        }
+
+        CloudPointCache cloudCache;
+        try {
+            cloudCache = prefetchBatchCloudPoints(tasks, prefetchedWeather);
+        } catch (Exception e) {
+            LOG.warn("[BATCH] Cloud pre-fetch failed — continuing without: {}", e.getMessage());
+            cloudCache = null;
+        }
+
+        List<BatchCreateParams.Request> requests = new ArrayList<>();
+        Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
+
+        for (ForecastTask task : tasks) {
+            try {
+                ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
+                        task.location(), task.date(), task.targetType(),
+                        task.location().getTideType(), model, false, null,
+                        prefetchedWeather, cloudCache);
+                if (preEval.triaged()) {
+                    continue;
+                }
+                int daysAhead = preEval.daysAhead();
+                int maxDays = getStabilityWindowDays(task.location(), preEval, stabilityByCell);
+                if (daysAhead > maxDays) {
+                    continue;
+                }
+                requests.add(buildForecastRequest(task.date(), task.targetType(),
+                        task.location(), preEval.atmosphericData(), model));
+            } catch (Exception e) {
+                LOG.warn("[BATCH] Failed data assembly for {}: {}",
+                        task.location().getName(), e.getMessage());
+            }
+        }
+
+        if (requests.isEmpty()) {
+            return null;
+        }
+
+        return submitBatchWithResult(requests, BatchType.FORECAST, "Scheduled batch (admin)");
+    }
+
+    /**
+     * Result of an admin-triggered batch submission.
+     *
+     * @param batchId      the Anthropic batch ID
+     * @param requestCount number of requests submitted
+     */
+    public record BatchSubmitResult(String batchId, int requestCount) {}
+
+    /**
+     * Submits requests and returns a result record (for admin-triggered submissions).
+     */
+    private BatchSubmitResult submitBatchWithResult(List<BatchCreateParams.Request> requests,
+            BatchType batchType, String logPrefix) {
+        try {
+            BatchCreateParams params = BatchCreateParams.builder()
+                    .requests(requests)
+                    .build();
+
+            MessageBatch batch = anthropicClient.messages().batches().create(params);
+            java.time.Instant expiresAt = batch.expiresAt().toInstant();
+
+            com.gregochr.goldenhour.entity.JobRunEntity jobRun =
+                    jobRunService.startBatchRun(requests.size(), batch.id());
+
+            ForecastBatchEntity entity = new ForecastBatchEntity(
+                    batch.id(), batchType, requests.size(), expiresAt);
+            if (jobRun != null) {
+                entity.setJobRunId(jobRun.getId());
+            }
+            batchRepository.save(entity);
+
+            LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}",
+                    logPrefix, batch.id(), requests.size(), expiresAt,
+                    jobRun != null ? jobRun.getId() : null);
+
+            return new BatchSubmitResult(batch.id(), requests.size());
+        } catch (Exception e) {
+            LOG.error("{} submission failed: {}", logPrefix, e.getMessage(), e);
+            return null;
+        }
     }
 
     /**

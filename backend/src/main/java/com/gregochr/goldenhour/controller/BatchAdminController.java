@@ -1,12 +1,18 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BatchSubmitRequest;
+import com.gregochr.goldenhour.model.RegionSummaryDto;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultResponse;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmitResult;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
+import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService.BatchSubmitResult;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Admin endpoints for monitoring and testing Anthropic Batch API submissions.
@@ -32,6 +39,7 @@ public class BatchAdminController {
     private final ForecastBatchRepository batchRepository;
     private final ScheduledBatchEvaluationService batchEvaluationService;
     private final ForceSubmitBatchService forceSubmitBatchService;
+    private final LocationService locationService;
 
     /**
      * Constructs the batch admin controller.
@@ -39,13 +47,16 @@ public class BatchAdminController {
      * @param batchRepository         repository for reading batch records
      * @param batchEvaluationService  service exposing the batch guard reset operation
      * @param forceSubmitBatchService service for force-submitting test batches
+     * @param locationService         service for retrieving enabled locations
      */
     public BatchAdminController(ForecastBatchRepository batchRepository,
             ScheduledBatchEvaluationService batchEvaluationService,
-            ForceSubmitBatchService forceSubmitBatchService) {
+            ForceSubmitBatchService forceSubmitBatchService,
+            LocationService locationService) {
         this.batchRepository = batchRepository;
         this.batchEvaluationService = batchEvaluationService;
         this.forceSubmitBatchService = forceSubmitBatchService;
+        this.locationService = locationService;
     }
 
     /**
@@ -89,6 +100,90 @@ public class BatchAdminController {
     public Map<String, Boolean> resetBatchGuards() {
         batchEvaluationService.resetBatchGuards();
         return Map.of("forecastReset", true, "auroraReset", true);
+    }
+
+    /**
+     * Returns all regions with the count of enabled locations in each.
+     *
+     * @return list of region summaries, sorted alphabetically
+     */
+    @GetMapping("/regions")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<RegionSummaryDto> getRegionsWithCounts() {
+        List<LocationEntity> enabled = locationService.findAllEnabled();
+        Map<Long, List<LocationEntity>> byRegion = enabled.stream()
+                .filter(loc -> loc.getRegion() != null)
+                .collect(Collectors.groupingBy(loc -> loc.getRegion().getId()));
+
+        return byRegion.entrySet().stream()
+                .map(entry -> {
+                    LocationEntity sample = entry.getValue().get(0);
+                    return new RegionSummaryDto(
+                            entry.getKey(),
+                            sample.getRegion().getName(),
+                            entry.getValue().size());
+                })
+                .sorted((a, b) -> a.name().compareToIgnoreCase(b.name()))
+                .toList();
+    }
+
+    /**
+     * Submits a scheduled batch filtered to the given region IDs. Uses the same triage
+     * and stability gates as the overnight scheduled job.
+     *
+     * <p>Returns 409 if a batch is already in SUBMITTED status.
+     *
+     * @param request optional region IDs — null or empty means all regions
+     * @return submission result with batch ID and request count
+     */
+    @PostMapping("/submit-scheduled")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BatchSubmitResult> submitScheduledBatch(
+            @RequestBody(required = false) BatchSubmitRequest request) {
+        if (hasActiveBatch()) {
+            return ResponseEntity.status(409).build();
+        }
+
+        List<Long> regionIds = request != null ? request.regionIds() : null;
+        BatchSubmitResult result =
+                batchEvaluationService.submitScheduledBatchForRegions(regionIds);
+        if (result == null) {
+            return ResponseEntity.unprocessableEntity().build();
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Submits a JFDI batch — bypasses all triage gates, evaluates all dates T+0 to T+3
+     * with both SUNRISE and SUNSET for every location in the selected regions.
+     *
+     * <p>Returns 409 if a batch is already in SUBMITTED status.
+     *
+     * @param request optional region IDs — null or empty means all regions
+     * @return submission result with batch ID and request count
+     */
+    @PostMapping("/submit-jfdi")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<BatchSubmitResult> submitJfdiBatch(
+            @RequestBody(required = false) BatchSubmitRequest request) {
+        if (hasActiveBatch()) {
+            return ResponseEntity.status(409).build();
+        }
+
+        List<Long> regionIds = request != null ? request.regionIds() : null;
+        BatchSubmitResult result = forceSubmitBatchService.submitJfdiBatch(regionIds);
+        if (result == null) {
+            return ResponseEntity.unprocessableEntity().build();
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Checks whether any batch is currently in SUBMITTED status (still processing).
+     */
+    private boolean hasActiveBatch() {
+        return !batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED)
+                .isEmpty();
     }
 
     /**

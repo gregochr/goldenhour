@@ -85,6 +85,147 @@ public class ForceSubmitBatchService {
     }
 
     /**
+     * Submits a JFDI batch for locations in the given regions, bypassing all triage gates.
+     * Evaluates all dates T+0 to T+3 and both SUNRISE and SUNSET for every location.
+     *
+     * @param regionIds region IDs to include — null or empty means all regions
+     * @return submission result, or null if no requests were built
+     */
+    public ScheduledBatchEvaluationService.BatchSubmitResult submitJfdiBatch(
+            List<Long> regionIds) {
+        java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
+                ? new java.util.HashSet<>(regionIds) : null;
+
+        List<LocationEntity> locations = locationService.findAllEnabled().stream()
+                .filter(loc -> loc.getRegion() != null)
+                .filter(loc -> regionFilter == null
+                        || regionFilter.contains(loc.getRegion().getId()))
+                .filter(loc -> {
+                    var types = loc.getLocationType();
+                    if (types == null || types.isEmpty()) {
+                        return true;
+                    }
+                    return types.contains(
+                            com.gregochr.goldenhour.entity.LocationType.LANDSCAPE)
+                            || types.contains(
+                            com.gregochr.goldenhour.entity.LocationType.SEASCAPE)
+                            || types.contains(
+                            com.gregochr.goldenhour.entity.LocationType.WATERFALL);
+                })
+                .toList();
+
+        if (locations.isEmpty()) {
+            LOG.warn("[JFDI BATCH] No eligible locations found");
+            return null;
+        }
+
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+        LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
+        List<LocalDate> dates = List.of(today, today.plusDays(1),
+                today.plusDays(2), today.plusDays(3));
+        TargetType[] events = {TargetType.SUNRISE, TargetType.SUNSET};
+
+        List<BatchCreateParams.Request> requests = new ArrayList<>();
+        int failedCount = 0;
+
+        for (LocationEntity location : locations) {
+            for (LocalDate date : dates) {
+                for (TargetType event : events) {
+                    try {
+                        ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
+                                location, date, event, location.getTideType(),
+                                model, false, null);
+
+                        AtmosphericData data = preEval.atmosphericData();
+                        if (data == null) {
+                            failedCount++;
+                            continue;
+                        }
+
+                        PromptBuilder builder = data.tide() != null
+                                ? coastalPromptBuilder : promptBuilder;
+
+                        String userMessage = data.surge() != null
+                                ? builder.buildUserMessage(data, data.surge(),
+                                        data.adjustedRangeMetres(),
+                                        data.astronomicalRangeMetres())
+                                : builder.buildUserMessage(data);
+
+                        String customId = String.format("jfdi-%s-%s-%s",
+                                location.getId(), date, event.name());
+                        if (customId.length() > 64) {
+                            customId = customId.substring(0, 64);
+                        }
+
+                        BatchCreateParams.Request request = BatchCreateParams.Request.builder()
+                                .customId(customId)
+                                .params(BatchCreateParams.Request.Params.builder()
+                                        .model(model.getModelId())
+                                        .maxTokens(512)
+                                        .systemOfTextBlockParams(List.of(
+                                                com.anthropic.models.messages.TextBlockParam
+                                                        .builder()
+                                                        .text(builder.getSystemPrompt())
+                                                        .cacheControl(CacheControlEphemeral
+                                                                .builder()
+                                                                .ttl(CacheControlEphemeral
+                                                                        .Ttl.TTL_1H)
+                                                                .build())
+                                                        .build()))
+                                        .outputConfig(builder.buildOutputConfig())
+                                        .addUserMessage(userMessage)
+                                        .build())
+                                .build();
+
+                        requests.add(request);
+                    } catch (Exception e) {
+                        LOG.warn("[JFDI BATCH] Failed data assembly for {} {} {}: {}",
+                                location.getName(), date, event, e.getMessage());
+                        failedCount++;
+                    }
+                }
+            }
+        }
+
+        if (requests.isEmpty()) {
+            LOG.warn("[JFDI BATCH] No requests built (all {} failed)", failedCount);
+            return null;
+        }
+
+        LOG.info("[JFDI BATCH] Submitting {} requests ({} locations x {} dates x 2 events, "
+                        + "{} failed)",
+                requests.size(), locations.size(), dates.size(), failedCount);
+
+        try {
+            BatchCreateParams params = BatchCreateParams.builder()
+                    .requests(requests)
+                    .build();
+
+            MessageBatch batch = anthropicClient.messages().batches().create(params);
+            java.time.Instant expiresAt = batch.expiresAt().toInstant();
+
+            com.gregochr.goldenhour.entity.JobRunEntity jobRun =
+                    jobRunService.startBatchRun(requests.size(), batch.id());
+
+            ForecastBatchEntity entity = new ForecastBatchEntity(
+                    batch.id(), BatchType.FORECAST, requests.size(), expiresAt);
+            if (jobRun != null) {
+                entity.setJobRunId(jobRun.getId());
+            }
+            batchRepository.save(entity);
+
+            LOG.info("[JFDI BATCH] Submitted: batchId={}, {} request(s)",
+                    batch.id(), requests.size());
+
+            return new ScheduledBatchEvaluationService.BatchSubmitResult(
+                    batch.id(), requests.size());
+        } catch (Exception e) {
+            LOG.error("[JFDI BATCH] Submission failed: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
      * Submits a force-test batch for all locations in a region, bypassing all gates.
      *
      * @param regionId the database ID of the target region

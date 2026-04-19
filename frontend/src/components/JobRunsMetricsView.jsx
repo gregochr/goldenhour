@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
+import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchApi';
 import { runBriefing } from '../api/briefingApi.js';
 import { getAvailableModels } from '../api/modelsApi';
 import { useAuth } from '../context/AuthContext';
@@ -212,14 +213,19 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [showBriefingRuns, setShowBriefingRuns] = useState(false);
   const [showBatchRuns, setShowBatchRuns] = useState(true);
   const [strategies, setStrategies] = useState({});
+  const [batchRegions, setBatchRegions] = useState([]);
+  const [runningScheduledBatch, setRunningScheduledBatch] = useState(false);
+  const [runningJfdiBatch, setRunningJfdiBatch] = useState(false);
+  const [batchDialog, setBatchDialog] = useState(null);
   const PAGE_SIZE = 20;
 
-  // Load locations and optimisation strategies once for run summaries
+  // Load locations, optimisation strategies, and batch regions once
   useEffect(() => {
     fetchLocations().then(setAllLocations).catch(() => {});
     getAvailableModels()
       .then((data) => setStrategies(data.optimisationStrategies || {}))
       .catch(() => {});
+    getRegions().then(setBatchRegions).catch(() => {});
   }, []);
 
   const loadJobRuns = useCallback(async (pageNum) => {
@@ -265,7 +271,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     loadJobRuns(page);
   };
 
-  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningLightPollution || runningBriefing;
+  const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
 
   const buildConfirmDialog = (runType, title, message, confirmLabel, runFn, setRunning) => {
     const summary = getLocationSummary(allLocations, runType);
@@ -428,6 +434,58 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     });
   };
 
+  const openBatchDialog = (mode) => {
+    const selectedIds = new Set(batchRegions.map((r) => r.id));
+    setBatchDialog({ mode, selectedIds });
+  };
+
+  const handleBatchToggleRegion = (regionId) => {
+    setBatchDialog((prev) => {
+      if (!prev) return prev;
+      const next = new Set(prev.selectedIds);
+      if (regionId === '__all__') {
+        if (next.size === batchRegions.length) {
+          next.clear();
+        } else {
+          for (const r of batchRegions) next.add(r.id);
+        }
+      } else {
+        next.has(regionId) ? next.delete(regionId) : next.add(regionId);
+      }
+      return { ...prev, selectedIds: next };
+    });
+  };
+
+  const handleBatchSubmit = async () => {
+    if (!batchDialog) return;
+    const { mode, selectedIds } = batchDialog;
+    const regionIds = selectedIds.size === batchRegions.length
+      ? null
+      : [...selectedIds];
+    const setRunning = mode === 'scheduled' ? setRunningScheduledBatch : setRunningJfdiBatch;
+    const submitFn = mode === 'scheduled' ? submitScheduledBatch : submitJfdiBatch;
+    const label = mode === 'scheduled' ? 'Scheduled batch' : 'JFDI batch';
+
+    setBatchDialog(null);
+    setRunning(true);
+    setRunStatus(null);
+    try {
+      const result = await submitFn(regionIds);
+      setRunStatus({
+        type: 'success',
+        message: `${label} submitted: ${result.requestCount} request(s), batch ${result.batchId}.`,
+      });
+      loadJobRuns(0);
+    } catch (err) {
+      const msg = err?.response?.status === 409
+        ? 'A batch is already in progress. Wait for it to complete.'
+        : `${label} submission failed. Check the logs.`;
+      setRunStatus({ type: 'error', message: msg });
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), []);
   const dateFilteredRuns = useMemo(() => {
     if (!runs || runs.length === 0) return [];
@@ -549,6 +607,30 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 {runningLightPollution ? '\u27F3 Running\u2026' : '🌌 Refresh Light Pollution'}
               </button>
             </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Batch Evaluation</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="btn-primary text-sm"
+                onClick={() => openBatchDialog('scheduled')}
+                disabled={anyRunning}
+                data-testid="run-scheduled-batch-btn"
+              >
+                {runningScheduledBatch ? '\u27F3 Running\u2026' : '\u27F3 Run Scheduled Batch'}
+              </button>
+              <button
+                className="text-sm px-3 py-1.5 font-medium rounded border border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 transition-colors disabled:opacity-50"
+                onClick={() => openBatchDialog('jfdi')}
+                disabled={anyRunning}
+                data-testid="run-jfdi-batch-btn"
+              >
+                {runningJfdiBatch ? '\u27F3 Running\u2026' : '\u27F3 Run JFDI Batch'}
+              </button>
+            </div>
+            <p className="text-xs text-plex-text-muted mt-1.5">
+              Scheduled = same triage gates as the overnight job. JFDI = all locations, all dates (T to T+3), both events, no gates.
+            </p>
           </div>
           {runStatus && (
             <p className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
@@ -775,6 +857,47 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               }}
             />
           )}
+        </ConfirmDialog>
+      )}
+
+      {/* Batch submission dialog with region selector */}
+      {batchDialog && (
+        <ConfirmDialog
+          title={batchDialog.mode === 'scheduled' ? 'Run Scheduled Batch' : 'Run JFDI Batch'}
+          message={
+            batchDialog.mode === 'scheduled'
+              ? 'Submit a batch with the same triage and stability gates as the overnight scheduled job.'
+              : 'Submit a JFDI batch — all dates T+0 to T+3, both sunrise and sunset, no triage gates.'
+          }
+          confirmLabel={`Submit (${batchDialog.selectedIds.size} region${batchDialog.selectedIds.size !== 1 ? 's' : ''})`}
+          onConfirm={handleBatchSubmit}
+          onCancel={() => setBatchDialog(null)}
+        >
+          <div className="max-h-48 overflow-y-auto text-xs space-y-2">
+            <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid="batch-region-toggle-all">
+              <input
+                type="checkbox"
+                checked={batchDialog.selectedIds.size === batchRegions.length}
+                onChange={() => handleBatchToggleRegion('__all__')}
+                className="accent-blue-400"
+              />
+              All regions ({batchRegions.reduce((sum, r) => sum + r.locationCount, 0)} locations)
+            </label>
+            {batchRegions.map((r) => (
+              <label key={r.id} className="flex items-center gap-2 text-plex-text cursor-pointer" data-testid={`batch-region-toggle-${r.id}`}>
+                <input
+                  type="checkbox"
+                  checked={batchDialog.selectedIds.has(r.id)}
+                  onChange={() => handleBatchToggleRegion(r.id)}
+                  className="accent-blue-400"
+                />
+                {r.name} ({r.locationCount})
+              </label>
+            ))}
+            <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
+              {batchDialog.selectedIds.size} of {batchRegions.length} region{batchRegions.length !== 1 ? 's' : ''} selected
+            </p>
+          </div>
         </ConfirmDialog>
       )}
 

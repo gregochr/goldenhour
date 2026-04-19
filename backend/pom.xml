@@ -442,6 +442,9 @@
                                 <!-- Batch submission services — call Anthropic SDK directly; tested via integration -->
                                 <exclude>com/gregochr/goldenhour/service/batch/ForceSubmitBatchService.class</exclude>
                                 <exclude>com/gregochr/goldenhour/service/batch/ScheduledBatchEvaluationService.class</exclude>
+                                <!-- Pure request/response records — no business logic -->
+                                <exclude>com/gregochr/goldenhour/model/BatchSubmitRequest.class</exclude>
+                                <exclude>com/gregochr/goldenhour/model/RegionSummaryDto.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
