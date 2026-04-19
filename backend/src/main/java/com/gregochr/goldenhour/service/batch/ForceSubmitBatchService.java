@@ -168,8 +168,6 @@ public class ForceSubmitBatchService {
                                                         .text(builder.getSystemPrompt())
                                                         .cacheControl(CacheControlEphemeral
                                                                 .builder()
-                                                                .ttl(CacheControlEphemeral
-                                                                        .Ttl.TTL_1H)
                                                                 .build())
                                                         .build()))
                                         .outputConfig(builder.buildOutputConfig())
