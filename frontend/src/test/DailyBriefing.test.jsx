@@ -1172,6 +1172,19 @@ describe('DailyBriefing', () => {
       expect(screen.getByTestId('best-bet-pick-2')).toBeInTheDocument();
       expect(screen.getByText('① BEST BET')).toBeInTheDocument();
       expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
+
+      // BEST BET uses gold accent, ALSO GOOD uses silver accent
+      const pick1 = screen.getByTestId('best-bet-pick-1');
+      const pick2 = screen.getByTestId('best-bet-pick-2');
+      expect(pick1).toHaveClass('border-amber-500/50');
+      expect(pick1).toHaveClass('bg-amber-500/5');
+      expect(pick2).toHaveClass('border-slate-400/40');
+      expect(pick2).toHaveClass('bg-slate-400/5');
+
+      const label1 = screen.getByText('① BEST BET');
+      const label2 = screen.getByText('② ALSO GOOD');
+      expect(label1).toHaveClass('text-amber-400');
+      expect(label2).toHaveClass('text-slate-300');
     });
 
     it('stay-home pick button is disabled', async () => {

@@ -583,8 +583,11 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
           const navigable = pick.event != null && eventKey != null;
           const lowConf = pick.confidence === 'low';
 
-          const borderClass = lowConf ? 'border-plex-border' : 'border-amber-500/50';
-          const bgClass = lowConf ? 'bg-plex-surface/30' : 'bg-amber-500/5';
+          const isGold = pick.rank === 1;
+          const borderClass = lowConf ? 'border-plex-border'
+            : isGold ? 'border-amber-500/50' : 'border-slate-400/40';
+          const bgClass = lowConf ? 'bg-plex-surface/30'
+            : isGold ? 'bg-amber-500/5' : 'bg-slate-400/5';
           const cursorClass = navigable ? 'cursor-pointer hover:bg-plex-surface/50' : 'cursor-default';
 
           const pick1 = picks[0];
@@ -594,7 +597,8 @@ function BestBetBanner({ picks, todayStr, tomorrowStr, onPickClick }) {
           const rankLabel = pick.rank === 1
             ? '① BEST BET'
             : isNearestGood ? '② NEAREST GOOD' : '② ALSO GOOD';
-          const rankColour = lowConf ? 'text-plex-text-muted' : 'text-amber-400';
+          const rankColour = lowConf ? 'text-plex-text-muted'
+            : isGold ? 'text-amber-400' : 'text-slate-300';
 
           return (
             <button
