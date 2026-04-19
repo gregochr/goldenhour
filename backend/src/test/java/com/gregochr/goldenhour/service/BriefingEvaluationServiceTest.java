@@ -23,7 +23,10 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
+import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -72,7 +75,11 @@ class BriefingEvaluationServiceTest {
     @Mock
     private ForecastBatchRepository batchRepository;
     @Mock
+    private CachedEvaluationRepository cachedEvaluationRepository;
+    @Mock
     private AnthropicClient anthropicClient;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private BriefingEvaluationService service;
 
@@ -83,13 +90,18 @@ class BriefingEvaluationServiceTest {
     void setUp() {
         service = new BriefingEvaluationService(
                 locationService, briefingService, forecastService,
-                modelSelectionService, jobRunService, batchRepository, anthropicClient);
+                modelSelectionService, jobRunService, batchRepository,
+                cachedEvaluationRepository, anthropicClient, objectMapper);
         // Default: all locations are colour locations
         org.mockito.Mockito.lenient().when(briefingService.isColourLocation(any())).thenReturn(true);
         // Default: no outstanding batches
         org.mockito.Mockito.lenient()
                 .when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
                 .thenReturn(List.of());
+        // Default: no existing DB cache entries
+        org.mockito.Mockito.lenient()
+                .when(cachedEvaluationRepository.findByCacheKey(any()))
+                .thenReturn(java.util.Optional.empty());
     }
 
     // ── Filtering tests ────────────────────────────────────────────────────────
@@ -1060,6 +1072,120 @@ class BriefingEvaluationServiceTest {
         // Cancel still fires even though the cache returned immediately
         verify(batchService).cancel(any(String.class));
         verifyNoInteractions(forecastService);
+    }
+
+    // ── DB persistence tests ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("writeFromBatch persists results to DB via cachedEvaluationRepository")
+    void writeFromBatch_persistsToDb() {
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        verify(cachedEvaluationRepository).save(captor.capture());
+
+        CachedEvaluationEntity saved = captor.getValue();
+        assertThat(saved.getCacheKey()).isEqualTo(cacheKey);
+        assertThat(saved.getRegionName()).isEqualTo(REGION);
+        assertThat(saved.getEvaluationDate()).isEqualTo(DATE);
+        assertThat(saved.getTargetType()).isEqualTo("SUNSET");
+        assertThat(saved.getSource()).isEqualTo("BATCH");
+        assertThat(saved.getResultsJson()).contains("Bamburgh");
+    }
+
+    @Test
+    @DisplayName("writeFromBatch updates existing DB row on same cache key")
+    void writeFromBatch_updatesExistingDbRow() {
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+        CachedEvaluationEntity existing = new CachedEvaluationEntity();
+        existing.setId(42L);
+        existing.setCacheKey(cacheKey);
+        existing.setEvaluatedAt(Instant.now().minusSeconds(3600));
+        when(cachedEvaluationRepository.findByCacheKey(cacheKey))
+                .thenReturn(java.util.Optional.of(existing));
+
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 5, 90, 85, "Excellent");
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        verify(cachedEvaluationRepository).save(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo(42L);
+        assertThat(captor.getValue().getSource()).isEqualTo("BATCH");
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup loads entries for today and future into in-memory cache")
+    void rehydrate_loadsTodayAndFuture() throws Exception {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+        String cacheKey = REGION + "|" + today + "|SUNSET";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
+
+        CachedEvaluationEntity entity = new CachedEvaluationEntity();
+        entity.setCacheKey(cacheKey);
+        entity.setResultsJson(objectMapper.writeValueAsString(List.of(result)));
+        entity.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entity));
+
+        service.rehydrateCacheOnStartup();
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, today, TargetType.SUNSET);
+        assertThat(scores).containsKey("Bamburgh");
+        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup skips entries with corrupt JSON")
+    void rehydrate_skipsCorruptJson() {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+
+        CachedEvaluationEntity entity = new CachedEvaluationEntity();
+        entity.setCacheKey(REGION + "|" + today + "|SUNSET");
+        entity.setResultsJson("NOT VALID JSON {{{{");
+        entity.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entity));
+
+        service.rehydrateCacheOnStartup();
+
+        assertThat(service.getCachedScores(REGION, today, TargetType.SUNSET)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("clearCache deletes all DB rows")
+    void clearCache_deletesDbRows() {
+        when(cachedEvaluationRepository.count()).thenReturn(3L);
+
+        service.clearCache();
+
+        verify(cachedEvaluationRepository).deleteAll();
+    }
+
+    @Test
+    @DisplayName("DB persistence failure does not break in-memory cache write")
+    void persistToDb_failureDoesNotBreakInMemory() {
+        when(cachedEvaluationRepository.save(any())).thenThrow(
+                new RuntimeException("DB down"));
+
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good");
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        // In-memory cache should still work despite DB failure
+        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET))
+                .containsKey("Bamburgh");
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────

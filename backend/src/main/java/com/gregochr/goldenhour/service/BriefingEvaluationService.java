@@ -1,6 +1,10 @@
 package com.gregochr.goldenhour.service;
 
 import com.anthropic.client.AnthropicClient;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
@@ -16,17 +20,21 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -47,19 +55,22 @@ public class BriefingEvaluationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(BriefingEvaluationService.class);
 
+    private static final ZoneId UK_ZONE = ZoneId.of("Europe/London");
+    private static final DateTimeFormatter UK_TIME = DateTimeFormatter.ofPattern("HH:mm")
+            .withZone(UK_ZONE);
+
     private final LocationService locationService;
     private final BriefingService briefingService;
     private final ForecastService forecastService;
     private final ModelSelectionService modelSelectionService;
     private final JobRunService jobRunService;
     private final ForecastBatchRepository batchRepository;
+    private final CachedEvaluationRepository cachedEvaluationRepository;
     private final AnthropicClient anthropicClient;
+    private final ObjectMapper objectMapper;
 
     /** Outer key: "regionName|date|targetType", value: cached entry with results + timestamp. */
     private final ConcurrentHashMap<String, CachedEvaluation> cache = new ConcurrentHashMap<>();
-
-    private static final DateTimeFormatter UK_TIME = DateTimeFormatter.ofPattern("HH:mm")
-            .withZone(ZoneId.of("Europe/London"));
 
     /**
      * Cached evaluation results for a region/date/targetType.
@@ -73,13 +84,15 @@ public class BriefingEvaluationService {
     /**
      * Constructs a {@code BriefingEvaluationService}.
      *
-     * @param locationService       service for retrieving enabled locations
-     * @param briefingService       service for the cached briefing
-     * @param forecastService       service for weather fetch, triage, and Claude evaluation
-     * @param modelSelectionService service for resolving the active Claude model
-     * @param jobRunService         service for job run tracking
-     * @param batchRepository       repository for looking up and cancelling outstanding batches
-     * @param anthropicClient       raw SDK client for cancelling batch API jobs
+     * @param locationService            service for retrieving enabled locations
+     * @param briefingService            service for the cached briefing
+     * @param forecastService            service for weather fetch, triage, and Claude evaluation
+     * @param modelSelectionService      service for resolving the active Claude model
+     * @param jobRunService              service for job run tracking
+     * @param batchRepository            repository for looking up and cancelling outstanding batches
+     * @param cachedEvaluationRepository repository for durable cache persistence
+     * @param anthropicClient            raw SDK client for cancelling batch API jobs
+     * @param objectMapper               Jackson mapper for JSON serialisation
      */
     public BriefingEvaluationService(LocationService locationService,
             BriefingService briefingService,
@@ -87,14 +100,18 @@ public class BriefingEvaluationService {
             ModelSelectionService modelSelectionService,
             JobRunService jobRunService,
             ForecastBatchRepository batchRepository,
-            AnthropicClient anthropicClient) {
+            CachedEvaluationRepository cachedEvaluationRepository,
+            AnthropicClient anthropicClient,
+            ObjectMapper objectMapper) {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.forecastService = forecastService;
         this.modelSelectionService = modelSelectionService;
         this.jobRunService = jobRunService;
         this.batchRepository = batchRepository;
+        this.cachedEvaluationRepository = cachedEvaluationRepository;
         this.anthropicClient = anthropicClient;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -201,8 +218,7 @@ public class BriefingEvaluationService {
         Instant evaluatedAt = Instant.now();
         if (!results.isEmpty()) {
             cache.put(cacheKey, new CachedEvaluation(results, evaluatedAt));
-            LOG.info("SSE results written to evaluation cache for key: {} ({} results)",
-                    cacheKey, results.size());
+            persistToDb(cacheKey, results, "SSE");
         }
 
         sendSafe(emitter, "evaluation-complete",
@@ -274,8 +290,7 @@ public class BriefingEvaluationService {
         ConcurrentHashMap<String, BriefingEvaluationResult> resultMap = new ConcurrentHashMap<>();
         results.forEach(r -> resultMap.put(r.locationName(), r));
         cache.put(cacheKey, new CachedEvaluation(resultMap, Instant.now()));
-        LOG.info("Batch results written to evaluation cache for key: {} ({} results)",
-                cacheKey, results.size());
+        persistToDb(cacheKey, resultMap, "BATCH");
     }
 
     /**
@@ -315,13 +330,53 @@ public class BriefingEvaluationService {
      *
      * @return the number of entries cleared
      */
+    @Transactional
     public int clearCache() {
         int size = cache.size();
         cache.clear();
-        if (size > 0) {
-            LOG.info("Briefing evaluation cache cleared ({} entries)", size);
+        long dbDeleted = cachedEvaluationRepository.count();
+        cachedEvaluationRepository.deleteAll();
+        if (size > 0 || dbDeleted > 0) {
+            LOG.info("Briefing evaluation cache cleared ({} in-memory, {} DB entries)",
+                    size, dbDeleted);
         }
         return size;
+    }
+
+    /**
+     * Rehydrates the in-memory evaluation cache from the database on startup.
+     *
+     * <p>Loads entries for today and future dates so that expensive evaluation results
+     * survive backend restarts. Past dates are not loaded — they are stale.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void rehydrateCacheOnStartup() {
+        LocalDate today = LocalDate.now(UK_ZONE);
+        List<CachedEvaluationEntity> entries =
+                cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today);
+
+        int loaded = 0;
+        for (CachedEvaluationEntity entity : entries) {
+            try {
+                List<BriefingEvaluationResult> results = objectMapper.readValue(
+                        entity.getResultsJson(),
+                        new TypeReference<List<BriefingEvaluationResult>>() { });
+                ConcurrentHashMap<String, BriefingEvaluationResult> resultMap =
+                        new ConcurrentHashMap<>();
+                results.forEach(r -> resultMap.put(r.locationName(), r));
+                cache.put(entity.getCacheKey(),
+                        new CachedEvaluation(resultMap, entity.getEvaluatedAt()));
+                loaded++;
+            } catch (Exception e) {
+                LOG.warn("Failed to rehydrate cache entry {}: {}",
+                        entity.getCacheKey(), e.getMessage());
+            }
+        }
+
+        if (loaded > 0) {
+            LOG.info("Evaluation cache rehydrated on startup: {} entries loaded (dates >= {})",
+                    loaded, today);
+        }
     }
 
     /**
@@ -334,6 +389,55 @@ public class BriefingEvaluationService {
     @EventListener
     public void onBriefingRefreshed(BriefingRefreshedEvent event) {
         LOG.info("Briefing refreshed — evaluation cache retained ({} entries)", cache.size());
+    }
+
+    /**
+     * Persists the in-memory cache entry to the database.
+     *
+     * <p>Uses upsert semantics — an existing row for the same cache key is updated.
+     * Persistence failures are logged but never break the live path.
+     *
+     * @param cacheKey  the cache key in "regionName|date|targetType" format
+     * @param results   the evaluation results to persist
+     * @param source    how this entry was produced: "BATCH" or "SSE"
+     */
+    private void persistToDb(String cacheKey,
+            Map<String, BriefingEvaluationResult> results, String source) {
+        try {
+            String[] parts = cacheKey.split("\\|");
+            String regionName = parts[0];
+            LocalDate date = LocalDate.parse(parts[1]);
+            String targetType = parts[2];
+
+            List<BriefingEvaluationResult> resultList = new ArrayList<>(results.values());
+            String json = objectMapper.writeValueAsString(resultList);
+
+            CachedEvaluationEntity entity = cachedEvaluationRepository
+                    .findByCacheKey(cacheKey)
+                    .orElseGet(() -> {
+                        CachedEvaluationEntity e = new CachedEvaluationEntity();
+                        e.setCacheKey(cacheKey);
+                        e.setEvaluatedAt(Instant.now());
+                        return e;
+                    });
+
+            entity.setRegionName(regionName);
+            entity.setEvaluationDate(date);
+            entity.setTargetType(targetType);
+            entity.setResultsJson(json);
+            entity.setSource(source);
+            entity.setUpdatedAt(Instant.now());
+
+            cachedEvaluationRepository.save(entity);
+            LOG.info("{} results persisted to DB for key: {} ({} results)",
+                    source, cacheKey, results.size());
+        } catch (JsonProcessingException e) {
+            LOG.warn("Failed to serialise evaluation cache for {}: {}",
+                    cacheKey, e.getMessage());
+        } catch (Exception e) {
+            LOG.warn("Failed to persist evaluation cache for {}: {}",
+                    cacheKey, e.getMessage());
+        }
     }
 
     private BriefingEvaluationResult evaluateSingleLocation(LocationEntity location,
