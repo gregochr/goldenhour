@@ -1188,6 +1188,283 @@ class BriefingEvaluationServiceTest {
                 .containsKey("Bamburgh");
     }
 
+    @Test
+    @DisplayName("evaluateRegion persists to DB with source SSE after successful evaluation")
+    void evaluateRegion_persistsToDbWithSourceSse() {
+        LocationEntity loc = locationInRegion("Bamburgh", REGION);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
+
+        ForecastPreEvalResult preEval = nonTriagedResult(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                eq(loc), eq(DATE), eq(TargetType.SUNSET), any(), eq(EvaluationModel.HAIKU),
+                eq(false), any()))
+                .thenReturn(preEval);
+        when(forecastService.evaluateAndPersist(eq(preEval), any()))
+                .thenReturn(evaluationEntity(4, 72, 65, "Good"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        // Per-location cache.put does NOT persist — only final write persists
+        verify(cachedEvaluationRepository).save(captor.capture());
+
+        CachedEvaluationEntity saved = captor.getValue();
+        assertThat(saved.getSource()).isEqualTo("SSE");
+        assertThat(saved.getCacheKey()).isEqualTo(REGION + "|" + DATE + "|SUNSET");
+        assertThat(saved.getRegionName()).isEqualTo(REGION);
+        assertThat(saved.getEvaluationDate()).isEqualTo(DATE);
+        assertThat(saved.getTargetType()).isEqualTo("SUNSET");
+        assertThat(saved.getResultsJson()).contains("Bamburgh");
+        assertThat(saved.getEvaluatedAt()).isNotNull();
+        assertThat(saved.getUpdatedAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Per-location failure: successful locations are still cached in-memory")
+    void evaluateRegion_partialFailure_successfulLocationsCached() {
+        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
+        LocationEntity craster = locationInRegion("Craster", REGION);
+
+        when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, craster));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Craster", Verdict.GO)));
+
+        ForecastPreEvalResult bambPreEval = nonTriagedResult(bamburgh);
+        when(forecastService.fetchWeatherAndTriage(
+                eq(bamburgh), eq(DATE), eq(TargetType.SUNSET), any(),
+                eq(EvaluationModel.HAIKU), eq(false), any()))
+                .thenReturn(bambPreEval);
+        when(forecastService.evaluateAndPersist(eq(bambPreEval), any()))
+                .thenReturn(evaluationEntity(4, 72, 65, "Bamburgh good"));
+
+        // Craster throws
+        when(forecastService.fetchWeatherAndTriage(
+                eq(craster), eq(DATE), eq(TargetType.SUNSET), any(),
+                eq(EvaluationModel.HAIKU), eq(false), any()))
+                .thenThrow(new RuntimeException("API timeout"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        // Bamburgh should be cached despite Craster failing
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+        assertThat(scores).hasSize(1);
+        assertThat(scores).containsKey("Bamburgh");
+        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);
+        assertThat(scores.get("Bamburgh").summary()).isEqualTo("Bamburgh good");
+        assertThat(scores).doesNotContainKey("Craster");
+    }
+
+    @Test
+    @DisplayName("evaluateRegion with 2 locations: DB save happens once with both results")
+    void evaluateRegion_twoLocations_finalDbSaveContainsBoth() {
+        LocationEntity bamburgh = locationInRegion("Bamburgh", REGION);
+        LocationEntity dunstanburgh = locationInRegion("Dunstanburgh", REGION);
+
+        when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, dunstanburgh));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Bamburgh", Verdict.GO), slot("Dunstanburgh", Verdict.MARGINAL)));
+
+        when(forecastService.fetchWeatherAndTriage(
+                eq(bamburgh), eq(DATE), eq(TargetType.SUNSET), any(),
+                eq(EvaluationModel.HAIKU), eq(false), any()))
+                .thenReturn(nonTriagedResult(bamburgh));
+        when(forecastService.fetchWeatherAndTriage(
+                eq(dunstanburgh), eq(DATE), eq(TargetType.SUNSET), any(),
+                eq(EvaluationModel.HAIKU), eq(false), any()))
+                .thenReturn(nonTriagedResult(dunstanburgh));
+        when(forecastService.evaluateAndPersist(any(), any()))
+                .thenReturn(evaluationEntity(3, 55, 48, "OK"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        // Final DB save should contain both location names in the JSON
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        // At least the final save — verify the last one has both
+        verify(cachedEvaluationRepository, times(1)).save(captor.capture());
+        String json = captor.getValue().getResultsJson();
+        assertThat(json).contains("Bamburgh");
+        assertThat(json).contains("Dunstanburgh");
+    }
+
+    @Test
+    @DisplayName("writeFromBatch: multiple results all appear in DB JSON and round-trip correctly")
+    void writeFromBatch_multipleResults_allSerialised() throws Exception {
+        BriefingEvaluationResult durham =
+                new BriefingEvaluationResult("Durham", 3, 55, 48, "Fair");
+        BriefingEvaluationResult sunderland =
+                new BriefingEvaluationResult("Sunderland", 5, 92, 88, "Excellent");
+        String cacheKey = "North East|2026-04-07|SUNRISE";
+
+        service.writeFromBatch(cacheKey, List.of(durham, sunderland));
+
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        verify(cachedEvaluationRepository).save(captor.capture());
+
+        // Round-trip: deserialise the JSON and verify all fields
+        String json = captor.getValue().getResultsJson();
+        List<BriefingEvaluationResult> roundTripped = objectMapper.readValue(
+                json, new com.fasterxml.jackson.core.type.TypeReference<
+                        List<BriefingEvaluationResult>>() { });
+        assertThat(roundTripped).hasSize(2);
+        assertThat(roundTripped).extracting(BriefingEvaluationResult::locationName)
+                .containsExactlyInAnyOrder("Durham", "Sunderland");
+
+        // Verify parsed key parts
+        assertThat(captor.getValue().getRegionName()).isEqualTo("North East");
+        assertThat(captor.getValue().getEvaluationDate())
+                .isEqualTo(LocalDate.of(2026, 4, 7));
+        assertThat(captor.getValue().getTargetType()).isEqualTo("SUNRISE");
+    }
+
+    @Test
+    @DisplayName("writeFromBatch upsert preserves original evaluatedAt, updates updatedAt")
+    void writeFromBatch_upsert_preservesOriginalEvaluatedAt() {
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+        Instant originalEvaluatedAt = Instant.parse("2026-03-30T06:00:00Z");
+        CachedEvaluationEntity existing = new CachedEvaluationEntity();
+        existing.setId(42L);
+        existing.setCacheKey(cacheKey);
+        existing.setEvaluatedAt(originalEvaluatedAt);
+        existing.setUpdatedAt(Instant.parse("2026-03-30T06:00:00Z"));
+        when(cachedEvaluationRepository.findByCacheKey(cacheKey))
+                .thenReturn(java.util.Optional.of(existing));
+
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 5, 90, 85, "Excellent");
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        ArgumentCaptor<CachedEvaluationEntity> captor =
+                ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+        verify(cachedEvaluationRepository).save(captor.capture());
+        CachedEvaluationEntity saved = captor.getValue();
+
+        // evaluatedAt should be the original — not overwritten
+        assertThat(saved.getEvaluatedAt()).isEqualTo(originalEvaluatedAt);
+        // updatedAt should be newer than the original
+        assertThat(saved.getUpdatedAt()).isAfter(originalEvaluatedAt);
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup loads multiple entries and preserves evaluatedAt")
+    void rehydrate_multipleEntries_allLoadedWithTimestamps() throws Exception {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+        LocalDate tomorrow = today.plusDays(1);
+
+        Instant sunsetTime = Instant.parse("2026-03-30T18:30:00Z");
+        Instant sunriseTime = Instant.parse("2026-03-31T06:00:00Z");
+
+        CachedEvaluationEntity entry1 = new CachedEvaluationEntity();
+        entry1.setCacheKey(REGION + "|" + today + "|SUNSET");
+        entry1.setResultsJson(objectMapper.writeValueAsString(List.of(
+                new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good"))));
+        entry1.setEvaluatedAt(sunsetTime);
+
+        CachedEvaluationEntity entry2 = new CachedEvaluationEntity();
+        entry2.setCacheKey(REGION + "|" + tomorrow + "|SUNRISE");
+        entry2.setResultsJson(objectMapper.writeValueAsString(List.of(
+                new BriefingEvaluationResult("Craster", 3, 55, 48, "Fair"))));
+        entry2.setEvaluatedAt(sunriseTime);
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entry1, entry2));
+
+        service.rehydrateCacheOnStartup();
+
+        // Both entries loaded
+        Map<String, BriefingEvaluationResult> sunsetScores =
+                service.getCachedScores(REGION, today, TargetType.SUNSET);
+        assertThat(sunsetScores).hasSize(1);
+        assertThat(sunsetScores.get("Bamburgh").rating()).isEqualTo(4);
+        assertThat(sunsetScores.get("Bamburgh").fierySkyPotential()).isEqualTo(72);
+        assertThat(sunsetScores.get("Bamburgh").goldenHourPotential()).isEqualTo(65);
+
+        Map<String, BriefingEvaluationResult> sunriseScores =
+                service.getCachedScores(REGION, tomorrow, TargetType.SUNRISE);
+        assertThat(sunriseScores).hasSize(1);
+        assertThat(sunriseScores.get("Craster").rating()).isEqualTo(3);
+
+        // evaluatedAt preserved from DB entity
+        String sunsetAt = service.getCachedEvaluatedAt(REGION, today, TargetType.SUNSET);
+        assertThat(sunsetAt).isNotNull();
+        // Verify it's using the entity's evaluatedAt, not Instant.now()
+        String sunriseAt = service.getCachedEvaluatedAt(REGION, tomorrow, TargetType.SUNRISE);
+        assertThat(sunriseAt).isNotNull();
+        assertThat(sunsetAt).isNotEqualTo(sunriseAt);
+    }
+
+    @Test
+    @DisplayName("clearCache returns correct count when entries exist in both stores")
+    void clearCache_returnsCorrectCount() {
+        // Pre-populate in-memory cache with 2 entries
+        service.writeFromBatch(REGION + "|" + DATE + "|SUNSET",
+                List.of(new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "Good")));
+        service.writeFromBatch("Yorkshire|" + DATE + "|SUNRISE",
+                List.of(new BriefingEvaluationResult("Whitby", 3, 55, 48, "Fair")));
+        when(cachedEvaluationRepository.count()).thenReturn(2L);
+
+        int cleared = service.clearCache();
+
+        assertThat(cleared).isEqualTo(2);
+        // Both stores cleared
+        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
+        assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNRISE)).isEmpty();
+        verify(cachedEvaluationRepository).deleteAll();
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup with no DB entries leaves cache empty")
+    void rehydrate_noEntries_cacheStaysEmpty() {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of());
+
+        service.rehydrateCacheOnStartup();
+
+        assertThat(service.getCachedScores(REGION, today, TargetType.SUNSET)).isEmpty();
+        assertThat(service.hasEvaluation(REGION + "|" + today + "|SUNSET")).isFalse();
+    }
+
+    @Test
+    @DisplayName("rehydrateCacheOnStartup: corrupt entry does not prevent loading valid entries")
+    void rehydrate_corruptEntry_doesNotBlockOthers() throws Exception {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+
+        CachedEvaluationEntity corrupt = new CachedEvaluationEntity();
+        corrupt.setCacheKey(REGION + "|" + today + "|SUNSET");
+        corrupt.setResultsJson("{corrupt");
+        corrupt.setEvaluatedAt(Instant.now());
+
+        CachedEvaluationEntity valid = new CachedEvaluationEntity();
+        valid.setCacheKey(REGION + "|" + today + "|SUNRISE");
+        valid.setResultsJson(objectMapper.writeValueAsString(List.of(
+                new BriefingEvaluationResult("Bamburgh", 5, 90, 85, "Excellent"))));
+        valid.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(corrupt, valid));
+
+        service.rehydrateCacheOnStartup();
+
+        // Corrupt entry skipped
+        assertThat(service.getCachedScores(REGION, today, TargetType.SUNSET)).isEmpty();
+        // Valid entry loaded
+        assertThat(service.getCachedScores(REGION, today, TargetType.SUNRISE)).hasSize(1);
+        assertThat(service.getCachedScores(REGION, today, TargetType.SUNRISE)
+                .get("Bamburgh").rating()).isEqualTo(5);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private LocationEntity locationInRegion(String name, String regionName) {
