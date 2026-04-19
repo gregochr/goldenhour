@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
-import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.JsonOutputFormat;
 import com.anthropic.models.messages.OutputConfig;
 import com.anthropic.services.blocking.MessageService;
@@ -369,13 +368,12 @@ class ScheduledBatchEvaluationServiceTest {
                 ArgumentCaptor.forClass(BatchCreateParams.class);
         verify(batchService).create(paramsCaptor.capture());
 
-        // Batch requests must use 1-hour cache TTL — 5-minute default expires
-        // before long-running batches finish, causing zero cache reads.
+        // Default 5-minute TTL — cheaper writes (1.25x vs 2.0x for 1-hour) and batch
+        // processing completes within minutes, so cache stays warm within each batch.
         var systemBlock = paramsCaptor.getValue().requests().get(0)
                 .params().system().get().asTextBlockParams().get(0);
         assertThat(systemBlock.cacheControl()).isPresent();
-        assertThat(systemBlock.cacheControl().get().ttl())
-                .hasValue(CacheControlEphemeral.Ttl.TTL_1H);
+        assertThat(systemBlock.cacheControl().get().ttl()).isEmpty();
 
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
@@ -1001,6 +999,197 @@ class ScheduledBatchEvaluationServiceTest {
 
         verify(coastalPromptBuilder).buildUserMessage(atmosphericData, surge, 4.85, 4.50);
         verify(coastalPromptBuilder).getSystemPrompt();
+        verifyNoInteractions(promptBuilder);
+    }
+
+    // ── Batch split by prompt type ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("submitForecastBatch: mixed inland and coastal locations produce two separate batches")
+    void submitForecastBatch_mixedInlandAndCoastal_submitsTwoBatches() {
+        stubBatchService();
+
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+        BriefingSlot inlandSlot = new BriefingSlot("Durham UK",
+                TEST_EVENT_TIME, Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingSlot coastalSlot = new BriefingSlot("Whitby",
+                TEST_EVENT_TIME, Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(),
+                List.of(inlandSlot, coastalSlot),
+                null, null, null, null, null, null);
+        BriefingEventSummary es = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(TEST_DATE, List.of(es));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(day), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        // Inland location (no tide)
+        LocationEntity inlandLoc = new LocationEntity();
+        inlandLoc.setId(42L);
+        inlandLoc.setName("Durham UK");
+        inlandLoc.setLat(54.7753);
+        inlandLoc.setLon(-1.5849);
+        RegionEntity regionEntity = new RegionEntity();
+        regionEntity.setName("North East");
+        inlandLoc.setRegion(regionEntity);
+        inlandLoc.setTideType(Set.of());
+
+        // Coastal location (with tide)
+        LocationEntity coastalLoc = new LocationEntity();
+        coastalLoc.setId(99L);
+        coastalLoc.setName("Whitby");
+        coastalLoc.setLat(54.4858);
+        coastalLoc.setLon(-0.6206);
+        coastalLoc.setRegion(regionEntity);
+        coastalLoc.setTideType(Set.of(TideType.HIGH));
+
+        when(locationService.findAllEnabled()).thenReturn(List.of(inlandLoc, coastalLoc));
+
+        // Inland atmospheric data — no tide
+        AtmosphericData inlandData = mock(AtmosphericData.class);
+        when(inlandData.tide()).thenReturn(null);
+        when(inlandData.surge()).thenReturn(null);
+        ForecastPreEvalResult inlandPreEval = new ForecastPreEvalResult(
+                false, null, inlandData, inlandLoc,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
+                EvaluationModel.SONNET, inlandLoc.getTideType(), "task-key-1", null);
+
+        // Coastal atmospheric data — with tide
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH, TEST_DATE.atTime(6, 0), new BigDecimal("4.50"),
+                TEST_DATE.atTime(12, 15), new BigDecimal("1.20"),
+                true, TEST_DATE.atTime(6, 0),
+                null, null, null, null, null);
+        AtmosphericData coastalData = mock(AtmosphericData.class);
+        when(coastalData.tide()).thenReturn(tide);
+        when(coastalData.surge()).thenReturn(null);
+        ForecastPreEvalResult coastalPreEval = new ForecastPreEvalResult(
+                false, null, coastalData, coastalLoc,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
+                EvaluationModel.SONNET, coastalLoc.getTideType(), "task-key-2", null);
+
+        when(forecastService.fetchWeatherAndTriage(eq(inlandLoc), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(inlandPreEval);
+        when(forecastService.fetchWeatherAndTriage(eq(coastalLoc), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(coastalPreEval);
+
+        when(promptBuilder.buildUserMessage(inlandData)).thenReturn("inland msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("inland system");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        when(coastalPromptBuilder.buildUserMessage(coastalData)).thenReturn("coastal msg");
+        when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+        when(coastalPromptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch inlandBatch = mock(MessageBatch.class);
+        when(inlandBatch.id()).thenReturn("msgbatch_inland_split");
+        when(inlandBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        MessageBatch coastalBatch = mock(MessageBatch.class);
+        when(coastalBatch.id()).thenReturn("msgbatch_coastal_split");
+        when(coastalBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class)))
+                .thenReturn(inlandBatch)
+                .thenReturn(coastalBatch);
+
+        service.submitForecastBatch();
+
+        // Two separate batches submitted
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService, org.mockito.Mockito.times(2))
+                .create(paramsCaptor.capture());
+
+        List<BatchCreateParams> captured = paramsCaptor.getAllValues();
+
+        // First batch: inland — 1 request with promptBuilder's system prompt
+        assertThat(captured.get(0).requests()).hasSize(1);
+        assertThat(captured.get(0).requests().get(0).params()
+                .system().get().asTextBlockParams().get(0).text())
+                .isEqualTo("inland system");
+
+        // Second batch: coastal — 1 request with coastalPromptBuilder's system prompt
+        assertThat(captured.get(1).requests()).hasSize(1);
+        assertThat(captured.get(1).requests().get(0).params()
+                .system().get().asTextBlockParams().get(0).text())
+                .isEqualTo("coastal system");
+
+        // Two batch entities saved with distinct batch IDs
+        ArgumentCaptor<ForecastBatchEntity> entityCaptor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository, org.mockito.Mockito.times(2))
+                .save(entityCaptor.capture());
+        assertThat(entityCaptor.getAllValues().get(0).getAnthropicBatchId())
+                .isEqualTo("msgbatch_inland_split");
+        assertThat(entityCaptor.getAllValues().get(1).getAnthropicBatchId())
+                .isEqualTo("msgbatch_coastal_split");
+
+        // Two job runs created — one per batch
+        verify(jobRunService).startBatchRun(1, "msgbatch_inland_split");
+        verify(jobRunService).startBatchRun(1, "msgbatch_coastal_split");
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: all-coastal briefing submits exactly one batch, no empty inland batch")
+    void submitForecastBatch_allCoastal_submitsSingleBatch() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH, TEST_DATE.atTime(6, 0), new BigDecimal("4.50"),
+                TEST_DATE.atTime(12, 15), new BigDecimal("1.20"),
+                true, TEST_DATE.atTime(6, 0),
+                null, null, null, null, null);
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.tide()).thenReturn(tide);
+        when(atmosphericData.surge()).thenReturn(null);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+        when(coastalPromptBuilder.buildUserMessage(atmosphericData))
+                .thenReturn("coastal msg");
+        when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal system");
+        when(coastalPromptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_coastal_only");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Exactly one batch submitted — no empty inland batch
+        verify(batchService).create(any(BatchCreateParams.class));
+        verify(batchRepository).save(any(ForecastBatchEntity.class));
+        verify(jobRunService).startBatchRun(1, "msgbatch_coastal_only");
+
+        // Only coastal builder used
+        verify(coastalPromptBuilder).buildUserMessage(atmosphericData);
         verifyNoInteractions(promptBuilder);
     }
 

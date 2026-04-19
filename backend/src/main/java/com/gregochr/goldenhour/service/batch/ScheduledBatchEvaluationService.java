@@ -315,8 +315,10 @@ public class ScheduledBatchEvaluationService {
         }
 
         // Second pass: triage each task using the pre-fetched caches (no individual API calls)
-        List<BatchCreateParams.Request> requests = new ArrayList<>();
-        List<ForecastTask> includedTasks = new ArrayList<>();
+        List<BatchCreateParams.Request> inlandRequests = new ArrayList<>();
+        List<BatchCreateParams.Request> coastalRequests = new ArrayList<>();
+        List<ForecastTask> inlandTasks = new ArrayList<>();
+        List<ForecastTask> coastalTasks = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         int skippedTriage = 0;
@@ -349,11 +351,18 @@ public class ScheduledBatchEvaluationService {
                     skippedStability++;
                     continue;
                 }
-                requests.add(buildForecastRequest(task.date(), task.targetType(),
-                        task.location(), preEval.atmosphericData(), model));
-                includedTasks.add(task);
-                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={}",
-                        task.location().getName(), task.date(), task.targetType());
+                BatchCreateParams.Request request = buildForecastRequest(task.date(),
+                        task.targetType(), task.location(), preEval.atmosphericData(), model);
+                if (preEval.atmosphericData().tide() != null) {
+                    coastalRequests.add(request);
+                    coastalTasks.add(task);
+                } else {
+                    inlandRequests.add(request);
+                    inlandTasks.add(task);
+                }
+                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | type={}",
+                        task.location().getName(), task.date(), task.targetType(),
+                        preEval.atmosphericData().tide() != null ? "coastal" : "inland");
                 included++;
             } catch (Exception e) {
                 LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=ERROR ({})",
@@ -368,26 +377,44 @@ public class ScheduledBatchEvaluationService {
                 included, skippedTriage + skippedStability + skippedError,
                 skippedTriage, skippedStability, skippedError);
 
-        if (requests.isEmpty()) {
+        if (inlandRequests.isEmpty() && coastalRequests.isEmpty()) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
             return;
         }
 
-        submitBatch(requests, BatchType.FORECAST, "Forecast batch");
+        if (!inlandRequests.isEmpty()) {
+            submitBatch(inlandRequests, BatchType.FORECAST, "Forecast batch (inland)");
+            logBatchBreakdown(inlandTasks, "inland");
+        }
+        if (!coastalRequests.isEmpty()) {
+            submitBatch(coastalRequests, BatchType.FORECAST, "Forecast batch (coastal)");
+            logBatchBreakdown(coastalTasks, "coastal");
+        }
 
-        // Use Europe/London for T+ offset — matches the date filter in collectForecastTasks()
-        LocalDate todayForBreakdown = LocalDate.now(ZoneId.of("Europe/London"));
+        LOG.info("Forecast batch split: {} inland + {} coastal = {} total requests",
+                inlandRequests.size(), coastalRequests.size(),
+                inlandRequests.size() + coastalRequests.size());
+    }
 
-        String dateBreakdown = includedTasks.stream()
+    /**
+     * Logs the date/event/region breakdown for a submitted batch.
+     *
+     * @param tasks the included tasks for this batch
+     * @param label batch label (e.g. "inland" or "coastal")
+     */
+    private void logBatchBreakdown(List<ForecastTask> tasks, String label) {
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+
+        String dateBreakdown = tasks.stream()
                 .collect(Collectors.groupingBy(
-                        t -> "T+" + ChronoUnit.DAYS.between(todayForBreakdown, t.date()),
+                        t -> "T+" + ChronoUnit.DAYS.between(today, t.date()),
                         Collectors.counting()))
                 .entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> e.getKey() + "=" + e.getValue())
                 .collect(Collectors.joining(", "));
 
-        String eventBreakdown = includedTasks.stream()
+        String eventBreakdown = tasks.stream()
                 .collect(Collectors.groupingBy(
                         t -> t.targetType().name(),
                         Collectors.counting()))
@@ -396,7 +423,7 @@ public class ScheduledBatchEvaluationService {
                 .map(e -> e.getKey() + "=" + e.getValue())
                 .collect(Collectors.joining(", "));
 
-        String regionBreakdown = includedTasks.stream()
+        String regionBreakdown = tasks.stream()
                 .collect(Collectors.groupingBy(
                         t -> t.location().getRegion() != null
                                 ? t.location().getRegion().getName()
@@ -407,9 +434,9 @@ public class ScheduledBatchEvaluationService {
                 .map(e -> e.getKey() + "=" + e.getValue())
                 .collect(Collectors.joining(", "));
 
-        LOG.warn("[BATCH DIAG] Submitted {} requests — by date: [{}] | by event: [{}] "
+        LOG.warn("[BATCH DIAG] Submitted {} {} requests — by date: [{}] | by event: [{}] "
                         + "| by region: [{}]",
-                includedTasks.size(), dateBreakdown, eventBreakdown, regionBreakdown);
+                tasks.size(), label, dateBreakdown, eventBreakdown, regionBreakdown);
     }
 
     /**
@@ -816,8 +843,7 @@ public class ScheduledBatchEvaluationService {
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
                                         .text(builder.getSystemPrompt())
-                                        .cacheControl(CacheControlEphemeral.builder()
-                                                .ttl(CacheControlEphemeral.Ttl.TTL_1H).build())
+                                        .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
                         .outputConfig(builder.buildOutputConfig())
                         .addUserMessage(userMessage)
