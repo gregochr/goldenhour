@@ -71,6 +71,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static java.time.LocalDate.now;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -79,6 +80,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -86,6 +88,9 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class ScheduledBatchEvaluationServiceTest {
+
+    private static final LocalDate TEST_DATE = now();
+    private static final LocalDateTime TEST_EVENT_TIME = TEST_DATE.atTime(5, 30);
 
     @Mock
     private AnthropicClient anthropicClient;
@@ -188,6 +193,146 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("submitForecastBatch skips past dates from stale cached briefing")
+    void submitForecastBatch_pastDatesOnly_skipsWithoutWeatherFetch() {
+        LocalDate yesterday = TEST_DATE.minusDays(1);
+        DailyBriefingResponse briefing = buildBriefingForDate(yesterday, Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        service.submitForecastBatch();
+
+        // Past dates should be filtered before weather pre-fetch — no API calls wasted
+        verifyNoInteractions(openMeteoService);
+        verifyNoInteractions(forecastService);
+        verify(batchService, never()).create(any());
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: mixed past and future dates, only future dates reach triage")
+    void submitForecastBatch_mixedPastAndFutureDates_onlyFutureDatesTriaged() {
+        stubBatchService();
+
+        LocalDate yesterday = TEST_DATE.minusDays(1);
+        LocalDate tomorrow = TEST_DATE.plusDays(1);
+
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+
+        // Yesterday: 2 GO slots (should be filtered)
+        BriefingSlot yesterdaySlot1 = new BriefingSlot("Durham UK",
+                yesterday.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingSlot yesterdaySlot2 = new BriefingSlot("Sunderland",
+                yesterday.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion yesterdayRegion = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(),
+                List.of(yesterdaySlot1, yesterdaySlot2),
+                null, null, null, null, null, null);
+        BriefingEventSummary yesterdayEvent = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(yesterdayRegion), List.of());
+        BriefingDay yesterdayDay = new BriefingDay(yesterday, List.of(yesterdayEvent));
+
+        // Tomorrow: 1 GO slot (should pass through)
+        BriefingSlot tomorrowSlot = new BriefingSlot("Durham UK",
+                tomorrow.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion tomorrowRegion = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(tomorrowSlot),
+                null, null, null, null, null, null);
+        BriefingEventSummary tomorrowEvent = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(tomorrowRegion), List.of());
+        BriefingDay tomorrowDay = new BriefingDay(tomorrow, List.of(tomorrowEvent));
+
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(yesterdayDay, tomorrowDay), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                tomorrow, TargetType.SUNRISE,
+                tomorrow.atTime(5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(tomorrow),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_mixed");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Only tomorrow's slot should reach the batch — yesterday's 2 slots filtered
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(paramsCaptor.capture());
+        assertThat(paramsCaptor.getValue().requests()).hasSize(1);
+
+        // Triage was only called for the tomorrow slot, not for yesterday's slots
+        verify(forecastService).fetchWeatherAndTriage(eq(location), eq(tomorrow),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any());
+        verifyNoMoreInteractions(forecastService);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch keeps today's date (not filtered as past)")
+    void submitForecastBatch_todayDate_notFiltered() {
+        stubBatchService();
+        // buildBriefing uses TEST_DATE which is today — should pass the date filter
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+                .thenReturn(EvaluationModel.SONNET);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 0,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_today");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Today's date should pass through the filter and reach the batch
+        verify(batchService).create(any(BatchCreateParams.class));
+        verify(forecastService).fetchWeatherAndTriage(eq(location), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("submitForecastBatch submits batch for GO location")
     void submitForecastBatch_goLocation_submitsBatch() {
         stubBatchService();
@@ -203,8 +348,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -254,8 +399,8 @@ class ScheduledBatchEvaluationServiceTest {
 
         ForecastPreEvalResult triaged = new ForecastPreEvalResult(
                 true, "Overcast", null, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(triaged);
@@ -272,7 +417,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
                 .thenReturn(EvaluationModel.SONNET);
-        when(briefingEvaluationService.hasEvaluation(eq("North East|2026-04-07|SUNRISE")))
+        when(briefingEvaluationService.hasEvaluation(eq("North East|" + TEST_DATE + "|SUNRISE")))
                 .thenReturn(true);
 
         service.submitForecastBatch();
@@ -290,10 +435,10 @@ class ScheduledBatchEvaluationServiceTest {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot northEastSlot = new BriefingSlot("Durham UK",
-                LocalDateTime.of(2026, 4, 7, 5, 30),
+                TEST_EVENT_TIME,
                 Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingSlot yorkshireSlot = new BriefingSlot("Flamborough Head",
-                LocalDateTime.of(2026, 4, 7, 5, 30),
+                TEST_EVENT_TIME,
                 Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion northEastRegion = new BriefingRegion(
                 "North East", Verdict.GO, "Summary", List.of(), List.of(northEastSlot),
@@ -303,7 +448,7 @@ class ScheduledBatchEvaluationServiceTest {
                 null, null, null, null, null, null);
         BriefingEventSummary es = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(northEastRegion, yorkshireRegion), List.of());
-        BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(es));
+        BriefingDay day = new BriefingDay(TEST_DATE, List.of(es));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 null, null, List.of(day), null, null, null, false, false, 0, null, List.of(), List.of());
 
@@ -312,9 +457,9 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         // North East is cached; Yorkshire is not
-        when(briefingEvaluationService.hasEvaluation(eq("North East|2026-04-07|SUNRISE")))
+        when(briefingEvaluationService.hasEvaluation(eq("North East|" + TEST_DATE + "|SUNRISE")))
                 .thenReturn(true);
-        when(briefingEvaluationService.hasEvaluation(eq("Yorkshire|2026-04-07|SUNRISE")))
+        when(briefingEvaluationService.hasEvaluation(eq("Yorkshire|" + TEST_DATE + "|SUNRISE")))
                 .thenReturn(false);
 
         LocationEntity yorkshireLoc = buildLocation("Flamborough Head");
@@ -327,8 +472,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, yorkshireLoc,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, yorkshireLoc.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -366,8 +511,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -393,7 +538,7 @@ class ScheduledBatchEvaluationServiceTest {
         // Must satisfy the Anthropic pattern ^[a-zA-Z0-9_-]{1,64}$
         assertThat(customId).matches("[a-zA-Z0-9_-]{1,64}");
         // Must encode enough for BatchResultProcessor to reconstruct the cache key
-        assertThat(customId).isEqualTo("fc-42-2026-04-07-SUNRISE");
+        assertThat(customId).isEqualTo("fc-42-" + TEST_DATE + "-SUNRISE");
     }
 
     @Test
@@ -485,8 +630,8 @@ class ScheduledBatchEvaluationServiceTest {
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 2,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 2,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", forecastResponse);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -524,8 +669,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 3,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 3,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", forecastResponse);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -568,8 +713,8 @@ class ScheduledBatchEvaluationServiceTest {
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 2,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 2,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -603,8 +748,8 @@ class ScheduledBatchEvaluationServiceTest {
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, loc1,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 2,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 2,
                 EvaluationModel.SONNET, loc1.getTideType(), "task-key", forecastResponse);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -731,12 +876,12 @@ class ScheduledBatchEvaluationServiceTest {
 
         TideSnapshot tide = new TideSnapshot(
                 TideState.HIGH,
-                LocalDateTime.of(2026, 4, 7, 6, 0),
+                TEST_DATE.atTime(6, 0),
                 new BigDecimal("4.50"),
-                LocalDateTime.of(2026, 4, 7, 12, 15),
+                TEST_DATE.atTime(12, 15),
                 new BigDecimal("1.20"),
                 true,
-                LocalDateTime.of(2026, 4, 7, 6, 0),
+                TEST_DATE.atTime(6, 0),
                 null, null, null, null, null);
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         when(atmosphericData.tide()).thenReturn(tide);
@@ -744,8 +889,8 @@ class ScheduledBatchEvaluationServiceTest {
 
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -783,8 +928,8 @@ class ScheduledBatchEvaluationServiceTest {
 
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -819,12 +964,12 @@ class ScheduledBatchEvaluationServiceTest {
 
         TideSnapshot tide = new TideSnapshot(
                 TideState.HIGH,
-                LocalDateTime.of(2026, 4, 7, 6, 0),
+                TEST_DATE.atTime(6, 0),
                 new BigDecimal("4.50"),
-                LocalDateTime.of(2026, 4, 7, 12, 15),
+                TEST_DATE.atTime(12, 15),
                 new BigDecimal("1.20"),
                 true,
-                LocalDateTime.of(2026, 4, 7, 6, 0),
+                TEST_DATE.atTime(6, 0),
                 null, null, null, null, null);
         StormSurgeBreakdown surge = new StormSurgeBreakdown(
                 0.23, 0.12, 0.35, 990.0, 15.0, 60.0, 0.85,
@@ -837,8 +982,8 @@ class ScheduledBatchEvaluationServiceTest {
 
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -875,8 +1020,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -911,8 +1056,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -1041,8 +1186,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -1095,12 +1240,12 @@ class ScheduledBatchEvaluationServiceTest {
 
         TideSnapshot tide = new TideSnapshot(
                 TideState.HIGH,
-                LocalDateTime.of(2026, 4, 7, 6, 0),
+                TEST_DATE.atTime(6, 0),
                 new BigDecimal("4.50"),
-                LocalDateTime.of(2026, 4, 7, 12, 15),
+                TEST_DATE.atTime(12, 15),
                 new BigDecimal("1.20"),
                 true,
-                LocalDateTime.of(2026, 4, 7, 6, 0),
+                TEST_DATE.atTime(6, 0),
                 null, null, null, null, null);
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         when(atmosphericData.tide()).thenReturn(tide);
@@ -1108,8 +1253,8 @@ class ScheduledBatchEvaluationServiceTest {
 
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -1152,8 +1297,8 @@ class ScheduledBatchEvaluationServiceTest {
         when(atmosphericData.surge()).thenReturn(null);
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
                 false, null, atmosphericData, location,
-                LocalDate.of(2026, 4, 7), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 7, 5, 30), 90, 1,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 1,
                 EvaluationModel.SONNET, location.getTideType(), "task-key", null);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any(), any(), any())).thenReturn(preEval);
@@ -1185,14 +1330,30 @@ class ScheduledBatchEvaluationServiceTest {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot slot = new BriefingSlot("Durham UK",
-                LocalDateTime.of(2026, 4, 7, 5, 30),
+                TEST_EVENT_TIME,
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot),
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
-        BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));
+        BriefingDay day = new BriefingDay(TEST_DATE, List.of(eventSummary));
+        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+    }
+
+    private DailyBriefingResponse buildBriefingForDate(LocalDate date, Verdict verdict) {
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+        BriefingSlot slot = new BriefingSlot("Durham UK",
+                date.atTime(5, 30),
+                verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "North East", verdict, "Summary", List.of(), List.of(slot),
+                null, null, null, null, null, null);
+        BriefingEventSummary eventSummary = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
                 false, false, 0, null, List.of(), List.of());
     }
@@ -1201,17 +1362,17 @@ class ScheduledBatchEvaluationServiceTest {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot slot1 = new BriefingSlot("Durham UK",
-                LocalDateTime.of(2026, 4, 7, 5, 30),
+                TEST_EVENT_TIME,
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingSlot slot2 = new BriefingSlot("Sunderland",
-                LocalDateTime.of(2026, 4, 7, 5, 30),
+                TEST_EVENT_TIME,
                 verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), List.of(slot1, slot2),
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());
-        BriefingDay day = new BriefingDay(LocalDate.of(2026, 4, 7), List.of(eventSummary));
+        BriefingDay day = new BriefingDay(TEST_DATE, List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
                 false, false, 0, null, List.of(), List.of());
     }

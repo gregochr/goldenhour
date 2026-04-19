@@ -53,6 +53,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -355,11 +356,12 @@ public class ScheduledBatchEvaluationService {
 
         submitBatch(requests, BatchType.FORECAST, "Forecast batch");
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        // Use Europe/London for T+ offset — matches the date filter in collectForecastTasks()
+        LocalDate todayForBreakdown = LocalDate.now(ZoneId.of("Europe/London"));
 
         String dateBreakdown = includedTasks.stream()
                 .collect(Collectors.groupingBy(
-                        t -> "T+" + ChronoUnit.DAYS.between(today, t.date()),
+                        t -> "T+" + ChronoUnit.DAYS.between(todayForBreakdown, t.date()),
                         Collectors.counting()))
                 .entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
@@ -501,10 +503,26 @@ public class ScheduledBatchEvaluationService {
         int skippedCache = 0;
         int skippedVerdict = 0;
         int skippedUnknown = 0;
+        int skippedPastDate = 0;
         int totalSlots = 0;
+
+        // Use Europe/London because solar events are for UK locations — a sunrise
+        // in Northumberland on April 19th BST is what matters, not the UTC date.
+        LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
 
         for (BriefingDay day : briefing.days()) {
             LocalDate date = day.date();
+            if (date.isBefore(today)) {
+                int daySlots = day.eventSummaries().stream()
+                        .flatMap(es -> es.regions().stream())
+                        .mapToInt(r -> r.slots() != null ? r.slots().size() : 0)
+                        .sum();
+                skippedPastDate += daySlots;
+                totalSlots += daySlots;
+                LOG.warn("[BATCH DIAG] SKIP date {} | reason=PAST_DATE ({} slots skipped)",
+                        date, daySlots);
+                continue;
+            }
             for (BriefingEventSummary eventSummary : day.eventSummaries()) {
                 TargetType targetType = eventSummary.targetType();
                 for (BriefingRegion region : eventSummary.regions()) {
@@ -541,8 +559,9 @@ public class ScheduledBatchEvaluationService {
         }
 
         LOG.warn("[BATCH DIAG] Task collection complete — {} tasks from {} total slots "
-                        + "(cached={}, verdict={}, unknownLoc={})",
-                tasks.size(), totalSlots, skippedCache, skippedVerdict, skippedUnknown);
+                        + "(pastDate={}, cached={}, verdict={}, unknownLoc={})",
+                tasks.size(), totalSlots, skippedPastDate, skippedCache,
+                skippedVerdict, skippedUnknown);
         return tasks;
     }
 
