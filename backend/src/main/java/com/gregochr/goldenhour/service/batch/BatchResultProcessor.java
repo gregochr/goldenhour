@@ -226,6 +226,8 @@ public class BatchResultProcessor {
 
                 // Scheduled format: "fc-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
                 // e.g. "fc-42-2026-04-16-SUNRISE" → 6 parts
+                // JFDI format: "jfdi-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
+                // e.g. "jfdi-42-2026-04-16-SUNRISE" → 6 parts
                 // Force-submit format: "force-{regionName}-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
                 // e.g. "force-TheNorthYorkMoors-93-2026-04-16-SUNSET" → 7 parts
                 String[] parts = customId.split("-");
@@ -233,7 +235,8 @@ public class BatchResultProcessor {
                 int dateStartIdx;
                 int eventIdx;
 
-                if (parts.length == 6 && "fc".equals(parts[0])) {
+                if (parts.length == 6
+                        && ("fc".equals(parts[0]) || "jfdi".equals(parts[0]))) {
                     locationIdIdx = 1;
                     dateStartIdx = 2;
                     eventIdx = 5;

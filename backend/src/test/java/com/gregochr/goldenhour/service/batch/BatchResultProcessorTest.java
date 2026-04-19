@@ -627,6 +627,135 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getErroredCount()).isEqualTo(0);
     }
 
+    // ── FORECAST: jfdi- customId format ──────────────────────────────────────
+
+    @Test
+    @DisplayName("processResults for FORECAST parses jfdi- customId and writes to cache")
+    void processResults_forecastBatch_jfdiCustomId_writesToCache() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
+                + "\"summary\":\"Good conditions\"}";
+
+        LocationEntity location = buildLocationWithRegion(64L, "St Bees Head", "Cumbria");
+        when(locationRepository.findById(64L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "jfdi-64-2026-04-19-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        4, 72, 68, "Good conditions"));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("Cumbria|2026-04-19|SUNRISE"), resultsCaptor.capture());
+        assertThat(resultsCaptor.getValue()).hasSize(1);
+        assertThat(resultsCaptor.getValue().get(0).locationName()).isEqualTo("St Bees Head");
+
+        ArgumentCaptor<ForecastBatchEntity> entityCaptor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(entityCaptor.capture());
+        assertThat(entityCaptor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(entityCaptor.getValue().getSucceededCount()).isEqualTo(1);
+        assertThat(entityCaptor.getValue().getErroredCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST handles mix of fc, jfdi, and force customIds")
+    void processResults_forecastBatch_mixedFcJfdiAndForce() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        String text1 = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"Good\"}";
+        String text2 = "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":50,\"summary\":\"OK\"}";
+        String text3 = "{\"rating\":5,\"fiery_sky\":90,\"golden_hour\":85,\"summary\":\"Superb\"}";
+
+        LocationEntity loc1 = buildLocationWithRegion(10L, "Durham UK", "North East");
+        LocationEntity loc2 = buildLocationWithRegion(64L, "St Bees Head", "Cumbria");
+        LocationEntity loc3 = buildLocationWithRegion(93L, "Whitby Abbey", "North York Moors");
+        when(locationRepository.findById(10L)).thenReturn(Optional.of(loc1));
+        when(locationRepository.findById(64L)).thenReturn(Optional.of(loc2));
+        when(locationRepository.findById(93L)).thenReturn(Optional.of(loc3));
+
+        MessageBatchIndividualResponse resp1 = succeededResponse(
+                "fc-10-2026-04-19-SUNRISE", text1);
+        MessageBatchIndividualResponse resp2 = succeededResponse(
+                "jfdi-64-2026-04-19-SUNSET", text2);
+        MessageBatchIndividualResponse resp3 = succeededResponse(
+                "force-NorthYorkMoors-93-2026-04-19-SUNSET", text3);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(resp1, resp2, resp3));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(text1, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(4, 70, 65, "Good"));
+        when(strategy.parseEvaluation(text2, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(3, 55, 50, "OK"));
+        when(strategy.parseEvaluation(text3, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(5, 90, 85, "Superb"));
+
+        processor.processResults(batch);
+
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North East|2026-04-19|SUNRISE"), any());
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("Cumbria|2026-04-19|SUNSET"), any());
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("North York Moors|2026-04-19|SUNSET"), any());
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(3);
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("processResults for FORECAST: jfdi- with wrong part count is rejected")
+    void processResults_forecastBatch_jfdiWrongPartCount_incrementsErrored() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        // 5 parts — missing event type
+        MessageBatchIndividualResponse response = succeededResponse(
+                "jfdi-64-2026-04-19",
+                "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,\"summary\":\"Good\"}");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(briefingEvaluationService);
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+    }
+
     // ── FORECAST: parse exception ────────────────────────────────────────────
 
     @Test
