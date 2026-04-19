@@ -182,6 +182,8 @@ public class BriefingEvaluationService {
                         location, date, targetType, model, jobRun);
                 results.put(location.getName(), result);
                 completed++;
+                // Write to cache after each location so results survive client disconnect
+                cache.put(cacheKey, new CachedEvaluation(results, Instant.now()));
                 sendSafe(emitter, "location-scored", result);
             } catch (Exception e) {
                 failed++;
@@ -196,10 +198,11 @@ public class BriefingEvaluationService {
 
         jobRunService.completeRun(jobRun, completed, failed, List.of(date));
 
-        // Only cache if we completed all locations (not cancelled mid-stream)
         Instant evaluatedAt = Instant.now();
-        if (!cancelled.get()) {
+        if (!results.isEmpty()) {
             cache.put(cacheKey, new CachedEvaluation(results, evaluatedAt));
+            LOG.info("SSE results written to evaluation cache for key: {} ({} results)",
+                    cacheKey, results.size());
         }
 
         sendSafe(emitter, "evaluation-complete",
