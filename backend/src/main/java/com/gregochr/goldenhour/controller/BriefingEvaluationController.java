@@ -8,6 +8,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -107,5 +108,18 @@ public class BriefingEvaluationController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(Map.of("evaluatedAt", evaluatedAt));
+    }
+
+    /**
+     * Clears all cached evaluation results. Admin escape hatch for when scores
+     * become genuinely stale or corrupted.
+     *
+     * @return the number of entries cleared
+     */
+    @DeleteMapping("/cache")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> clearCache() {
+        int cleared = evaluationService.clearCache();
+        return ResponseEntity.ok(Map.of("cleared", cleared));
     }
 }

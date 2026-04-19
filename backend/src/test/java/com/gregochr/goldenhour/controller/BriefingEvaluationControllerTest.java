@@ -11,7 +11,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.util.Map;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -211,5 +213,33 @@ class BriefingEvaluationControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.Bamburgh.rating").value(4))
                 .andExpect(jsonPath("$.Dunstanburgh.rating").value(3));
+    }
+
+    @Test
+    @DisplayName("DELETE /cache clears cache and returns count")
+    @WithMockUser(roles = "ADMIN")
+    void clearCache_adminReturnsCount() throws Exception {
+        when(evaluationService.clearCache()).thenReturn(5);
+
+        mockMvc.perform(delete("/api/briefing/evaluate/cache"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cleared").value(5));
+
+        verify(evaluationService).clearCache();
+    }
+
+    @Test
+    @DisplayName("DELETE /cache denied for PRO_USER")
+    @WithMockUser(roles = "PRO_USER")
+    void clearCache_proUserDenied() throws Exception {
+        mockMvc.perform(delete("/api/briefing/evaluate/cache"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("DELETE /cache denied for unauthenticated")
+    void clearCache_unauthenticatedDenied() throws Exception {
+        mockMvc.perform(delete("/api/briefing/evaluate/cache"))
+                .andExpect(status().isUnauthorized());
     }
 }

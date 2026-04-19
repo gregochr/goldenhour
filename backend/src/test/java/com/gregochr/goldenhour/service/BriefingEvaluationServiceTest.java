@@ -170,8 +170,8 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("BriefingRefreshedEvent clears cache")
-    void eventClearsCache() {
+    @DisplayName("BriefingRefreshedEvent retains evaluation cache")
+    void eventRetainsCache() {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
@@ -191,7 +191,7 @@ class BriefingEvaluationServiceTest {
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isNotEmpty();
 
         service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
-        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
+        assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isNotEmpty();
     }
 
     @Test
@@ -418,8 +418,8 @@ class BriefingEvaluationServiceTest {
     @Test
     @DisplayName("clearCache is idempotent when empty")
     void clearCache_idempotentWhenEmpty() {
-        service.clearCache();
-        service.clearCache();
+        assertThat(service.clearCache()).isZero();
+        assertThat(service.clearCache()).isZero();
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
     }
 
@@ -451,7 +451,7 @@ class BriefingEvaluationServiceTest {
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isNotEmpty();
         assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNSET)).isNotEmpty();
 
-        service.clearCache();
+        assertThat(service.clearCache()).isEqualTo(2);
 
         assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).isEmpty();
         assertThat(service.getCachedScores("Yorkshire", DATE, TargetType.SUNSET)).isEmpty();
@@ -755,8 +755,8 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("writeFromBatch cache entry is cleared by onBriefingRefreshed")
-    void writeFromBatch_clearedByBriefingRefresh() {
+    @DisplayName("writeFromBatch cache entry is retained after onBriefingRefreshed")
+    void writeFromBatch_retainedAfterBriefingRefresh() {
         BriefingEvaluationResult result =
                 new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
         service.writeFromBatch("North East|2026-04-07|SUNRISE", List.of(result));
@@ -764,7 +764,59 @@ class BriefingEvaluationServiceTest {
 
         service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
 
-        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isFalse();
+        assertThat(service.hasEvaluation("North East|2026-04-07|SUNRISE")).isTrue();
+    }
+
+    @Test
+    @DisplayName("batch scores are retrievable with correct values after briefing refresh")
+    void writeFromBatch_scoresIntactAfterBriefingRefresh() {
+        String cacheKey = "North East|" + DATE + "|SUNRISE";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good conditions");
+        service.writeFromBatch(cacheKey, List.of(result));
+
+        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores("North East", DATE, TargetType.SUNRISE);
+        assertThat(scores).containsKey("Durham");
+        BriefingEvaluationResult preserved = scores.get("Durham");
+        assertThat(preserved.rating()).isEqualTo(4);
+        assertThat(preserved.fierySkyPotential()).isEqualTo(72);
+        assertThat(preserved.goldenHourPotential()).isEqualTo(65);
+        assertThat(preserved.summary()).isEqualTo("Good conditions");
+    }
+
+    @Test
+    @DisplayName("evaluatedAt timestamp survives briefing refresh")
+    void writeFromBatch_evaluatedAtSurvivesBriefingRefresh() {
+        String cacheKey = REGION + "|" + DATE + "|SUNSET";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Bamburgh", 3, 50, 45, "Average");
+        service.writeFromBatch(cacheKey, List.of(result));
+        String timestampBefore = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
+        assertThat(timestampBefore).isNotNull();
+
+        service.onBriefingRefreshed(new BriefingRefreshedEvent(this));
+
+        String timestampAfter = service.getCachedEvaluatedAt(REGION, DATE, TargetType.SUNSET);
+        assertThat(timestampAfter).isEqualTo(timestampBefore);
+    }
+
+    @Test
+    @DisplayName("clearCache removes batch-written entries")
+    void clearCache_removesBatchWrittenEntries() {
+        String cacheKey = "North East|" + DATE + "|SUNRISE";
+        BriefingEvaluationResult result =
+                new BriefingEvaluationResult("Durham", 4, 72, 65, "Good");
+        service.writeFromBatch(cacheKey, List.of(result));
+        assertThat(service.hasEvaluation(cacheKey)).isTrue();
+
+        assertThat(service.clearCache()).isEqualTo(1);
+
+        assertThat(service.hasEvaluation(cacheKey)).isFalse();
+        assertThat(service.getCachedScores("North East", DATE, TargetType.SUNRISE)).isEmpty();
+        assertThat(service.getCachedEvaluatedAt("North East", DATE, TargetType.SUNRISE)).isNull();
     }
 
     @Test

@@ -308,24 +308,29 @@ public class BriefingEvaluationService {
     }
 
     /**
-     * Clears all cached evaluation results. Called when the briefing refreshes.
+     * Clears all cached evaluation results. Available as an admin escape hatch.
+     *
+     * @return the number of entries cleared
      */
-    public void clearCache() {
+    public int clearCache() {
         int size = cache.size();
         cache.clear();
         if (size > 0) {
             LOG.info("Briefing evaluation cache cleared ({} entries)", size);
         }
+        return size;
     }
 
     /**
-     * Listens for briefing refresh events and clears the evaluation cache.
+     * Listens for briefing refresh events. The evaluation cache is intentionally
+     * retained — batch and SSE scores are expensive and remain directionally useful
+     * after a weather refresh. Entries are replaced when new results are written.
      *
      * @param event the briefing refreshed event
      */
     @EventListener
     public void onBriefingRefreshed(BriefingRefreshedEvent event) {
-        clearCache();
+        LOG.info("Briefing refreshed — evaluation cache retained ({} entries)", cache.size());
     }
 
     private BriefingEvaluationResult evaluateSingleLocation(LocationEntity location,
