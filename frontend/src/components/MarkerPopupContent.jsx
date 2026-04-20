@@ -13,8 +13,19 @@ import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
 
 /**
- * Builds the "Forecast generated" footer text. For triaged/sentinel-skipped forecasts
- * (summary starts with "Conditions unsuitable"), appends a note that Claude was not invoked.
+ * User-facing label for each TriageReason enum value.
+ */
+const TRIAGE_REASON_LABELS = {
+  HIGH_CLOUD: 'heavy low cloud at the solar horizon',
+  PRECIPITATION: 'active precipitation forecast at event time',
+  LOW_VISIBILITY: 'visibility too low (fog or heavy haze)',
+  TIDE_MISALIGNED: 'tide not aligned with location preference',
+  GENERIC: 'regional conditions predicted poor',
+};
+
+/**
+ * Builds the "Forecast generated" footer text. For triaged forecasts,
+ * appends a note that Claude was not invoked.
  */
 function buildGeneratedFooter(forecast) {
   const base = formatGeneratedAtFull(forecast.forecastRunAt);
@@ -22,16 +33,8 @@ function buildGeneratedFooter(forecast) {
     ? forecast.evaluationModel.charAt(0) + forecast.evaluationModel.slice(1).toLowerCase()
     : null;
 
-  const summary = forecast.summary || '';
-  if (summary.startsWith('Conditions unsuitable')) {
-    let reason;
-    if (summary.includes('tide not aligned')) {
-      reason = 'tide not aligned with location preference';
-    } else if (summary.includes('sentinel sampling')) {
-      reason = 'regional sentinel sampling predicted poor conditions';
-    } else {
-      reason = 'weather triage predicting poor conditions';
-    }
+  if (forecast.triageReason) {
+    const reason = TRIAGE_REASON_LABELS[forecast.triageReason] ?? TRIAGE_REASON_LABELS.GENERIC;
     return model
       ? `Forecast generated: ${base} (${model} run, but not evaluated by Claude due to ${reason})`
       : `Forecast generated: ${base} (not evaluated by Claude due to ${reason})`;
@@ -631,7 +634,29 @@ export default function MarkerPopupContent({
               </span>
             </div>
           )}
-          {forecast.summary && (
+          {forecast.triageReason && (
+            <div
+              data-testid="triage-standdown-badge"
+              style={{
+                fontSize: '12px',
+                lineHeight: '1.5',
+                padding: '6px 10px',
+                marginBottom: '8px',
+                background: 'rgba(80, 19, 19, 0.18)',
+                border: '1px solid rgba(163, 45, 45, 0.5)',
+                borderRadius: '6px',
+                color: darkMode ? '#f1d6d6' : '#501313',
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+                Stand-down — {TRIAGE_REASON_LABELS[forecast.triageReason] ?? TRIAGE_REASON_LABELS.GENERIC}
+              </div>
+              {forecast.triageMessage && (
+                <div style={{ fontWeight: 400 }}>{forecast.triageMessage}</div>
+              )}
+            </div>
+          )}
+          {!forecast.triageReason && forecast.summary && (
             <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
               {forecast.summary}
             </div>

@@ -167,24 +167,28 @@ describe('MarkerPopupContent', () => {
     it('shows weather triage note in footer when forecast was triaged by cloud', () => {
       const triaged = {
         ...BASE_FORECAST,
-        rating: 1,
-        summary: 'Conditions unsuitable — Solar horizon low cloud 85% — sun blocked',
+        rating: null,
+        summary: null,
+        triageReason: 'HIGH_CLOUD',
+        triageMessage: 'Solar horizon low cloud 85% — sun blocked',
         evaluationModel: 'HAIKU',
       };
       renderPopup({ role: 'ADMIN', forecast: triaged });
-      expect(screen.getByText(/not evaluated by Claude due to weather triage/)).toBeInTheDocument();
+      expect(screen.getByText(/not evaluated by Claude due to heavy low cloud/)).toBeInTheDocument();
       expect(screen.getByText(/Haiku run/)).toBeInTheDocument();
     });
 
     it('shows sentinel skip note in footer when forecast was sentinel-skipped', () => {
       const sentinel = {
         ...BASE_FORECAST,
-        rating: 1,
-        summary: 'Conditions unsuitable — Region sentinel sampling — all sentinels rated ≤2',
+        rating: null,
+        summary: null,
+        triageReason: 'GENERIC',
+        triageMessage: 'Region sentinel sampling — all sentinels rated ≤2',
         evaluationModel: 'SONNET',
       };
       renderPopup({ role: 'ADMIN', forecast: sentinel });
-      expect(screen.getByText(/not evaluated by Claude due to regional sentinel sampling/)).toBeInTheDocument();
+      expect(screen.getByText(/not evaluated by Claude due to regional conditions predicted poor/)).toBeInTheDocument();
     });
 
     it('shows normal model footer when forecast was evaluated by Claude', () => {
@@ -196,13 +200,91 @@ describe('MarkerPopupContent', () => {
     it('shows weather triage note for non-ADMIN when expanded', () => {
       const triaged = {
         ...BASE_FORECAST,
-        rating: 1,
-        summary: 'Conditions unsuitable — Precipitation 3.2 mm — active rain',
+        rating: null,
+        summary: null,
+        triageReason: 'PRECIPITATION',
+        triageMessage: 'Precipitation 3.2 mm — active rain',
         evaluationModel: 'HAIKU',
       };
       renderPopup({ role: 'PRO_USER', forecast: triaged });
       fireEvent.click(screen.getByTestId('more-details-toggle'));
-      expect(screen.getByText(/not evaluated by Claude due to weather triage/)).toBeInTheDocument();
+      expect(screen.getByText(/not evaluated by Claude due to active precipitation/)).toBeInTheDocument();
+    });
+
+    it('renders a stand-down badge with the triage message when triaged', () => {
+      const triaged = {
+        ...BASE_FORECAST,
+        rating: null,
+        summary: null,
+        triageReason: 'HIGH_CLOUD',
+        triageMessage: 'Solar horizon low cloud 85% — sun blocked',
+        evaluationModel: 'HAIKU',
+      };
+      renderPopup({ role: 'PRO_USER', forecast: triaged });
+      const badge = screen.getByTestId('triage-standdown-badge');
+      expect(badge).toBeInTheDocument();
+      expect(badge).toHaveTextContent(/Stand-down/);
+      expect(badge).toHaveTextContent(/heavy low cloud at the solar horizon/);
+      expect(badge).toHaveTextContent(/Solar horizon low cloud 85% — sun blocked/);
+    });
+
+    it('suppresses the legacy summary block when a triage reason is present', () => {
+      const triaged = {
+        ...BASE_FORECAST,
+        rating: null,
+        summary: 'Old Claude summary that should not render',
+        triageReason: 'HIGH_CLOUD',
+        triageMessage: 'Solar horizon low cloud 85%',
+        evaluationModel: 'HAIKU',
+      };
+      renderPopup({ role: 'PRO_USER', forecast: triaged });
+      expect(screen.queryByText('Old Claude summary that should not render'))
+          .not.toBeInTheDocument();
+    });
+
+    it('does not render a stand-down badge for non-triaged forecasts', () => {
+      renderPopup({ role: 'PRO_USER' });
+      expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
+    });
+
+    // Locks the per-reason footer phrase — a mutation to the label map or a swap
+    // between reasons would break exactly one row.
+    it.each([
+      ['HIGH_CLOUD', /heavy low cloud at the solar horizon/],
+      ['PRECIPITATION', /active precipitation forecast at event time/],
+      ['LOW_VISIBILITY', /visibility too low \(fog or heavy haze\)/],
+      ['TIDE_MISALIGNED', /tide not aligned with location preference/],
+      ['GENERIC', /regional conditions predicted poor/],
+    ])('footer for %s reason reads as expected', (reason, phrase) => {
+      renderPopup({
+        role: 'ADMIN',
+        forecast: {
+          ...BASE_FORECAST,
+          rating: null,
+          summary: null,
+          triageReason: reason,
+          triageMessage: 'irrelevant',
+          evaluationModel: 'HAIKU',
+        },
+      });
+      expect(screen.getByText(new RegExp(`not evaluated by Claude due to ${phrase.source}`)))
+          .toBeInTheDocument();
+    });
+
+    it('falls back to GENERIC footer phrase when triageReason value is unrecognised', () => {
+      renderPopup({
+        role: 'ADMIN',
+        forecast: {
+          ...BASE_FORECAST,
+          rating: null,
+          summary: null,
+          triageReason: 'SOMETHING_NEW_WE_HAVENT_SHIPPED_YET',
+          triageMessage: 'irrelevant',
+          evaluationModel: 'HAIKU',
+        },
+      });
+      expect(screen.getByText(/not evaluated by Claude due to regional conditions predicted poor/))
+          .toBeInTheDocument();
     });
   });
 

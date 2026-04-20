@@ -346,7 +346,8 @@ function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unus
 // ── LocationSlotList (shared between mobile drill-down and heatmap drill-down) ──
 
 function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
-  if (visible.length === 0) return null;
+  const standdowns = sortedSlots((slots || []).filter((s) => s.verdict === 'STANDDOWN'));
+  if (visible.length === 0 && standdowns.length === 0) return null;
   return (
     <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
       {visible.map((slot) => {
@@ -372,6 +373,31 @@ function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sorte
               </span>
             )}
             {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
+          </div>
+        );
+      })}
+      {standdowns.map((slot) => {
+        const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+        return (
+          <div
+            key={slot.locationName}
+            className="flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-plex-bg/30 opacity-60"
+            data-testid="briefing-slot-standdown"
+          >
+            <VerdictPill verdict={slot.verdict} />
+            <span className="font-medium text-plex-text" style={{ fontSize: '13px' }}>
+              {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
+              {slot.locationName}
+            </span>
+            {slot.standdownReason && (
+              <span
+                data-testid="slot-standdown-reason"
+                className="text-plex-text-secondary italic"
+                style={{ fontSize: '12px' }}
+              >
+                — {slot.standdownReason}
+              </span>
+            )}
           </div>
         );
       })}
