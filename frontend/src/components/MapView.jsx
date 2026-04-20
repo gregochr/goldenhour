@@ -68,7 +68,7 @@ PopupResizer.propTypes = {
 };
 
 import InfoTip from './InfoTip.jsx';
-import { buildMarkerSvg, markerLabelAndColour, createClusterIcon } from './markerUtils.js';
+import { buildMarkerSvg, markerLabelAndColour, createClusterIcon, RATING_COLOURS, STAND_DOWN_COLOUR } from './markerUtils.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
@@ -268,6 +268,10 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     return Number.isFinite(n) && n >= 1 && n <= 5 ? n : null;
   });
   const [showUnrated, setShowUnrated] = useState(false);
+  // Stand-down filter — hidden by default; power users can reveal triaged locations
+  const [showStandDown, setShowStandDown] = useState(() => {
+    return localStorage.getItem('mapFilterShowStandDown') === '1';
+  });
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [userDriveTimes, setUserDriveTimes] = useState({});
   useEffect(() => { getDriveTimes().then(setUserDriveTimes).catch(() => {}); }, []);
@@ -440,6 +444,28 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     setShowUnrated((v) => !v);
   }
 
+  function toggleShowStandDown() {
+    setShowStandDown((v) => {
+      const next = !v;
+      if (next) localStorage.setItem('mapFilterShowStandDown', '1');
+      else localStorage.removeItem('mapFilterShowStandDown');
+      return next;
+    });
+  }
+
+  /** True when this location's forecast for the current event was triaged (stand-down). */
+  function isStandDownLocation(loc) {
+    if (eventType === 'AURORA') return false;
+    const types = loc.locationType ?? [];
+    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+    if (isPureWildlife) return false;
+    const briefingScore = getBriefingScore(briefingScores, loc.name, date, eventType);
+    const dayData = loc.forecastsByDate.get(date);
+    const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+    const forecast = dayData?.[solarType];
+    return briefingScore?.triageReason != null || forecast?.triageReason != null;
+  }
+
   /** Get the forecast rating for a location on the current date/event. */
   function getRatingForLocation(loc) {
     if (eventType === 'AURORA') {
@@ -465,16 +491,18 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         return types.length === 0 || types.some((t) => activeTypeFilters.has(t));
       });
 
-  const hasUnrated = typeFiltered.some((loc) => getRatingForLocation(loc) == null);
+  const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
+  const hasUnrated = typeFiltered.some((loc) => (
+    !isStandDownLocation(loc) && getRatingForLocation(loc) == null
+  ));
 
-
-  const ratingFiltered = (minStars === null && !showUnrated)
-    ? typeFiltered
-    : typeFiltered.filter((loc) => {
-        const rating = getRatingForLocation(loc);
-        if (rating == null) return showUnrated;
-        return minStars === null || rating >= minStars;
-      });
+  const ratingFiltered = typeFiltered.filter((loc) => {
+    if (isStandDownLocation(loc)) return showStandDown;
+    if (minStars === null && !showUnrated) return true;
+    const rating = getRatingForLocation(loc);
+    if (rating == null) return showUnrated;
+    return minStars === null || rating >= minStars;
+  });
 
   const driveFiltered = driveTimeFilter === 0
     ? ratingFiltered
@@ -546,6 +574,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   const advancedFilterCount = activeTypeFilters.size
     + (minStars !== null ? 1 : 0)
     + (showUnrated ? 1 : 0)
+    + (showStandDown ? 1 : 0)
     + (driveTimeFilter > 0 ? 1 : 0)
     + (darkSkyFilter ? 1 : 0);
 
@@ -560,7 +589,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             setEventType(value);
             setMinStars(null);
             setShowUnrated(false);
+            setShowStandDown(false);
             localStorage.removeItem('mapFilterMinStars');
+            localStorage.removeItem('mapFilterShowStandDown');
           }}
           showAurora={role !== 'LITE_USER'}
           auroraAvailable={auroraAvailable}
@@ -624,35 +655,87 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             </button>
           )}
           {!isAuroraMode && !isAstroMode && <span className="text-plex-border mx-1">|</span>}
+          {!isAuroraMode && !isAstroMode && (
+            <>
+              <button
+                onClick={toggleShowStandDown}
+                disabled={!hasStandDown}
+                data-testid="star-filter-standdown"
+                title={!hasStandDown
+                  ? 'No stand-down locations in view'
+                  : showStandDown
+                    ? 'Hide stand-down locations'
+                    : 'Show stand-down locations'}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                  !hasStandDown
+                    ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
+                    : showStandDown
+                      ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
+                      : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block rounded-full"
+                  style={{ width: 8, height: 8, backgroundColor: STAND_DOWN_COLOUR }}
+                />
+                &mdash; stand-down
+              </button>
+              <span className="text-plex-border mx-1">|</span>
+            </>
+          )}
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={`star-${star}`}
               onClick={() => handleMinStarsClick(star)}
               data-testid={`star-filter-${star}`}
               title={minStars === star ? `Showing ${star}★ and above — click to clear` : `Show ${star}★ and above`}
-              className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
                 minStars !== null && star >= minStars
                   ? 'bg-plex-gold/20 border-plex-gold/50 text-plex-gold'
                   : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
               }`}
             >
+              <span
+                aria-hidden="true"
+                className="inline-block rounded-full"
+                style={{ width: 8, height: 8, backgroundColor: RATING_COLOURS[star] }}
+              />
               {star}&#9733;
             </button>
           ))}
-          <button
-            onClick={toggleShowUnrated}
-            disabled={!hasUnrated}
-            data-testid="star-filter-unrated"
-            className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-              !hasUnrated
-                ? 'bg-plex-surface border-plex-border text-plex-text-muted/40 cursor-not-allowed'
-                : showUnrated
-                  ? 'bg-plex-text-muted/20 border-plex-text-muted/50 text-plex-text-secondary'
-                  : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-            }`}
-          >
-            ?
-          </button>
+          {role === 'ADMIN' && (
+            <>
+              <span className="text-plex-border mx-1">|</span>
+              <button
+                onClick={toggleShowUnrated}
+                disabled={!hasUnrated}
+                data-testid="star-filter-unrated"
+                title={!hasUnrated
+                  ? 'No unknown-state locations in view'
+                  : 'Toggle locations with no evaluation'}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
+                  !hasUnrated
+                    ? 'bg-transparent border border-dashed border-plex-text-muted/20 text-plex-text-muted/40 cursor-not-allowed'
+                    : showUnrated
+                      ? 'bg-plex-text-muted/20 border border-dashed border-plex-text-muted/60 text-plex-text-secondary'
+                      : 'bg-transparent border border-dashed border-plex-text-muted/30 text-plex-text-muted hover:text-plex-text-secondary'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block rounded-full"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    backgroundColor: 'transparent',
+                    border: '1px dashed #888780',
+                  }}
+                />
+                ? unknown
+              </button>
+            </>
+          )}
           <span className="text-plex-border mx-1">|</span>
           <select
             value={driveTimeFilter}
@@ -688,15 +771,17 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
             </>
           )}
           {(activeTypeFilters.size > 0 || minStars !== null || showUnrated
-              || driveTimeFilter > 0 || darkSkyFilter) && (
+              || showStandDown || driveTimeFilter > 0 || darkSkyFilter) && (
             <button
               onClick={() => {
                 setActiveTypeFilters(new Set());
                 setMinStars(null);
                 setShowUnrated(false);
+                setShowStandDown(false);
                 setDriveTimeFilter(0);
                 setDarkSkyFilter(false);
                 localStorage.removeItem('mapFilterMinStars');
+                localStorage.removeItem('mapFilterShowStandDown');
               }}
               className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
               data-testid="clear-all-filters"

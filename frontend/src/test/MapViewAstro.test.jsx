@@ -94,8 +94,11 @@ vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({
 }));
 vi.mock('../components/markerUtils.js', () => ({
   buildMarkerSvg: () => '<svg></svg>',
+  buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4\u2605', colour: '#E5A00D' }),
   createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
+  RATING_COLOURS: { 1: '#A32D2D', 2: '#D85A30', 3: '#FAC775', 4: '#97C459', 5: '#3B6D11' },
+  STAND_DOWN_COLOUR: '#501313',
 }));
 
 // ── Import under test ────────────────────────────────────────────────────────
