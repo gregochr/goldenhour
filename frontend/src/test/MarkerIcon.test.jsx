@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { buildMarkerSvg, scoreColour, markerLabelAndColour, createClusterIcon, RATING_COLOURS } from '../components/markerUtils.js';
+import {
+  buildMarkerSvg,
+  buildStandDownSvg,
+  scoreColour,
+  standDownColour,
+  markerLabelAndColour,
+  createClusterIcon,
+  RATING_COLOURS,
+  STAND_DOWN_COLOUR,
+} from '../components/markerUtils.js';
 
 const HALF_CIRC = Math.PI * 19;
 const FULL_CIRC = 2 * Math.PI * 19;
@@ -16,30 +25,30 @@ describe('scoreColour', () => {
     expect(scoreColour(null)).toBe('#3A3D45');
   });
 
-  it('returns muted grey for 0-20', () => {
-    expect(scoreColour(0)).toBe('#6B6B6B');
-    expect(scoreColour(10)).toBe('#6B6B6B');
-    expect(scoreColour(20)).toBe('#6B6B6B');
+  it('returns 1★ dark red for 0-20', () => {
+    expect(scoreColour(0)).toBe(RATING_COLOURS[1]);
+    expect(scoreColour(10)).toBe(RATING_COLOURS[1]);
+    expect(scoreColour(20)).toBe(RATING_COLOURS[1]);
   });
 
-  it('returns dark bronze for 21-40', () => {
-    expect(scoreColour(21)).toBe('#6B5000');
-    expect(scoreColour(40)).toBe('#6B5000');
+  it('returns 2★ orange for 21-40', () => {
+    expect(scoreColour(21)).toBe(RATING_COLOURS[2]);
+    expect(scoreColour(40)).toBe(RATING_COLOURS[2]);
   });
 
-  it('returns warm bronze for 41-60', () => {
-    expect(scoreColour(41)).toBe('#A06E00');
-    expect(scoreColour(60)).toBe('#A06E00');
+  it('returns 3★ pale yellow for 41-60', () => {
+    expect(scoreColour(41)).toBe(RATING_COLOURS[3]);
+    expect(scoreColour(60)).toBe(RATING_COLOURS[3]);
   });
 
-  it('returns gold-dark for 61-80', () => {
-    expect(scoreColour(61)).toBe('#CC8A00');
-    expect(scoreColour(80)).toBe('#CC8A00');
+  it('returns 4★ light green for 61-80', () => {
+    expect(scoreColour(61)).toBe(RATING_COLOURS[4]);
+    expect(scoreColour(80)).toBe(RATING_COLOURS[4]);
   });
 
-  it('returns gold for 81-100', () => {
-    expect(scoreColour(81)).toBe('#E5A00D');
-    expect(scoreColour(100)).toBe('#E5A00D');
+  it('returns 5★ dark green for 81-100', () => {
+    expect(scoreColour(81)).toBe(RATING_COLOURS[5]);
+    expect(scoreColour(100)).toBe(RATING_COLOURS[5]);
   });
 });
 
@@ -426,5 +435,66 @@ describe('markerLabelAndColour', () => {
   it('returns grey for unknown rating value', () => {
     const result = markerLabelAndColour(99, null, null, false);
     expect(result.colour).toBe('#6B6B6B');
+  });
+});
+
+describe('stand-down palette', () => {
+  it('STAND_DOWN_COLOUR is the dark red hex used across the unified scale', () => {
+    expect(STAND_DOWN_COLOUR).toBe('#501313');
+  });
+
+  it('standDownColour() returns STAND_DOWN_COLOUR', () => {
+    expect(standDownColour()).toBe(STAND_DOWN_COLOUR);
+  });
+
+  it('RATING_COLOURS is a 5-stop red→green ramp locked to exact hex values', () => {
+    expect(RATING_COLOURS).toEqual({
+      1: '#A32D2D',
+      2: '#D85A30',
+      3: '#FAC775',
+      4: '#97C459',
+      5: '#3B6D11',
+    });
+  });
+
+  it('5★ is a darker green than 4★, 1★ is a darker red than 2★ (ramp ordering)', () => {
+    // Red component shrinks toward the green end of the ramp; the ramp must not
+    // be accidentally flipped or flattened.
+    const red = (hex) => parseInt(hex.slice(1, 3), 16);
+    const green = (hex) => parseInt(hex.slice(3, 5), 16);
+    expect(red(RATING_COLOURS[1])).toBeGreaterThan(red(RATING_COLOURS[5]));
+    expect(green(RATING_COLOURS[5])).toBeGreaterThan(green(RATING_COLOURS[1]));
+  });
+});
+
+describe('buildStandDownSvg', () => {
+  it('renders a 30x30 SVG (smaller than the 44x44 regular marker)', () => {
+    const svg = parseSvg(buildStandDownSvg());
+    expect(svg.getAttribute('width')).toBe('30');
+    expect(svg.getAttribute('height')).toBe('30');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 30 30');
+  });
+
+  it('uses STAND_DOWN_COLOUR for the inner circle fill', () => {
+    const svg = parseSvg(buildStandDownSvg());
+    const circle = svg.querySelector('circle');
+    expect(circle.getAttribute('fill')).toBe(STAND_DOWN_COLOUR);
+  });
+
+  it('applies 55% opacity so it reads as muted vs scored markers', () => {
+    const svg = parseSvg(buildStandDownSvg());
+    const style = svg.getAttribute('style') || '';
+    expect(style).toMatch(/opacity:\s*0\.55/);
+  });
+
+  it('renders an em-dash as the label (no score to display)', () => {
+    const svg = parseSvg(buildStandDownSvg());
+    const text = svg.querySelector('text');
+    expect(text.textContent).toBe('\u2014');
+  });
+
+  it('contains no <path> arcs (scoring progress arcs suppressed for stand-down)', () => {
+    const svg = parseSvg(buildStandDownSvg());
+    expect(svg.querySelectorAll('path')).toHaveLength(0);
   });
 });

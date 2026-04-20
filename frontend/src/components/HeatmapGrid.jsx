@@ -5,6 +5,7 @@ import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
 import InfoTip from './InfoTip.jsx';
 import ProPill from './shared/ProPill.jsx';
+import { RATING_COLOURS } from './markerUtils.js';
 
 // ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
 
@@ -183,13 +184,16 @@ const LOCATION_TYPE_ICONS = {
 
 // ── LocationSlotList ──────────────────────────────────────────────────────────
 
-/** Star rating badge colour: 5-tier from bright green to red. */
-function ratingColour(rating) {
-  if (rating >= 5) return 'bg-green-500/90 text-white';
-  if (rating === 4) return 'bg-green-600/80 text-white';
-  if (rating === 3) return 'bg-amber-500/80 text-white';
-  if (rating === 2) return 'bg-orange-600/80 text-white';
-  return 'bg-red-700/70 text-red-100';
+/**
+ * Star rating badge colour as an inline style, sourced from the unified RATING_COLOURS palette.
+ * Returns a style object so every medallion in the app uses the same hex values.
+ */
+function ratingStyle(rating) {
+  const clamped = Math.max(1, Math.min(5, Math.round(rating)));
+  const bg = RATING_COLOURS[clamped];
+  // 3★ is a pale yellow — dark text reads better on it; all other shades use white.
+  const text = clamped === 3 ? '#1f1300' : '#ffffff';
+  return { backgroundColor: bg, color: text };
 }
 
 function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
@@ -240,7 +244,8 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
             {score?.rating != null ? (
               <span
                 data-testid="score-badge"
-                className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold animate-fade-in ${ratingColour(score.rating)}`}
+                className="inline-block px-2 py-0.5 rounded text-[12px] font-bold animate-fade-in"
+                style={ratingStyle(score.rating)}
               >
                 {score.rating}★
               </span>
@@ -919,9 +924,10 @@ export default function HeatmapGrid({
                     data-testid="astro-heatmap-cell"
                     className={`rounded border text-center p-1.5 transition-all ${
                       bestStars != null
-                        ? `${ratingColour(bestStars)} cursor-pointer hover:scale-[1.01]`
+                        ? 'cursor-pointer hover:scale-[1.01]'
                         : 'bg-plex-surface/30 border-plex-border/20 text-plex-text-muted cursor-default'
                     }`}
+                    style={bestStars != null ? ratingStyle(bestStars) : undefined}
                     disabled={bestStars == null}
                     onClick={bestStars != null ? () => onShowOnMap?.(date, 'ASTRO') : undefined}
                     title={bestStars != null ? `Best astro: ${bestStars}★ — tap to view on map` : 'No dark-sky locations in this region'}

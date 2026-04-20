@@ -16,28 +16,36 @@ const LEFT_ARC = 'M 22 41 A 19 19 0 0 0 22 3';
 /** Right half-arc SVG path (clockwise from bottom to top = right side). */
 const RIGHT_ARC = 'M 22 41 A 19 19 0 0 1 22 3';
 
-/** Maps a 1-5 star rating to a marker colour. */
+/** Stand-down fill for triaged rows (dark red). */
+export const STAND_DOWN_COLOUR = '#501313';
+
+/** Maps a 1-5 star rating to a marker colour (red → green ramp). */
 export const RATING_COLOURS = {
-  1: '#6B6B6B',
-  2: '#6B5000',
-  3: '#A06E00',
-  4: '#CC8A00',
-  5: '#E5A00D',
+  1: '#A32D2D',
+  2: '#D85A30',
+  3: '#FAC775',
+  4: '#97C459',
+  5: '#3B6D11',
 };
 
+/** Returns the stand-down marker fill colour. */
+export function standDownColour() {
+  return STAND_DOWN_COLOUR;
+}
+
 /**
- * Maps an average 0-100 score to a marker fill colour.
+ * Maps an average 0-100 score to a marker fill colour on the new red→green ramp.
  *
  * @param {number|null} avg - Average score, or null for no data.
  * @returns {string} Hex colour string.
  */
 export function scoreColour(avg) {
   if (avg == null) return '#3A3D45';
-  if (avg > 80) return '#E5A00D';
-  if (avg > 60) return '#CC8A00';
-  if (avg > 40) return '#A06E00';
-  if (avg > 20) return '#6B5000';
-  return '#6B6B6B';
+  if (avg > 80) return RATING_COLOURS[5];
+  if (avg > 60) return RATING_COLOURS[4];
+  if (avg > 40) return RATING_COLOURS[3];
+  if (avg > 20) return RATING_COLOURS[2];
+  return RATING_COLOURS[1];
 }
 
 /**
@@ -66,6 +74,21 @@ export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlif
     return { label: `${rating}\u2605`, colour: RATING_COLOURS[rating] ?? '#6B6B6B' };
   }
   return { label: '—', colour: scoreColour(null) };
+}
+
+/**
+ * Builds a muted stand-down SVG marker (em-dash, dark red, 55% opacity, 30px).
+ *
+ * Used for triaged forecasts where the colour pipeline was skipped and there is
+ * no score to display.
+ *
+ * @returns {string} SVG markup string.
+ */
+export function buildStandDownSvg() {
+  return `<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg" style="opacity:0.55;filter:drop-shadow(0 1px 3px rgba(0,0,0,0.5))">
+  <circle cx="15" cy="15" r="12" fill="${STAND_DOWN_COLOUR}" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+  <text x="15" y="15" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="700" fill="#f1d6d6">\u2014</text>
+</svg>`;
 }
 
 /**
