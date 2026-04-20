@@ -68,7 +68,7 @@ PopupResizer.propTypes = {
 };
 
 import InfoTip from './InfoTip.jsx';
-import { buildMarkerSvg, markerLabelAndColour, createClusterIcon, RATING_COLOURS, STAND_DOWN_COLOUR } from './markerUtils.js';
+import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, createClusterIcon, RATING_COLOURS, STAND_DOWN_COLOUR } from './markerUtils.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
@@ -164,12 +164,15 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
  * @param {string} locationName - Display name shown beneath the marker.
  * @param {boolean} [isPureWildlife=false] - If true, renders a green wildlife marker.
  * @param {boolean} [excludeFromCluster=false] - If true, scores are excluded from cluster averages (e.g. WATERFALL).
+ * @param {boolean} [isStandDown=false] - If true, renders a muted stand-down marker (triaged forecast).
  * @returns {L.DivIcon}
  */
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false) {
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false) {
   const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
 
-  const svg = buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife);
+  const svg = isStandDown
+    ? buildStandDownSvg()
+    : buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife);
   const html = `
     <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
       ${svg}
@@ -891,6 +894,9 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
               const markerGolden = (!isAuroraMode && role !== 'LITE_USER')
                 ? (briefingScore?.goldenHourPotential ?? forecast?.goldenHourPotential ?? null)
                 : null;
+              const isStandDown = !isAuroraMode && !isPureWildlife && (
+                briefingScore?.triageReason != null || forecast?.triageReason != null
+              );
               const icon = makeMarkerIcon(
                 markerRating,
                 markerFiery,
@@ -898,6 +904,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                 loc.name,
                 isPureWildlife,
                 isWaterfall,
+                isStandDown,
               );
 
               return (
