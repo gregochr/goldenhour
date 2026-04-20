@@ -45,5 +45,11 @@ public enum RunType {
     BLUEBELL_GLOSS,
 
     /** Scheduled Anthropic Batch API evaluation — covers both forecast and aurora batch jobs. */
-    SCHEDULED_BATCH
+    SCHEDULED_BATCH,
+
+    /** Near-term batch evaluation (T+0, T+1) — high-confidence forecasts, always evaluated. */
+    BATCH_NEAR_TERM,
+
+    /** Far-term batch evaluation (T+2, T+3) — only evaluated when weather is SETTLED. */
+    BATCH_FAR_TERM
 }

@@ -210,8 +210,9 @@ const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
                 </div>
               )}
               {(() => {
+                const BATCH_TYPES = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
                 const batchMicro = filteredRuns
-                  .filter((r) => r.runType === 'SCHEDULED_BATCH')
+                  .filter((r) => BATCH_TYPES.has(r.runType))
                   .reduce((sum, r) => sum + (r.totalCostMicroDollars || 0), 0);
                 const realtimeMicro = totalCostMicroDollars - batchMicro;
                 if (batchMicro > 0 && realtimeMicro > 0 && exchangeRate) {

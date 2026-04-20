@@ -494,7 +494,8 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       filtered = filtered.filter((r) => r.runType !== 'BRIEFING');
     }
     if (!showBatchRuns) {
-      filtered = filtered.filter((r) => r.runType !== 'SCHEDULED_BATCH');
+      const batchTypes = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
+      filtered = filtered.filter((r) => !batchTypes.has(r.runType));
     }
     if (dateRange === 'today') {
       return filtered.filter((r) => r.startedAt && r.startedAt.slice(0, 10) === todayStr);
@@ -506,7 +507,10 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
 
   // Auto-refresh every 60 s while any batch run is still in progress
   const hasInProgressBatch = useMemo(
-    () => runs.some((r) => r.runType === 'SCHEDULED_BATCH' && !r.completedAt),
+    () => {
+      const batchTypes = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
+      return runs.some((r) => batchTypes.has(r.runType) && !r.completedAt);
+    },
     [runs],
   );
   useEffect(() => {
@@ -673,7 +677,9 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           <option value="WEATHER">Weather</option>
           <option value="TIDE">Tide</option>
           <option value="BRIEFING">Briefing</option>
-          <option value="SCHEDULED_BATCH">Batch</option>
+          <option value="SCHEDULED_BATCH">Batch (legacy)</option>
+          <option value="BATCH_NEAR_TERM">Batch Near-Term</option>
+          <option value="BATCH_FAR_TERM">Batch Far-Term</option>
         </select>
         <div className="flex flex-wrap gap-4 mt-2">
           <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer">

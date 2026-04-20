@@ -159,14 +159,18 @@ class ModelSelectionServiceTest {
                         .activeModel(EvaluationModel.SONNET).build()));
         when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS))
                 .thenReturn(Optional.empty()); // defaults to HAIKU
-        when(modelSelectionRepository.findByRunType(RunType.SCHEDULED_BATCH))
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_NEAR_TERM))
                 .thenReturn(Optional.of(ModelSelectionEntity.builder()
-                        .runType(RunType.SCHEDULED_BATCH)
+                        .runType(RunType.BATCH_NEAR_TERM)
                         .activeModel(EvaluationModel.SONNET).build()));
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_FAR_TERM))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BATCH_FAR_TERM)
+                        .activeModel(EvaluationModel.HAIKU).build()));
 
         Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
-        assertThat(configs).hasSize(8);
+        assertThat(configs).hasSize(9);
         assertThat(configs.get(RunType.VERY_SHORT_TERM)).isEqualTo(EvaluationModel.OPUS);
         assertThat(configs.get(RunType.SHORT_TERM)).isEqualTo(EvaluationModel.SONNET);
         assertThat(configs.get(RunType.LONG_TERM)).isEqualTo(EvaluationModel.HAIKU);
@@ -174,7 +178,8 @@ class ModelSelectionServiceTest {
         assertThat(configs.get(RunType.BRIEFING_GLOSS)).isEqualTo(EvaluationModel.HAIKU);
         assertThat(configs.get(RunType.AURORA_EVALUATION)).isEqualTo(EvaluationModel.SONNET);
         assertThat(configs.get(RunType.AURORA_GLOSS)).isEqualTo(EvaluationModel.HAIKU);
-        assertThat(configs.get(RunType.SCHEDULED_BATCH)).isEqualTo(EvaluationModel.SONNET);
+        assertThat(configs.get(RunType.BATCH_NEAR_TERM)).isEqualTo(EvaluationModel.SONNET);
+        assertThat(configs.get(RunType.BATCH_FAR_TERM)).isEqualTo(EvaluationModel.HAIKU);
     }
 
     @Test
@@ -268,6 +273,78 @@ class ModelSelectionServiceTest {
         assertThat(modelSelectionService.getActiveModel(RunType.VERY_SHORT_TERM))
                 .isEqualTo(EvaluationModel.OPUS);
         assertThat(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                .isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("BATCH_NEAR_TERM and BATCH_FAR_TERM resolve independently")
+    void batchNearAndFarTerm_areIndependent() {
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_NEAR_TERM))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BATCH_NEAR_TERM)
+                        .activeModel(EvaluationModel.SONNET).build()));
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_FAR_TERM))
+                .thenReturn(Optional.of(ModelSelectionEntity.builder()
+                        .runType(RunType.BATCH_FAR_TERM)
+                        .activeModel(EvaluationModel.HAIKU).build()));
+
+        assertThat(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .isEqualTo(EvaluationModel.SONNET);
+        assertThat(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("setActiveModel(BATCH_NEAR_TERM, OPUS) upserts correctly")
+    void setActiveModel_batchNearTerm_upserts() {
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_NEAR_TERM))
+                .thenReturn(Optional.empty());
+
+        EvaluationModel result = modelSelectionService.setActiveModel(
+                RunType.BATCH_NEAR_TERM, EvaluationModel.OPUS);
+
+        assertThat(result).isEqualTo(EvaluationModel.OPUS);
+        ArgumentCaptor<ModelSelectionEntity> captor =
+                ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.BATCH_NEAR_TERM);
+        assertThat(captor.getValue().getActiveModel()).isEqualTo(EvaluationModel.OPUS);
+    }
+
+    @Test
+    @DisplayName("setActiveModel(BATCH_FAR_TERM, SONNET) upserts correctly")
+    void setActiveModel_batchFarTerm_upserts() {
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_FAR_TERM))
+                .thenReturn(Optional.empty());
+
+        EvaluationModel result = modelSelectionService.setActiveModel(
+                RunType.BATCH_FAR_TERM, EvaluationModel.SONNET);
+
+        assertThat(result).isEqualTo(EvaluationModel.SONNET);
+        ArgumentCaptor<ModelSelectionEntity> captor =
+                ArgumentCaptor.forClass(ModelSelectionEntity.class);
+        verify(modelSelectionRepository).save(captor.capture());
+        assertThat(captor.getValue().getRunType()).isEqualTo(RunType.BATCH_FAR_TERM);
+        assertThat(captor.getValue().getActiveModel()).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("BATCH_NEAR_TERM defaults to HAIKU when no selection exists")
+    void getActiveModel_batchNearTerm_defaultsToHaiku() {
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_NEAR_TERM))
+                .thenReturn(Optional.empty());
+
+        assertThat(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("BATCH_FAR_TERM defaults to HAIKU when no selection exists")
+    void getActiveModel_batchFarTerm_defaultsToHaiku() {
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_FAR_TERM))
+                .thenReturn(Optional.empty());
+
+        assertThat(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .isEqualTo(EvaluationModel.HAIKU);
     }
 
@@ -382,11 +459,12 @@ class ModelSelectionServiceTest {
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS)).thenReturn(Optional.empty());
-        when(modelSelectionRepository.findByRunType(RunType.SCHEDULED_BATCH)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_NEAR_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_FAR_TERM)).thenReturn(Optional.empty());
 
         var result = modelSelectionService.getAllExtendedThinkingConfigs();
 
-        assertThat(result).hasSize(8);
+        assertThat(result).hasSize(9);
         assertThat(result).allSatisfy((runType, flag) -> assertThat(flag).isFalse());
     }
 
@@ -405,7 +483,8 @@ class ModelSelectionServiceTest {
         when(modelSelectionRepository.findByRunType(RunType.BRIEFING_GLOSS)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.AURORA_EVALUATION)).thenReturn(Optional.empty());
         when(modelSelectionRepository.findByRunType(RunType.AURORA_GLOSS)).thenReturn(Optional.empty());
-        when(modelSelectionRepository.findByRunType(RunType.SCHEDULED_BATCH)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_NEAR_TERM)).thenReturn(Optional.empty());
+        when(modelSelectionRepository.findByRunType(RunType.BATCH_FAR_TERM)).thenReturn(Optional.empty());
 
         var result = modelSelectionService.getAllExtendedThinkingConfigs();
 

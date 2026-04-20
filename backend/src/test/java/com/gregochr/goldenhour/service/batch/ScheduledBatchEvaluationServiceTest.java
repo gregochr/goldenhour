@@ -182,7 +182,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_allStanddown_skips() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.STANDDOWN);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         service.submitForecastBatch();
@@ -197,7 +197,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocalDate yesterday = TEST_DATE.minusDays(1);
         DailyBriefingResponse briefing = buildBriefingForDate(yesterday, Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         service.submitForecastBatch();
@@ -250,7 +250,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false, false, 0, null, List.of(), List.of());
 
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -297,7 +297,7 @@ class ScheduledBatchEvaluationServiceTest {
         // buildBriefing uses TEST_DATE which is today — should pass the date filter
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -337,7 +337,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -389,7 +389,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_triagedLocation_skips() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -413,7 +413,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_cachedRegion_skipsRegion() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
         when(briefingEvaluationService.hasEvaluation(eq("North East|" + TEST_DATE + "|SUNRISE")))
                 .thenReturn(true);
@@ -451,7 +451,7 @@ class ScheduledBatchEvaluationServiceTest {
                 null, null, List.of(day), null, null, null, false, false, 0, null, List.of(), List.of());
 
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         // North East is cached; Yorkshire is not
@@ -499,7 +499,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK"); // id=42, region="North East"
@@ -591,7 +591,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_allWeatherFetchesThrow_noBatchSubmitted() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -613,7 +613,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_unsettledStability_skipsLocation() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -651,8 +651,10 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
 
         LocationEntity location = buildLocation("Durham UK");
         location.setGridLat(54.7753);
@@ -701,7 +703,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_noGridCell_skipsT2Location() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -728,7 +730,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_sharedGridCell_classifiesOnce() {
         DailyBriefingResponse briefing = buildBriefingTwoSlots(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity loc1 = buildLocation("Durham UK");
@@ -865,7 +867,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -914,7 +916,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -953,7 +955,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -1029,7 +1031,7 @@ class ScheduledBatchEvaluationServiceTest {
                 false, false, 0, null, List.of(), List.of());
 
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         // Inland location (no tide)
@@ -1147,7 +1149,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -1201,7 +1203,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
         LocationEntity location = buildLocation("Durham UK");
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
@@ -1237,7 +1239,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
         LocationEntity location = buildLocation("Durham UK");
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
@@ -1275,7 +1277,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_allStanddown_doesNotCallJobRunService() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.STANDDOWN);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         service.submitForecastBatch();
@@ -1318,7 +1320,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_twoTasksSameLocation_prefetchCalledOnceWithOneCoord() {
         DailyBriefingResponse briefing = buildBriefingTwoSlots(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         // Both slots use the same location entity (same lat/lon → one unique coord)
@@ -1349,7 +1351,7 @@ class ScheduledBatchEvaluationServiceTest {
     void submitForecastBatch_allStanddown_prefetchNotCalled() {
         DailyBriefingResponse briefing = buildBriefing(Verdict.STANDDOWN);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         service.submitForecastBatch();
@@ -1365,7 +1367,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -1420,7 +1422,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -1476,7 +1478,7 @@ class ScheduledBatchEvaluationServiceTest {
         stubBatchService();
         DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
@@ -1513,6 +1515,456 @@ class ScheduledBatchEvaluationServiceTest {
 
         // The batch must pass through the exact OutputConfig from the builder
         assertThat(actualConfig).isEqualTo(expectedConfig);
+    }
+
+    // ── Near-term / Far-term split ──────────────────────────────────────────
+
+    @Test
+    @DisplayName("submitForecastBatch splits T+0 near-term and T+3 SETTLED far-term with different models")
+    void submitForecastBatch_nearAndFarTerm_splitIntoDifferentBatches() {
+        stubBatchService();
+
+        // Build a briefing with two dates: today (T+0) and today+3 (T+3)
+        LocalDate today = TEST_DATE;
+        LocalDate threeDaysAhead = TEST_DATE.plusDays(3);
+
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+
+        BriefingSlot todaySlot = new BriefingSlot("Durham UK",
+                today.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingSlot farSlot = new BriefingSlot("Sunderland",
+                threeDaysAhead.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+
+        BriefingRegion todayRegion = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(todaySlot),
+                null, null, null, null, null, null);
+        BriefingRegion farRegion = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(farSlot),
+                null, null, null, null, null, null);
+
+        BriefingEventSummary todayEvent = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(todayRegion), List.of());
+        BriefingEventSummary farEvent = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(farRegion), List.of());
+
+        BriefingDay todayDay = new BriefingDay(today, List.of(todayEvent));
+        BriefingDay farDay = new BriefingDay(threeDaysAhead, List.of(farEvent));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(todayDay, farDay), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        LocationEntity durhamLoc = buildLocation("Durham UK");
+        durhamLoc.setGridLat(54.7753);
+        durhamLoc.setGridLng(-1.5849);
+        LocationEntity sunderlandLoc = new LocationEntity();
+        sunderlandLoc.setId(43L);
+        sunderlandLoc.setName("Sunderland");
+        sunderlandLoc.setLat(54.9069);
+        sunderlandLoc.setLon(-1.3838);
+        sunderlandLoc.setGridLat(54.9069);
+        sunderlandLoc.setGridLng(-1.3838);
+        RegionEntity region = new RegionEntity();
+        region.setName("North East");
+        sunderlandLoc.setRegion(region);
+        sunderlandLoc.setTideType(Set.of());
+        when(locationService.findAllEnabled()).thenReturn(List.of(durhamLoc, sunderlandLoc));
+
+        // T+0 near-term task — null forecastResponse so stability defaults to 1
+        AtmosphericData nearData = mock(AtmosphericData.class);
+        when(nearData.surge()).thenReturn(null);
+        ForecastPreEvalResult nearPreEval = new ForecastPreEvalResult(
+                false, null, nearData, durhamLoc,
+                today, TargetType.SUNRISE,
+                today.atTime(5, 30), 90, 0,
+                EvaluationModel.SONNET, durhamLoc.getTideType(), "task-key-1",
+                null);
+        when(forecastService.fetchWeatherAndTriage(eq(durhamLoc), eq(today),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(nearPreEval);
+
+        // T+3 far-term task — SETTLED stability
+        AtmosphericData farData = mock(AtmosphericData.class);
+        when(farData.surge()).thenReturn(null);
+        OpenMeteoForecastResponse farForecastResponse = mock(OpenMeteoForecastResponse.class);
+        OpenMeteoForecastResponse.Hourly farHourly = mock(OpenMeteoForecastResponse.Hourly.class);
+        when(farForecastResponse.getHourly()).thenReturn(farHourly);
+        ForecastPreEvalResult farPreEval = new ForecastPreEvalResult(
+                false, null, farData, sunderlandLoc,
+                threeDaysAhead, TargetType.SUNRISE,
+                threeDaysAhead.atTime(5, 30), 90, 3,
+                EvaluationModel.SONNET, sunderlandLoc.getTideType(), "task-key-2",
+                farForecastResponse);
+        when(forecastService.fetchWeatherAndTriage(eq(sunderlandLoc), eq(threeDaysAhead),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(farPreEval);
+
+        when(stabilityClassifier.classify(
+                eq("54.9069,-1.3838"), eq(54.9069), eq(-1.3838), eq(farHourly)))
+                .thenReturn(new GridCellStabilityResult(
+                        "54.9069,-1.3838", 54.9069, -1.3838,
+                        ForecastStability.SETTLED, "high pressure", 3));
+
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch nearBatch = mock(MessageBatch.class);
+        when(nearBatch.id()).thenReturn("msgbatch_near");
+        when(nearBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        MessageBatch farBatch = mock(MessageBatch.class);
+        when(farBatch.id()).thenReturn("msgbatch_far");
+        when(farBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class)))
+                .thenReturn(nearBatch)
+                .thenReturn(farBatch);
+
+        service.submitForecastBatch();
+
+        // Two separate batches submitted — near and far
+        ArgumentCaptor<BatchCreateParams> paramsCaptor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService, org.mockito.Mockito.times(2))
+                .create(paramsCaptor.capture());
+
+        List<BatchCreateParams> captured = paramsCaptor.getAllValues();
+
+        // Near-term batch uses SONNET model
+        assertThat(captured.get(0).requests()).hasSize(1);
+        assertThat(captured.get(0).requests().get(0).params().model().asString())
+                .contains("sonnet");
+
+        // Far-term batch uses HAIKU model
+        assertThat(captured.get(1).requests()).hasSize(1);
+        assertThat(captured.get(1).requests().get(0).params().model().asString())
+                .contains("haiku");
+
+        // Two job runs created with correct batch IDs
+        verify(jobRunService).startBatchRun(1, "msgbatch_near");
+        verify(jobRunService).startBatchRun(1, "msgbatch_far");
+    }
+
+    @Test
+    @DisplayName("NEAR_TERM_MAX_DAYS constant is 1 (T+0 and T+1 are near-term)")
+    void nearTermMaxDays_isOne() {
+        assertThat(ScheduledBatchEvaluationService.NEAR_TERM_MAX_DAYS).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("T+1 task is near-term (boundary: daysAhead == NEAR_TERM_MAX_DAYS)")
+    void submitForecastBatch_tPlusOne_isNearTerm() {
+        stubBatchService();
+
+        LocalDate tomorrow = TEST_DATE.plusDays(1);
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+        BriefingSlot slot = new BriefingSlot("Durham UK",
+                tomorrow.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(slot),
+                null, null, null, null, null, null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(tomorrow, List.of(event));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(day), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                tomorrow, TargetType.SUNRISE,
+                tomorrow.atTime(5, 30), 90, 1,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(tomorrow),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_near1");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Exactly one batch — all near-term, no far-term
+        ArgumentCaptor<BatchCreateParams> captor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(captor.capture());
+        assertThat(captor.getValue().requests()).hasSize(1);
+        // Uses SONNET (near-term model), not HAIKU (far-term model)
+        assertThat(captor.getValue().requests().get(0).params().model().asString())
+                .contains("sonnet");
+    }
+
+    @Test
+    @DisplayName("T+2 SETTLED task is far-term (boundary: daysAhead > NEAR_TERM_MAX_DAYS)")
+    void submitForecastBatch_tPlusTwo_isFarTerm() {
+        stubBatchService();
+
+        LocalDate twoDaysAhead = TEST_DATE.plusDays(2);
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+        BriefingSlot slot = new BriefingSlot("Durham UK",
+                twoDaysAhead.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(slot),
+                null, null, null, null, null, null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(twoDaysAhead, List.of(event));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(day), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setGridLat(54.7753);
+        location.setGridLng(-1.5849);
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        OpenMeteoForecastResponse forecastResponse = mock(OpenMeteoForecastResponse.class);
+        OpenMeteoForecastResponse.Hourly hourly = mock(OpenMeteoForecastResponse.Hourly.class);
+        when(forecastResponse.getHourly()).thenReturn(hourly);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                twoDaysAhead, TargetType.SUNRISE,
+                twoDaysAhead.atTime(5, 30), 90, 2,
+                EvaluationModel.SONNET, location.getTideType(), "task-key",
+                forecastResponse);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(twoDaysAhead),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+
+        when(stabilityClassifier.classify(
+                eq("54.7753,-1.5849"), eq(54.7753), eq(-1.5849), eq(hourly)))
+                .thenReturn(new GridCellStabilityResult(
+                        "54.7753,-1.5849", 54.7753, -1.5849,
+                        ForecastStability.SETTLED, "high pressure", 3));
+
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_far2");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Exactly one batch — all far-term, no near-term
+        ArgumentCaptor<BatchCreateParams> captor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(captor.capture());
+        assertThat(captor.getValue().requests()).hasSize(1);
+        // Uses HAIKU (far-term model), not SONNET (near-term model)
+        assertThat(captor.getValue().requests().get(0).params().model().asString())
+                .contains("haiku");
+    }
+
+    @Test
+    @DisplayName("triage call always uses near-term model regardless of daysAhead")
+    void submitForecastBatch_triageUsesNearTermModel() {
+        stubBatchService();
+
+        LocalDate threeDaysAhead = TEST_DATE.plusDays(3);
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+        BriefingSlot slot = new BriefingSlot("Durham UK",
+                threeDaysAhead.atTime(5, 30), Verdict.GO, weather,
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion(
+                "North East", Verdict.GO, "Summary", List.of(), List.of(slot),
+                null, null, null, null, null, null);
+        BriefingEventSummary event = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(threeDaysAhead, List.of(event));
+        DailyBriefingResponse briefing = new DailyBriefingResponse(
+                null, null, List.of(day), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setGridLat(54.7753);
+        location.setGridLng(-1.5849);
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        OpenMeteoForecastResponse forecastResponse = mock(OpenMeteoForecastResponse.class);
+        OpenMeteoForecastResponse.Hourly hourly = mock(OpenMeteoForecastResponse.Hourly.class);
+        when(forecastResponse.getHourly()).thenReturn(hourly);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                threeDaysAhead, TargetType.SUNRISE,
+                threeDaysAhead.atTime(5, 30), 90, 3,
+                EvaluationModel.SONNET, location.getTideType(), "task-key",
+                forecastResponse);
+        // Triage is called with SONNET (near-term model), not HAIKU
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(threeDaysAhead),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+
+        when(stabilityClassifier.classify(
+                eq("54.7753,-1.5849"), eq(54.7753), eq(-1.5849), eq(hourly)))
+                .thenReturn(new GridCellStabilityResult(
+                        "54.7753,-1.5849", 54.7753, -1.5849,
+                        ForecastStability.SETTLED, "high pressure", 3));
+
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_triage");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Verify triage was called with SONNET, not HAIKU
+        verify(forecastService).fetchWeatherAndTriage(eq(location), eq(threeDaysAhead),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any());
+        // But the batch request itself uses HAIKU (far-term model)
+        ArgumentCaptor<BatchCreateParams> captor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(captor.capture());
+        assertThat(captor.getValue().requests().get(0).params().model().asString())
+                .contains("haiku");
+    }
+
+    @Test
+    @DisplayName("coastal near-term task goes to coastal batch, not inland")
+    void submitForecastBatch_coastalNearTerm_goesToCoastalBatch() {
+        stubBatchService();
+
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        LocationEntity location = buildLocation("Durham UK");
+        location.setTideType(Set.of(TideType.HIGH));
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        TideSnapshot tide = new TideSnapshot(
+                TideState.HIGH,
+                TEST_DATE.atTime(6, 0),
+                new BigDecimal("4.50"),
+                TEST_DATE.atTime(12, 15),
+                new BigDecimal("1.20"),
+                true,
+                TEST_DATE.atTime(6, 0),
+                null, null, null, null, null);
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.tide()).thenReturn(tide);
+        when(atmosphericData.surge()).thenReturn(null);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 0,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+        when(coastalPromptBuilder.buildUserMessage(any(AtmosphericData.class)))
+                .thenReturn("coastal-msg");
+        when(coastalPromptBuilder.getSystemPrompt()).thenReturn("coastal-sys");
+        when(coastalPromptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_coastal");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Only one batch — coastal, not inland
+        verify(batchService).create(any(BatchCreateParams.class));
+        // Coastal prompt builder was used, not the standard one
+        verify(coastalPromptBuilder).buildUserMessage(any(AtmosphericData.class));
+        verify(coastalPromptBuilder).getSystemPrompt();
+        verifyNoInteractions(promptBuilder);
+    }
+
+    @Test
+    @DisplayName("model selection resolves both BATCH_NEAR_TERM and BATCH_FAR_TERM")
+    void submitForecastBatch_resolvesBothModels() {
+        stubBatchService();
+        DailyBriefingResponse briefing = buildBriefing(Verdict.GO);
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+
+        LocationEntity location = buildLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+
+        AtmosphericData atmosphericData = mock(AtmosphericData.class);
+        when(atmosphericData.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, atmosphericData, location,
+                TEST_DATE, TargetType.SUNRISE,
+                TEST_EVENT_TIME, 90, 0,
+                EvaluationModel.SONNET, location.getTideType(), "task-key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(location), eq(TEST_DATE),
+                eq(TargetType.SUNRISE), any(), eq(EvaluationModel.SONNET),
+                eq(false), any(), any(), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_models");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.submitForecastBatch();
+
+        // Both models resolved at startup — verify exact RunType arguments
+        verify(modelSelectionService).getActiveModel(RunType.BATCH_NEAR_TERM);
+        verify(modelSelectionService).getActiveModel(RunType.BATCH_FAR_TERM);
     }
 
     private DailyBriefingResponse buildBriefing(Verdict verdict) {

@@ -271,8 +271,17 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
+     * The days-ahead threshold separating near-term from far-term batches.
+     * Tasks with {@code daysAhead <= NEAR_TERM_MAX_DAYS} go to the near-term batch;
+     * tasks with {@code daysAhead > NEAR_TERM_MAX_DAYS} go to the far-term batch
+     * (subject to stability gating).
+     */
+    static final int NEAR_TERM_MAX_DAYS = 1;
+
+    /**
      * Core forecast batch logic: collect candidates from the briefing, pre-fetch weather
-     * in bulk, then build one Anthropic request per surviving location.
+     * in bulk, triage, then split into near-term and far-term batches with independent
+     * model selection.
      */
     private void doSubmitForecastBatch() {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
@@ -281,9 +290,14 @@ public class ScheduledBatchEvaluationService {
             return;
         }
 
-        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
-        LOG.warn("[BATCH DIAG] Starting forecast batch — model={}, briefing days={}",
-                model, briefing.days() != null ? briefing.days().size() : 0);
+        EvaluationModel nearTermModel =
+                modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
+        EvaluationModel farTermModel =
+                modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM);
+        LOG.warn("[BATCH DIAG] Starting forecast batch — nearTermModel={}, farTermModel={}, "
+                        + "briefing days={}",
+                nearTermModel, farTermModel,
+                briefing.days() != null ? briefing.days().size() : 0);
 
         // First pass: collect all GO/MARGINAL tasks without fetching weather yet
         List<ForecastTask> tasks = collectForecastTasks(briefing);
@@ -314,25 +328,32 @@ public class ScheduledBatchEvaluationService {
             cloudCache = null;
         }
 
-        // Second pass: triage each task using the pre-fetched caches (no individual API calls)
-        List<BatchCreateParams.Request> inlandRequests = new ArrayList<>();
-        List<BatchCreateParams.Request> coastalRequests = new ArrayList<>();
-        List<ForecastTask> inlandTasks = new ArrayList<>();
-        List<ForecastTask> coastalTasks = new ArrayList<>();
+        // Second pass: triage each task, then split by near/far term and inland/coastal
+        List<BatchCreateParams.Request> nearInlandRequests = new ArrayList<>();
+        List<BatchCreateParams.Request> nearCoastalRequests = new ArrayList<>();
+        List<BatchCreateParams.Request> farInlandRequests = new ArrayList<>();
+        List<BatchCreateParams.Request> farCoastalRequests = new ArrayList<>();
+        List<ForecastTask> nearInlandTasks = new ArrayList<>();
+        List<ForecastTask> nearCoastalTasks = new ArrayList<>();
+        List<ForecastTask> farInlandTasks = new ArrayList<>();
+        List<ForecastTask> farCoastalTasks = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         int skippedTriage = 0;
         int skippedStability = 0;
         int skippedError = 0;
-        int included = 0;
+        int includedNear = 0;
+        int includedFar = 0;
 
         LOG.warn("[BATCH DIAG] Starting triage loop — {} candidate tasks", tasks.size());
 
         for (ForecastTask task : tasks) {
             try {
+                // Use near-term model for triage — the model choice only affects the
+                // batch request, not the weather/triage logic
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         task.location(), task.date(), task.targetType(),
-                        task.location().getTideType(), model, false, null,
+                        task.location().getTideType(), nearTermModel, false, null,
                         prefetchedWeather, cloudCache);
                 if (preEval.triaged()) {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=TRIAGED ({})",
@@ -351,19 +372,36 @@ public class ScheduledBatchEvaluationService {
                     skippedStability++;
                     continue;
                 }
+
+                boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
+                EvaluationModel model = isNearTerm ? nearTermModel : farTermModel;
                 BatchCreateParams.Request request = buildForecastRequest(task.date(),
                         task.targetType(), task.location(), preEval.atmosphericData(), model);
-                if (preEval.atmosphericData().tide() != null) {
-                    coastalRequests.add(request);
-                    coastalTasks.add(task);
+                boolean isCoastal = preEval.atmosphericData().tide() != null;
+                String locationType = isCoastal ? "coastal" : "inland";
+
+                if (isNearTerm) {
+                    if (isCoastal) {
+                        nearCoastalRequests.add(request);
+                        nearCoastalTasks.add(task);
+                    } else {
+                        nearInlandRequests.add(request);
+                        nearInlandTasks.add(task);
+                    }
+                    includedNear++;
                 } else {
-                    inlandRequests.add(request);
-                    inlandTasks.add(task);
+                    if (isCoastal) {
+                        farCoastalRequests.add(request);
+                        farCoastalTasks.add(task);
+                    } else {
+                        farInlandRequests.add(request);
+                        farInlandTasks.add(task);
+                    }
+                    includedFar++;
                 }
-                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | type={}",
+                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier={} type={}",
                         task.location().getName(), task.date(), task.targetType(),
-                        preEval.atmosphericData().tide() != null ? "coastal" : "inland");
-                included++;
+                        isNearTerm ? "near" : "far", locationType);
             } catch (Exception e) {
                 LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=ERROR ({})",
                         task.location().getName(), task.date(), task.targetType(),
@@ -372,28 +410,47 @@ public class ScheduledBatchEvaluationService {
             }
         }
 
-        LOG.warn("[BATCH DIAG] Triage complete — {} included, {} skipped "
+        int totalIncluded = includedNear + includedFar;
+        LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}), {} skipped "
                         + "(triage={}, stability={}, error={})",
-                included, skippedTriage + skippedStability + skippedError,
+                totalIncluded, includedNear, includedFar,
+                skippedTriage + skippedStability + skippedError,
                 skippedTriage, skippedStability, skippedError);
 
-        if (inlandRequests.isEmpty() && coastalRequests.isEmpty()) {
+        if (totalIncluded == 0) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
             return;
         }
 
-        if (!inlandRequests.isEmpty()) {
-            submitBatch(inlandRequests, BatchType.FORECAST, "Forecast batch (inland)");
-            logBatchBreakdown(inlandTasks, "inland");
+        // Submit near-term batches (inland + coastal)
+        if (!nearInlandRequests.isEmpty()) {
+            submitBatch(nearInlandRequests, BatchType.FORECAST,
+                    "Near-term batch (inland)");
+            logBatchBreakdown(nearInlandTasks, "near-term inland");
         }
-        if (!coastalRequests.isEmpty()) {
-            submitBatch(coastalRequests, BatchType.FORECAST, "Forecast batch (coastal)");
-            logBatchBreakdown(coastalTasks, "coastal");
+        if (!nearCoastalRequests.isEmpty()) {
+            submitBatch(nearCoastalRequests, BatchType.FORECAST,
+                    "Near-term batch (coastal)");
+            logBatchBreakdown(nearCoastalTasks, "near-term coastal");
         }
 
-        LOG.info("Forecast batch split: {} inland + {} coastal = {} total requests",
-                inlandRequests.size(), coastalRequests.size(),
-                inlandRequests.size() + coastalRequests.size());
+        // Submit far-term batches (inland + coastal)
+        if (!farInlandRequests.isEmpty()) {
+            submitBatch(farInlandRequests, BatchType.FORECAST,
+                    "Far-term batch (inland)");
+            logBatchBreakdown(farInlandTasks, "far-term inland");
+        }
+        if (!farCoastalRequests.isEmpty()) {
+            submitBatch(farCoastalRequests, BatchType.FORECAST,
+                    "Far-term batch (coastal)");
+            logBatchBreakdown(farCoastalTasks, "far-term coastal");
+        }
+
+        LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
+                        + "total {} requests",
+                includedNear, nearInlandRequests.size(), nearCoastalRequests.size(),
+                includedFar, farInlandRequests.size(), farCoastalRequests.size(),
+                totalIncluded);
     }
 
     /**
@@ -441,7 +498,9 @@ public class ScheduledBatchEvaluationService {
 
     /**
      * Region-filtered variant of the forecast batch. Same triage and stability gates,
-     * but only locations in the specified regions are considered.
+     * but only locations in the specified regions are considered. Uses the near-term
+     * model for all requests since region-filtered batches are typically admin-triggered
+     * for immediate results.
      */
     private BatchSubmitResult doSubmitForecastBatchForRegions(List<Long> regionIds) {
         DailyBriefingResponse briefing = briefingService.getCachedBriefing();
@@ -453,7 +512,7 @@ public class ScheduledBatchEvaluationService {
         java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
                 ? new java.util.HashSet<>(regionIds) : null;
 
-        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
         List<ForecastTask> tasks = collectForecastTasks(briefing);
 
         if (regionFilter != null) {

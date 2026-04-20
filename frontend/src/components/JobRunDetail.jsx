@@ -14,8 +14,11 @@ import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost'
  * - Token breakdown for Anthropic calls
  * - Error count and rate
  *
- * For SCHEDULED_BATCH runs, shows a batch token summary instead of individual API calls.
+ * For batch runs (SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM), shows a batch
+ * token summary instead of individual API calls.
  */
+const BATCH_RUN_TYPES = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
+
 const JobRunDetail = ({ jobRun }) => {
   const [apiCalls, setApiCalls] = useState([]);
   const [batchSummary, setBatchSummary] = useState(null);
@@ -25,7 +28,7 @@ const JobRunDetail = ({ jobRun }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        if (jobRun.runType === 'SCHEDULED_BATCH') {
+        if (BATCH_RUN_TYPES.has(jobRun.runType)) {
           const batchResp = await getBatchSummary(jobRun.id).catch(() => null);
           if (batchResp?.data) {
             setBatchSummary(batchResp.data);
@@ -129,7 +132,7 @@ const JobRunDetail = ({ jobRun }) => {
             <div className="text-plex-text-muted text-xs">Job Run ID</div>
             <div className="font-semibold text-plex-text">{jobRun.id}</div>
           </div>
-          {jobRun.runType === 'SCHEDULED_BATCH' && jobRun.notes && (
+          {BATCH_RUN_TYPES.has(jobRun.runType) && jobRun.notes && (
             <div className="bg-plex-surface p-2 rounded border border-plex-border col-span-2">
               <div className="text-plex-text-muted text-xs">Anthropic Batch ID</div>
               <div className="font-semibold text-plex-text" style={{ fontFamily: 'monospace' }}>

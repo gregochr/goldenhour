@@ -144,7 +144,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -186,7 +186,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any()))
@@ -211,7 +211,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         ForecastPreEvalResult preEval = new ForecastPreEvalResult(
@@ -241,7 +241,7 @@ class ForceSubmitBatchServiceTest {
         LocationEntity loc1 = buildLocation(10L, "Bamburgh Castle", northumberland);
         LocationEntity loc2 = buildLocation(20L, "Flamborough Head", yorkshire);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -283,7 +283,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -385,7 +385,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Location", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -427,7 +427,7 @@ class ForceSubmitBatchServiceTest {
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         loc.setTideType(Set.of(TideType.HIGH));
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -470,7 +470,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -521,7 +521,7 @@ class ForceSubmitBatchServiceTest {
         LocationEntity loc1 = buildLocation(10L, "Bamburgh Castle", region);
         LocationEntity loc2 = buildLocation(11L, "Dunstanburgh", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -578,7 +578,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -619,7 +619,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -666,7 +666,7 @@ class ForceSubmitBatchServiceTest {
 
         // Only locWithRegion should be processed → but let it fail data assembly
         // so we can verify only 1 was attempted, not 2
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
                 any(Boolean.class), any()))
@@ -690,7 +690,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(42L, "Durham", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -736,7 +736,7 @@ class ForceSubmitBatchServiceTest {
         LocationEntity loc2 = buildLocation(11L, "Dunstanburgh", region);
         LocationEntity loc3 = buildLocation(12L, "Holy Island", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -1118,7 +1118,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -1158,7 +1158,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Hadrian's Wall", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -1227,7 +1227,7 @@ class ForceSubmitBatchServiceTest {
 
         LocationEntity loc = buildLocation(10L, "Bamburgh", region);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
 
         AtmosphericData data = mock(AtmosphericData.class);
@@ -1281,6 +1281,48 @@ class ForceSubmitBatchServiceTest {
         assertThat(result.succeeded()).isEqualTo(5);
         assertThat(result.errored()).isEqualTo(1);
         assertThat(result.results()).isNull();
+    }
+
+    @Test
+    @DisplayName("forceSubmit resolves model from BATCH_NEAR_TERM, not SCHEDULED_BATCH")
+    void forceSubmit_resolvesModelFromBatchNearTerm() {
+        stubBatchService();
+        RegionEntity region = buildRegion(7L, "Northumberland");
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
+
+        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+
+        AtmosphericData data = mock(AtmosphericData.class);
+        when(data.surge()).thenReturn(null);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, data, loc,
+                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
+                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
+                EvaluationModel.SONNET, loc.getTideType(), "key", null);
+        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
+                any(Boolean.class), any())).thenReturn(preEval);
+        when(promptBuilder.buildUserMessage(any(AtmosphericData.class))).thenReturn("msg");
+        when(promptBuilder.getSystemPrompt()).thenReturn("sys");
+        when(promptBuilder.buildOutputConfig()).thenReturn(buildTestOutputConfig());
+
+        MessageBatch mockBatch = mock(MessageBatch.class);
+        when(mockBatch.id()).thenReturn("msgbatch_rt");
+        when(mockBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusDays(1));
+        when(batchService.create(any(BatchCreateParams.class))).thenReturn(mockBatch);
+
+        service.forceSubmit(7L, LocalDate.of(2026, 4, 16), TargetType.SUNSET);
+
+        // Verify the exact RunType used to resolve the model
+        verify(modelSelectionService).getActiveModel(RunType.BATCH_NEAR_TERM);
+        // Batch request uses SONNET (the resolved model)
+        ArgumentCaptor<BatchCreateParams> captor =
+                ArgumentCaptor.forClass(BatchCreateParams.class);
+        verify(batchService).create(captor.capture());
+        assertThat(captor.getValue().requests().get(0).params().model().asString())
+                .contains("sonnet");
     }
 
     private RegionEntity buildRegion(Long id, String name) {

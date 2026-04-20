@@ -458,7 +458,7 @@ public class PromptTestService {
             case WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING,
                     BRIEFING_BEST_BET, BRIEFING_GLOSS,
                     AURORA_EVALUATION, AURORA_GLOSS, BLUEBELL_GLOSS,
-                    SCHEDULED_BATCH ->
+                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM ->
                     throw new IllegalArgumentException(
                     "RunType " + runType + " is not supported for prompt tests");
         };

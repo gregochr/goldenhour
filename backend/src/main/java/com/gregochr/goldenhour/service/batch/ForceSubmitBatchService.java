@@ -119,7 +119,7 @@ public class ForceSubmitBatchService {
             return null;
         }
 
-        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
         LocalDate today = LocalDate.now(java.time.ZoneOffset.UTC);
         List<LocalDate> dates = List.of(today, today.plusDays(1),
                 today.plusDays(2), today.plusDays(3));
@@ -247,7 +247,7 @@ public class ForceSubmitBatchService {
                     "No enabled locations found in region: " + region.getName());
         }
 
-        EvaluationModel model = modelSelectionService.getActiveModel(RunType.SCHEDULED_BATCH);
+        EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
 
         List<BatchCreateParams.Request> requests = new ArrayList<>();
         List<String> failedLocations = new ArrayList<>();

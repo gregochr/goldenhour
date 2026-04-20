@@ -11,8 +11,12 @@ const CONFIG_TABS = [
   { key: 'LONG_TERM', label: 'Long-Term (T+3 \u2013 T+5)', tip: 'Extended forecasts — 3 to 5 days out. Weather data is less precise, so a cheaper model is fine.' },
   { key: 'BRIEFING_BEST_BET', label: 'Briefing', tip: 'Claude model for the best-bet photography advisor in the daily briefing.' },
   { key: 'AURORA_EVALUATION', label: 'Aurora', tip: 'Claude model for scoring aurora photography conditions per location.' },
-  { key: 'SCHEDULED_BATCH', label: 'Scheduled Batch', tip: 'Claude model used for overnight Anthropic Batch API runs. Results are ready before your first morning check.', adminOnly: true },
+  { key: 'BATCH_NEAR_TERM', label: 'Batch Near-Term', tip: 'Claude model for overnight near-term batch runs (T+0, T+1). High-confidence forecasts evaluated every night.', adminOnly: true },
+  { key: 'BATCH_FAR_TERM', label: 'Batch Far-Term', tip: 'Claude model for overnight far-term batch runs (T+2, T+3). Only evaluated when weather is settled.', adminOnly: true },
 ];
+
+/** Returns true if the given tab key is a batch tab. */
+const isBatchTab = (key) => key === 'BATCH_NEAR_TERM' || key === 'BATCH_FAR_TERM';
 
 /** Approximate USD to GBP rate for display purposes. */
 const USD_TO_GBP = 0.79;
@@ -369,7 +373,7 @@ export default function ModelSelectionView() {
               </div>
 
               <p className="text-sm text-plex-text-secondary mb-3">
-                {activeTab === 'SCHEDULED_BATCH'
+                {isBatchTab(activeTab)
                   ? BATCH_MODEL_DESCRIPTIONS[model]
                   : (TAB_DESCRIPTIONS[activeTab] || info.description)}
               </p>
@@ -441,19 +445,31 @@ export default function ModelSelectionView() {
         </div>
       )}
 
-      {/* Scheduled Batch: informational panel */}
-      {activeTab === 'SCHEDULED_BATCH' && (
+      {/* Batch: informational panel */}
+      {isBatchTab(activeTab) && (
         <div className="bg-plex-surface border border-plex-border rounded-lg p-4 text-sm text-plex-text-secondary space-y-3" data-testid="batch-info-panel">
           <p className="font-medium text-plex-text">How scheduled batch runs work</p>
           <p>
             Scheduled runs evaluate all GO and MARGINAL locations overnight using the Anthropic Batch
-            API, so results are ready before your first morning check.
+            API, so results are ready before your first morning check. Locations are split into two
+            tiers with independent model selection:
           </p>
           <div>
-            <p className="font-medium text-plex-text mb-1">Evaluation window</p>
+            <p className="font-medium text-plex-text mb-1">Near-term vs far-term</p>
+            <div className="space-y-2 font-mono text-xs mb-2">
+              <div className="flex gap-4">
+                <span className="text-plex-gold w-24 flex-shrink-0">NEAR-TERM</span>
+                <span>T+0 and T+1 — high-confidence forecasts, always evaluated.</span>
+              </div>
+              <div className="flex gap-4">
+                <span className="text-plex-gold w-24 flex-shrink-0">FAR-TERM</span>
+                <span>T+2 and T+3 — only evaluated when the weather stability classifier says SETTLED.</span>
+              </div>
+            </div>
             <p>
-              Runs cover T (tonight) through T+3 (three days ahead). Beyond T+3, forecast reliability
-              degrades and the data becomes misleading.
+              Each tier can use a different model. Use a more capable model for near-term (higher
+              confidence data) and a cheaper model for far-term (lower confidence, likely to be
+              re-evaluated overnight anyway).
             </p>
           </div>
           <div>
@@ -498,7 +514,7 @@ export default function ModelSelectionView() {
       )}
 
       {/* Scheduled Batch: static cost table */}
-      {activeTab === 'SCHEDULED_BATCH' && (
+      {isBatchTab(activeTab) && (
         <div className="card border border-plex-border" data-testid="batch-cost-table">
           <h3 className="font-semibold text-plex-text mb-1">Estimated batch run cost</h3>
           <p className="text-xs text-plex-text-secondary mb-3">

@@ -27,7 +27,7 @@ public class ModelSelectionService {
         RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM,
         RunType.BRIEFING_BEST_BET, RunType.BRIEFING_GLOSS,
         RunType.AURORA_EVALUATION, RunType.AURORA_GLOSS,
-        RunType.SCHEDULED_BATCH
+        RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM
     };
 
     private final ModelSelectionRepository modelSelectionRepository;

@@ -36,7 +36,8 @@ const MOCK_DATA = {
     LONG_TERM: 'HAIKU',
     BRIEFING_BEST_BET: 'HAIKU',
     AURORA_EVALUATION: 'HAIKU',
-    SCHEDULED_BATCH: 'SONNET',
+    BATCH_NEAR_TERM: 'SONNET',
+    BATCH_FAR_TERM: 'HAIKU',
   },
   optimisationStrategies: {
     VERY_SHORT_TERM: [
@@ -300,7 +301,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     });
   });
 
@@ -313,28 +314,28 @@ describe('ModelSelectionView', () => {
       expect(screen.getByText('Run Configuration')).toBeInTheDocument();
     });
 
-    expect(screen.queryByTestId('config-tab-SCHEDULED_BATCH')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('config-tab-BATCH_NEAR_TERM')).not.toBeInTheDocument();
   });
 
   it('Scheduled Batch tab label shows active model in brackets', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     });
 
-    // MOCK_DATA.configs.SCHEDULED_BATCH = 'SONNET'
-    expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toHaveTextContent('(Sonnet)');
+    // MOCK_DATA.configs.BATCH_NEAR_TERM = 'SONNET'
+    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet)');
   });
 
   it('Scheduled Batch tab shows three distinct per-model descriptions', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+    fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
 
     await waitFor(() => {
       expect(screen.getByText(/cost-efficient model for overnight batch runs/)).toBeInTheDocument();
@@ -352,10 +353,10 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+    fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
 
     await waitFor(() => {
       expect(screen.getByTestId('batch-info-panel')).toBeInTheDocument();
@@ -387,10 +388,10 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+    fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
 
     await waitFor(() => {
       expect(screen.getByTestId('batch-cost-table')).toBeInTheDocument();
@@ -413,25 +414,25 @@ describe('ModelSelectionView', () => {
     expect(screen.queryByTestId('batch-cost-table')).not.toBeInTheDocument();
   });
 
-  it('model switch on Scheduled Batch tab sends SCHEDULED_BATCH as runType', async () => {
-    setActiveModel.mockResolvedValue({ runType: 'SCHEDULED_BATCH', active: 'HAIKU' });
+  it('model switch on Batch Near-Term tab sends BATCH_NEAR_TERM as runType', async () => {
+    setActiveModel.mockResolvedValue({ runType: 'BATCH_NEAR_TERM', active: 'HAIKU' });
 
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('config-tab-SCHEDULED_BATCH')).toBeInTheDocument();
+      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId('config-tab-SCHEDULED_BATCH'));
+    fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('switch-SCHEDULED_BATCH-HAIKU')).toBeInTheDocument();
+      expect(screen.getByTestId('switch-BATCH_NEAR_TERM-HAIKU')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId('switch-SCHEDULED_BATCH-HAIKU'));
+    fireEvent.click(screen.getByTestId('switch-BATCH_NEAR_TERM-HAIKU'));
 
     await waitFor(() => {
-      expect(setActiveModel).toHaveBeenCalledWith('SCHEDULED_BATCH', 'HAIKU');
+      expect(setActiveModel).toHaveBeenCalledWith('BATCH_NEAR_TERM', 'HAIKU');
     });
   });
 });

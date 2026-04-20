@@ -31,8 +31,11 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
     }
   });
 
+  const isBatchRunType = (runType) =>
+    runType === 'SCHEDULED_BATCH' || runType === 'BATCH_NEAR_TERM' || runType === 'BATCH_FAR_TERM';
+
   const isBatchInProgress = (run) =>
-    run.runType === 'SCHEDULED_BATCH' && !run.completedAt;
+    isBatchRunType(run.runType) && !run.completedAt;
 
   const getStatusBadge = (run) => {
     if (isBatchInProgress(run)) {
