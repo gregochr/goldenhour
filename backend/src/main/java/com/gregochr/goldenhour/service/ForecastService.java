@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
@@ -351,20 +352,22 @@ public class ForecastService {
         // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
         if (triageResult.isPresent()) {
-            String reason = triageResult.get().reason();
-            SunsetEvaluation cannedEval = new SunsetEvaluation(
-                    1, 5, 5, "Conditions unsuitable — " + reason);
+            TriageResult tr = triageResult.get();
+            String reason = tr.reason();
+            SunsetEvaluation emptyEval = new SunsetEvaluation(null, null, null, null);
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
-                    forecastData, cannedEval, model);
+                    forecastData, emptyEval, model);
+            entity.setTriageReason(tr.triageReason());
+            entity.setTriageMessage(reason);
             repository.save(entity);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                     LocationTaskState.TRIAGED);
             LOG.info("Forecast triaged: {} {} {} (T+{}) — {}", locationName, targetType,
                     date, daysAhead, reason);
-            return new ForecastPreEvalResult(true, reason, forecastData, location, date,
-                    targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
-                    forecastResponse);
+            return new ForecastPreEvalResult(true, reason, tr.triageReason(), forecastData,
+                    location, date, targetType, eventTime, azimuth, daysAhead, model, tideTypes,
+                    taskKey, forecastResponse);
         }
 
         // Apply tide alignment triage for SEASCAPE locations (when strategy is enabled)
@@ -380,20 +383,22 @@ public class ForecastService {
             Optional<TriageResult> tideTriageResult = tideAlignmentEvaluator.evaluate(
                     forecastData, tideTypes, windowStart, windowEnd);
             if (tideTriageResult.isPresent()) {
-                String reason = tideTriageResult.get().reason();
-                SunsetEvaluation cannedEval = new SunsetEvaluation(
-                        1, 5, 5, "Conditions unsuitable — tide not aligned — " + reason);
+                TriageResult tr = tideTriageResult.get();
+                String reason = tr.reason();
+                SunsetEvaluation emptyEval = new SunsetEvaluation(null, null, null, null);
                 ForecastEvaluationEntity entity = buildEntity(
                         location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
-                        forecastData, cannedEval, model);
+                        forecastData, emptyEval, model);
+                entity.setTriageReason(tr.triageReason());
+                entity.setTriageMessage(reason);
                 repository.save(entity);
                 publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                         LocationTaskState.TRIAGED);
                 LOG.info("Forecast triaged (tide): {} {} {} (T+{}) — {}", locationName,
                         targetType, date, daysAhead, reason);
-                return new ForecastPreEvalResult(true, reason, forecastData, location, date,
-                        targetType, eventTime, azimuth, daysAhead, model, tideTypes, taskKey,
-                        forecastResponse);
+                return new ForecastPreEvalResult(true, reason, tr.triageReason(), forecastData,
+                        location, date, targetType, eventTime, azimuth, daysAhead, model,
+                        tideTypes, taskKey, forecastResponse);
             }
         }
 
@@ -464,12 +469,13 @@ public class ForecastService {
      */
     public ForecastEvaluationEntity persistCannedResult(ForecastPreEvalResult preEval,
             String reason, JobRunEntity jobRun) {
-        SunsetEvaluation cannedEval = new SunsetEvaluation(
-                1, 5, 5, "Conditions unsuitable — " + reason);
+        SunsetEvaluation emptyEval = new SunsetEvaluation(null, null, null, null);
         ForecastEvaluationEntity entity = buildEntity(
                 preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
                 preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
-                preEval.azimuth(), preEval.atmosphericData(), cannedEval, preEval.model());
+                preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
+        entity.setTriageReason(TriageReason.GENERIC);
+        entity.setTriageMessage(reason);
         ForecastEvaluationEntity saved = repository.save(entity);
 
         Long runId = jobRun != null ? jobRun.getId() : null;

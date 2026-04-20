@@ -86,6 +86,8 @@ import java.time.LocalDateTime;
  * @param bluebellScore                  bluebell photography score 0–10 (nullable — season + site only)
  * @param bluebellSummary                bluebell condition summary from Claude (nullable)
  * @param bluebellExposure               WOODLAND or OPEN_FELL (nullable — bluebell sites only)
+ * @param triageReason                   categorised stand-down reason, or null if Claude-scored
+ * @param triageMessage                  formatted stand-down explanation text, or null
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -155,5 +157,7 @@ public record ForecastEvaluationDto(
         LocalDateTime blueHourEnd,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer bluebellScore,
         @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellSummary,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellExposure) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellExposure,
+        @JsonInclude(JsonInclude.Include.NON_NULL) TriageReason triageReason,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage) {
 }

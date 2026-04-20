@@ -721,8 +721,8 @@ public class ForecastCommandExecutor {
                     AtmosphericData enriched = task.atmosphericData()
                             .withStability(result.stability(), result.reason());
                     return new ForecastPreEvalResult(
-                            task.triaged(), task.triageReason(), enriched,
-                            task.location(), task.date(), task.targetType(),
+                            task.triaged(), task.triageReason(), task.triageCategory(),
+                            enriched, task.location(), task.date(), task.targetType(),
                             task.eventTime(), task.azimuth(), task.daysAhead(),
                             task.model(), task.tideTypes(), task.taskKey(),
                             task.forecastResponse());

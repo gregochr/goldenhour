@@ -401,7 +401,7 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("Triaged location includes triage reason in summary")
+    @DisplayName("Triaged location surfaces reason via triageReason and triageMessage, not summary")
     void triagedLocation_includesReasonInSummary() {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
@@ -411,7 +411,9 @@ class BriefingEvaluationServiceTest {
         stubBriefing(List.of(slot("Bamburgh", Verdict.GO)));
 
         ForecastPreEvalResult triagedPreEval = new ForecastPreEvalResult(
-                true, "Heavy rain forecast", null, loc, DATE, TargetType.SUNSET,
+                true, "Heavy rain forecast",
+                com.gregochr.goldenhour.model.TriageReason.PRECIPITATION,
+                null, loc, DATE, TargetType.SUNSET,
                 null, null, 0, null, null, null, null);
         when(forecastService.fetchWeatherAndTriage(
                 any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
@@ -422,9 +424,13 @@ class BriefingEvaluationServiceTest {
 
         BriefingEvaluationResult result =
                 service.getCachedScores(REGION, DATE, TargetType.SUNSET).get("Bamburgh");
-        assertThat(result.summary()).contains("Heavy rain forecast");
-        assertThat(result.fierySkyPotential()).isEqualTo(5);
-        assertThat(result.goldenHourPotential()).isEqualTo(5);
+        assertThat(result.summary()).isNull();
+        assertThat(result.fierySkyPotential()).isNull();
+        assertThat(result.goldenHourPotential()).isNull();
+        assertThat(result.rating()).isNull();
+        assertThat(result.triageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.TriageReason.PRECIPITATION);
+        assertThat(result.triageMessage()).contains("Heavy rain forecast");
     }
 
     @Test
@@ -561,7 +567,12 @@ class BriefingEvaluationServiceTest {
 
         Map<String, BriefingEvaluationResult> cached =
                 service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(cached.get("Bamburgh").rating()).isEqualTo(1);
+        BriefingEvaluationResult triaged = cached.get("Bamburgh");
+        assertThat(triaged.rating()).isNull();
+        assertThat(triaged.summary()).isNull();
+        assertThat(triaged.triageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.TriageReason.GENERIC);
+        assertThat(triaged.triageMessage()).isEqualTo("Heavy rain");
     }
 
     // ── Argument verification tests ────────────────────────────────────────────

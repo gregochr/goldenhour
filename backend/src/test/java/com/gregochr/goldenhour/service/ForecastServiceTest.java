@@ -24,6 +24,7 @@ import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
+import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.model.TriageRule;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
@@ -434,7 +435,10 @@ class ForecastServiceTest {
         ForecastEvaluationEntity triaged = triageCaptor.getValue();
         assertThat(triaged.getLocationName()).isEqualTo(DURHAM);
         assertThat(triaged.getTargetType()).isEqualTo(TargetType.SUNRISE);
-        assertThat(triaged.getSummary()).contains("Low cloud 85%");
+        assertThat(triaged.getSummary()).isNull();
+        assertThat(triaged.getRating()).isNull();
+        assertThat(triaged.getTriageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        assertThat(triaged.getTriageMessage()).contains("Low cloud 85%");
     }
 
     @Test
@@ -542,7 +546,10 @@ class ForecastServiceTest {
         ForecastEvaluationEntity saved = tideCaptor.getValue();
         assertThat(saved.getLocationName()).isEqualTo("Bamburgh");
         assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(saved.getRating()).isEqualTo(1);
+        assertThat(saved.getRating()).isNull();
+        assertThat(saved.getSummary()).isNull();
+        assertThat(saved.getTriageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(saved.getTriageMessage()).contains("tide");
     }
 
     @Test
@@ -708,11 +715,13 @@ class ForecastServiceTest {
         verify(repository).save(captor.capture());
 
         ForecastEvaluationEntity saved = captor.getValue();
-        assertThat(saved.getRating()).isEqualTo(1);
-        assertThat(saved.getFierySkyPotential()).isEqualTo(5);
-        assertThat(saved.getGoldenHourPotential()).isEqualTo(5);
-        assertThat(saved.getSummary()).contains("Conditions unsuitable");
-        assertThat(saved.getSummary()).contains("Sentinel skip — region poor");
+        assertThat(saved.getRating()).isNull();
+        assertThat(saved.getFierySkyPotential()).isNull();
+        assertThat(saved.getGoldenHourPotential()).isNull();
+        assertThat(saved.getSummary()).isNull();
+        assertThat(saved.getTriageReason()).isEqualTo(
+                com.gregochr.goldenhour.model.TriageReason.GENERIC);
+        assertThat(saved.getTriageMessage()).contains("Sentinel skip — region poor");
     }
 
     @Test
@@ -1077,8 +1086,10 @@ class ForecastServiceTest {
         ArgumentCaptor<ForecastEvaluationEntity> captor =
                 ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
         verify(repository).save(captor.capture());
-        assertThat(captor.getValue().getSummary()).contains("tide not aligned");
-        assertThat(captor.getValue().getRating()).isEqualTo(1);
+        assertThat(captor.getValue().getSummary()).isNull();
+        assertThat(captor.getValue().getRating()).isNull();
+        assertThat(captor.getValue().getTriageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(captor.getValue().getTriageMessage()).contains("tide");
     }
 
     // --- fetchWeatherAndTriage: result carries daysAhead and forecastResponse ---

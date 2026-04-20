@@ -191,6 +191,8 @@ public class ForecastDtoMapper {
                 blueHourEnd,
                 bluebellScore,
                 bluebellSummary,
-                bluebellExposure);
+                bluebellExposure,
+                entity.getTriageReason(),
+                entity.getTriageMessage());
     }
 }

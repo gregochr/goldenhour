@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.gregochr.goldenhour.model.TriageReason;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -303,6 +304,15 @@ public class ForecastEvaluationEntity {
     /** Bluebell photography condition summary from Claude, or null. */
     @Column(name = "bluebell_summary", columnDefinition = "TEXT")
     private String bluebellSummary;
+
+    /** Categorised user-facing triage reason, or null if the row was scored by Claude. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "triage_reason", length = 40)
+    private TriageReason triageReason;
+
+    /** Formatted explanation text for the triage stand-down (with concrete numbers), or null. */
+    @Column(name = "triage_message", columnDefinition = "TEXT")
+    private String triageMessage;
 
     /**
      * Returns the location name for JSON serialisation, preserving the API contract.

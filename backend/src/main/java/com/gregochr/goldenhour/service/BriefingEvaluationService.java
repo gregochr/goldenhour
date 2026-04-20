@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
+import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -446,9 +447,11 @@ public class BriefingEvaluationService {
                 location, date, targetType, location.getTideType(), model, false, jobRun);
 
         if (preEval.triaged()) {
+            TriageReason category = preEval.triageCategory() != null
+                    ? preEval.triageCategory() : TriageReason.GENERIC;
             return new BriefingEvaluationResult(
-                    location.getName(), 1, 5, 5,
-                    "Conditions unsuitable — " + preEval.triageReason());
+                    location.getName(), null, null, null, null,
+                    category, preEval.triageReason());
         }
 
         ForecastEvaluationEntity entity = forecastService.evaluateAndPersist(preEval, jobRun);

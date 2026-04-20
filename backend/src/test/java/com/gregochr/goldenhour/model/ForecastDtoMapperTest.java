@@ -235,6 +235,65 @@ class ForecastDtoMapperTest {
     }
 
     @Test
+    @DisplayName("toDto() maps triageReason and triageMessage from a triaged entity")
+    void toDto_triagedEntity_mapsTriageFields() {
+        ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()
+                .id(99L)
+                .location(LOCATION)
+                .locationLat(BigDecimal.valueOf(54.7753))
+                .locationLon(BigDecimal.valueOf(-1.5849))
+                .targetDate(LocalDate.of(2026, 3, 8))
+                .targetType(TargetType.SUNSET)
+                .forecastRunAt(LocalDateTime.of(2026, 3, 8, 12, 0))
+                .daysAhead(0)
+                .triageReason(TriageReason.HIGH_CLOUD)
+                .triageMessage("Solar horizon low cloud 85% — sun blocked")
+                .build();
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        assertThat(dto.triageMessage()).isEqualTo("Solar horizon low cloud 85% — sun blocked");
+        assertThat(dto.rating()).isNull();
+        assertThat(dto.summary()).isNull();
+        assertThat(dto.fierySkyPotential()).isNull();
+        assertThat(dto.goldenHourPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("toDto() returns null triage fields for a non-triaged entity")
+    void toDto_nonTriagedEntity_nullTriageFields() {
+        ForecastEvaluationEntity entity = buildFullEntity();
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.triageReason()).isNull();
+        assertThat(dto.triageMessage()).isNull();
+    }
+
+    @Test
+    @DisplayName("toDto() preserves triage fields for LITE users (not gated behind basic tier)")
+    void toDto_liteUser_mapsTriageFields() {
+        ForecastEvaluationEntity entity = ForecastEvaluationEntity.builder()
+                .id(100L)
+                .location(LOCATION)
+                .locationLat(BigDecimal.valueOf(54.7753))
+                .locationLon(BigDecimal.valueOf(-1.5849))
+                .targetDate(LocalDate.of(2026, 3, 8))
+                .targetType(TargetType.SUNRISE)
+                .forecastRunAt(LocalDateTime.of(2026, 3, 8, 6, 0))
+                .daysAhead(0)
+                .triageReason(TriageReason.TIDE_MISALIGNED)
+                .triageMessage("No high tide in golden/blue hour window")
+                .build();
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, true);
+
+        assertThat(dto.triageReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
+        assertThat(dto.triageMessage()).isEqualTo("No high tide in golden/blue hour window");
+    }
+
+    @Test
     @DisplayName("toDto() returns null surge fields when entity has no surge data")
     void toDto_nullSurge_returnsNullFields() {
         ForecastEvaluationEntity entity = buildFullEntity();
