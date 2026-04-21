@@ -25,14 +25,17 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.TokenUsage;
 
 import java.time.LocalDate;
@@ -156,6 +159,26 @@ public class BriefingBestBetAdvisor {
               Rationale: The best bet card is generated hours in advance and may be stale by
               the time the user reads it. The aurora banner handles real-time action prompts —
               the best bet card handles planning and preparation.
+            **CLAUDE EVALUATION SCORES**
+
+            Some regions may include pre-computed Claude evaluation scores from the per-location \
+            drill-down. When present, these are MORE RELIABLE than the triage verdict counts \
+            (goCount, marginalCount) because they reflect full atmospheric analysis, not just \
+            threshold heuristics.
+
+            - claudeRatedCount: how many locations were Claude-evaluated
+            - claudeHighRatedCount: how many scored 4-5 stars (strong prospects)
+            - claudeMediumRatedCount: how many scored exactly 3 stars (decent but not special)
+            - claudeAverageRating: mean star rating across rated locations (1.0-5.0)
+
+            When Claude scores are present:
+            - Prefer regions with high claudeAverageRating (>3.5 is promising, >4.0 is excellent)
+            - claudeHighRatedCount > 0 is a strong positive signal — real photographic potential
+            - A region with goCount=5 but claudeAverageRating=2.0 is weaker than it looks
+            - A MARGINAL region with claudeAverageRating=4.0 is better than the verdict suggests
+
+            When Claude scores are absent, fall back to the triage verdicts as before.
+
             - Lower wind speeds are better for long exposures and reflections
             - Comfort matters — extreme cold or high wind reduces the appeal
             - If multiple events are close in quality, prefer the sooner one
@@ -241,28 +264,32 @@ public class BriefingBestBetAdvisor {
     private final ModelSelectionService modelSelectionService;
     private final AuroraStateCache auroraStateCache;
     private final ForecastCommandExecutor forecastCommandExecutor;
+    private final BriefingEvaluationService briefingEvaluationService;
 
     /**
      * Constructs a {@code BriefingBestBetAdvisor}.
      *
-     * @param anthropicApiClient       resilient Anthropic API client
-     * @param objectMapper             Jackson mapper for JSON building and parsing
-     * @param jobRunService            service for logging the API call in job run metrics
-     * @param modelSelectionService    service for resolving the active Claude model
-     * @param auroraStateCache         read-only access to the current aurora alert state
-     * @param forecastCommandExecutor  provides the latest stability summary for region rollup
+     * @param anthropicApiClient         resilient Anthropic API client
+     * @param objectMapper               Jackson mapper for JSON building and parsing
+     * @param jobRunService              service for logging the API call in job run metrics
+     * @param modelSelectionService      service for resolving the active Claude model
+     * @param auroraStateCache           read-only access to the current aurora alert state
+     * @param forecastCommandExecutor    provides the latest stability summary for region rollup
+     * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
      */
     public BriefingBestBetAdvisor(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
             ModelSelectionService modelSelectionService,
             AuroraStateCache auroraStateCache,
-            ForecastCommandExecutor forecastCommandExecutor) {
+            ForecastCommandExecutor forecastCommandExecutor,
+            @Lazy BriefingEvaluationService briefingEvaluationService) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
         this.auroraStateCache = auroraStateCache;
         this.forecastCommandExecutor = forecastCommandExecutor;
+        this.briefingEvaluationService = briefingEvaluationService;
     }
 
     /**
@@ -546,7 +573,7 @@ public class BriefingBestBetAdvisor {
                 }
                 ArrayNode regionsNode = eventNode.putArray("regions");
                 for (BriefingRegion region : es.regions()) {
-                    appendRegionNode(regionsNode, region);
+                    appendRegionNode(regionsNode, region, day.date(), es.targetType());
                     validRegions.add(region.regionName());
                 }
             }
@@ -579,10 +606,43 @@ public class BriefingBestBetAdvisor {
         validRegions.forEach(vrArray::add);
         root.set("events", eventsNode);
 
+        logCacheCoverage(days, validEvents);
         return new RollupResult(objectMapper.writeValueAsString(root), validEvents, validRegions, validDayNames);
     }
 
-    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region) {
+    /**
+     * Logs a per-date summary of how many region/event slots had Claude evaluation
+     * scores available versus verdict-only data.
+     */
+    private void logCacheCoverage(List<BriefingDay> days, Set<String> validEvents) {
+        int totalSlots = 0;
+        int slotsWithScores = 0;
+        for (BriefingDay day : days) {
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                String eventId = day.date().toString() + "_"
+                        + es.targetType().name().toLowerCase();
+                if (!validEvents.contains(eventId)) {
+                    continue;
+                }
+                for (BriefingRegion region : es.regions()) {
+                    totalSlots++;
+                    Map<String, BriefingEvaluationResult> cached =
+                            briefingEvaluationService.getCachedScores(
+                                    region.regionName(), day.date(), es.targetType());
+                    if (!cached.isEmpty()) {
+                        slotsWithScores++;
+                    }
+                }
+            }
+        }
+        if (totalSlots > 0) {
+            LOG.info("Best-bet rollup: {}/{} region-event slots have Claude scores",
+                    slotsWithScores, totalSlots);
+        }
+    }
+
+    private void appendRegionNode(ArrayNode regionsNode, BriefingRegion region,
+            LocalDate date, TargetType targetType) {
         long goCount = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO).count();
         long marginalCount = region.slots().stream()
@@ -665,8 +725,45 @@ public class BriefingBestBetAdvisor {
         regionNode.put("coastalLocationCount", coastalCount);
         regionNode.put("inlandLocationCount", region.slots().size() - coastalCount);
 
+        // Claude evaluation score distribution (from cached drill-down scores)
+        appendClaudeScores(regionNode, region.regionName(), date, targetType);
+
         // Stability rollup: worst-case across grid cells containing this region's locations
         appendStabilityToRegion(regionNode, region);
+    }
+
+    /**
+     * Looks up cached Claude evaluation scores for the given region/date/event
+     * and appends score distribution fields to the region JSON node.
+     *
+     * <p>When no cached scores are available, the fields are omitted and the
+     * prompt falls back to verdict-only data.
+     */
+    private void appendClaudeScores(ObjectNode regionNode, String regionName,
+            LocalDate date, TargetType targetType) {
+        Map<String, BriefingEvaluationResult> cached =
+                briefingEvaluationService.getCachedScores(regionName, date, targetType);
+        if (cached.isEmpty()) {
+            return;
+        }
+
+        List<BriefingEvaluationResult> scored = cached.values().stream()
+                .filter(r -> r.rating() != null)
+                .toList();
+        if (scored.isEmpty()) {
+            return;
+        }
+
+        long highRated = scored.stream().filter(r -> r.rating() >= 4).count();
+        long mediumRated = scored.stream().filter(r -> r.rating() == 3).count();
+        double avgRating = scored.stream()
+                .mapToInt(BriefingEvaluationResult::rating).average().orElse(0);
+
+        regionNode.put("claudeRatedCount", scored.size());
+        regionNode.put("claudeHighRatedCount", highRated);
+        regionNode.put("claudeMediumRatedCount", mediumRated);
+        regionNode.put("claudeAverageRating",
+                Math.round(avgRating * 10.0) / 10.0);
     }
 
     /**

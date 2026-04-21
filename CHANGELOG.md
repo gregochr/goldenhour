@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Briefing gloss and best-bet read real Claude scores
+- **`BriefingBestBetAdvisor`** — now consumes cached Claude evaluation scores from `BriefingEvaluationService`; when per-location drill-down scores exist, adds `claudeRatedCount`, `claudeHighRatedCount`, `claudeMediumRatedCount`, and `claudeAverageRating` fields to the rollup JSON sent to Claude; system prompt updated with `CLAUDE EVALUATION SCORES` guidance so the model prefers nuanced scores over triage verdicts; per-date cache coverage logging
+- **`BriefingGlossService`** — same cache lookup; appends Claude score distribution to each gloss user message; system prompt updated with `CLAUDE SCORES` calibration guidance; work-item-level cache coverage logging
+- **Circular dependency** — `@Lazy` on the `BriefingEvaluationService` constructor parameter in both services breaks the `BriefingService` → `BriefingBestBetAdvisor` → `BriefingEvaluationService` → `BriefingService` cycle
+- **Tests** — 6 new tests in `BriefingBestBetAdvisorTest` (cached scores added, omitted when empty, triaged entries filtered, all-triaged omitted, exact cache key verification, system prompt check); 5 new tests in `BriefingGlossServiceTest` (same patterns); regression test updated
+
 ### Fixed — Aurora hot topic pill uses consistent clear count
 - **`AuroraHotTopicStrategy`** — tonight detail line now reads the cloud-triaged clear count from `BriefingAuroraSummaryBuilder.buildAuroraTonightCached()` (fresh Open-Meteo weather) instead of `AuroraStateCache.getClearLocationCount()` (stale polling-cycle count); falls back to state cache when briefing summary is unavailable
 - **Tests** — 2 new tests: briefing summary count preferred when available, state cache fallback when null (32 total)

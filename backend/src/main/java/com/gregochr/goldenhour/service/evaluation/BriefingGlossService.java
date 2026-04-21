@@ -12,18 +12,22 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Generates Claude-authored one-line glosses for GO/MARGINAL briefing regions.
@@ -68,6 +72,12 @@ public class BriefingGlossService {
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
             cautionary — clear skies mean no cloud canvas to catch colour. Never describe \
             clear-all-layers conditions as good, promising, or colourful.
+            CLAUDE SCORES: The input may include claudeRatedCount, claudeHighRatedCount, \
+            claudeMediumRatedCount, and claudeAverageRating fields. When present, these \
+            are per-location Claude evaluation scores from the full atmospheric analysis. \
+            Use them to calibrate your language: a claudeAverageRating above 3.5 justifies \
+            optimistic language; below 2.5 warrants caution even if the triage verdict is GO. \
+            When absent, base your assessment on the cloud and tide data alone.
             Respond with ONLY a JSON object. No markdown, no code fences, no preamble, \
             no trailing text. The response must start with { and end with }.
             Example: {"headline": "High cirrus canvas — colour potential", \
@@ -79,24 +89,28 @@ public class BriefingGlossService {
     private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
+    private final BriefingEvaluationService briefingEvaluationService;
     private final ParallelGlossExecutor<GlossWorkItem> glossExecutor =
             new ParallelGlossExecutor<>(MAX_CONCURRENCY, "Gloss");
 
     /**
      * Constructs a {@code BriefingGlossService}.
      *
-     * @param anthropicApiClient    resilient Anthropic API client
-     * @param objectMapper          Jackson mapper for JSON building
-     * @param jobRunService         service for logging API calls
-     * @param modelSelectionService service for resolving the active Claude model
+     * @param anthropicApiClient        resilient Anthropic API client
+     * @param objectMapper              Jackson mapper for JSON building
+     * @param jobRunService             service for logging API calls
+     * @param modelSelectionService     service for resolving the active Claude model
+     * @param briefingEvaluationService cached Claude evaluation scores from drill-down
      */
     public BriefingGlossService(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
-            ModelSelectionService modelSelectionService) {
+            ModelSelectionService modelSelectionService,
+            @Lazy BriefingEvaluationService briefingEvaluationService) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
+        this.briefingEvaluationService = briefingEvaluationService;
     }
 
     /**
@@ -128,6 +142,14 @@ public class BriefingGlossService {
             LOG.debug("No GO/MARGINAL regions to gloss");
             return days;
         }
+
+        long withScores = workItems.stream()
+                .filter(item -> !briefingEvaluationService.getCachedScores(
+                        item.region.regionName(), item.day.date(),
+                        item.eventSummary.targetType()).isEmpty())
+                .count();
+        LOG.info("Gloss generation: {}/{} work items have Claude scores",
+                withScores, workItems.size());
 
         glossExecutor.execute(workItems, item -> callGloss(item, model, jobRunId));
 
@@ -249,10 +271,46 @@ public class BriefingGlossService {
             node.put("goCount", goCount);
             node.put("marginalCount", marginalCount);
             node.put("totalLocations", region.slots().size());
+
+            // Append Claude evaluation scores when available
+            appendClaudeScores(node, region.regionName(),
+                    item.day.date(), item.eventSummary.targetType());
+
             return objectMapper.writeValueAsString(node);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build gloss user message", e);
         }
+    }
+
+    /**
+     * Appends cached Claude evaluation score distribution to the gloss user message JSON.
+     * When no cached scores are available, no fields are added.
+     */
+    private void appendClaudeScores(ObjectNode node, String regionName,
+            java.time.LocalDate date, com.gregochr.goldenhour.entity.TargetType targetType) {
+        Map<String, BriefingEvaluationResult> cached =
+                briefingEvaluationService.getCachedScores(regionName, date, targetType);
+        if (cached.isEmpty()) {
+            return;
+        }
+
+        List<BriefingEvaluationResult> scored = cached.values().stream()
+                .filter(r -> r.rating() != null)
+                .toList();
+        if (scored.isEmpty()) {
+            return;
+        }
+
+        long highRated = scored.stream().filter(r -> r.rating() >= 4).count();
+        long mediumRated = scored.stream().filter(r -> r.rating() == 3).count();
+        double avgRating = scored.stream()
+                .mapToInt(BriefingEvaluationResult::rating).average().orElse(0);
+
+        node.put("claudeRatedCount", scored.size());
+        node.put("claudeHighRatedCount", highRated);
+        node.put("claudeMediumRatedCount", mediumRated);
+        node.put("claudeAverageRating",
+                Math.round(avgRating * 10.0) / 10.0);
     }
 
     /**

@@ -21,6 +21,8 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -47,6 +49,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -63,6 +66,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private ForecastCommandExecutor forecastCommandExecutor;
+    @Mock private BriefingEvaluationService briefingEvaluationService;
 
     private BriefingBestBetAdvisor advisor;
 
@@ -71,7 +75,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                forecastCommandExecutor);
+                forecastCommandExecutor, briefingEvaluationService);
     }
 
     // ── parseBestBets ──
@@ -1554,6 +1558,310 @@ class BriefingBestBetAdvisorTest {
             assertThat(systemText).contains("preparatory language");
             assertThat(systemText).contains("never imperative");
             assertThat(systemText).contains("Get out now");
+        }
+    }
+
+    // ── Claude score enrichment in rollup ──
+
+    @Nested
+    @DisplayName("Claude score enrichment in rollup JSON")
+    class ClaudeScoreEnrichmentTests {
+
+        @Test
+        @DisplayName("Cached scores add claudeRatedCount and distribution fields")
+        void cachedScoresAddedToRegionJson() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 4, 75, 60, "Good colour"),
+                            "Dunstanburgh", new BriefingEvaluationResult(
+                                    "Dunstanburgh", 3, 50, 45, "Moderate")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).contains("\"claudeRatedCount\":2");
+            assertThat(result.json()).contains("\"claudeHighRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeMediumRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeAverageRating\":3.5");
+        }
+
+        @Test
+        @DisplayName("No cached scores — claude fields omitted from region JSON")
+        void noCachedScores_fieldsOmitted() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).doesNotContain("claudeRatedCount");
+            assertThat(result.json()).doesNotContain("claudeHighRatedCount");
+            assertThat(result.json()).doesNotContain("claudeAverageRating");
+        }
+
+        @Test
+        @DisplayName("Triaged-only cache entries (null rating) omitted from counts")
+        void triagedOnlyEntries_omittedFromCounts() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 5, 90, 85, "Excellent"),
+                            "Kielder", new BriefingEvaluationResult(
+                                    "Kielder", null, null, null, null,
+                                    com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
+                                    "Heavy cloud")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).contains("\"claudeRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeHighRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeAverageRating\":5.0");
+        }
+
+        @Test
+        @DisplayName("All-triaged cache returns no claude fields")
+        void allTriagedCache_noClaudeFields() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Kielder", new BriefingEvaluationResult(
+                                    "Kielder", null, null, null, null,
+                                    com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
+                                    "Heavy cloud")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).doesNotContain("claudeRatedCount");
+        }
+
+        @Test
+        @DisplayName("Cache lookup uses exact region name, date and targetType")
+        void cacheLookupUsesExactParameters() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 2, 0, 0)),
+                            List.of())));
+
+            advisor.buildRollupJson(List.of(day), now);
+
+            // Called twice: once in appendClaudeScores, once in logCacheCoverage
+            verify(briefingEvaluationService, times(2)).getCachedScores(
+                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("Low-rated entries (1-2 stars) count in rated but not high or medium")
+        void lowRatedEntries_countInRatedNotHighOrMedium() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 2, 25, 20, "Poor"),
+                            "Dunstanburgh", new BriefingEvaluationResult(
+                                    "Dunstanburgh", 1, 10, 5, "Very poor")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).contains("\"claudeRatedCount\":2");
+            assertThat(result.json()).contains("\"claudeHighRatedCount\":0");
+            assertThat(result.json()).contains("\"claudeMediumRatedCount\":0");
+            assertThat(result.json()).contains("\"claudeAverageRating\":1.5");
+        }
+
+        @Test
+        @DisplayName("Medium boundary: rating 3 counted, rating 2 and 4 not")
+        void mediumBoundary_exactlyThreeStars() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Loc1", new BriefingEvaluationResult(
+                                    "Loc1", 2, 30, 25, "Low"),
+                            "Loc2", new BriefingEvaluationResult(
+                                    "Loc2", 3, 50, 45, "Moderate"),
+                            "Loc3", new BriefingEvaluationResult(
+                                    "Loc3", 4, 75, 70, "Good")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).contains("\"claudeRatedCount\":3");
+            assertThat(result.json()).contains("\"claudeHighRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeMediumRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeAverageRating\":3.0");
+        }
+
+        @Test
+        @DisplayName("Average rating rounds to one decimal place")
+        void averageRatingRoundsToOneDecimal() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            // Ratings: 2, 3, 5 → avg 3.333... → rounds to 3.3
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Loc1", new BriefingEvaluationResult(
+                                    "Loc1", 2, 30, 25, "Low"),
+                            "Loc2", new BriefingEvaluationResult(
+                                    "Loc2", 3, 50, 45, "Moderate"),
+                            "Loc3", new BriefingEvaluationResult(
+                                    "Loc3", 5, 95, 90, "Excellent")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            assertThat(result.json()).contains("\"claudeAverageRating\":3.3");
+        }
+
+        @Test
+        @DisplayName("Two regions in same event get independent cache lookups")
+        void twoRegions_independentCacheLookups() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            when(briefingEvaluationService.getCachedScores(
+                    "Northumberland", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult(
+                                    "Bamburgh", 5, 90, 85, "Excellent")));
+            when(briefingEvaluationService.getCachedScores(
+                    "Lake District", tomorrow, TargetType.SUNSET))
+                    .thenReturn(Map.of(
+                            "Derwentwater", new BriefingEvaluationResult(
+                                    "Derwentwater", 2, 20, 15, "Poor")));
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 1, 0, 0),
+                            region("Lake District", Verdict.GO, 1, 0, 0)),
+                            List.of())));
+
+            BriefingBestBetAdvisor.RollupResult result =
+                    advisor.buildRollupJson(List.of(day), now);
+
+            // Both regions should have their own claude fields
+            assertThat(result.json()).contains("\"claudeHighRatedCount\":1");
+            assertThat(result.json()).contains("\"claudeHighRatedCount\":0");
+
+            // Verify each region gets its own lookup
+            verify(briefingEvaluationService, times(2)).getCachedScores(
+                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
+            verify(briefingEvaluationService, times(2)).getCachedScores(
+                    eq("Lake District"), eq(tomorrow), eq(TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("SUNRISE event passes SUNRISE targetType to cache lookup")
+        void sunriseEvent_passesSunriseTargetType() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            region("Northumberland", Verdict.GO, 2, 0, 0)),
+                            List.of())));
+
+            advisor.buildRollupJson(List.of(day), now);
+
+            verify(briefingEvaluationService, times(2)).getCachedScores(
+                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNRISE));
+        }
+
+        @Test
+        @DisplayName("System prompt contains CLAUDE EVALUATION SCORES guidance")
+        void systemPromptContainsClaudeScoreGuidance() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream()
+                    .map(b -> b.text())
+                    .findFirst()
+                    .orElse("");
+
+            assertThat(systemText).contains("CLAUDE EVALUATION SCORES");
+            assertThat(systemText).contains("claudeRatedCount");
+            assertThat(systemText).contains("claudeHighRatedCount");
+            assertThat(systemText).contains("claudeAverageRating");
         }
     }
 
