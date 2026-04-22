@@ -232,7 +232,14 @@ public class PromptBuilder {
             + "apply moderate scepticism — reduce fiery_sky by 15-25 points, do not assume blockage.\n"
             + "  - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.\n"
             + "  - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.\n\n"
-            + "Do not use double-quote characters within the summary text.";
+            + "Do not use double-quote characters within the summary text.\n\n"
+            + "CRITICAL OUTPUT FORMAT RULES:\n"
+            + "- Respond ONLY with a single valid JSON object.\n"
+            + "- Do NOT write reasoning, thinking, or commentary inside the JSON values.\n"
+            + "- Do NOT use markdown, asterisks, or bullet points anywhere in the output.\n"
+            + "- The first character of your response MUST be {.\n"
+            + "- The last character of your response MUST be }.\n"
+            + "- You MUST include all four required fields: rating, fiery_sky, golden_hour, summary.";
 
     /** Prompt suffix: requests all three metrics and a summary. */
     static final String PROMPT_SUFFIX =

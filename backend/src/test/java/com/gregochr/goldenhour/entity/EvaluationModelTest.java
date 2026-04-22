@@ -88,4 +88,42 @@ class EvaluationModelTest {
         assertThat(EvaluationModel.WILDLIFE.getModelId()).isNull();
         assertThat(EvaluationModel.WILDLIFE.getVersion()).isNull();
     }
+
+    // ── getMaxTokens ──
+
+    @Test
+    @DisplayName("SONNET gets 1024 max tokens (extra budget for chain-of-thought)")
+    void getMaxTokens_sonnet_returns1024() {
+        assertThat(EvaluationModel.SONNET.getMaxTokens()).isEqualTo(1024);
+    }
+
+    @Test
+    @DisplayName("SONNET_ET also gets 1024 max tokens")
+    void getMaxTokens_sonnetEt_returns1024() {
+        assertThat(EvaluationModel.SONNET_ET.getMaxTokens()).isEqualTo(1024);
+    }
+
+    @Test
+    @DisplayName("HAIKU gets 512 max tokens")
+    void getMaxTokens_haiku_returns512() {
+        assertThat(EvaluationModel.HAIKU.getMaxTokens()).isEqualTo(512);
+    }
+
+    @Test
+    @DisplayName("OPUS gets 512 max tokens")
+    void getMaxTokens_opus_returns512() {
+        assertThat(EvaluationModel.OPUS.getMaxTokens()).isEqualTo(512);
+    }
+
+    @Test
+    @DisplayName("OPUS_ET gets 512 max tokens")
+    void getMaxTokens_opusEt_returns512() {
+        assertThat(EvaluationModel.OPUS_ET.getMaxTokens()).isEqualTo(512);
+    }
+
+    @Test
+    @DisplayName("WILDLIFE gets 512 max tokens")
+    void getMaxTokens_wildlife_returns512() {
+        assertThat(EvaluationModel.WILDLIFE.getMaxTokens()).isEqualTo(512);
+    }
 }

@@ -61,4 +61,16 @@ public enum EvaluationModel {
     public boolean isExtendedThinking() {
         return this == SONNET_ET || this == OPUS_ET;
     }
+
+    /**
+     * Returns the recommended max output tokens for this model.
+     *
+     * <p>Sonnet tends to produce chain-of-thought reasoning in its output, so it needs
+     * a larger token budget to complete the full JSON schema. Haiku and Opus are terser.
+     *
+     * @return max output tokens
+     */
+    public int getMaxTokens() {
+        return (this == SONNET || this == SONNET_ET) ? 1024 : 512;
+    }
 }

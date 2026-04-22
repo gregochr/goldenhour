@@ -898,7 +898,7 @@ public class ScheduledBatchEvaluationService {
                 .customId(customId)
                 .params(BatchCreateParams.Request.Params.builder()
                         .model(model.getModelId())
-                        .maxTokens(512)
+                        .maxTokens(model.getMaxTokens())
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
                                         .text(builder.getSystemPrompt())

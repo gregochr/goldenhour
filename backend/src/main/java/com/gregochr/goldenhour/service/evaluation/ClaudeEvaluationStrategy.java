@@ -31,9 +31,6 @@ import java.util.regex.Pattern;
  */
 public class ClaudeEvaluationStrategy implements EvaluationStrategy {
 
-    /** Maximum tokens Claude may return per evaluation. */
-    static final int MAX_TOKENS = 512;
-
     /**
      * Extracts the summary text from Claude's response using a greedy match.
      * The greedy {@code .*} captures everything up to the last {@code "} before the
@@ -231,7 +228,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
         return anthropicApiClient.createMessage(
                 MessageCreateParams.builder()
                         .model(evaluationModel.getModelId())
-                        .maxTokens(MAX_TOKENS)
+                        .maxTokens(evaluationModel.getMaxTokens())
                         .systemOfTextBlockParams(List.of(
                                 TextBlockParam.builder()
                                         .text(builder.getSystemPrompt())
