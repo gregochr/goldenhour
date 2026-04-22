@@ -926,6 +926,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
                         <MarkerPopupContent
                           location={loc}
                           forecast={forecast}
+                          briefingScore={briefingScore}
                           hourlyData={hourlyData}
                           eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                           isPureWildlife={isPureWildlife}
@@ -998,6 +999,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
         const loc = visibleLocations.find((l) => l.name === selectedLocationName);
         if (!loc) return null;
         const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+        const briefingScore = !isAuroraMode ? getBriefingScore(briefingScores, loc.name, date, eventType) : null;
         return (
           <BottomSheet
             open
@@ -1007,6 +1009,7 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
               <MarkerPopupContent
                 location={loc}
                 forecast={forecast}
+                briefingScore={briefingScore}
                 hourlyData={hourlyData}
                 eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                 isPureWildlife={isPureWildlife}

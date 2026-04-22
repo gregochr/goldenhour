@@ -903,6 +903,91 @@ describe('MarkerPopupContent', () => {
     });
   });
 
+  describe('briefing-cache triage (forecast=null, briefingScore.triageReason set)', () => {
+    const TRIAGED_LOCATION = {
+      name: 'Sandsend',
+      solarEventType: ['SUNRISE'],
+      locationType: ['SEASCAPE'],
+      tideType: [],
+      regionName: 'The North Yorkshire Coast',
+      forecastsByDate: new Map(),
+    };
+
+    const TRIAGED_SCORE = {
+      rating: null,
+      fierySkyPotential: null,
+      goldenHourPotential: null,
+      summary: null,
+      triageReason: 'HIGH_CLOUD',
+      triageMessage: 'Overcast with 88% low cloud. No gaps for colour.',
+    };
+
+    it('renders stand-down badge with triage message when forecast=null but briefingScore has triageReason', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={TRIAGED_SCORE}
+          eventType="SUNRISE"
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      const badge = screen.getByTestId('triage-standdown-badge');
+      expect(badge).toBeInTheDocument();
+      expect(badge.textContent).toContain('Overcast with 88% low cloud. No gaps for colour.');
+      expect(screen.getByTestId('standdown-popup')).toBeInTheDocument();
+    });
+
+    it('does not show "no forecast yet" or Run Forecast button in stand-down state', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={TRIAGED_SCORE}
+          eventType="SUNRISE"
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.queryByText('no forecast yet')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
+    });
+
+    it('still renders "no forecast yet" + Run Forecast when briefingScore has no triageReason', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={null}
+          eventType="SUNRISE"
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.getByText('no forecast yet')).toBeInTheDocument();
+      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
+    });
+
+    it('preserves location header + region sub-row in stand-down state', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={TRIAGED_SCORE}
+          eventType="SUNRISE"
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByText('Sandsend')).toBeInTheDocument();
+      expect(screen.getByText(/Seascape · The North Yorkshire Coast/)).toBeInTheDocument();
+    });
+  });
+
   describe('drive time badge', () => {
     describe('forecast branch', () => {
       it('renders drive-time-badge when driveMinutes is a positive number', () => {

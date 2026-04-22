@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Map popover shows triage reason for briefing-cache stand-downs
+- **`MarkerPopupContent`** — new `briefingScore` prop; when `forecast` is null but `briefingScore.triageReason` is set, renders the stand-down badge with `triageMessage` instead of the "no forecast yet" divider + Run Forecast button; marker was already rendering the dashed medallion correctly, only the popover body was wrong
+- **`StandDownBadge`** — extracted shared helper; reused by both the scored-forecast triage branch and the new briefing-cache triage branch (removes duplicated dark-red styling)
+- **`MapView`** — passes computed `briefingScore` to `MarkerPopupContent` at both call sites (desktop popup and mobile bottom sheet)
+- **Tests** — 4 new tests in `MarkerPopupContent.test.jsx`: triage message rendered when `briefingScore.triageReason` set, no Run Forecast button in that state, empty-state branch unchanged when `briefingScore` null, location header + region sub-row preserved in stand-down
+
 ### Changed — Also Good surfaces a genuinely distinct opportunity
 - **`BestBet`** — new `relationship` (SAME_SLOT / DIFFERENT_SLOT) and `differsBy` (DATE / EVENT / REGION) fields distinguish tier-1 same-slot backups from tier-2 different-slot alternatives
 - **`BriefingBestBetAdvisor` system prompt** — tiered "Also Good Selection Rule": Tier 1 picks same-slot region within 0.5 rating and ≥3.5 absolute; Tier 2 picks the best opportunity on a different date/event; no rank 2 emitted when neither tier clears threshold

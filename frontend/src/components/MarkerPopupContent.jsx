@@ -226,6 +226,46 @@ PopupScoreRow.propTypes = {
 };
 
 /**
+ * Stand-down badge used when a location has been triaged out by weather.
+ * Same dark-red styling regardless of whether the verdict came from a full
+ * `forecast` row or from the briefing evaluation cache (scored-forecast branch
+ * vs. empty-forecast branch).
+ *
+ * @param {object} props
+ * @param {string} props.triageReason - TriageReason enum value.
+ * @param {string|null} props.triageMessage - Formatted stand-down reason.
+ * @param {boolean} props.darkMode - True when rendered on a dark surface.
+ */
+function StandDownBadge({ triageReason, triageMessage, darkMode }) {
+  return (
+    <div
+      data-testid="triage-standdown-badge"
+      style={{
+        fontSize: '12px',
+        lineHeight: '1.5',
+        padding: '6px 10px',
+        marginBottom: '8px',
+        background: 'rgba(80, 19, 19, 0.18)',
+        border: '1px solid rgba(163, 45, 45, 0.5)',
+        borderRadius: '6px',
+        color: darkMode ? '#f1d6d6' : '#501313',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+        Stand-down — {TRIAGE_REASON_LABELS[triageReason] ?? TRIAGE_REASON_LABELS.GENERIC}
+      </div>
+      {triageMessage && <div style={{ fontWeight: 400 }}>{triageMessage}</div>}
+    </div>
+  );
+}
+
+StandDownBadge.propTypes = {
+  triageReason: PropTypes.string.isRequired,
+  triageMessage: PropTypes.string,
+  darkMode: PropTypes.bool,
+};
+
+/**
  * Marker detail content used inside both the Leaflet popup (desktop) and the
  * BottomSheet (mobile). Pure presentational — no positioning logic.
  *
@@ -241,6 +281,9 @@ PopupScoreRow.propTypes = {
  * @param {function} props.onTideFetchedAt - Called with fetchedAt timestamp from TideIndicator.
  * @param {string|null} props.tideFetchedAt - Previously fetched tide timestamp for footer display.
  * @param {boolean} [props.darkMode=false] - True when rendered on a dark surface (e.g. BottomSheet).
+ * @param {object|null} [props.briefingScore] - Briefing evaluation result for this location/date/event.
+ *   When `forecast` is null but `briefingScore.triageReason` is set, the popover renders a
+ *   stand-down branch instead of the "no forecast yet" empty state.
  */
 export default function MarkerPopupContent({
   location,
@@ -262,6 +305,7 @@ export default function MarkerPopupContent({
   darkMode = false,
   onForecastRun,
   driveMinutes = null,
+  briefingScore = null,
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [runningForecast, setRunningForecast] = useState(false);
@@ -635,26 +679,11 @@ export default function MarkerPopupContent({
             </div>
           )}
           {forecast.triageReason && (
-            <div
-              data-testid="triage-standdown-badge"
-              style={{
-                fontSize: '12px',
-                lineHeight: '1.5',
-                padding: '6px 10px',
-                marginBottom: '8px',
-                background: 'rgba(80, 19, 19, 0.18)',
-                border: '1px solid rgba(163, 45, 45, 0.5)',
-                borderRadius: '6px',
-                color: darkMode ? '#f1d6d6' : '#501313',
-              }}
-            >
-              <div style={{ fontWeight: 700, marginBottom: '2px' }}>
-                Stand-down — {TRIAGE_REASON_LABELS[forecast.triageReason] ?? TRIAGE_REASON_LABELS.GENERIC}
-              </div>
-              {forecast.triageMessage && (
-                <div style={{ fontWeight: 400 }}>{forecast.triageMessage}</div>
-              )}
-            </div>
+            <StandDownBadge
+              triageReason={forecast.triageReason}
+              triageMessage={forecast.triageMessage}
+              darkMode={darkMode}
+            />
           )}
           {!forecast.triageReason && forecast.summary && (
             <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
@@ -854,8 +883,10 @@ export default function MarkerPopupContent({
         const hasDriveChip = driveMinutes != null && driveMinutes > 0;
         const hasChips = hasAuroraChip || hasDriveChip;
 
+        const isStandDown = briefingScore?.triageReason != null;
+
         return (
-          <div data-testid="empty-popup">
+          <div data-testid={isStandDown ? 'standdown-popup' : 'empty-popup'}>
 
             {/* Event badge (outer header has no badge when forecast is null) */}
             {emptyEventTime && !isAuroraMode && !isAstroMode && (
@@ -919,41 +950,51 @@ export default function MarkerPopupContent({
               </div>
             )}
 
-            {/* Dashed divider */}
-            <div style={{
-              borderTop: `1px dashed ${darkMode ? '#3A3D45' : '#d1d5db'}`,
-              textAlign: 'center', position: 'relative', margin: '8px 0',
-            }}>
-              <span style={{
-                position: 'relative', top: '-8px',
-                background: darkMode ? '#1a1a2e' : '#fff',
-                padding: '0 8px', fontSize: '11px', color: '#6b7280',
-              }}>
-                no forecast yet
-              </span>
-            </div>
+            {isStandDown ? (
+              <StandDownBadge
+                triageReason={briefingScore.triageReason}
+                triageMessage={briefingScore.triageMessage}
+                darkMode={darkMode}
+              />
+            ) : (
+              <>
+                {/* Dashed divider */}
+                <div style={{
+                  borderTop: `1px dashed ${darkMode ? '#3A3D45' : '#d1d5db'}`,
+                  textAlign: 'center', position: 'relative', margin: '8px 0',
+                }}>
+                  <span style={{
+                    position: 'relative', top: '-8px',
+                    background: darkMode ? '#1a1a2e' : '#fff',
+                    padding: '0 8px', fontSize: '11px', color: '#6b7280',
+                  }}>
+                    no forecast yet
+                  </span>
+                </div>
 
-            {/* Run Forecast button (admin only) */}
-            {role === 'ADMIN' && (
-              <button
-                data-testid="run-forecast-btn"
-                disabled={runningForecast}
-                onClick={handleRunForecast}
-                style={{
-                  display: 'block',
-                  padding: '4px 12px',
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  color: '#fff',
-                  backgroundColor: runningForecast ? '#6b7280' : '#3b82f6',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: runningForecast ? 'not-allowed' : 'pointer',
-                  opacity: runningForecast ? 0.7 : 1,
-                }}
-              >
-                {runningForecast ? `Running\u2026 ${runProgress}` : 'Run Forecast'}
-              </button>
+                {/* Run Forecast button (admin only) */}
+                {role === 'ADMIN' && (
+                  <button
+                    data-testid="run-forecast-btn"
+                    disabled={runningForecast}
+                    onClick={handleRunForecast}
+                    style={{
+                      display: 'block',
+                      padding: '4px 12px',
+                      fontSize: '11px',
+                      fontWeight: 500,
+                      color: '#fff',
+                      backgroundColor: runningForecast ? '#6b7280' : '#3b82f6',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: runningForecast ? 'not-allowed' : 'pointer',
+                      opacity: runningForecast ? 0.7 : 1,
+                    }}
+                  >
+                    {runningForecast ? `Running\u2026 ${runProgress}` : 'Run Forecast'}
+                  </button>
+                )}
+              </>
             )}
             {forecastError && (
               <div style={{ marginTop: '4px', color: '#ef4444', fontSize: '11px' }}>
@@ -1015,4 +1056,12 @@ MarkerPopupContent.propTypes = {
   darkMode: PropTypes.bool,
   onForecastRun: PropTypes.func,
   driveMinutes: PropTypes.number,
+  briefingScore: PropTypes.shape({
+    rating: PropTypes.number,
+    fierySkyPotential: PropTypes.number,
+    goldenHourPotential: PropTypes.number,
+    summary: PropTypes.string,
+    triageReason: PropTypes.string,
+    triageMessage: PropTypes.string,
+  }),
 };
