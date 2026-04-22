@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
-import { subscribeToBriefingEvaluation } from '../api/briefingEvaluationApi.js';
+import { subscribeToBriefingEvaluation, getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
 import { getAvailableModels } from '../api/modelsApi.js';
@@ -829,6 +829,35 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   // Clean up SSE on unmount
   useEffect(() => {
     return () => { if (evalCleanupRef.current) evalCleanupRef.current(); };
+  }, []);
+
+  // Hydrate evaluation scores from backend cache on mount (batch-scored locations)
+  useEffect(() => {
+    getAllEvaluationScores()
+      .then((views) => {
+        if (!views || views.length === 0) return;
+        setEvaluationScores((prev) => {
+          const next = new Map(prev);
+          for (const v of views) {
+            if (!v.regionName || !v.locationName) continue;
+            const key = `${v.regionName}|${v.date}|${v.targetType}|${v.locationName}`;
+            // Don't overwrite SSE-scored results — they're fresher
+            if (!next.has(key)) {
+              next.set(key, {
+                locationName: v.locationName,
+                rating: v.rating,
+                fierySkyPotential: v.fierySkyPotential,
+                goldenHourPotential: v.goldenHourPotential,
+                summary: v.summary,
+                triageReason: v.triageReason,
+                triageMessage: v.triageMessage,
+              });
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
   }, []);
 
   // Lift scores to parent whenever they change

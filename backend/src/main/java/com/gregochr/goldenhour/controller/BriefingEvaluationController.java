@@ -2,7 +2,10 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
@@ -16,7 +19,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -33,17 +39,21 @@ public class BriefingEvaluationController {
     private static final long SSE_TIMEOUT_MS = 300_000L;
 
     private final BriefingEvaluationService evaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final Executor forecastExecutor;
 
     /**
      * Constructs a {@code BriefingEvaluationController}.
      *
-     * @param evaluationService the service that orchestrates evaluations and caching
-     * @param forecastExecutor  virtual-thread executor for async SSE work
+     * @param evaluationService     the service that orchestrates evaluations and caching
+     * @param evaluationViewService the merged evaluation view service
+     * @param forecastExecutor      virtual-thread executor for async SSE work
      */
     public BriefingEvaluationController(BriefingEvaluationService evaluationService,
+            EvaluationViewService evaluationViewService,
             @Qualifier("forecastExecutor") Executor forecastExecutor) {
         this.evaluationService = evaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.forecastExecutor = forecastExecutor;
     }
 
@@ -108,6 +118,26 @@ public class BriefingEvaluationController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(Map.of("evaluatedAt", evaluatedAt));
+    }
+
+    /**
+     * Returns all evaluation views across all enabled locations for the standard forecast
+     * horizon (T-7 to T+N). Merges scored results from {@code cached_evaluation} with
+     * triage/scored rows from {@code forecast_evaluation}.
+     *
+     * <p>Used by the Map tab to pre-load all scores on mount, so batch-scored locations
+     * render scored medallions without requiring an SSE drill-down first.
+     *
+     * @return flat list of evaluation views with data (source != NONE)
+     */
+    @GetMapping("/scores")
+    public ResponseEntity<List<LocationEvaluationView>> getAllScores() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(7);
+        LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
+        List<LocationEvaluationView> views = evaluationViewService.forDateRange(
+                from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
+        return ResponseEntity.ok(views);
     }
 
     /**

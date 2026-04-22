@@ -88,6 +88,8 @@ class BriefingServiceTest {
     private HotTopicAggregator hotTopicAggregator;
     @Mock
     private BriefingEvaluationService briefingEvaluationService;
+    @Mock
+    private EvaluationViewService evaluationViewService;
 
     private BriefingService briefingService;
 
@@ -127,7 +129,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService);
+                briefingEvaluationService, evaluationViewService);
     }
 
     @Nested
@@ -436,7 +438,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService);
+                briefingEvaluationService, evaluationViewService);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -466,7 +468,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService);
+                briefingEvaluationService, evaluationViewService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -489,7 +491,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService);
+                briefingEvaluationService, evaluationViewService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1026,7 +1028,7 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    briefingEvaluationService);
+                    briefingEvaluationService, evaluationViewService);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -1701,7 +1703,7 @@ class BriefingServiceTest {
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 4, 78, 52,
                     "Dramatic light expected.", null, null);
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     eq("North East"), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of("Bamburgh", eval));
 
@@ -1720,7 +1722,7 @@ class BriefingServiceTest {
         void slotNotEnrichedWhenCacheEmpty() {
             LocationEntity loc = locationWithRegion("Bamburgh", "North East");
             stubFullRefresh(loc);
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     any(), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of());
 
@@ -1742,7 +1744,7 @@ class BriefingServiceTest {
             BriefingEvaluationResult triaged = new BriefingEvaluationResult(
                     "Bamburgh", null, null, null, null,
                     com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD, "Heavy overcast");
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     eq("North East"), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of("Bamburgh", triaged));
 
@@ -1764,18 +1766,18 @@ class BriefingServiceTest {
                     .region(RegionEntity.builder().name("North East").build())
                     .enabled(true).createdAt(LocalDateTime.now()).build();
             stubFullRefresh(loc);
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     any(), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of());
 
             briefingService.refreshBriefing();
 
             // SUNRISE-only location: only SUNRISE lookups occur (kills targetType swap)
-            verify(briefingEvaluationService, org.mockito.Mockito.atLeastOnce())
-                    .getCachedScores(
+            verify(evaluationViewService, org.mockito.Mockito.atLeastOnce())
+                    .getScoresForEnrichment(
                             eq("North East"), any(LocalDate.class), eq(TargetType.SUNRISE));
             // SUNSET events have empty regions, so no lookups for SUNSET
-            verify(briefingEvaluationService, never()).getCachedScores(
+            verify(evaluationViewService, never()).getScoresForEnrichment(
                     any(), any(LocalDate.class), eq(TargetType.SUNSET));
         }
 
@@ -1786,7 +1788,7 @@ class BriefingServiceTest {
             stubFullRefresh(loc);
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 3, 45, 60, "Average conditions.", null, null);
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     eq("North East"), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of("Bamburgh", eval));
 
@@ -1825,17 +1827,17 @@ class BriefingServiceTest {
             org.mockito.Mockito.lenient().when(
                     solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
                     .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     any(), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of());
 
             briefingService.refreshBriefing();
 
             // Both regions looked up — kills hardcoded region name
-            verify(briefingEvaluationService, org.mockito.Mockito.atLeastOnce())
-                    .getCachedScores(eq("North East"), any(LocalDate.class), eq(TargetType.SUNSET));
-            verify(briefingEvaluationService, org.mockito.Mockito.atLeastOnce())
-                    .getCachedScores(eq("Yorkshire"), any(LocalDate.class), eq(TargetType.SUNSET));
+            verify(evaluationViewService, org.mockito.Mockito.atLeastOnce())
+                    .getScoresForEnrichment(eq("North East"), any(LocalDate.class), eq(TargetType.SUNSET));
+            verify(evaluationViewService, org.mockito.Mockito.atLeastOnce())
+                    .getScoresForEnrichment(eq("Yorkshire"), any(LocalDate.class), eq(TargetType.SUNSET));
         }
 
         @Test
@@ -1864,7 +1866,7 @@ class BriefingServiceTest {
             // Only Bamburgh in cache, Durham missing
             BriefingEvaluationResult eval = new BriefingEvaluationResult(
                     "Bamburgh", 5, 90, 85, "Spectacular sunset.", null, null);
-            when(briefingEvaluationService.getCachedScores(
+            when(evaluationViewService.getScoresForEnrichment(
                     eq("North East"), any(LocalDate.class), any(TargetType.class)))
                     .thenReturn(Map.of("Bamburgh", eval));
 

@@ -77,6 +77,7 @@ public class BriefingService {
     private final ApplicationEventPublisher eventPublisher;
     private final HotTopicAggregator hotTopicAggregator;
     private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -111,6 +112,7 @@ public class BriefingService {
      * @param eventPublisher             Spring event publisher for cache invalidation
      * @param hotTopicAggregator         aggregator for seasonal and special-interest hot topics
      * @param briefingEvaluationService  cached Claude evaluation scores (lazy to break cycle)
+     * @param evaluationViewService      merged evaluation view service (lazy to break cycle)
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -125,7 +127,8 @@ public class BriefingService {
             BriefingSlotBuilder slotBuilder,
             ApplicationEventPublisher eventPublisher,
             HotTopicAggregator hotTopicAggregator,
-            @Lazy BriefingEvaluationService briefingEvaluationService) {
+            @Lazy BriefingEvaluationService briefingEvaluationService,
+            @Lazy EvaluationViewService evaluationViewService) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -142,6 +145,7 @@ public class BriefingService {
         this.eventPublisher = eventPublisher;
         this.hotTopicAggregator = hotTopicAggregator;
         this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
     }
 
     /**
@@ -402,7 +406,7 @@ public class BriefingService {
                 List<BriefingRegion> enrichedRegions = new ArrayList<>();
                 for (BriefingRegion region : es.regions()) {
                     Map<String, BriefingEvaluationResult> cached =
-                            briefingEvaluationService.getCachedScores(
+                            evaluationViewService.getScoresForEnrichment(
                                     region.regionName(), day.date(), es.targetType());
                     List<BriefingSlot> enrichedSlots = region.slots().stream()
                             .map(slot -> enrichSlot(slot, cached))

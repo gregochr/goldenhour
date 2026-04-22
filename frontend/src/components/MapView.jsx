@@ -550,8 +550,19 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
   }
 
   // Check if any location has a sunrise/sunset forecast for the selected date.
-  const sunriseAvailable = locations.some((loc) => loc.forecastsByDate.get(date)?.sunrise != null);
-  const sunsetAvailable  = locations.some((loc) => loc.forecastsByDate.get(date)?.sunset  != null);
+  // Also check briefingScores — batch-scored locations may only exist in cached_evaluation.
+  const hasBriefingScoreForType = (type) => {
+    if (!briefingScores || briefingScores.size === 0) return false;
+    const suffix = `|${date}|${type}|`;
+    for (const key of briefingScores.keys()) {
+      if (key.includes(suffix)) return true;
+    }
+    return false;
+  };
+  const sunriseAvailable = locations.some((loc) => loc.forecastsByDate.get(date)?.sunrise != null)
+    || hasBriefingScoreForType('SUNRISE');
+  const sunsetAvailable  = locations.some((loc) => loc.forecastsByDate.get(date)?.sunset  != null)
+    || hasBriefingScoreForType('SUNSET');
 
   const bounds = locations.map((loc) => [loc.lat, loc.lon]);
 

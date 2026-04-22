@@ -13,6 +13,7 @@ vi.mock('../context/AuthContext.jsx', () => ({
 vi.mock('../api/briefingEvaluationApi.js', () => ({
   subscribeToBriefingEvaluation: vi.fn(() => () => {}),
   getCachedEvaluationScores: vi.fn(() => Promise.resolve({})),
+  getAllEvaluationScores: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock('../api/settingsApi.js', () => ({
