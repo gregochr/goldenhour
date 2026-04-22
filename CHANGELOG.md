@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Drill-down Claude scores in briefing
+- **`BriefingSlot`** — 4 new nullable fields: `claudeRating`, `fierySkyPotential`, `goldenHourPotential`, `claudeSummary`; convenience constructor for backward compatibility; `withClaudeScores()` copy method
+- **`BriefingService`** — new `@Lazy BriefingEvaluationService` dependency; `enrichWithCachedScores()` walks the day/event/region hierarchy after `buildDays()` and populates each slot's Claude fields from the evaluation cache
+- **Frontend drill-down** — `LocationSlotList` in `HeatmapGrid.jsx` merges backend-cached and SSE scores; collapsed rows show first-sentence preview (100 chars); per-row expand/collapse with full summary + Fiery Sky / Golden Hour secondary scores; `HeatmapCell` falls back to backend-cached scores for mean badge
+
+### Fixed — Sonnet token exhaustion and schema compliance
+- **`EvaluationModel.getMaxTokens()`** — Sonnet/Sonnet ET now get 1024 output tokens; all other models stay at 512; used in both `ScheduledBatchEvaluationService.buildForecastRequest()` and `ClaudeEvaluationStrategy.invokeClaude()`
+- **`PromptBuilder.SYSTEM_PROMPT`** — added `CRITICAL OUTPUT FORMAT RULES` block: first char must be `{`, no reasoning/markdown in output, all 4 required fields mandatory; prevents chain-of-thought leakage into JSON values
+
+### Fixed — Open-Meteo zero-task parse failure
+- **`OpenMeteoService.prefetchWeatherBatch()`** — early return with empty map when `coords` list is empty; prevents pointless API call that fails to parse the response
+
 ### Added — Briefing gloss and best-bet read real Claude scores
 - **`BriefingBestBetAdvisor`** — now consumes cached Claude evaluation scores from `BriefingEvaluationService`; when per-location drill-down scores exist, adds `claudeRatedCount`, `claudeHighRatedCount`, `claudeMediumRatedCount`, and `claudeAverageRating` fields to the rollup JSON sent to Claude; system prompt updated with `CLAUDE EVALUATION SCORES` guidance so the model prefers nuanced scores over triage verdicts; per-date cache coverage logging
 - **`BriefingGlossService`** — same cache lookup; appends Claude score distribution to each gloss user message; system prompt updated with `CLAUDE SCORES` calibration guidance; work-item-level cache coverage logging
