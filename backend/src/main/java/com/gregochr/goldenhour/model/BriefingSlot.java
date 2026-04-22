@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
@@ -11,13 +12,17 @@ import java.util.List;
 /**
  * One location x one solar event assessment in the daily briefing.
  *
- * @param locationName    human-readable location name
- * @param solarEventTime  UTC time of the sunrise or sunset
- * @param verdict         GO, MARGINAL, or STANDDOWN
- * @param weather         weather conditions at the observer point
- * @param tide            tide data for coastal locations (all nulls/false for inland)
- * @param flags           human-readable flag strings (e.g. "Sun blocked", "King tide")
- * @param standdownReason primary reason for STANDDOWN verdict, null for GO/MARGINAL
+ * @param locationName        human-readable location name
+ * @param solarEventTime      UTC time of the sunrise or sunset
+ * @param verdict             GO, MARGINAL, or STANDDOWN
+ * @param weather             weather conditions at the observer point
+ * @param tide                tide data for coastal locations (all nulls/false for inland)
+ * @param flags               human-readable flag strings (e.g. "Sun blocked", "King tide")
+ * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
+ * @param claudeRating        cached Claude 1-5 star rating, or null if not evaluated
+ * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+ * @param goldenHourPotential cached Claude golden hour score 0-100, or null
+ * @param claudeSummary       cached Claude prose summary, or null
  */
 public record BriefingSlot(
         String locationName,
@@ -26,10 +31,47 @@ public record BriefingSlot(
         @JsonUnwrapped WeatherConditions weather,
         @JsonUnwrapped TideInfo tide,
         List<String> flags,
-        String standdownReason) {
+        String standdownReason,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer claudeRating,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer fierySkyPotential,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer goldenHourPotential,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
+    }
+
+    /**
+     * Convenience constructor that defaults all Claude evaluation fields to {@code null}.
+     *
+     * @param locationName    human-readable location name
+     * @param solarEventTime  UTC time of the sunrise or sunset
+     * @param verdict         GO, MARGINAL, or STANDDOWN
+     * @param weather         weather conditions at the observer point
+     * @param tide            tide data for coastal locations
+     * @param flags           human-readable flag strings
+     * @param standdownReason primary reason for STANDDOWN verdict, null for GO/MARGINAL
+     */
+    public BriefingSlot(String locationName, LocalDateTime solarEventTime, Verdict verdict,
+            WeatherConditions weather, TideInfo tide, List<String> flags,
+            String standdownReason) {
+        this(locationName, solarEventTime, verdict, weather, tide, flags,
+                standdownReason, null, null, null, null);
+    }
+
+    /**
+     * Returns a copy of this slot with Claude evaluation scores populated.
+     *
+     * @param rating      Claude 1-5 star rating
+     * @param fierySky    fiery sky potential 0-100
+     * @param goldenHour  golden hour potential 0-100
+     * @param summary     Claude prose summary
+     * @return new slot with Claude fields set
+     */
+    public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
+            Integer goldenHour, String summary) {
+        return new BriefingSlot(locationName, solarEventTime, verdict, weather, tide,
+                flags, standdownReason, rating, fierySky, goldenHour, summary);
     }
 
     /**

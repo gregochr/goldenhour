@@ -19,6 +19,9 @@ import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.service.evaluation.BluebellGlossService;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.evaluation.BriefingGlossService;
@@ -29,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -72,6 +76,7 @@ public class BriefingService {
     private final BriefingSlotBuilder slotBuilder;
     private final ApplicationEventPublisher eventPublisher;
     private final HotTopicAggregator hotTopicAggregator;
+    private final BriefingEvaluationService briefingEvaluationService;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
@@ -102,9 +107,10 @@ public class BriefingService {
      * @param bluebellGlossService    Claude gloss service for bluebell region commentary
      * @param auroraSummaryBuilder    builder for aurora tonight/tomorrow summaries
      * @param hierarchyBuilder        builder for the day/event/region hierarchy
-     * @param slotBuilder             builder for individual briefing slots
-     * @param eventPublisher          Spring event publisher for cache invalidation
-     * @param hotTopicAggregator      aggregator for seasonal and special-interest hot topics
+     * @param slotBuilder                builder for individual briefing slots
+     * @param eventPublisher             Spring event publisher for cache invalidation
+     * @param hotTopicAggregator         aggregator for seasonal and special-interest hot topics
+     * @param briefingEvaluationService  cached Claude evaluation scores (lazy to break cycle)
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -118,7 +124,8 @@ public class BriefingService {
             BriefingHierarchyBuilder hierarchyBuilder,
             BriefingSlotBuilder slotBuilder,
             ApplicationEventPublisher eventPublisher,
-            HotTopicAggregator hotTopicAggregator) {
+            HotTopicAggregator hotTopicAggregator,
+            @Lazy BriefingEvaluationService briefingEvaluationService) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -134,6 +141,7 @@ public class BriefingService {
         this.slotBuilder = slotBuilder;
         this.eventPublisher = eventPublisher;
         this.hotTopicAggregator = hotTopicAggregator;
+        this.briefingEvaluationService = briefingEvaluationService;
     }
 
     /**
@@ -274,6 +282,9 @@ public class BriefingService {
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);
 
+        // Enrich slots with cached Claude evaluation scores (from prior batch runs)
+        days = enrichWithCachedScores(days);
+
         // Enrich GO/MARGINAL regions with Claude-generated one-line gloss
         if (succeeded > 0) {
             days = glossService.generateGlosses(days, jobRun.getId());
@@ -377,6 +388,52 @@ public class BriefingService {
         }
         return location.getLocationType().stream()
                 .anyMatch(t -> t != LocationType.WILDLIFE);
+    }
+
+    /**
+     * Walks the day/event/region hierarchy and populates each slot's Claude fields from the
+     * evaluation cache. Returns a rebuilt hierarchy with enriched slots; the original is unchanged.
+     */
+    private List<BriefingDay> enrichWithCachedScores(List<BriefingDay> days) {
+        List<BriefingDay> enrichedDays = new ArrayList<>(days.size());
+        for (BriefingDay day : days) {
+            List<BriefingEventSummary> enrichedEvents = new ArrayList<>();
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> enrichedRegions = new ArrayList<>();
+                for (BriefingRegion region : es.regions()) {
+                    Map<String, BriefingEvaluationResult> cached =
+                            briefingEvaluationService.getCachedScores(
+                                    region.regionName(), day.date(), es.targetType());
+                    List<BriefingSlot> enrichedSlots = region.slots().stream()
+                            .map(slot -> enrichSlot(slot, cached))
+                            .toList();
+                    enrichedRegions.add(new BriefingRegion(
+                            region.regionName(), region.verdict(), region.summary(),
+                            region.tideHighlights(), enrichedSlots,
+                            region.regionTemperatureCelsius(),
+                            region.regionApparentTemperatureCelsius(),
+                            region.regionWindSpeedMs(), region.regionWeatherCode(),
+                            region.glossHeadline(), region.glossDetail()));
+                }
+                enrichedEvents.add(new BriefingEventSummary(
+                        es.targetType(), enrichedRegions, es.unregioned()));
+            }
+            enrichedDays.add(new BriefingDay(day.date(), enrichedEvents));
+        }
+        return enrichedDays;
+    }
+
+    /**
+     * Enriches a single slot with cached Claude scores if available.
+     */
+    private BriefingSlot enrichSlot(BriefingSlot slot,
+            Map<String, BriefingEvaluationResult> cached) {
+        BriefingEvaluationResult eval = cached.get(slot.locationName());
+        if (eval != null && eval.rating() != null) {
+            return slot.withClaudeScores(eval.rating(), eval.fierySkyPotential(),
+                    eval.goldenHourPotential(), eval.summary());
+        }
+        return slot;
     }
 
     /**

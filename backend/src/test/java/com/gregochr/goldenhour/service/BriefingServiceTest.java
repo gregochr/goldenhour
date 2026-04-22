@@ -11,8 +11,10 @@ import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AuroraTonightSummary;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
@@ -37,6 +39,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -47,6 +50,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -82,6 +86,8 @@ class BriefingServiceTest {
     private ApplicationEventPublisher eventPublisher;
     @Mock
     private HotTopicAggregator hotTopicAggregator;
+    @Mock
+    private BriefingEvaluationService briefingEvaluationService;
 
     private BriefingService briefingService;
 
@@ -120,7 +126,8 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher, hotTopicAggregator);
+                slotBuilder, eventPublisher, hotTopicAggregator,
+                briefingEvaluationService);
     }
 
     @Nested
@@ -428,7 +435,8 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher, hotTopicAggregator);
+                slotBuilder, eventPublisher, hotTopicAggregator,
+                briefingEvaluationService);
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -457,7 +465,8 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher, hotTopicAggregator);
+                slotBuilder, eventPublisher, hotTopicAggregator,
+                briefingEvaluationService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -479,7 +488,8 @@ class BriefingServiceTest {
                 new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
-                slotBuilder, eventPublisher, hotTopicAggregator);
+                slotBuilder, eventPublisher, hotTopicAggregator,
+                briefingEvaluationService);
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1015,7 +1025,8 @@ class BriefingServiceTest {
                     new BriefingHeadlineGenerator(), bestBetAdvisor, glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
-                    slotBuilder, eventPublisher, hotTopicAggregator);
+                    slotBuilder, eventPublisher, hotTopicAggregator,
+                    briefingEvaluationService);
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -1674,5 +1685,237 @@ class BriefingServiceTest {
 
         response.setHourly(hourly);
         return response;
+    }
+
+    // ── Cached score enrichment tests ────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("Cached Claude score enrichment")
+    class CachedScoreEnrichmentTests {
+
+        @Test
+        @DisplayName("Slot enriched when evaluation cache contains a rated entry")
+        void slotEnrichedWhenCacheHit() {
+            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
+            stubFullRefresh(loc);
+            BriefingEvaluationResult eval = new BriefingEvaluationResult(
+                    "Bamburgh", 4, 78, 52,
+                    "Dramatic light expected.", null, null);
+            when(briefingEvaluationService.getCachedScores(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", eval));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            BriefingSlot slot = findFirstSlot(cached, "North East", "Bamburgh");
+            assertThat(slot.claudeRating()).isEqualTo(4);
+            assertThat(slot.fierySkyPotential()).isEqualTo(78);
+            assertThat(slot.goldenHourPotential()).isEqualTo(52);
+            assertThat(slot.claudeSummary()).isEqualTo("Dramatic light expected.");
+        }
+
+        @Test
+        @DisplayName("Slot NOT enriched when evaluation cache is empty")
+        void slotNotEnrichedWhenCacheEmpty() {
+            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
+            stubFullRefresh(loc);
+            when(briefingEvaluationService.getCachedScores(
+                    any(), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of());
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            BriefingSlot slot = findFirstSlot(cached, "North East", "Bamburgh");
+            assertThat(slot.claudeRating()).isNull();
+            assertThat(slot.fierySkyPotential()).isNull();
+            assertThat(slot.goldenHourPotential()).isNull();
+            assertThat(slot.claudeSummary()).isNull();
+        }
+
+        @Test
+        @DisplayName("Triaged entry (null rating) does NOT enrich slot")
+        void triagedEntryDoesNotEnrich() {
+            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
+            stubFullRefresh(loc);
+            BriefingEvaluationResult triaged = new BriefingEvaluationResult(
+                    "Bamburgh", null, null, null, null,
+                    com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD, "Heavy overcast");
+            when(briefingEvaluationService.getCachedScores(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", triaged));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            BriefingSlot slot = findFirstSlot(cached, "North East", "Bamburgh");
+            assertThat(slot.claudeRating()).isNull();
+        }
+
+        @Test
+        @DisplayName("Cache lookup uses exact regionName, date, and targetType")
+        void cacheLookupUsesExactParams() {
+            LocationEntity loc = LocationEntity.builder()
+                    .id(1L).name("Bamburgh").lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNRISE))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            stubFullRefresh(loc);
+            when(briefingEvaluationService.getCachedScores(
+                    any(), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of());
+
+            briefingService.refreshBriefing();
+
+            // SUNRISE-only location: only SUNRISE lookups occur (kills targetType swap)
+            verify(briefingEvaluationService, org.mockito.Mockito.atLeastOnce())
+                    .getCachedScores(
+                            eq("North East"), any(LocalDate.class), eq(TargetType.SUNRISE));
+            // SUNSET events have empty regions, so no lookups for SUNSET
+            verify(briefingEvaluationService, never()).getCachedScores(
+                    any(), any(LocalDate.class), eq(TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("Enrichment preserves verdict and weather fields")
+        void enrichmentPreservesExistingFields() {
+            LocationEntity loc = locationWithRegion("Bamburgh", "North East");
+            stubFullRefresh(loc);
+            BriefingEvaluationResult eval = new BriefingEvaluationResult(
+                    "Bamburgh", 3, 45, 60, "Average conditions.", null, null);
+            when(briefingEvaluationService.getCachedScores(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", eval));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            BriefingSlot slot = findFirstSlot(cached, "North East", "Bamburgh");
+            // Claude fields are set
+            assertThat(slot.claudeRating()).isEqualTo(3);
+            // Original fields are preserved
+            assertThat(slot.locationName()).isEqualTo("Bamburgh");
+            assertThat(slot.verdict()).isNotNull();
+            assertThat(slot.solarEventTime()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("Two regions get independent cache lookups with correct names")
+        void twoRegionsGetIndependentLookups() {
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("Scarborough").lat(54.3).lon(-0.4)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("Yorkshire").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+            when(briefingEvaluationService.getCachedScores(
+                    any(), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of());
+
+            briefingService.refreshBriefing();
+
+            // Both regions looked up — kills hardcoded region name
+            verify(briefingEvaluationService, org.mockito.Mockito.atLeastOnce())
+                    .getCachedScores(eq("North East"), any(LocalDate.class), eq(TargetType.SUNSET));
+            verify(briefingEvaluationService, org.mockito.Mockito.atLeastOnce())
+                    .getCachedScores(eq("Yorkshire"), any(LocalDate.class), eq(TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("Cache miss for one location leaves its slot unenriched while others are enriched")
+        void partialCacheHit() {
+            LocationEntity loc1 = LocationEntity.builder()
+                    .id(1L).name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            LocationEntity loc2 = LocationEntity.builder()
+                    .id(2L).name("Durham").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+            // Only Bamburgh in cache, Durham missing
+            BriefingEvaluationResult eval = new BriefingEvaluationResult(
+                    "Bamburgh", 5, 90, 85, "Spectacular sunset.", null, null);
+            when(briefingEvaluationService.getCachedScores(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", eval));
+
+            briefingService.refreshBriefing();
+            DailyBriefingResponse cached = briefingService.getCachedBriefing();
+
+            BriefingSlot bamburgh = findFirstSlot(cached, "North East", "Bamburgh");
+            BriefingSlot durham = findFirstSlot(cached, "North East", "Durham");
+            assertThat(bamburgh.claudeRating()).isEqualTo(5);
+            assertThat(durham.claudeRating()).isNull();
+        }
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private LocationEntity locationWithRegion(String name, String regionName) {
+            return LocationEntity.builder()
+                    .id(1L).name(name).lat(55.0).lon(-1.5)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of())
+                    .region(RegionEntity.builder().name(regionName).build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private void stubFullRefresh(LocationEntity loc) {
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunriseUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(6).withMinute(0));
+            org.mockito.Mockito.lenient().when(
+                    solarService.sunsetUtc(anyDouble(), anyDouble(), any(LocalDate.class)))
+                    .thenReturn(LocalDateTime.now().withHour(18).withMinute(0));
+        }
+
+        private double anyDouble() {
+            return org.mockito.ArgumentMatchers.anyDouble();
+        }
+
+        private BriefingSlot findFirstSlot(DailyBriefingResponse response,
+                String regionName, String locationName) {
+            return response.days().stream()
+                    .flatMap(d -> d.eventSummaries().stream())
+                    .flatMap(es -> es.regions().stream())
+                    .filter(r -> r.regionName().equals(regionName))
+                    .flatMap(r -> r.slots().stream())
+                    .filter(s -> s.locationName().equals(locationName))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "No slot found for " + regionName + "/" + locationName));
+        }
     }
 }

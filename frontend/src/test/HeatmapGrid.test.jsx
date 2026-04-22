@@ -920,3 +920,179 @@ describe('HeatmapGrid — day header solar times', () => {
     expect(headers[1].textContent).toContain('19:44');
   });
 });
+
+// ── Backend-cached Claude scores on slots ────────────────────────────────────
+
+describe('HeatmapGrid — backend-cached Claude scores', () => {
+  function buildDaysWithCachedScores(claudeRating, fierySky, goldenHour, summary) {
+    return [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          slots: [{
+            locationName: 'Bamburgh',
+            verdict: 'GO',
+            solarEventTime: `${date}T19:30:00`,
+            claudeRating,
+            fierySkyPotential: fierySky,
+            goldenHourPotential: goldenHour,
+            claudeSummary: summary,
+          }],
+        }],
+      }],
+    }));
+  }
+
+  it('shows score badge from backend-cached claudeRating when no SSE scores', () => {
+    const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic light expected.');
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const badge = screen.getByTestId('score-badge');
+    expect(badge.textContent).toContain('4');
+  });
+
+  it('shows mean score badge in cell from backend-cached scores', () => {
+    const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic.');
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    const meanBadge = screen.queryByTestId('mean-score-badge');
+    expect(meanBadge).toBeTruthy();
+    expect(meanBadge.textContent).toContain('4.0');
+  });
+
+  it('shows first sentence of summary in collapsed state', () => {
+    const days = buildDaysWithCachedScores(
+      3, 45, 60, 'Average conditions today. Cloud will build later in the afternoon.',
+    );
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // Collapsed: first sentence only (truncated)
+    const slot = screen.getByTestId('briefing-slot');
+    expect(slot.textContent).toContain('Average conditions today.');
+    // Full second sentence should NOT appear in collapsed state
+    expect(slot.textContent).not.toContain('Cloud will build');
+  });
+
+  it('shows expand button when summary exists', () => {
+    const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic light expected.');
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const toggle = screen.getByTestId('expand-toggle');
+    expect(toggle).toBeTruthy();
+    expect(toggle.textContent).toBe('+');
+  });
+
+  it('expands to show full summary and secondary scores on click', () => {
+    const days = buildDaysWithCachedScores(
+      4, 78, 52, 'Dramatic light expected. Cloud approaching from the west.',
+    );
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const toggle = screen.getByTestId('expand-toggle');
+    fireEvent.click(toggle);
+
+    // Expanded: full summary visible
+    const detail = screen.getByTestId('expanded-detail');
+    expect(detail.textContent).toContain('Cloud approaching from the west.');
+
+    // Secondary scores visible
+    const fiery = screen.getByTestId('fiery-sky-score');
+    expect(fiery.textContent).toContain('78');
+    const golden = screen.getByTestId('golden-hour-score');
+    expect(golden.textContent).toContain('52');
+
+    // Toggle shows minus
+    expect(toggle.textContent).toBe('\u2212');
+  });
+
+  it('collapses back on second click', () => {
+    const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic light.');
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const toggle = screen.getByTestId('expand-toggle');
+    fireEvent.click(toggle); // expand
+    fireEvent.click(toggle); // collapse
+
+    expect(screen.queryByTestId('expanded-detail')).toBeNull();
+    expect(toggle.textContent).toBe('+');
+  });
+
+  it('falls back to verdict pill when no Claude scores exist', () => {
+    const days = buildDaysWithCachedScores(null, null, null, null);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // No score badge
+    expect(screen.queryByTestId('score-badge')).toBeNull();
+    // No expand toggle
+    expect(screen.queryByTestId('expand-toggle')).toBeNull();
+  });
+
+  it('does not show expand toggle when summary is null', () => {
+    const days = buildDaysWithCachedScores(4, 78, 52, null);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // Score badge shows (rating is set)
+    expect(screen.getByTestId('score-badge')).toBeTruthy();
+    // But no expand toggle (no summary to show)
+    expect(screen.queryByTestId('expand-toggle')).toBeNull();
+  });
+
+  it('truncates first sentence to 100 chars with ellipsis', () => {
+    const longSentence = 'A'.repeat(120) + '.';
+    const days = buildDaysWithCachedScores(3, 50, 50, longSentence);
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const slot = screen.getByTestId('briefing-slot');
+    // Should contain the truncation ellipsis
+    expect(slot.textContent).toContain('\u2026');
+    // Should NOT contain the full 120-char sentence
+    expect(slot.textContent).not.toContain(longSentence);
+  });
+});

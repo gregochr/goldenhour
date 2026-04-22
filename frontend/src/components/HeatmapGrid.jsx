@@ -196,7 +196,39 @@ function ratingStyle(rating) {
   return { backgroundColor: bg, color: text };
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
+/**
+ * Extracts the first sentence from text, truncated to maxChars with ellipsis.
+ */
+function firstSentence(text, maxChars = 100) {
+  if (!text) return '';
+  const match = text.match(/^([^.!?]+[.!?])/);
+  let sentence = match ? match[1] : text;
+  if (sentence.length > maxChars) {
+    sentence = sentence.slice(0, maxChars - 1) + '\u2026';
+  }
+  return sentence;
+}
+
+/**
+ * Merges SSE evaluation scores with backend-cached Claude scores on the BriefingSlot.
+ * SSE scores take precedence (they are more recent).
+ */
+function mergedScore(slot, sseScore) {
+  if (sseScore?.rating != null) return sseScore;
+  if (slot.claudeRating != null) {
+    return {
+      rating: slot.claudeRating,
+      fierySkyPotential: slot.fierySkyPotential,
+      goldenHourPotential: slot.goldenHourPotential,
+      summary: slot.claudeSummary,
+    };
+  }
+  return null;
+}
+
+function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {
+  const [expandedRows, setExpandedRows] = useState(new Set());
+  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   const standdownSlots = showAllLocations
     ? (slots || []).filter((s) => s.verdict === 'STANDDOWN')
     : [];
@@ -215,12 +247,13 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
     return null;
   }
 
-  // Re-sort by Claude score only after evaluation completes (the "reveal" moment).
+  // Re-sort by Claude score only after evaluation completes or cached scores exist.
   // During streaming, keep triage order so rows don't jump around.
-  const sorted = (evaluationComplete && scores.size > 0)
+  const hasCachedScores = visible.some((s) => s.claudeRating != null);
+  const sorted = ((evaluationComplete || hasCachedScores) && (scores.size > 0 || hasCachedScores))
     ? [...visible].sort((a, b) => {
-      const sa = scores.get(a.locationName);
-      const sb = scores.get(b.locationName);
+      const sa = mergedScore(a, scores.get(a.locationName));
+      const sb = mergedScore(b, scores.get(b.locationName));
       const ra = sa?.rating ?? 0;
       const rb = sb?.rating ?? 0;
       if (ra !== rb) return rb - ra; // higher score first
@@ -229,12 +262,23 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
     })
     : visible;
 
+  const toggleExpand = (name) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   return (
     <div className="ml-4 mt-0.5 mb-1" data-testid="region-slots">
       {sorted.map((slot) => {
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
         const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
-        const score = scores.get(slot.locationName);
+        const score = mergedScore(slot, scores.get(slot.locationName));
+        const expanded = expandedRows.has(slot.locationName);
+        const hasSummary = !!score?.summary;
         return (
           <div
             key={slot.locationName}
@@ -265,10 +309,37 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
               </span>
             )}
             {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
-            {score?.summary && (
+            {hasSummary && !expanded && (
               <span className="w-full text-plex-text-secondary truncate animate-fade-in" style={{ fontSize: '11px' }}>
-                {score.summary}
+                {firstSentence(score.summary)}
               </span>
+            )}
+            {hasSummary && (
+              <button
+                onClick={() => toggleExpand(slot.locationName)}
+                className="ml-auto text-plex-text-muted hover:text-plex-text text-xs px-1"
+                data-testid="expand-toggle"
+                aria-label={expanded ? 'Collapse summary' : 'Expand summary'}
+              >
+                {expanded ? '\u2212' : '+'}
+              </button>
+            )}
+            {expanded && hasSummary && (
+              <div className="w-full mt-1 animate-fade-in" data-testid="expanded-detail">
+                <p className="text-plex-text-secondary" style={{ fontSize: '11px', lineHeight: '1.5' }}>
+                  {score.summary}
+                </p>
+                {(score.fierySkyPotential != null || score.goldenHourPotential != null) && (
+                  <div className="flex gap-3 mt-1 text-plex-text-muted" style={{ fontSize: '11px' }}>
+                    {score.fierySkyPotential != null && (
+                      <span data-testid="fiery-sky-score">Fiery Sky {score.fierySkyPotential}</span>
+                    )}
+                    {score.goldenHourPotential != null && (
+                      <span data-testid="golden-hour-score">Golden Hour {score.goldenHourPotential}</span>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         );
@@ -438,7 +509,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                   driveMap={driveMap}
                   typeMap={typeMap}
                   scores={slotScores}
-                  evaluationComplete={progressMatch?.status === 'complete' || (!progressMatch && slotScores.size > 0)}
+                  evaluationComplete={progressMatch?.status === 'complete' || (!progressMatch && slotScores.size > 0) || (region.slots || []).some((s) => s.claudeRating != null)}
                   isPro={canRunEvaluation}
                   showAllLocations={showAllLocations}
                 />
@@ -663,6 +734,12 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
         for (const [key, result] of evaluationScores) {
           if (key.startsWith(prefix) && result.rating != null) {
             ratings.push(result.rating);
+          }
+        }
+        // Fall back to backend-cached scores when no SSE scores exist
+        if (ratings.length === 0 && region?.slots) {
+          for (const s of region.slots) {
+            if (s.claudeRating != null) ratings.push(s.claudeRating);
           }
         }
         if (ratings.length === 0) return null;
