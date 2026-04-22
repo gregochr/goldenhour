@@ -986,6 +986,88 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText('Sandsend')).toBeInTheDocument();
       expect(screen.getByText(/Seascape · The North Yorkshire Coast/)).toBeInTheDocument();
     });
+
+    // Locks the per-reason label on the briefing-cache stand-down badge. Kills a
+    // mutation to the label map or a reason-to-label swap — exactly one row fails.
+    it.each([
+      ['HIGH_CLOUD', /heavy low cloud at the solar horizon/],
+      ['PRECIPITATION', /active precipitation forecast at event time/],
+      ['LOW_VISIBILITY', /visibility too low \(fog or heavy haze\)/],
+      ['TIDE_MISALIGNED', /tide not aligned with location preference/],
+      ['GENERIC', /regional conditions predicted poor/],
+    ])('stand-down badge label for %s triage reason', (reason, phrase) => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={{ ...TRIAGED_SCORE, triageReason: reason }}
+          eventType="SUNRISE"
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      const badge = screen.getByTestId('triage-standdown-badge');
+      expect(badge.textContent).toMatch(new RegExp(`Stand-down — ${phrase.source}`));
+    });
+
+    it('renders stand-down badge without a message row when triageMessage is null', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={{ ...TRIAGED_SCORE, triageMessage: null }}
+          eventType="SUNRISE"
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      const badge = screen.getByTestId('triage-standdown-badge');
+      // Exactly one child div — the "Stand-down — …" header, no message row
+      expect(badge.querySelectorAll('div')).toHaveLength(1);
+      expect(badge.textContent).toMatch(/Stand-down — heavy low cloud at the solar horizon/);
+    });
+
+    it('falls through to "no forecast yet" when briefingScore has no triageReason', () => {
+      // Scored briefingScore (rating set, triageReason null) must NOT enter the
+      // stand-down branch — a mutation replacing `briefingScore?.triageReason != null`
+      // with `briefingScore != null` would incorrectly render the badge here.
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={null}
+          briefingScore={{ rating: 4, fierySkyPotential: 70, goldenHourPotential: 55, summary: 's', triageReason: null, triageMessage: null }}
+          eventType="SUNRISE"
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
+      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+    });
+
+    it('forecast branch takes precedence — briefingScore.triageReason is ignored when forecast is present', () => {
+      // A truthy forecast (even one without triageReason) must drive rendering;
+      // briefingScore is only consulted in the empty branch. A mutation that
+      // checked briefingScore.triageReason before forecast would wrongly render
+      // the stand-down badge here instead of the scored content.
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={TRIAGED_LOCATION}
+          forecast={BASE_FORECAST}
+          briefingScore={TRIAGED_SCORE}
+          eventType="SUNRISE"
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+      expect(screen.getByText('Good conditions expected.')).toBeInTheDocument();
+      expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
+      expect(screen.queryByText('Overcast with 88% low cloud. No gaps for colour.')).not.toBeInTheDocument();
+    });
   });
 
   describe('drive time badge', () => {
