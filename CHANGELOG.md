@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Unified score reads for Plan and Map tabs
+- **Bug A**: Map tab didn't render batch-evaluated scores — it only read `forecast_evaluation`, while batch results live in `cached_evaluation`
+- **Bug B**: Sunset toggle disabled for dates where only `cached_evaluation` had data — availability check only looked at `forecastsByDate`
+- **`EvaluationViewService`** — new merge layer combining both data sources with clear precedence: cached evaluation > scored forecast row > triaged forecast row > none
+- **`LocationEvaluationView`** — new record carrying merged evaluation state (rating, summary, fiery/golden scores, triage fields, source indicator)
+- **`BriefingEvaluationController`** — new `GET /api/briefing/evaluate/scores` endpoint returning all merged scores for the Map tab
+- **`BriefingService`** — `enrichWithCachedScores()` now delegates to `EvaluationViewService.getScoresForEnrichment()`, supplementing cache hits with `forecast_evaluation` fallback
+- **Frontend** — `DailyBriefing` hydrates `briefingScores` from the new endpoint on mount; `MapView` sunset toggle checks both `forecastsByDate` and `briefingScores`
+- **Tests** — `EvaluationViewServiceTest` (10 tests: merge precedence, mixed states, enrichment delegate); `MapViewSunsetToggle.test.jsx` (2 tests: toggle enabled from briefingScores, disabled when empty)
+
 ### Fixed — Map popover shows triage reason for briefing-cache stand-downs
 - **`MarkerPopupContent`** — new `briefingScore` prop; when `forecast` is null but `briefingScore.triageReason` is set, renders the stand-down badge with `triageMessage` instead of the "no forecast yet" divider + Run Forecast button; marker was already rendering the dashed medallion correctly, only the popover body was wrong
 - **`StandDownBadge`** — extracted shared helper; reused by both the scored-forecast triage branch and the new briefing-cache triage branch (removes duplicated dark-red styling)
