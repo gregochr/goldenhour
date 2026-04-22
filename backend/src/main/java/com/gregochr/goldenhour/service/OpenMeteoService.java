@@ -207,6 +207,10 @@ public class OpenMeteoService {
      */
     public Map<String, WeatherExtractionResult> prefetchWeatherBatch(
             List<double[]> coords, JobRunEntity jobRun) {
+        if (coords.isEmpty()) {
+            LOG.info("Open-Meteo batch prefetch: 0 locations — skipping");
+            return Map.of();
+        }
         LOG.info("Open-Meteo batch prefetch: {} unique locations", coords.size());
         long startMs = System.currentTimeMillis();
 

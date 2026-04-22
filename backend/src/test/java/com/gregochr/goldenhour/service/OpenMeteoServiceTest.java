@@ -1105,14 +1105,14 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @DisplayName("prefetchWeatherBatch() returns empty map for empty coord list")
+    @DisplayName("prefetchWeatherBatch() returns empty map for empty coord list without calling APIs")
     void prefetchWeatherBatch_emptyCoordList_returnsEmptyMap() {
-        when(openMeteoClient.fetchForecastBatch(anyList())).thenReturn(List.of());
-        when(openMeteoClient.fetchAirQualityBatch(anyList())).thenReturn(List.of());
-
         var cache = openMeteoService.prefetchWeatherBatch(List.of(), null);
 
         assertThat(cache).isEmpty();
+        // Kills mutation: removing the empty guard — no API calls should be made
+        verify(openMeteoClient, never()).fetchForecastBatch(anyList());
+        verify(openMeteoClient, never()).fetchAirQualityBatch(anyList());
     }
 
     @Test
