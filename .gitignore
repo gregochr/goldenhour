@@ -39,12 +39,15 @@ out/
 ### Project-specific ###
 backend/src/main/resources/application.yml
 *.env
-frontend/node_modules/
+node_modules/
 frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
 backend/target/
 backend/data/
+backend/com/
+backend/logs/
+hs_err_pid*.log
 .claude/
 backend/.claude/
 backend/.m2/repository
