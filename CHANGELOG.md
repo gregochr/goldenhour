@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Also Good surfaces a genuinely distinct opportunity
+- **`BestBet`** — new `relationship` (SAME_SLOT / DIFFERENT_SLOT) and `differsBy` (DATE / EVENT / REGION) fields distinguish tier-1 same-slot backups from tier-2 different-slot alternatives
+- **`BriefingBestBetAdvisor` system prompt** — tiered "Also Good Selection Rule": Tier 1 picks same-slot region within 0.5 rating and ≥3.5 absolute; Tier 2 picks the best opportunity on a different date/event; no rank 2 emitted when neither tier clears threshold
+- **`parseBestBets()`** — parses `relationship` and `differsBy` from Claude response; unrecognised values silently dropped
+- **Frontend** — `BestBetBanner` PropTypes extended with `relationship` and `differsBy`; card labels already derive from each pick's own `dayName`/`eventType`/`eventTime` so tier-2 picks naturally show different dates/events
+
 ### Added — Drill-down Claude scores in briefing
 - **`BriefingSlot`** — 4 new nullable fields: `claudeRating`, `fierySkyPotential`, `goldenHourPotential`, `claudeSummary`; convenience constructor for backward compatibility; `withClaudeScores()` copy method
 - **`BriefingService`** — new `@Lazy BriefingEvaluationService` dependency; `enrichWithCachedScores()` walks the day/event/region hierarchy after `buildDays()` and populates each slot's Claude fields from the evaluation cache
