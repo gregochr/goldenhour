@@ -14,7 +14,9 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.Relationship;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
@@ -223,6 +225,323 @@ class BriefingBestBetAdvisorTest {
         @DisplayName("Completely malformed response returns empty list")
         void completelyMalformed() {
             assertThat(advisor.parseBestBets("I cannot provide forecast data.")).isEmpty();
+        }
+    }
+
+    // ── parseBestBets — relationship and differsBy ──
+
+    @Nested
+    @DisplayName("parseBestBets — relationship and differsBy")
+    class ParseRelationshipTests {
+
+        @Test
+        @DisplayName("SAME_SLOT relationship parsed on rank 2")
+        void sameSlotRelationshipParsed() {
+            String raw = """
+                    {
+                      "picks": [
+                        {
+                          "rank": 1,
+                          "headline": "Best overall",
+                          "detail": "Clear skies.",
+                          "event": "2026-04-22_sunset",
+                          "region": "The Lake District",
+                          "confidence": "high"
+                        },
+                        {
+                          "rank": 2,
+                          "headline": "Strong backup for the same outing",
+                          "detail": "Also clear with good tide.",
+                          "event": "2026-04-22_sunset",
+                          "region": "The Yorkshire Dales",
+                          "confidence": "high",
+                          "relationship": "SAME_SLOT",
+                          "differsBy": []
+                        }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks).hasSize(2);
+            assertThat(picks.get(0).relationship()).isNull();
+            assertThat(picks.get(0).differsBy()).isEmpty();
+            assertThat(picks.get(1).relationship()).isEqualTo(Relationship.SAME_SLOT);
+            assertThat(picks.get(1).differsBy()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("DIFFERENT_SLOT with differsBy=[DATE, EVENT] parsed correctly")
+        void differentSlotWithDiffersByParsed() {
+            String raw = """
+                    {
+                      "picks": [
+                        {
+                          "rank": 1,
+                          "headline": "Best overall",
+                          "detail": "Clear.",
+                          "event": "2026-04-22_sunset",
+                          "region": "The Lake District",
+                          "confidence": "high"
+                        },
+                        {
+                          "rank": 2,
+                          "headline": "A second strong window",
+                          "detail": "Good conditions Friday morning.",
+                          "event": "2026-04-23_sunrise",
+                          "region": "The Lake District",
+                          "confidence": "medium",
+                          "relationship": "DIFFERENT_SLOT",
+                          "differsBy": ["DATE", "EVENT"]
+                        }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).relationship()).isEqualTo(Relationship.DIFFERENT_SLOT);
+            assertThat(picks.get(1).differsBy())
+                    .containsExactly(DiffersBy.DATE, DiffersBy.EVENT);
+        }
+
+        @Test
+        @DisplayName("differsBy=[EVENT] only — same date different event")
+        void differsByEventOnly() {
+            String raw = """
+                    {
+                      "picks": [
+                        {
+                          "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "2026-04-22_sunset", "region": "R1", "confidence": "high"
+                        },
+                        {
+                          "rank": 2, "headline": "H2", "detail": "D2",
+                          "event": "2026-04-22_sunrise", "region": "R1", "confidence": "medium",
+                          "relationship": "DIFFERENT_SLOT",
+                          "differsBy": ["EVENT"]
+                        }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).differsBy()).containsExactly(DiffersBy.EVENT);
+        }
+
+        @Test
+        @DisplayName("Missing relationship field defaults to null")
+        void missingRelationshipDefaultsNull() {
+            String raw = """
+                    {
+                      "picks": [
+                        {
+                          "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "2026-04-22_sunset", "region": "R1", "confidence": "high"
+                        },
+                        {
+                          "rank": 2, "headline": "H2", "detail": "D2",
+                          "event": "2026-04-22_sunset", "region": "R2", "confidence": "medium"
+                        }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).relationship()).isNull();
+            assertThat(picks.get(1).differsBy()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Unrecognised differsBy values are silently dropped")
+        void unrecognisedDiffersByDropped() {
+            String raw = """
+                    {
+                      "picks": [
+                        {
+                          "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "e1", "region": "R1", "confidence": "high"
+                        },
+                        {
+                          "rank": 2, "headline": "H2", "detail": "D2",
+                          "event": "e2", "region": "R2", "confidence": "medium",
+                          "relationship": "DIFFERENT_SLOT",
+                          "differsBy": ["DATE", "BOGUS", "EVENT"]
+                        }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).differsBy())
+                    .containsExactly(DiffersBy.DATE, DiffersBy.EVENT);
+        }
+
+        @Test
+        @DisplayName("Single-pick array — no rank 2 at all")
+        void singlePickArray() {
+            String raw = """
+                    {
+                      "picks": [
+                        {
+                          "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "2026-04-22_sunset", "region": "R1", "confidence": "high"
+                        }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("differsBy with REGION alone parsed correctly")
+        void differsByRegionAlone() {
+            String raw = """
+                    {
+                      "picks": [
+                        { "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "e1", "region": "R1", "confidence": "high" },
+                        { "rank": 2, "headline": "H2", "detail": "D2",
+                          "event": "e1", "region": "R2", "confidence": "medium",
+                          "relationship": "DIFFERENT_SLOT",
+                          "differsBy": ["REGION"] }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).differsBy()).containsExactly(DiffersBy.REGION);
+        }
+
+        @Test
+        @DisplayName("differsBy absent (no key) results in empty list, not null")
+        void differsByAbsent_emptyNotNull() {
+            String raw = """
+                    {
+                      "picks": [
+                        { "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "e1", "region": "R1", "confidence": "high" },
+                        { "rank": 2, "headline": "H2", "detail": "D2",
+                          "event": "e1", "region": "R2", "confidence": "medium",
+                          "relationship": "SAME_SLOT" }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).differsBy()).isNotNull();
+            assertThat(picks.get(1).differsBy()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("All three differsBy values parsed in order")
+        void allThreeDiffersByValues() {
+            String raw = """
+                    {
+                      "picks": [
+                        { "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "e1", "region": "R1", "confidence": "high" },
+                        { "rank": 2, "headline": "H2", "detail": "D2",
+                          "event": "e2", "region": "R2", "confidence": "medium",
+                          "relationship": "DIFFERENT_SLOT",
+                          "differsBy": ["DATE", "EVENT", "REGION"] }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            assertThat(picks.get(1).differsBy())
+                    .containsExactly(DiffersBy.DATE, DiffersBy.EVENT, DiffersBy.REGION);
+        }
+
+        @Test
+        @DisplayName("Rank 1 has null relationship and empty differsBy even when Claude sets them")
+        void rank1_relationshipAndDiffersByParsedButIgnorable() {
+            // Claude shouldn't set these on rank 1, but if it does, they should parse normally
+            String raw = """
+                    {
+                      "picks": [
+                        { "rank": 1, "headline": "H1", "detail": "D1",
+                          "event": "e1", "region": "R1", "confidence": "high",
+                          "relationship": "SAME_SLOT", "differsBy": ["DATE"] }
+                      ]
+                    }
+                    """;
+            List<BestBet> picks = advisor.parseBestBets(raw);
+            // Parsing is agnostic to rank — it stores whatever Claude sent
+            assertThat(picks.get(0).relationship()).isEqualTo(Relationship.SAME_SLOT);
+            assertThat(picks.get(0).differsBy()).containsExactly(DiffersBy.DATE);
+        }
+    }
+
+    // ── validateAndFilterPicks — relationship preserved ──
+
+    @Nested
+    @DisplayName("validateAndFilterPicks — relationship preserved through re-ranking")
+    class ValidationRelationshipTests {
+
+        private static final Set<String> VALID_EVENTS = Set.of(
+                "2026-03-29_sunset", "2026-03-30_sunrise", "2026-03-30_sunset");
+        private static final Set<String> VALID_REGIONS = Set.of(
+                "Northumberland", "The Lake District");
+        private static final Set<String> VALID_DAY_NAMES = Set.of("Saturday", "Sunday");
+
+        @Test
+        @DisplayName("Relationship and differsBy survive validation on valid pick")
+        void relationshipSurvivesValidation() {
+            BestBet pick1 = new BestBet(1, "Go", "Clear.", "2026-03-30_sunset",
+                    "Northumberland", Confidence.HIGH, null, null, null, null);
+            BestBet pick2 = new BestBet(2, "Also", "Nice.", "2026-03-30_sunrise",
+                    "The Lake District", Confidence.MEDIUM, null, null, null, null,
+                    Relationship.DIFFERENT_SLOT, List.of(DiffersBy.EVENT));
+
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    List.of(pick1, pick2), VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(1).relationship()).isEqualTo(Relationship.DIFFERENT_SLOT);
+            assertThat(result.get(1).differsBy()).containsExactly(DiffersBy.EVENT);
+        }
+
+        @Test
+        @DisplayName("Re-ranking after pick 1 discard preserves pick 2's relationship")
+        void reRankingPreservesRelationship() {
+            BestBet pick1 = new BestBet(1, "Bad", "Nope.", "bogus_event",
+                    "Northumberland", Confidence.HIGH, null, null, null, null);
+            BestBet pick2 = new BestBet(2, "Also", "Nice.", "2026-03-30_sunrise",
+                    "The Lake District", Confidence.MEDIUM, null, null, null, null,
+                    Relationship.SAME_SLOT, List.of());
+
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    List.of(pick1, pick2), VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).rank()).isEqualTo(1);
+            assertThat(result.get(0).relationship()).isEqualTo(Relationship.SAME_SLOT);
+        }
+
+        @Test
+        @DisplayName("Rank 1 null relationship stays null through validation")
+        void rank1_nullRelationshipPreserved() {
+            BestBet pick1 = new BestBet(1, "Go", "Clear.", "2026-03-30_sunset",
+                    "Northumberland", Confidence.HIGH, null, null, null, null);
+
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    List.of(pick1), VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+
+            assertThat(result).hasSize(1);
+            assertThat(result.get(0).relationship()).isNull();
+            assertThat(result.get(0).differsBy()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("differsBy with multiple elements preserved exactly through validation")
+        void differsByMultipleElementsPreserved() {
+            BestBet pick1 = new BestBet(1, "Go", "Clear.", "2026-03-30_sunset",
+                    "Northumberland", Confidence.HIGH, null, null, null, null);
+            BestBet pick2 = new BestBet(2, "Also", "Nice.", "2026-03-29_sunset",
+                    "The Lake District", Confidence.MEDIUM, null, null, null, null,
+                    Relationship.DIFFERENT_SLOT,
+                    List.of(DiffersBy.DATE, DiffersBy.REGION));
+
+            List<BestBet> result = advisor.validateAndFilterPicks(
+                    List.of(pick1, pick2), VALID_EVENTS, VALID_REGIONS, VALID_DAY_NAMES);
+
+            assertThat(result).hasSize(2);
+            assertThat(result.get(1).differsBy())
+                    .containsExactly(DiffersBy.DATE, DiffersBy.REGION);
         }
     }
 
@@ -726,6 +1045,160 @@ class BriefingBestBetAdvisorTest {
             verify(anthropicApiClient).createMessage(captor.capture());
             assertThat(captor.getValue().model().toString())
                     .isEqualTo(EvaluationModel.HAIKU.getModelId());
+        }
+    }
+
+    // ── advise — relationship preserved through enrichment ──
+
+    @Nested
+    @DisplayName("advise preserves relationship through enrichment")
+    class AdviseRelationshipEnrichmentTests {
+
+        @Test
+        @DisplayName("DIFFERENT_SLOT relationship survives enrichWithEventData")
+        void differentSlotSurvivesEnrichment() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String sunsetEvent = tomorrow + "_sunset";
+            String sunriseEvent = tomorrow + "_sunrise";
+            LocalDateTime sunsetTime = tomorrow.atTime(19, 30);
+            LocalDateTime sunriseTime = tomorrow.atTime(5, 30);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":["
+                    + "{\"rank\":1,\"headline\":\"Best\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + sunsetEvent + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"Also\",\"detail\":\"Nice.\","
+                    + "\"event\":\"" + sunriseEvent + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"medium\","
+                    + "\"relationship\":\"DIFFERENT_SLOT\","
+                    + "\"differsBy\":[\"EVENT\"]}"
+                    + "]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunriseTime)),
+                            List.of()),
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime)),
+                            List.of())));
+
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+
+            assertThat(picks).hasSize(2);
+            // Rank 1 should have null relationship (not set by Claude)
+            assertThat(picks.get(0).relationship()).isNull();
+            assertThat(picks.get(0).differsBy()).isEmpty();
+            // Rank 2 should preserve DIFFERENT_SLOT + differsBy through enrichment
+            assertThat(picks.get(1).relationship()).isEqualTo(Relationship.DIFFERENT_SLOT);
+            assertThat(picks.get(1).differsBy()).containsExactly(DiffersBy.EVENT);
+            // Verify enrichment also populated the structured fields
+            assertThat(picks.get(1).dayName()).isEqualTo("Tomorrow");
+            assertThat(picks.get(1).eventType()).isEqualTo("sunrise");
+        }
+
+        @Test
+        @DisplayName("SAME_SLOT relationship survives enrichWithEventData")
+        void sameSlotSurvivesEnrichment() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = LocalDate.now(ZoneId.of("Europe/London")).plusDays(1);
+            String sunsetEvent = tomorrow + "_sunset";
+            LocalDateTime sunsetTime = tomorrow.atTime(19, 30);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":["
+                    + "{\"rank\":1,\"headline\":\"Best\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + sunsetEvent + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"Backup\",\"detail\":\"Also clear.\","
+                    + "\"event\":\"" + sunsetEvent + "\",\"region\":\"The Lake District\","
+                    + "\"confidence\":\"high\","
+                    + "\"relationship\":\"SAME_SLOT\","
+                    + "\"differsBy\":[]}"
+                    + "]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime),
+                            regionWithTime("The Lake District", Verdict.GO, 2, 0, 0, sunsetTime)),
+                            List.of())));
+
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+
+            assertThat(picks).hasSize(2);
+            assertThat(picks.get(1).relationship()).isEqualTo(Relationship.SAME_SLOT);
+            assertThat(picks.get(1).differsBy()).isEmpty();
+            // Same event enriched to same eventType
+            assertThat(picks.get(1).eventType()).isEqualTo("sunset");
+        }
+
+        @Test
+        @DisplayName("Aurora pick preserves relationship through enrichment")
+        void auroraPickPreservesRelationship() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(true);
+            when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+            when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
+            when(auroraStateCache.getDarkSkyLocationCount()).thenReturn(5);
+            when(auroraStateCache.getClearLocationCount()).thenReturn(3);
+
+            LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
+            String sunsetEvent = today + "_sunset";
+            String auroraEvent = today + "_aurora";
+            LocalDateTime sunsetTime = today.atTime(19, 30);
+
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":["
+                    + "{\"rank\":1,\"headline\":\"Sunset\",\"detail\":\"Clear.\","
+                    + "\"event\":\"" + sunsetEvent + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"},"
+                    + "{\"rank\":2,\"headline\":\"Aurora tonight\",\"detail\":\"Strong Kp.\","
+                    + "\"event\":\"" + auroraEvent + "\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\","
+                    + "\"relationship\":\"DIFFERENT_SLOT\","
+                    + "\"differsBy\":[\"EVENT\"]}"
+                    + "]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            BriefingDay day = new BriefingDay(today, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            regionWithTime("Northumberland", Verdict.GO, 2, 0, 0, sunsetTime)),
+                            List.of())));
+
+            List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of());
+
+            // Find the aurora pick (may be rank 1 or 2 after validation)
+            BestBet auroraPick = picks.stream()
+                    .filter(p -> p.event() != null && p.event().endsWith("_aurora"))
+                    .findFirst().orElse(null);
+            assertThat(auroraPick).isNotNull();
+            assertThat(auroraPick.relationship()).isEqualTo(Relationship.DIFFERENT_SLOT);
+            assertThat(auroraPick.differsBy()).containsExactly(DiffersBy.EVENT);
+            // Aurora enrichment should set eventType to "aurora"
+            assertThat(auroraPick.eventType()).isEqualTo("aurora");
         }
     }
 
@@ -1530,6 +2003,37 @@ class BriefingBestBetAdvisorTest {
             assertThat(systemText).contains("SETTLED");
             assertThat(systemText).contains("TRANSITIONAL");
             assertThat(systemText).contains("UNSETTLED");
+        }
+
+        @Test
+        @DisplayName("System prompt contains ALSO GOOD SELECTION RULE with tiered logic")
+        void systemPrompt_containsAlsoGoodSelectionRule() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(false);
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("param-inspection stub"));
+
+            advisor.advise(List.of(), 42L, Map.of());
+
+            ArgumentCaptor<MessageCreateParams> captor =
+                    ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            String systemText = captor.getValue()._body().system().get()
+                    .asTextBlockParams().stream()
+                    .map(b -> b.text())
+                    .findFirst()
+                    .orElse("");
+
+            assertThat(systemText).contains("ALSO GOOD SELECTION RULE");
+            assertThat(systemText).contains("TIER 1");
+            assertThat(systemText).contains("SAME_SLOT");
+            assertThat(systemText).contains("TIER 2");
+            assertThat(systemText).contains("DIFFERENT_SLOT");
+            assertThat(systemText).contains("differsBy");
+            assertThat(systemText).contains("NO PICK 2");
         }
 
         @Test

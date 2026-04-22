@@ -1316,6 +1316,54 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('best-bet-banner'));
       expect(screen.queryByTestId('best-bet-empty')).toBeNull();
     });
+
+    it('renders ALSO GOOD label for SAME_SLOT pick on same event', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Best light', detail: 'Clear.',
+          event: 'tomorrow_sunset', region: 'Lake District', confidence: 'high',
+          dayName: 'Tomorrow', eventType: 'sunset', eventTime: '20:28' },
+        { rank: 2, headline: 'Strong backup', detail: 'Also clear.',
+          event: 'tomorrow_sunset', region: 'Yorkshire Dales', confidence: 'high',
+          dayName: 'Tomorrow', eventType: 'sunset', eventTime: '20:28',
+          relationship: 'SAME_SLOT', differsBy: [] },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
+      // Both cards show same event
+      const headers = screen.getAllByText(/Tomorrow sunset/);
+      expect(headers).toHaveLength(2);
+    });
+
+    it('renders ALSO GOOD label for DIFFERENT_SLOT pick on different event', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Best light', detail: 'Clear.',
+          event: 'tomorrow_sunset', region: 'Lake District', confidence: 'high',
+          dayName: 'Tomorrow', eventType: 'sunset', eventTime: '20:28' },
+        { rank: 2, headline: 'A second strong window', detail: 'Good Friday morning.',
+          event: 'tomorrow_sunrise', region: 'Lake District', confidence: 'medium',
+          dayName: 'Tomorrow', eventType: 'sunrise', eventTime: '05:49',
+          relationship: 'DIFFERENT_SLOT', differsBy: ['EVENT'] },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
+      // Pick 2 shows its own event type
+      expect(screen.getByText(/Tomorrow sunrise/)).toBeInTheDocument();
+      expect(screen.getByText(/05:49/)).toBeInTheDocument();
+    });
+
+    it('single pick renders only Best Bet — no Also Good card', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Only pick', detail: 'Nothing else clears threshold.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'high',
+          dayName: 'Tomorrow', eventType: 'sunset', eventTime: '20:28' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      expect(screen.getByTestId('best-bet-pick-1')).toBeInTheDocument();
+      expect(screen.queryByTestId('best-bet-pick-2')).toBeNull();
+    });
   });
 
   // ────── Hot Topic empty states ──────

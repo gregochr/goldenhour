@@ -204,6 +204,58 @@ class DailyBriefingResponseJsonTest {
                 .isFalse();
     }
 
+    // ── BestBet relationship/differsBy JSON serialization ──────────────────
+
+    @Test
+    @DisplayName("relationship omitted from JSON when null (convenience constructor)")
+    void serialize_nullRelationship_fieldOmitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BestBet bet = new BestBet(1, "H", "D", "e", "r",
+                Confidence.HIGH, null, null, null, null);
+        String json = mapper.writeValueAsString(bet);
+        JsonNode node = mapper.readTree(json);
+        assertThat(node.has("relationship")).isFalse();
+    }
+
+    @Test
+    @DisplayName("differsBy omitted from JSON when empty (convenience constructor)")
+    void serialize_emptyDiffersBy_fieldOmitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BestBet bet = new BestBet(1, "H", "D", "e", "r",
+                Confidence.HIGH, null, null, null, null);
+        String json = mapper.writeValueAsString(bet);
+        JsonNode node = mapper.readTree(json);
+        assertThat(node.has("differsBy")).isFalse();
+    }
+
+    @Test
+    @DisplayName("relationship present in JSON when SAME_SLOT")
+    void serialize_sameSlotRelationship_fieldPresent() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BestBet bet = new BestBet(2, "H", "D", "e", "r",
+                Confidence.HIGH, null, null, null, null,
+                Relationship.SAME_SLOT, List.of());
+        String json = mapper.writeValueAsString(bet);
+        JsonNode node = mapper.readTree(json);
+        assertThat(node.get("relationship").asText()).isEqualTo("SAME_SLOT");
+    }
+
+    @Test
+    @DisplayName("relationship and differsBy both present when DIFFERENT_SLOT with values")
+    void serialize_differentSlotWithDiffersBy_bothPresent() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BestBet bet = new BestBet(2, "H", "D", "e", "r",
+                Confidence.HIGH, null, null, null, null,
+                Relationship.DIFFERENT_SLOT,
+                List.of(DiffersBy.DATE, DiffersBy.EVENT));
+        String json = mapper.writeValueAsString(bet);
+        JsonNode node = mapper.readTree(json);
+        assertThat(node.get("relationship").asText()).isEqualTo("DIFFERENT_SLOT");
+        assertThat(node.get("differsBy")).hasSize(2);
+        assertThat(node.get("differsBy").get(0).asText()).isEqualTo("DATE");
+        assertThat(node.get("differsBy").get(1).asText()).isEqualTo("EVENT");
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static DailyBriefingResponse minimalResponse(List<BestBet> bestBets) {
