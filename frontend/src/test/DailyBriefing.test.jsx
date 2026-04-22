@@ -1173,18 +1173,22 @@ describe('DailyBriefing', () => {
       expect(screen.getByText('① BEST BET')).toBeInTheDocument();
       expect(screen.getByText('② ALSO GOOD')).toBeInTheDocument();
 
-      // BEST BET uses gold accent, ALSO GOOD uses silver accent
+      // BEST BET uses WORTH IT green accent, ALSO GOOD uses silver accent
       const pick1 = screen.getByTestId('best-bet-pick-1');
       const pick2 = screen.getByTestId('best-bet-pick-2');
-      expect(pick1).toHaveClass('border-amber-500/50');
-      expect(pick1).toHaveClass('bg-amber-500/5');
+      expect(pick1).toHaveClass('border-green-600/60');
+      expect(pick1).toHaveClass('bg-green-600/5');
       expect(pick2).toHaveClass('border-slate-400/40');
       expect(pick2).toHaveClass('bg-slate-400/5');
+      // Also Good must NOT pick up any of the WORTH IT green styling.
+      expect(pick2).not.toHaveClass('border-green-600/60');
+      expect(pick2).not.toHaveClass('bg-green-600/5');
 
       const label1 = screen.getByText('① BEST BET');
       const label2 = screen.getByText('② ALSO GOOD');
-      expect(label1).toHaveClass('text-amber-400');
+      expect(label1).toHaveClass('text-green-400');
       expect(label2).toHaveClass('text-slate-300');
+      expect(label2).not.toHaveClass('text-green-400');
     });
 
     it('stay-home pick button is disabled', async () => {
@@ -1238,6 +1242,24 @@ describe('DailyBriefing', () => {
       render(<DailyBriefing />);
       await waitFor(() => screen.getByTestId('best-bet-banner'));
       expect(screen.getByText(/low confidence/i)).toBeInTheDocument();
+    });
+
+    it('low-confidence pick 1 falls back to muted styling, not WORTH IT green', async () => {
+      getDailyBriefing.mockResolvedValue(buildBriefingWithPicks([
+        { rank: 1, headline: 'Marginal at best', detail: 'Patchy cloud.',
+          event: 'tomorrow_sunset', region: 'Northumberland', confidence: 'low' },
+      ]));
+      render(<DailyBriefing />);
+      await waitFor(() => screen.getByTestId('best-bet-banner'));
+      const pick1 = screen.getByTestId('best-bet-pick-1');
+      expect(pick1).toHaveClass('border-plex-border');
+      expect(pick1).toHaveClass('bg-plex-surface/30');
+      expect(pick1).not.toHaveClass('border-green-600/60');
+      expect(pick1).not.toHaveClass('bg-green-600/5');
+
+      const label1 = screen.getByText('① BEST BET');
+      expect(label1).toHaveClass('text-plex-text-muted');
+      expect(label1).not.toHaveClass('text-green-400');
     });
 
     it('renders structured header with day, event type, time, and drive', async () => {
