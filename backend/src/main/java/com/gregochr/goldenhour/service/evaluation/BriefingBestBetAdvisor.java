@@ -17,10 +17,12 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
+import com.gregochr.goldenhour.model.DiffersBy;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.Relationship;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
@@ -89,9 +91,7 @@ public class BriefingBestBetAdvisor {
             Pick 1 — THE BEST OVERALL. The single best opportunity across all regions and
             events. This is "if you could go anywhere."
 
-            Pick 2 — THE BEST ALTERNATIVE. The next best region or event that is
-            meaningfully different from Pick 1 — a different day, different event type,
-            or different region. The user should always get two distinct options.
+            Pick 2 — ALSO GOOD. Selected using the tiered rule below.
 
             **Label them clearly:**
             - Pick 1 headline should reflect it's the best overall
@@ -198,6 +198,44 @@ public class BriefingBestBetAdvisor {
               Be human — tell the photographer to stay home, charge their batteries,
               maybe edit last weekend's shots. A bit of humour is fine.
 
+            **ALSO GOOD SELECTION RULE**
+
+            After selecting Pick 1 (Best Bet), select Pick 2 (Also Good) using this \
+            tiered rule:
+
+            TIER 1 — SAME-SLOT ALTERNATIVE
+            If another region on the SAME date and SAME event as Pick 1 has a \
+            claudeAverageRating that is:
+              - within 0.5 of Pick 1's rating, AND
+              - at least 3.5 absolute,
+            emit that region as Pick 2. Set relationship = "SAME_SLOT".
+            Use case: the user can't reach Pick 1's region and wants a backup \
+            for the same outing.
+
+            TIER 2 — DIFFERENT SLOT
+            If no same-slot region clears the Tier 1 threshold, look across ALL \
+            OTHER slots in the window (different date, different event, or both). \
+            Choose the single best opportunity from those slots. It must have:
+              - claudeAverageRating >= 3.5, AND
+              - meaningful differentiation from Pick 1 (not just a second-best \
+                region on a near-identical slot).
+            Emit it as Pick 2 with relationship = "DIFFERENT_SLOT" and differsBy \
+            listing which dimensions differ from Pick 1 (DATE, EVENT, REGION — \
+            any combination). \
+            Use case: Pick 1 is the headline, but there's another strong outing \
+            on a different day or a different part of the day worth knowing about.
+
+            In the Tier 2 headline/detail text, make the temporal distinction \
+            obvious. Phrase it so the reader knows immediately this is a different \
+            opportunity, not a backup for the same outing. Examples:
+              - "A second strong window later in the week"
+              - "Separate opportunity if skies hold"
+
+            NO PICK 2
+            If neither tier produces a candidate at or above the thresholds, do \
+            NOT emit a Pick 2. Return picks as a single-element array. An honest \
+            silence is better than a padded recommendation.
+
             Respond with a JSON object:
             {
               "picks": [
@@ -211,16 +249,24 @@ public class BriefingBestBetAdvisor {
                 },
                 {
                   "rank": 2,
-                  "headline": "One sentence, 15 words max — the closer/alternative option",
+                  "headline": "One sentence, 15 words max — what makes this a distinct alternative",
                   "detail": "2 sentences max, 40 words max. Key conditions and what makes it special.",
                   "event": "<value from validEvents>",
                   "region": "<value from validRegions>",
-                  "confidence": "high|medium|low"
+                  "confidence": "high|medium|low",
+                  "relationship": "SAME_SLOT|DIFFERENT_SLOT",
+                  "differsBy": ["DATE", "EVENT", "REGION"]
                 }
               ]
             }
 
-            If conditions only support one good pick, return a single item in the array.
+            Pick 2 rules:
+            - relationship is required on Pick 2. SAME_SLOT = Tier 1, DIFFERENT_SLOT = Tier 2.
+            - differsBy lists which dimensions differ from Pick 1. Always present when \
+              relationship = DIFFERENT_SLOT. Subset of ["DATE", "EVENT", "REGION"]. \
+              Empty array or omitted when relationship = SAME_SLOT.
+            - Do NOT include relationship or differsBy on Pick 1.
+            - If neither tier produces a strong candidate, return a single-element array.
             If everything is STANDDOWN, return a single pick with event and region as null.
             Return ONLY a JSON object — no preamble, no explanation, no code fences,
             no markdown. Your entire response must begin with { and end with }.
@@ -394,7 +440,8 @@ public class BriefingBestBetAdvisor {
                 }
                 return new BestBet(pick.rank(), pick.headline(), pick.detail(),
                         pick.event(), pick.region(), pick.confidence(), pick.nearestDriveMinutes(),
-                        dayName, "aurora", "after dark");
+                        dayName, "aurora", "after dark",
+                        pick.relationship(), pick.differsBy());
             }
             String[] parts = pick.event().split("_", 2);
             if (parts.length < 2) {
@@ -416,7 +463,8 @@ public class BriefingBestBetAdvisor {
 
             return new BestBet(pick.rank(), pick.headline(), pick.detail(),
                     pick.event(), pick.region(), pick.confidence(), pick.nearestDriveMinutes(),
-                    dayName, eventType, eventTime);
+                    dayName, eventType, eventTime,
+                    pick.relationship(), pick.differsBy());
         }).toList();
     }
 
@@ -476,7 +524,8 @@ public class BriefingBestBetAdvisor {
             BestBet p = valid.get(i);
             reranked.add(new BestBet(i + 1, p.headline(), p.detail(),
                     p.event(), p.region(), p.confidence(), p.nearestDriveMinutes(),
-                    p.dayName(), p.eventType(), p.eventTime()));
+                    p.dayName(), p.eventType(), p.eventTime(),
+                    p.relationship(), p.differsBy()));
         }
         if (valid.size() < picks.size()) {
             LOG.warn("Best bet validation: {}/{} picks passed", valid.size(), picks.size());
@@ -991,8 +1040,20 @@ public class BriefingBestBetAdvisor {
                         ? null : pick.path("region").asText(null);
                 Confidence confidence = Confidence.fromString(
                         pick.path("confidence").asText("medium"));
+                Relationship relationship = Relationship.fromString(
+                        pick.path("relationship").asText(null));
+                List<DiffersBy> differsBy = new ArrayList<>();
+                JsonNode differsByNode = pick.get("differsBy");
+                if (differsByNode != null && differsByNode.isArray()) {
+                    for (JsonNode d : differsByNode) {
+                        DiffersBy dim = DiffersBy.fromString(d.asText(null));
+                        if (dim != null) {
+                            differsBy.add(dim);
+                        }
+                    }
+                }
                 picks.add(new BestBet(rank, headline, detail, event, region, confidence,
-                        null, null, null, null));
+                        null, null, null, null, relationship, differsBy));
             }
             LOG.info("Best-bet advisor returned {} pick(s)", picks.size());
             return List.copyOf(picks);

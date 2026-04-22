@@ -689,6 +689,8 @@ BestBetBanner.propTypes = {
     dayName: PropTypes.string,
     eventType: PropTypes.string,
     eventTime: PropTypes.string,
+    relationship: PropTypes.oneOf(['SAME_SLOT', 'DIFFERENT_SLOT']),
+    differsBy: PropTypes.arrayOf(PropTypes.oneOf(['DATE', 'EVENT', 'REGION'])),
   })),
   todayStr: PropTypes.string.isRequired,
   tomorrowStr: PropTypes.string.isRequired,

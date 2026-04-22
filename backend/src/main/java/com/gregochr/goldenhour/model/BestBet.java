@@ -1,5 +1,9 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+import java.util.List;
+
 /**
  * A Claude-generated "best bet" photography recommendation from the daily briefing triage.
  *
@@ -23,6 +27,10 @@ package com.gregochr.goldenhour.model;
  *                                null for stay-home or aurora picks
  * @param eventTime               UK-local event time as HH:mm, e.g. {@code "18:48"};
  *                                null for stay-home or aurora picks
+ * @param relationship            how this pick relates to rank 1 — {@code SAME_SLOT} (tier 1)
+ *                                or {@code DIFFERENT_SLOT} (tier 2); null for rank 1
+ * @param differsBy               dimensions in which this pick differs from rank 1
+ *                                (subset of DATE, EVENT, REGION); null/empty for rank 1 or SAME_SLOT
  */
 public record BestBet(
         int rank,
@@ -34,5 +42,17 @@ public record BestBet(
         Integer nearestDriveMinutes,
         String dayName,
         String eventType,
-        String eventTime) {
+        String eventTime,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Relationship relationship,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<DiffersBy> differsBy) {
+
+    /**
+     * Convenience constructor without relationship/differsBy fields (backward compatible).
+     */
+    public BestBet(int rank, String headline, String detail, String event, String region,
+            Confidence confidence, Integer nearestDriveMinutes,
+            String dayName, String eventType, String eventTime) {
+        this(rank, headline, detail, event, region, confidence, nearestDriveMinutes,
+                dayName, eventType, eventTime, null, List.of());
+    }
 }
