@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -274,6 +275,26 @@ public class BriefingEvaluationService {
     public boolean hasEvaluation(String cacheKey) {
         CachedEvaluation cached = cache.get(cacheKey);
         return cached != null && !cached.results().isEmpty();
+    }
+
+    /**
+     * Returns whether a non-empty cached evaluation exists for the given cache key
+     * and was written within the specified freshness window.
+     *
+     * <p>Called by {@code ScheduledBatchEvaluationService} to decide whether an overnight
+     * batch should refresh a slot. Entries older than {@code maxAge} are treated as stale
+     * so the batch re-evaluates them with fresh weather data.
+     *
+     * @param cacheKey the cache key in the format "regionName|date|targetType"
+     * @param maxAge   maximum age for a cache entry to be considered fresh
+     * @return true if the cache has at least one result for this key and it is within maxAge
+     */
+    public boolean hasFreshEvaluation(String cacheKey, Duration maxAge) {
+        CachedEvaluation cached = cache.get(cacheKey);
+        if (cached == null || cached.results().isEmpty()) {
+            return false;
+        }
+        return cached.evaluatedAt().isAfter(Instant.now().minus(maxAge));
     }
 
     /**
