@@ -261,6 +261,66 @@ public class OpenMeteoService {
     }
 
     /**
+     * Resilient variant of {@link #prefetchWeatherBatch} for use by the overnight batch.
+     *
+     * <p>Uses briefing-grade chunk retry and isolation so that a single timed-out chunk
+     * does not abort the entire pre-fetch. Returns partial results — callers must handle
+     * locations missing from the returned map (typically by skipping them during triage).
+     *
+     * @param coords list of unique [lat, lon] pairs
+     * @return map from coordinate key ("lat,lon") to the paired responses; may be smaller
+     *         than the input if some chunks failed
+     */
+    public Map<String, WeatherExtractionResult> prefetchWeatherBatchResilient(
+            List<double[]> coords) {
+        if (coords.isEmpty()) {
+            LOG.info("Open-Meteo resilient batch prefetch: 0 locations — skipping");
+            return Map.of();
+        }
+        LOG.info("Open-Meteo resilient batch prefetch: {} unique locations", coords.size());
+        long startMs = System.currentTimeMillis();
+
+        List<OpenMeteoForecastResponse> forecasts;
+        List<OpenMeteoAirQualityResponse> airQualities;
+
+        try {
+            forecasts = openMeteoClient.fetchForecastBriefingBatch(coords);
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.error("Open-Meteo resilient batch: forecast call failed entirely ({}ms): {}",
+                    durationMs, e.getMessage());
+            return Map.of();
+        }
+
+        try {
+            airQualities = openMeteoClient.fetchAirQualityBatchResilient(coords);
+        } catch (Exception e) {
+            LOG.warn("Open-Meteo resilient batch: air quality call failed — continuing "
+                    + "without AQ data: {}", e.getMessage());
+            airQualities = new ArrayList<>(java.util.Collections.nCopies(coords.size(), null));
+        }
+
+        Map<String, WeatherExtractionResult> cache = new LinkedHashMap<>();
+        int nullCount = 0;
+        for (int i = 0; i < coords.size(); i++) {
+            if (forecasts.get(i) == null) {
+                nullCount++;
+                continue;
+            }
+            String key = coordKey(coords.get(i)[0], coords.get(i)[1]);
+            cache.put(key, new WeatherExtractionResult(null, forecasts.get(i),
+                    airQualities.get(i)));
+        }
+
+        long durationMs = System.currentTimeMillis() - startMs;
+        LOG.info("Open-Meteo resilient batch prefetch: {}/{} locations succeeded in {}ms "
+                        + "({} missing due to chunk failure)",
+                cache.size(), coords.size(), durationMs, nullCount);
+
+        return cache;
+    }
+
+    /**
      * Extracts atmospheric data from pre-fetched responses (no API call).
      *
      * @param request        the forecast request (location, date, target type)

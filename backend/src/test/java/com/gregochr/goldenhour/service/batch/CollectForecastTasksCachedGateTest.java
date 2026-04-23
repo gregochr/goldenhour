@@ -87,7 +87,7 @@ class CollectForecastTasksCachedGateTest {
                 noaaSwpcClient, weatherTriageService, claudeAuroraInterpreter,
                 auroraOrchestrator, locationRepository, auroraProperties,
                 dynamicSchedulerService, jobRunService, openMeteoService, solarService,
-                18);  // 18-hour freshness threshold
+                18, 0.5);  // 18-hour freshness threshold, 50% min prefetch ratio
     }
 
     /**

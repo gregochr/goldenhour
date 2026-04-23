@@ -111,6 +111,9 @@ public class ScheduledBatchEvaluationService {
     /** Max age (hours) for a cached evaluation to be considered fresh by the overnight batch. */
     private final int cachedGateFreshnessHours;
 
+    /** Minimum ratio of successful weather pre-fetches to proceed with batch submission. */
+    private final double minPrefetchSuccessRatio;
+
     /** Prevents concurrent forecast batch submissions. */
     private final AtomicBoolean forecastBatchRunning = new AtomicBoolean(false);
 
@@ -141,6 +144,7 @@ public class ScheduledBatchEvaluationService {
      * @param openMeteoService            Open-Meteo service for bulk weather pre-fetch
      * @param solarService                solar calculation service for azimuth and event times
      * @param cachedGateFreshnessHours    max age (hours) for a cached evaluation to count as fresh
+     * @param minPrefetchSuccessRatio    minimum ratio of successful pre-fetches to proceed
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -163,7 +167,9 @@ public class ScheduledBatchEvaluationService {
             OpenMeteoService openMeteoService,
             SolarService solarService,
             @Value("${photocast.batch.cached-gate-freshness-hours:18}")
-            int cachedGateFreshnessHours) {
+            int cachedGateFreshnessHours,
+            @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
+            double minPrefetchSuccessRatio) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationService = locationService;
@@ -185,7 +191,9 @@ public class ScheduledBatchEvaluationService {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.cachedGateFreshnessHours = cachedGateFreshnessHours;
-        LOG.info("Batch cached-gate freshness threshold: {} hours", cachedGateFreshnessHours);
+        this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
+        LOG.info("Batch config: cached-gate freshness={}h, min-prefetch-success-ratio={}",
+                cachedGateFreshnessHours, minPrefetchSuccessRatio);
     }
 
     /**
@@ -319,13 +327,28 @@ public class ScheduledBatchEvaluationService {
 
         LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather", tasks.size());
 
-        // Bulk weather pre-fetch: 2 chunked API calls instead of N individual calls
-        Map<String, WeatherExtractionResult> prefetchedWeather;
-        try {
-            prefetchedWeather = prefetchBatchWeather(tasks);
-        } catch (Exception e) {
-            LOG.error("Forecast batch: weather pre-fetch failed — aborting: {}", e.getMessage(), e);
+        // Bulk weather pre-fetch: resilient chunked calls with per-chunk retry/isolation
+        int uniqueLocationCount = countUniqueLocations(tasks);
+        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchBatchWeather(tasks);
+        double successRatio = uniqueLocationCount > 0
+                ? (double) prefetchedWeather.size() / uniqueLocationCount : 0.0;
+        if (prefetchedWeather.isEmpty()) {
+            LOG.error("Forecast batch: weather pre-fetch returned 0/{} locations "
+                    + "— aborting (likely Open-Meteo outage)", uniqueLocationCount);
             return;
+        }
+        if (successRatio < minPrefetchSuccessRatio) {
+            LOG.error("Forecast batch: weather pre-fetch too degraded — {}/{} locations "
+                            + "(ratio {}, threshold {}) — aborting (likely Open-Meteo outage)",
+                    prefetchedWeather.size(), uniqueLocationCount,
+                    String.format("%.2f", successRatio),
+                    String.format("%.2f", minPrefetchSuccessRatio));
+            return;
+        }
+        if (prefetchedWeather.size() < uniqueLocationCount) {
+            LOG.warn("Forecast batch: weather pre-fetch partial — {}/{} locations fetched, "
+                            + "continuing with available data",
+                    prefetchedWeather.size(), uniqueLocationCount);
         }
 
         // Bulk cloud point pre-fetch for directional cloud and approach sampling
@@ -537,11 +560,9 @@ public class ScheduledBatchEvaluationService {
             return null;
         }
 
-        Map<String, WeatherExtractionResult> prefetchedWeather;
-        try {
-            prefetchedWeather = prefetchBatchWeather(tasks);
-        } catch (Exception e) {
-            LOG.error("[BATCH] Weather pre-fetch failed: {}", e.getMessage(), e);
+        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchBatchWeather(tasks);
+        if (prefetchedWeather.isEmpty()) {
+            LOG.error("[BATCH] Weather pre-fetch returned zero results — aborting");
             return null;
         }
 
@@ -801,12 +822,25 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
+     * Counts the number of unique coordinate pairs in the task list.
+     */
+    private int countUniqueLocations(List<ForecastTask> tasks) {
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (ForecastTask task : tasks) {
+            seen.add(OpenMeteoService.coordKey(task.location().getLat(),
+                    task.location().getLon()));
+        }
+        return seen.size();
+    }
+
+    /**
      * Bulk-fetches weather (forecast + air quality) for all unique location coordinates
-     * in the task list. Uses the same chunked approach as {@code ForecastCommandExecutor},
-     * with 3-second inter-chunk delays to stay within Open-Meteo's rate limit.
+     * in the task list. Uses resilient chunked calls with per-chunk retry and isolation.
+     *
+     * <p>Returns partial results if some chunks fail — callers must handle missing entries.
      *
      * @param tasks candidate tasks collected from the briefing
-     * @return map from coordinate key to pre-fetched weather extraction result
+     * @return map from coordinate key to pre-fetched weather extraction result (may be partial)
      */
     private Map<String, WeatherExtractionResult> prefetchBatchWeather(List<ForecastTask> tasks) {
         Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
@@ -818,7 +852,10 @@ public class ScheduledBatchEvaluationService {
         }
         LOG.info("Forecast batch: weather pre-fetch for {} unique location(s) (from {} tasks)",
                 uniqueCoords.size(), tasks.size());
-        return openMeteoService.prefetchWeatherBatch(new ArrayList<>(uniqueCoords.values()), null);
+        Map<String, WeatherExtractionResult> result =
+                openMeteoService.prefetchWeatherBatchResilient(
+                        new ArrayList<>(uniqueCoords.values()));
+        return result != null ? result : Map.of();
     }
 
     /**

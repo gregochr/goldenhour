@@ -27,8 +27,10 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
+import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -146,7 +148,20 @@ class ScheduledBatchEvaluationServiceTest {
                 promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
-                jobRunService, openMeteoService, solarService, 18);
+                jobRunService, openMeteoService, solarService, 18, 0.5);
+    }
+
+    /**
+     * Stubs weather pre-fetch to return a dummy result so the batch doesn't abort
+     * before reaching triage. Call this in any test that needs to exercise the
+     * triage/submission path. Uses a fixed coord key that matches {@code buildLocation()}.
+     */
+    private void stubWeatherPrefetch() {
+        String coordKey = OpenMeteoService.coordKey(54.7753, -1.5849);
+        WeatherExtractionResult dummy = new WeatherExtractionResult(
+                null, new OpenMeteoForecastResponse(), new OpenMeteoAirQualityResponse());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(coordKey, dummy));
     }
 
     private void stubBatchService() {
@@ -254,6 +269,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -301,6 +317,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -341,6 +358,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -393,6 +411,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         ForecastPreEvalResult triaged = new ForecastPreEvalResult(
@@ -467,6 +486,13 @@ class ScheduledBatchEvaluationServiceTest {
         RegionEntity yorkshireRegionEntity = new RegionEntity();
         yorkshireRegionEntity.setName("Yorkshire");
         yorkshireLoc.setRegion(yorkshireRegionEntity);
+        String yorkshireCoordKey = OpenMeteoService.coordKey(
+                yorkshireLoc.getLat(), yorkshireLoc.getLon());
+        WeatherExtractionResult dummyWeather = new WeatherExtractionResult(
+                null, new OpenMeteoForecastResponse(),
+                new OpenMeteoAirQualityResponse());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(yorkshireCoordKey, dummyWeather));
         when(locationService.findAllEnabled()).thenReturn(List.of(yorkshireLoc));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -506,6 +532,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK"); // id=42, region="North East"
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -598,6 +625,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(),
@@ -622,6 +650,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         location.setGridLat(54.7753);
         location.setGridLng(-1.5849);
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         OpenMeteoForecastResponse forecastResponse = mock(OpenMeteoForecastResponse.class);
@@ -662,6 +691,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         location.setGridLat(54.7753);
         location.setGridLng(-1.5849);
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         OpenMeteoForecastResponse forecastResponse = mock(OpenMeteoForecastResponse.class);
@@ -711,6 +741,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         LocationEntity location = buildLocation("Durham UK");
         // No gridLat/gridLng set — hasGridCell() returns false
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -742,6 +773,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity loc2 = buildLocation("Sunderland");
         loc2.setGridLat(54.7753);  // same grid cell
         loc2.setGridLng(-1.5849);
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
 
         OpenMeteoForecastResponse forecastResponse = mock(OpenMeteoForecastResponse.class);
@@ -875,6 +907,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         LocationEntity location = buildLocation("Durham UK");
         location.setTideType(Set.of(TideType.HIGH));
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         TideSnapshot tide = new TideSnapshot(
@@ -923,6 +956,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -963,6 +997,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         LocationEntity location = buildLocation("Durham UK");
         location.setTideType(Set.of(TideType.HIGH));
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         TideSnapshot tide = new TideSnapshot(
@@ -1057,6 +1092,17 @@ class ScheduledBatchEvaluationServiceTest {
         coastalLoc.setRegion(regionEntity);
         coastalLoc.setTideType(Set.of(TideType.HIGH));
 
+        String inlandCoordKey = OpenMeteoService.coordKey(
+                inlandLoc.getLat(), inlandLoc.getLon());
+        String coastalCoordKey = OpenMeteoService.coordKey(
+                coastalLoc.getLat(), coastalLoc.getLon());
+        WeatherExtractionResult dummyWeather = new WeatherExtractionResult(
+                null, new OpenMeteoForecastResponse(),
+                new OpenMeteoAirQualityResponse());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(
+                        inlandCoordKey, dummyWeather,
+                        coastalCoordKey, dummyWeather));
         when(locationService.findAllEnabled()).thenReturn(List.of(inlandLoc, coastalLoc));
 
         // Inland atmospheric data — no tide
@@ -1157,6 +1203,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         LocationEntity location = buildLocation("Durham UK");
         location.setTideType(Set.of(TideType.HIGH));
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         TideSnapshot tide = new TideSnapshot(
@@ -1209,6 +1256,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         when(atmosphericData.surge()).thenReturn(null);
@@ -1245,6 +1293,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
         when(atmosphericData.surge()).thenReturn(null);
@@ -1332,10 +1381,15 @@ class ScheduledBatchEvaluationServiceTest {
         loc.setGridLng(-1.5849);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
 
-        when(openMeteoService.prefetchWeatherBatch(any(), eq(null))).thenReturn(Map.of());
+        // Return a single result for the one unique coord so the batch doesn't abort
+        String coordKey = OpenMeteoService.coordKey(54.7753, -1.5849);
+        WeatherExtractionResult weatherResult = new WeatherExtractionResult(
+                null, new OpenMeteoForecastResponse(), new OpenMeteoAirQualityResponse());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(coordKey, weatherResult));
         when(openMeteoService.computeDirectionalCloudPoints(
                 eq(54.7753), eq(-1.5849), anyInt())).thenReturn(List.of());
-        when(openMeteoService.prefetchCloudBatch(any(), eq(null)))
+        when(openMeteoService.prefetchCloudBatch(any(), any()))
                 .thenReturn(mock(com.gregochr.goldenhour.model.CloudPointCache.class));
 
         service.submitForecastBatch();
@@ -1343,7 +1397,7 @@ class ScheduledBatchEvaluationServiceTest {
         // Exactly one coord passed to the bulk fetch, not two
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> coordCaptor = ArgumentCaptor.forClass(List.class);
-        verify(openMeteoService).prefetchWeatherBatch(coordCaptor.capture(), eq(null));
+        verify(openMeteoService).prefetchWeatherBatchResilient(coordCaptor.capture());
         assertThat(coordCaptor.getValue()).hasSize(1);
         assertThat(coordCaptor.getValue().get(0)[0]).isEqualTo(54.7753);
         assertThat(coordCaptor.getValue().get(0)[1]).isEqualTo(-1.5849);
@@ -1374,6 +1428,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -1430,6 +1485,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         LocationEntity location = buildLocation("Durham UK");
         location.setTideType(Set.of(TideType.HIGH));
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         TideSnapshot tide = new TideSnapshot(
@@ -1485,6 +1541,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -1579,6 +1636,17 @@ class ScheduledBatchEvaluationServiceTest {
         region.setName("North East");
         sunderlandLoc.setRegion(region);
         sunderlandLoc.setTideType(Set.of());
+        String durhamCoordKey = OpenMeteoService.coordKey(
+                durhamLoc.getLat(), durhamLoc.getLon());
+        String sunderlandCoordKey = OpenMeteoService.coordKey(
+                sunderlandLoc.getLat(), sunderlandLoc.getLon());
+        WeatherExtractionResult dummyWeather = new WeatherExtractionResult(
+                null, new OpenMeteoForecastResponse(),
+                new OpenMeteoAirQualityResponse());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(
+                        durhamCoordKey, dummyWeather,
+                        sunderlandCoordKey, dummyWeather));
         when(locationService.findAllEnabled()).thenReturn(List.of(durhamLoc, sunderlandLoc));
 
         // T+0 near-term task — null forecastResponse so stability defaults to 1
@@ -1689,6 +1757,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.HAIKU);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -1752,6 +1821,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         location.setGridLat(54.7753);
         location.setGridLng(-1.5849);
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -1826,6 +1896,7 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         location.setGridLat(54.7753);
         location.setGridLng(-1.5849);
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);
@@ -1887,6 +1958,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         LocationEntity location = buildLocation("Durham UK");
         location.setTideType(Set.of(TideType.HIGH));
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         TideSnapshot tide = new TideSnapshot(
@@ -1942,6 +2014,7 @@ class ScheduledBatchEvaluationServiceTest {
                 .thenReturn(EvaluationModel.HAIKU);
 
         LocationEntity location = buildLocation("Durham UK");
+        stubWeatherPrefetch();
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
 
         AtmosphericData atmosphericData = mock(AtmosphericData.class);

@@ -125,7 +125,8 @@ photocast:
     default-role: PRO_USER   # role assigned to new self-registered users
     enabled: true
   batch:
-    cached-gate-freshness-hours: 18  # overnight batch refreshes entries older than this
+    cached-gate-freshness-hours: 18     # overnight batch refreshes entries older than this
+    min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
 
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list

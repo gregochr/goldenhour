@@ -444,6 +444,119 @@ public class OpenMeteoClient {
         return results;
     }
 
+    /**
+     * Fetches air quality data for multiple points using chunk-level retry and isolation.
+     *
+     * <p>Like {@link #fetchForecastBriefingBatch}, each chunk is retried independently on
+     * transient failures and a single failed chunk does not discard results from successful
+     * chunks. Failed chunks leave {@code null} entries at the corresponding positions.
+     *
+     * @param coords list of [lat, lon] pairs
+     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
+     */
+    @Retry(name = "open-meteo-briefing")
+    @CircuitBreaker(name = "open-meteo-briefing")
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoAirQualityResponse> fetchAirQualityBatchResilient(List<double[]> coords) {
+        if (coords.size() <= BATCH_COORD_LIMIT) {
+            return fetchAirQualityChunkWithRetry(coords, 1, 1, new int[]{0});
+        }
+
+        int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
+        int succeededChunks = 0;
+        int failedChunks = 0;
+        int totalRetries = 0;
+        boolean hitRateLimit = false;
+
+        List<OpenMeteoAirQualityResponse> results =
+                new ArrayList<>(Collections.nCopies(coords.size(), null));
+
+        for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            int chunkIndex = i / BATCH_COORD_LIMIT + 1;
+
+            if (i > 0) {
+                long delay = hitRateLimit ? rateLimitBackoffMs : interChunkDelayMs;
+                sleepQuietly(delay);
+            }
+
+            int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
+            List<double[]> chunk = coords.subList(i, end);
+            try {
+                int[] retries = {0};
+                List<OpenMeteoAirQualityResponse> chunkResults =
+                        fetchAirQualityChunkWithRetry(chunk, chunkIndex, totalChunks, retries);
+                for (int j = 0; j < chunkResults.size(); j++) {
+                    results.set(i + j, chunkResults.get(j));
+                }
+                succeededChunks++;
+                totalRetries += retries[0];
+                hitRateLimit = false;
+            } catch (Exception e) {
+                failedChunks++;
+                String reason = e.getMessage() != null ? e.getMessage()
+                        : e.getClass().getSimpleName();
+                LOG.warn("Open-Meteo air quality batch chunk {}/{} failed ({} coords): {}",
+                        chunkIndex, totalChunks, chunk.size(), reason);
+                if (reason.contains("429")) {
+                    hitRateLimit = true;
+                    LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
+                            rateLimitBackoffMs / 1000);
+                }
+            }
+        }
+
+        long populated = results.stream().filter(r -> r != null).count();
+        LOG.info("Open-Meteo air quality batch: {}/{} chunks succeeded ({} retries used), "
+                        + "{}/{} responses populated",
+                succeededChunks, totalChunks, totalRetries, populated, coords.size());
+
+        return results;
+    }
+
+    /**
+     * Attempts to fetch a single air quality chunk, retrying up to
+     * {@value #CHUNK_MAX_RETRIES} times on transient failures.
+     */
+    private List<OpenMeteoAirQualityResponse> fetchAirQualityChunkWithRetry(
+            List<double[]> chunk, int chunkIndex, int totalChunks, int[] retryCounter) {
+
+        Exception lastFailure = null;
+        for (int attempt = 0; attempt <= CHUNK_MAX_RETRIES; attempt++) {
+            try {
+                List<OpenMeteoAirQualityResponse> result = fetchAirQualityChunk(chunk);
+                if (attempt > 0) {
+                    LOG.info("Open-Meteo air quality chunk {}/{} succeeded on retry attempt {}",
+                            chunkIndex, totalChunks, attempt + 1);
+                }
+                return result;
+            } catch (Exception e) {
+                lastFailure = e;
+                String reason = e.getMessage() != null ? e.getMessage()
+                        : e.getClass().getSimpleName();
+
+                if (reason.contains("429")) {
+                    throw e;
+                }
+                if (!isTransientFailure(e)) {
+                    throw e;
+                }
+                if (attempt == CHUNK_MAX_RETRIES) {
+                    break;
+                }
+
+                retryCounter[0]++;
+                long backoffMs = chunkRetryBackoffMs * (1L << attempt);
+                LOG.warn("Open-Meteo air quality chunk {}/{} attempt {} failed ({}) "
+                                + "— retrying in {}ms",
+                        chunkIndex, totalChunks, attempt + 1, reason, backoffMs);
+                sleepQuietly(backoffMs);
+            }
+        }
+        throw new RuntimeException(
+                "Air quality chunk " + chunkIndex + "/" + totalChunks + " failed after "
+                + (CHUNK_MAX_RETRIES + 1) + " attempts", lastFailure);
+    }
+
     private List<OpenMeteoAirQualityResponse> fetchAirQualityChunk(List<double[]> coords) {
         String latitudes = coords.stream()
                 .map(c -> String.valueOf(c[0])).collect(Collectors.joining(","));
