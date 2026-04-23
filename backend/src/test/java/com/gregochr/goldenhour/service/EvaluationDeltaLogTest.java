@@ -156,5 +156,86 @@ class EvaluationDeltaLogTest {
             // Verify the cache was updated despite the logging failure
             assertThat(service.hasEvaluation(cacheKey)).isTrue();
         }
+
+        @Test
+        @DisplayName("Rating delta = 0 when old and new ratings are equal — delta log still written")
+        void zeroDelta_stillWritten() throws Exception {
+            String cacheKey = "North East|2026-04-24|SUNRISE";
+            Instant oldTime = Instant.now().minus(Duration.ofHours(6));
+            injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 3));
+
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
+                    .thenReturn(Duration.ofHours(4));
+
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 3)));
+
+            ArgumentCaptor<EvaluationDeltaLogEntity> captor =
+                    ArgumentCaptor.forClass(EvaluationDeltaLogEntity.class);
+            verify(deltaLogRepository).save(captor.capture());
+
+            EvaluationDeltaLogEntity delta = captor.getValue();
+            assertThat(delta.getCacheKey()).isEqualTo(cacheKey);
+            assertThat(delta.getLocationName()).isEqualTo("Bamburgh");
+            assertThat(delta.getOldRating()).isEqualTo(3);
+            assertThat(delta.getNewRating()).isEqualTo(3);
+            assertThat(delta.getRatingDelta().intValue()).isEqualTo(0);
+        }
+
+        @Test
+        @DisplayName("Rating decrease (old=4, new=2) — ratingDelta is absolute value 2")
+        void ratingDecrease_absoluteValueDelta() throws Exception {
+            String cacheKey = "North East|2026-04-24|SUNRISE";
+            Instant oldTime = Instant.now().minus(Duration.ofHours(8));
+            injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 4));
+
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
+                    .thenReturn(Duration.ofHours(4));
+
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 2)));
+
+            ArgumentCaptor<EvaluationDeltaLogEntity> captor =
+                    ArgumentCaptor.forClass(EvaluationDeltaLogEntity.class);
+            verify(deltaLogRepository).save(captor.capture());
+
+            EvaluationDeltaLogEntity delta = captor.getValue();
+            assertThat(delta.getCacheKey()).isEqualTo(cacheKey);
+            assertThat(delta.getLocationName()).isEqualTo("Bamburgh");
+            assertThat(delta.getOldRating()).isEqualTo(4);
+            assertThat(delta.getNewRating()).isEqualTo(2);
+            assertThat(delta.getRatingDelta().intValue()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("SETTLED stability level — thresholdUsedHours matches SETTLED config value")
+        void settledStability_thresholdUsedHoursMatchesConfig() throws Exception {
+            String cacheKey = "North East|2026-04-24|SUNRISE";
+            Instant oldTime = Instant.now().minus(Duration.ofHours(10));
+            injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 3));
+
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(
+                    new StabilitySummaryResponse(Instant.now(), 1,
+                            Map.of(ForecastStability.SETTLED, 1L),
+                            List.of(new StabilitySummaryResponse.GridCellDetail(
+                                    "55.60,-1.71", 55.6, -1.71,
+                                    ForecastStability.SETTLED, "high pressure", 3,
+                                    List.of("Bamburgh")))));
+            when(freshnessResolver.maxAgeFor(ForecastStability.SETTLED))
+                    .thenReturn(Duration.ofHours(24));
+
+            service.writeFromBatch(cacheKey, List.of(result("Bamburgh", 5)));
+
+            ArgumentCaptor<EvaluationDeltaLogEntity> captor =
+                    ArgumentCaptor.forClass(EvaluationDeltaLogEntity.class);
+            verify(deltaLogRepository).save(captor.capture());
+
+            EvaluationDeltaLogEntity delta = captor.getValue();
+            assertThat(delta.getStabilityLevel()).isEqualTo("SETTLED");
+            assertThat(delta.getThresholdUsedHours().intValue()).isEqualTo(24);
+            assertThat(delta.getOldRating()).isEqualTo(3);
+            assertThat(delta.getNewRating()).isEqualTo(5);
+            assertThat(delta.getRatingDelta().intValue()).isEqualTo(2);
+        }
     }
 }

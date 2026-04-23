@@ -42,12 +42,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -2201,6 +2203,170 @@ class ForecastCommandExecutorTest {
                     .thenThrow(new RuntimeException("DB connection lost"));
 
             assertThat(executor.getLatestStabilitySummary()).isNull();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Stability snapshot persistence — WRITE path
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Stability snapshot write path")
+    class StabilitySnapshotWritePath {
+
+        @Test
+        @DisplayName("persistSnapshot saves one entity per grid cell with correct fields")
+        void persistSnapshot_savesEntityPerGridCellWithCorrectFields() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            LocationEntity loc = durhamWithGrid();
+
+            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), anyBoolean(), any(),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                    .thenAnswer(inv -> {
+                        LocalDate date = inv.getArgument(1);
+                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                                LocalDate.now(ZoneOffset.UTC), date);
+                        return new ForecastPreEvalResult(false, null, null,
+                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                    });
+            stubDefaultEval();
+
+            when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                    .thenReturn(new GridCellStabilityResult(
+                            loc.gridCellKey(), 54.75, -1.625,
+                            ForecastStability.SETTLED, "High pressure", 3));
+
+            // New entity — no existing row in DB
+            when(stabilitySnapshotRepository.findByGridCellKey(loc.gridCellKey()))
+                    .thenReturn(Optional.empty());
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today, today.plusDays(1)),
+                    List.of(loc), haikuStrategy, false);
+
+            executor.execute(cmd);
+
+            ArgumentCaptor<StabilitySnapshotEntity> captor =
+                    ArgumentCaptor.forClass(StabilitySnapshotEntity.class);
+            verify(stabilitySnapshotRepository).save(captor.capture());
+
+            StabilitySnapshotEntity saved = captor.getValue();
+            assertThat(saved.getGridCellKey()).isEqualTo(loc.gridCellKey());
+            assertThat(saved.getStabilityLevel()).isEqualTo(ForecastStability.SETTLED);
+            assertThat(saved.getGridLat()).isEqualTo(54.75);
+            assertThat(saved.getGridLng()).isEqualTo(-1.625);
+            assertThat(saved.getReason()).isEqualTo("High pressure");
+            assertThat(saved.getLocationNames()).isEqualTo("Durham UK");
+            assertThat(saved.getClassifiedAt()).isNotNull();
+            assertThat(saved.getUpdatedAt()).isNotNull();
+            assertThat(saved.getEvaluationWindowDays()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("persistSnapshot updates existing entity rather than creating new")
+        void persistSnapshot_updatesExistingEntity() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            LocationEntity loc = durhamWithGrid();
+
+            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), anyBoolean(), any(),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                    .thenAnswer(inv -> {
+                        LocalDate date = inv.getArgument(1);
+                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                                LocalDate.now(ZoneOffset.UTC), date);
+                        return new ForecastPreEvalResult(false, null, null,
+                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                    });
+            stubDefaultEval();
+
+            when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                    .thenReturn(new GridCellStabilityResult(
+                            loc.gridCellKey(), 54.75, -1.625,
+                            ForecastStability.TRANSITIONAL, "Frontal passage", 1));
+
+            // Existing entity in DB with old data
+            StabilitySnapshotEntity existing = new StabilitySnapshotEntity();
+            existing.setId(42L);
+            existing.setGridCellKey(loc.gridCellKey());
+            existing.setStabilityLevel(ForecastStability.SETTLED);
+            existing.setReason("Old reason");
+            when(stabilitySnapshotRepository.findByGridCellKey(loc.gridCellKey()))
+                    .thenReturn(Optional.of(existing));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today, today.plusDays(1)),
+                    List.of(loc), haikuStrategy, false);
+
+            executor.execute(cmd);
+
+            ArgumentCaptor<StabilitySnapshotEntity> captor =
+                    ArgumentCaptor.forClass(StabilitySnapshotEntity.class);
+            verify(stabilitySnapshotRepository).save(captor.capture());
+
+            StabilitySnapshotEntity saved = captor.getValue();
+            // Should reuse the existing entity (same id) with updated fields
+            assertThat(saved.getId()).isEqualTo(42L);
+            assertThat(saved.getStabilityLevel()).isEqualTo(ForecastStability.TRANSITIONAL);
+            assertThat(saved.getReason()).isEqualTo("Frontal passage");
+            assertThat(saved.getEvaluationWindowDays()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("persistSnapshot failure does not break the forecast run")
+        void persistSnapshot_failureDoesNotBreakRun() {
+            stubExecuteDefaults();
+            stubSolarNotPast();
+            LocationEntity loc = durhamWithGrid();
+
+            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
+            when(forecastService.fetchWeatherAndTriage(
+                    any(), any(), any(), any(), any(), anyBoolean(), any(),
+                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
+                    .thenAnswer(inv -> {
+                        LocalDate date = inv.getArgument(1);
+                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
+                                LocalDate.now(ZoneOffset.UTC), date);
+                        return new ForecastPreEvalResult(false, null, null,
+                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
+                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
+                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
+                    });
+            stubDefaultEval();
+
+            when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                    .thenReturn(new GridCellStabilityResult(
+                            loc.gridCellKey(), 54.75, -1.625,
+                            ForecastStability.SETTLED, "High pressure", 3));
+
+            when(stabilitySnapshotRepository.findByGridCellKey(loc.gridCellKey()))
+                    .thenReturn(Optional.empty());
+            when(stabilitySnapshotRepository.save(any()))
+                    .thenThrow(new RuntimeException("DB write failure"));
+
+            LocalDate today = LocalDate.now(ZoneOffset.UTC);
+            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
+                    List.of(today, today.plusDays(1)),
+                    List.of(loc), haikuStrategy, false);
+
+            // Should not throw — persist failure is non-fatal
+            executor.execute(cmd);
+
+            // Evaluations should still complete despite persist failure
+            verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
+                    .evaluateAndPersist(any(ForecastPreEvalResult.class), eq(stubJobRun));
+            verify(jobRunService).completeRun(eq(stubJobRun), anyInt(), anyInt(), any());
         }
     }
 }

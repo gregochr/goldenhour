@@ -847,6 +847,216 @@ class JobRunServiceTest {
     }
 
     @Nested
+    @DisplayName("logBatchResult()")
+    class LogBatchResult {
+
+        @Test
+        @DisplayName("records all fields correctly for a successful batch result with token usage")
+        void logBatchResult_success_withTokens_recordsAllFields() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            TokenUsage usage = new TokenUsage(500, 120, 300, 80);
+            when(costCalculator.calculateCostMicroDollars(EvaluationModel.HAIKU, usage, true))
+                    .thenReturn(2200L);
+
+            jobRunService.logBatchResult(
+                    42L, "msgbatch_abc", "loc1_2026-04-20_SUNRISE",
+                    true, "SUCCESS",
+                    null, null,
+                    EvaluationModel.HAIKU, usage,
+                    LocalDate.of(2026, 4, 20), TargetType.SUNRISE);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getJobRunId()).isEqualTo(42L);
+            assertThat(logged.getService()).isEqualTo(ServiceName.ANTHROPIC);
+            assertThat(logged.getIsBatch()).isTrue();
+            assertThat(logged.getSucceeded()).isTrue();
+            assertThat(logged.getCustomId()).isEqualTo("loc1_2026-04-20_SUNRISE");
+            assertThat(logged.getBatchId()).isEqualTo("msgbatch_abc");
+            assertThat(logged.getErrorType()).isNull();
+            assertThat(logged.getErrorMessage()).isNull();
+            assertThat(logged.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
+            assertThat(logged.getTargetDate()).isEqualTo(LocalDate.of(2026, 4, 20));
+            assertThat(logged.getTargetType()).isEqualTo(TargetType.SUNRISE);
+            assertThat(logged.getInputTokens()).isEqualTo(500L);
+            assertThat(logged.getOutputTokens()).isEqualTo(120L);
+            assertThat(logged.getCacheCreationInputTokens()).isEqualTo(300L);
+            assertThat(logged.getCacheReadInputTokens()).isEqualTo(80L);
+            assertThat(logged.getCostMicroDollars()).isEqualTo(2200L);
+        }
+
+        @Test
+        @DisplayName("records error fields correctly for a failed batch result")
+        void logBatchResult_failed_recordsErrorFields() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.logBatchResult(
+                    10L, "msgbatch_err", "loc2_2026-04-21_SUNSET",
+                    false, "ERRORED",
+                    "overloaded_error", "The server is overloaded",
+                    EvaluationModel.SONNET, null,
+                    LocalDate.of(2026, 4, 21), TargetType.SUNSET);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getSucceeded()).isFalse();
+            assertThat(logged.getErrorType()).isEqualTo("overloaded_error");
+            assertThat(logged.getErrorMessage()).isEqualTo("The server is overloaded");
+            assertThat(logged.getCustomId()).isEqualTo("loc2_2026-04-21_SUNSET");
+            assertThat(logged.getBatchId()).isEqualTo("msgbatch_err");
+        }
+
+        @Test
+        @DisplayName("sets all token fields to null and costMicroDollars to 0 when tokenUsage is null")
+        void logBatchResult_nullTokenUsage_tokensNullAndCostZero() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.logBatchResult(
+                    5L, "msgbatch_x", "loc3_2026-04-22_SUNRISE",
+                    false, "EXPIRED",
+                    null, null,
+                    EvaluationModel.OPUS, null,
+                    LocalDate.of(2026, 4, 22), TargetType.SUNRISE);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getInputTokens()).isNull();
+            assertThat(logged.getOutputTokens()).isNull();
+            assertThat(logged.getCacheCreationInputTokens()).isNull();
+            assertThat(logged.getCacheReadInputTokens()).isNull();
+            assertThat(logged.getCostMicroDollars()).isEqualTo(0L);
+        }
+
+        @Test
+        @DisplayName("does not call costCalculator when tokenUsage is null")
+        void logBatchResult_nullTokenUsage_doesNotCallCostCalculator() {
+            when(apiCallLogRepository.save(any(ApiCallLogEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.logBatchResult(
+                    5L, "msgbatch_y", "loc4",
+                    false, "CANCELED",
+                    null, null,
+                    EvaluationModel.HAIKU, null,
+                    null, null);
+
+            verifyNoInteractions(costCalculator);
+        }
+
+        @Test
+        @DisplayName("truncates error message at 2000 characters")
+        void logBatchResult_longErrorMessage_truncatedAt2000() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            String longError = "e".repeat(2500);
+
+            jobRunService.logBatchResult(
+                    1L, "msgbatch_trunc", "loc5",
+                    false, "ERRORED",
+                    "server_error", longError,
+                    null, null,
+                    null, null);
+
+            assertThat(captor.getValue().getErrorMessage()).hasSize(2000);
+        }
+
+        @Test
+        @DisplayName("error message exactly 2000 characters is not truncated")
+        void logBatchResult_errorMessageExactly2000_isNotTruncated() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            String exactError = "x".repeat(2000);
+
+            jobRunService.logBatchResult(
+                    1L, "msgbatch_exact", "loc6",
+                    false, "ERRORED",
+                    "server_error", exactError,
+                    null, null,
+                    null, null);
+
+            assertThat(captor.getValue().getErrorMessage()).hasSize(2000);
+        }
+
+        @Test
+        @DisplayName("falls back to SONNET model for cost calculation when model is null but tokenUsage present")
+        void logBatchResult_nullModel_withTokens_fallsBackToSonnetForCost() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            TokenUsage usage = new TokenUsage(200, 50, 0, 0);
+            when(costCalculator.calculateCostMicroDollars(EvaluationModel.SONNET, usage, true))
+                    .thenReturn(1800L);
+
+            jobRunService.logBatchResult(
+                    7L, "msgbatch_null_model", "loc7",
+                    true, "SUCCESS",
+                    null, null,
+                    null, usage,
+                    LocalDate.of(2026, 4, 23), TargetType.SUNSET);
+
+            verify(costCalculator).calculateCostMicroDollars(EvaluationModel.SONNET, usage, true);
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getCostMicroDollars()).isEqualTo(1800L);
+            assertThat(logged.getEvaluationModel()).isNull();
+        }
+
+        @Test
+        @DisplayName("calls costCalculator with isBatch=true when tokenUsage is present")
+        void logBatchResult_withTokens_callsCostCalculatorWithBatchTrue() {
+            when(apiCallLogRepository.save(any(ApiCallLogEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+            TokenUsage usage = new TokenUsage(100, 40, 50, 10);
+            when(costCalculator.calculateCostMicroDollars(EvaluationModel.OPUS, usage, true))
+                    .thenReturn(9900L);
+
+            jobRunService.logBatchResult(
+                    3L, "msgbatch_batch_flag", "loc8",
+                    true, "SUCCESS",
+                    null, null,
+                    EvaluationModel.OPUS, usage,
+                    null, null);
+
+            verify(costCalculator).calculateCostMicroDollars(EvaluationModel.OPUS, usage, true);
+        }
+
+        @Test
+        @DisplayName("sets calledAt and completedAt to times close to now (UTC)")
+        void logBatchResult_setsTimestampsCloseToNow() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
+
+            jobRunService.logBatchResult(
+                    1L, "msgbatch_time", "loc9",
+                    true, "SUCCESS",
+                    null, null,
+                    EvaluationModel.HAIKU, null,
+                    null, null);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getCalledAt()).isAfterOrEqualTo(before);
+            assertThat(logged.getCalledAt()).isBeforeOrEqualTo(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(1));
+            assertThat(logged.getCompletedAt()).isAfterOrEqualTo(before);
+            assertThat(logged.getCompletedAt()).isBeforeOrEqualTo(LocalDateTime.now(ZoneOffset.UTC).plusSeconds(1));
+        }
+
+        @Test
+        @DisplayName("null targetDate and targetType are stored as null on the entity")
+        void logBatchResult_nullTargetDateAndType_storedAsNull() {
+            ArgumentCaptor<ApiCallLogEntity> captor = ArgumentCaptor.forClass(ApiCallLogEntity.class);
+            when(apiCallLogRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.logBatchResult(
+                    1L, "msgbatch_null_target", "loc10",
+                    true, "SUCCESS",
+                    null, null,
+                    EvaluationModel.HAIKU, null,
+                    null, null);
+
+            ApiCallLogEntity logged = captor.getValue();
+            assertThat(logged.getTargetDate()).isNull();
+            assertThat(logged.getTargetType()).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("getBatchForJobRun()")
     class GetBatchForJobRunTests {
 
