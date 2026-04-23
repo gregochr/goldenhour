@@ -551,14 +551,20 @@ public class PromptBuilder {
                         .schema(JsonOutputFormat.Schema.builder()
                                 .putAdditionalProperty("type", JsonValue.from("object"))
                                 .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
-                                        Map.entry("rating", Map.of("type", "integer")),
-                                        Map.entry("fiery_sky", Map.of("type", "integer")),
-                                        Map.entry("golden_hour", Map.of("type", "integer")),
+                                        Map.entry("rating", Map.of(
+                                                "type", "integer", "minimum", 1, "maximum", 5)),
+                                        Map.entry("fiery_sky", Map.of(
+                                                "type", "integer", "minimum", 0, "maximum", 100)),
+                                        Map.entry("golden_hour", Map.of(
+                                                "type", "integer", "minimum", 0, "maximum", 100)),
                                         Map.entry("summary", Map.of("type", "string")),
-                                        Map.entry("basic_fiery_sky", Map.of("type", "integer")),
-                                        Map.entry("basic_golden_hour", Map.of("type", "integer")),
+                                        Map.entry("basic_fiery_sky", Map.of(
+                                                "type", "integer", "minimum", 0, "maximum", 100)),
+                                        Map.entry("basic_golden_hour", Map.of(
+                                                "type", "integer", "minimum", 0, "maximum", 100)),
                                         Map.entry("basic_summary", Map.of("type", "string")),
-                                        Map.entry("inversion_score", Map.of("type", "integer")),
+                                        Map.entry("inversion_score", Map.of(
+                                                "type", "integer", "minimum", 0, "maximum", 10)),
                                         Map.entry("inversion_potential", Map.of(
                                                 "type", "string",
                                                 "enum", List.of("NONE", "MODERATE", "STRONG"))),

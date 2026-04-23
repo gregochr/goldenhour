@@ -396,6 +396,51 @@ public class PromptBuilderTest {
             assertThat(configStr).contains("bluebell_score");
             assertThat(configStr).contains("bluebell_summary");
         }
+
+        @Test
+        @DisplayName("rating field is bounded to [1, 5] to prevent schema non-compliance")
+        void outputConfig_ratingIsBoundedOneToFive() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+
+            int ratingIdx = configStr.indexOf("rating");
+            int nextFieldIdx = configStr.indexOf("fiery_sky", ratingIdx);
+            String ratingSegment = configStr.substring(ratingIdx, nextFieldIdx);
+
+            assertThat(ratingSegment).contains("minimum=1");
+            assertThat(ratingSegment).contains("maximum=5");
+        }
+
+        @Test
+        @DisplayName("fiery_sky and golden_hour are bounded to [0, 100]")
+        void outputConfig_scoresBoundedZeroToHundred() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+
+            for (String field : List.of("fiery_sky", "golden_hour",
+                    "basic_fiery_sky", "basic_golden_hour")) {
+                int idx = configStr.indexOf(field);
+                String segment = configStr.substring(idx,
+                        Math.min(idx + 200, configStr.length()));
+                assertThat(segment)
+                        .as("%s must declare minimum=0", field)
+                        .contains("minimum=0");
+                assertThat(segment)
+                        .as("%s must declare maximum=100", field)
+                        .contains("maximum=100");
+            }
+        }
+
+        @Test
+        @DisplayName("inversion_score is bounded to [0, 10]")
+        void outputConfig_inversionScoreBoundedZeroToTen() {
+            String configStr = promptBuilder.buildOutputConfig().toString();
+
+            int idx = configStr.indexOf("inversion_score");
+            String segment = configStr.substring(idx,
+                    Math.min(idx + 200, configStr.length()));
+
+            assertThat(segment).contains("minimum=0");
+            assertThat(segment).contains("maximum=10");
+        }
     }
 
     // ── Schema guard tests ──────────────────────────────────────────────────
