@@ -23,6 +23,8 @@ import java.util.List;
  * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
  * @param goldenHourPotential cached Claude golden hour score 0-100, or null
  * @param claudeSummary       cached Claude prose summary, or null
+ * @param displayVerdict      unified colour/label signal; never null, recomputed whenever
+ *                            {@code claudeRating} changes (see {@link #withClaudeScores})
  */
 public record BriefingSlot(
         String locationName,
@@ -35,14 +37,16 @@ public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer claudeRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer fierySkyPotential,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer goldenHourPotential,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary,
+        DisplayVerdict displayVerdict) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
     }
 
     /**
-     * Convenience constructor that defaults all Claude evaluation fields to {@code null}.
+     * Convenience constructor that defaults all Claude evaluation fields to {@code null}
+     * and derives {@code displayVerdict} from {@code verdict} alone.
      *
      * @param locationName    human-readable location name
      * @param solarEventTime  UTC time of the sunrise or sunset
@@ -56,11 +60,13 @@ public record BriefingSlot(
             WeatherConditions weather, TideInfo tide, List<String> flags,
             String standdownReason) {
         this(locationName, solarEventTime, verdict, weather, tide, flags,
-                standdownReason, null, null, null, null);
+                standdownReason, null, null, null, null,
+                DisplayVerdict.resolve(null, verdict));
     }
 
     /**
      * Returns a copy of this slot with Claude evaluation scores populated.
+     * The {@code displayVerdict} is recomputed from the new rating.
      *
      * @param rating      Claude 1-5 star rating
      * @param fierySky    fiery sky potential 0-100
@@ -71,7 +77,8 @@ public record BriefingSlot(
     public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
             Integer goldenHour, String summary) {
         return new BriefingSlot(locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, rating, fierySky, goldenHour, summary);
+                flags, standdownReason, rating, fierySky, goldenHour, summary,
+                DisplayVerdict.resolve(rating, verdict));
     }
 
     /**

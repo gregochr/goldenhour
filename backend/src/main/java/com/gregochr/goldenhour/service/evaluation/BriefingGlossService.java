@@ -367,7 +367,8 @@ public class BriefingGlossService {
                             r.regionName(), r.verdict(), r.summary(), r.tideHighlights(),
                             r.slots(), r.regionTemperatureCelsius(),
                             r.regionApparentTemperatureCelsius(), r.regionWindSpeedMs(),
-                            r.regionWeatherCode(), headline, detail));
+                            r.regionWeatherCode(), headline, detail,
+                            r.displayVerdict(), r.scoredLocationCount()));
                 }
                 newEvents.add(new BriefingEventSummary(es.targetType(), newRegions, es.unregioned()));
             }

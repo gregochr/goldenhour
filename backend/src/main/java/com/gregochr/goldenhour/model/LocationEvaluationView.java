@@ -27,6 +27,8 @@ import java.time.LocalDate;
  * @param triageMessage       formatted stand-down explanation, or null if scored
  * @param evaluationModel     the model that produced the evaluation, or null
  * @param evaluatedAt         when the evaluation was produced, or null
+ * @param displayVerdict      unified colour/label signal derived from Claude rating
+ *                            (primary) or triage verdict (fallback); never null
  */
 public record LocationEvaluationView(
         Long locationId,
@@ -43,7 +45,8 @@ public record LocationEvaluationView(
         TriageReason triageReason,
         String triageMessage,
         String evaluationModel,
-        Instant evaluatedAt
+        Instant evaluatedAt,
+        DisplayVerdict displayVerdict
 ) {
 
     /**

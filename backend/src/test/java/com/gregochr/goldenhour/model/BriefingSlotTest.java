@@ -122,4 +122,45 @@ class BriefingSlotTest {
             assertThat(base.fierySkyPotential()).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("displayVerdict")
+    class DisplayVerdictTests {
+
+        @Test
+        @DisplayName("7-arg constructor derives displayVerdict from verdict when no rating")
+        void fallsBackToTriageVerdict() {
+            BriefingSlot slot = new BriefingSlot(
+                    "Durham", EVENT_TIME, Verdict.MARGINAL, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null);
+
+            assertThat(slot.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+        }
+
+        @Test
+        @DisplayName("withClaudeScores recomputes displayVerdict from new rating")
+        void recomputesOnEnrichment() {
+            BriefingSlot base = new BriefingSlot(
+                    "Whitby", EVENT_TIME, Verdict.STANDDOWN, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null);
+            assertThat(base.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+
+            BriefingSlot enriched = base.withClaudeScores(5, 90, 80, "Fire.");
+
+            // Claude rating wins over the triage STANDDOWN
+            assertThat(enriched.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("withClaudeScores on GO slot with rating 2 yields STAND_DOWN")
+        void claudeLowerGradesDowngrade() {
+            BriefingSlot base = new BriefingSlot(
+                    "Bamburgh", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null);
+
+            BriefingSlot enriched = base.withClaudeScores(2, 30, 25, "Poor.");
+
+            assertThat(enriched.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+    }
 }

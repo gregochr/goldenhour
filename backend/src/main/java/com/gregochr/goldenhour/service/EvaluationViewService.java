@@ -7,8 +7,10 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationEvaluationView.Source;
+import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import org.slf4j.Logger;
@@ -278,17 +280,22 @@ public class EvaluationViewService {
 
         // 1. Cached evaluation wins (both scored and triaged entries)
         if (cachedResult != null) {
+            DisplayVerdict displayVerdict = DisplayVerdict.resolve(
+                    cachedResult.rating(),
+                    cachedResult.triageReason() != null ? Verdict.STANDDOWN : null);
             return new LocationEvaluationView(
                     locationId, locationName, regionId, regionName, date, targetType,
                     Source.CACHED_EVALUATION,
                     cachedResult.rating(), cachedResult.summary(),
                     cachedResult.fierySkyPotential(), cachedResult.goldenHourPotential(),
                     cachedResult.triageReason(), cachedResult.triageMessage(),
-                    null, null);
+                    null, null,
+                    displayVerdict);
         }
 
         // 2. Scored forecast_evaluation row
         if (forecastRow != null && forecastRow.getRating() != null) {
+            DisplayVerdict displayVerdict = DisplayVerdict.resolve(forecastRow.getRating(), null);
             return new LocationEvaluationView(
                     locationId, locationName, regionId, regionName, date, targetType,
                     Source.FORECAST_EVALUATION_SCORED,
@@ -300,11 +307,13 @@ public class EvaluationViewService {
                     forecastRow.getForecastRunAt() != null
                             ? forecastRow.getForecastRunAt().atZone(
                                     java.time.ZoneId.of("Europe/London")).toInstant()
-                            : null);
+                            : null,
+                    displayVerdict);
         }
 
         // 3. Triaged forecast_evaluation row
         if (forecastRow != null && forecastRow.getTriageReason() != null) {
+            DisplayVerdict displayVerdict = DisplayVerdict.resolve(null, Verdict.STANDDOWN);
             return new LocationEvaluationView(
                     locationId, locationName, regionId, regionName, date, targetType,
                     Source.FORECAST_EVALUATION_TRIAGE,
@@ -314,7 +323,8 @@ public class EvaluationViewService {
                     forecastRow.getForecastRunAt() != null
                             ? forecastRow.getForecastRunAt().atZone(
                                     java.time.ZoneId.of("Europe/London")).toInstant()
-                            : null);
+                            : null,
+                    displayVerdict);
         }
 
         // 4. Nothing
@@ -325,7 +335,8 @@ public class EvaluationViewService {
             Long regionId, String regionName, LocalDate date, TargetType targetType) {
         return new LocationEvaluationView(
                 locationId, locationName, regionId, regionName, date, targetType,
-                Source.NONE, null, null, null, null, null, null, null, null);
+                Source.NONE, null, null, null, null, null, null, null, null,
+                DisplayVerdict.AWAITING);
     }
 
     /**

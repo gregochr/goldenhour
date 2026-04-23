@@ -411,13 +411,22 @@ public class BriefingService {
                     List<BriefingSlot> enrichedSlots = region.slots().stream()
                             .map(slot -> enrichSlot(slot, cached))
                             .toList();
+                    List<BriefingRatingStats.Entry> ratingEntries = enrichedSlots.stream()
+                            .map(s -> new BriefingRatingStats.Entry(
+                                    s.locationName(), s.claudeRating()))
+                            .toList();
+                    BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
+                            ratingEntries, region.regionName(), day.date(), es.targetType());
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,
                             region.regionTemperatureCelsius(),
                             region.regionApparentTemperatureCelsius(),
                             region.regionWindSpeedMs(), region.regionWeatherCode(),
-                            region.glossHeadline(), region.glossDetail()));
+                            region.glossHeadline(), region.glossDetail(),
+                            BriefingRatingStats.resolveRegionDisplayVerdict(
+                                    stats, region.verdict()),
+                            stats.count()));
                 }
                 enrichedEvents.add(new BriefingEventSummary(
                         es.targetType(), enrichedRegions, es.unregioned()));

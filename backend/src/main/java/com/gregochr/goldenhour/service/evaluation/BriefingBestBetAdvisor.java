@@ -28,6 +28,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -796,23 +797,19 @@ public class BriefingBestBetAdvisor {
             return;
         }
 
-        List<BriefingEvaluationResult> scored = cached.values().stream()
-                .filter(r -> r.rating() != null)
+        List<BriefingRatingStats.Entry> entries = cached.values().stream()
+                .map(r -> new BriefingRatingStats.Entry(r.locationName(), r.rating()))
                 .toList();
-        if (scored.isEmpty()) {
+        BriefingRatingStats.Stats stats =
+                BriefingRatingStats.compute(entries, regionName, date, targetType);
+        if (stats.isEmpty()) {
             return;
         }
 
-        long highRated = scored.stream().filter(r -> r.rating() >= 4).count();
-        long mediumRated = scored.stream().filter(r -> r.rating() == 3).count();
-        double avgRating = scored.stream()
-                .mapToInt(BriefingEvaluationResult::rating).average().orElse(0);
-
-        regionNode.put("claudeRatedCount", scored.size());
-        regionNode.put("claudeHighRatedCount", highRated);
-        regionNode.put("claudeMediumRatedCount", mediumRated);
-        regionNode.put("claudeAverageRating",
-                Math.round(avgRating * 10.0) / 10.0);
+        regionNode.put("claudeRatedCount", stats.count());
+        regionNode.put("claudeHighRatedCount", stats.highRated());
+        regionNode.put("claudeMediumRatedCount", stats.mediumRated());
+        regionNode.put("claudeAverageRating", stats.averageRating());
     }
 
     /**
