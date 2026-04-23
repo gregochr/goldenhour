@@ -578,7 +578,8 @@ public class ScheduledBatchEvaluationService {
             cloudCache = null;
         }
 
-        List<BatchCreateParams.Request> requests = new ArrayList<>();
+        List<BatchCreateParams.Request> inlandRequests = new ArrayList<>();
+        List<BatchCreateParams.Request> coastalRequests = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         for (ForecastTask task : tasks) {
@@ -595,19 +596,43 @@ public class ScheduledBatchEvaluationService {
                 if (daysAhead > maxDays) {
                     continue;
                 }
-                requests.add(buildForecastRequest(task.date(), task.targetType(),
-                        task.location(), preEval.atmosphericData(), model));
+                BatchCreateParams.Request request = buildForecastRequest(task.date(),
+                        task.targetType(), task.location(), preEval.atmosphericData(), model);
+                if (preEval.atmosphericData().tide() != null) {
+                    coastalRequests.add(request);
+                } else {
+                    inlandRequests.add(request);
+                }
             } catch (Exception e) {
                 LOG.warn("[BATCH] Failed data assembly for {}: {}",
                         task.location().getName(), e.getMessage());
             }
         }
 
-        if (requests.isEmpty()) {
+        if (inlandRequests.isEmpty() && coastalRequests.isEmpty()) {
             return null;
         }
 
-        return submitBatchWithResult(requests, BatchType.FORECAST, "Scheduled batch (admin)");
+        BatchSubmitResult inlandResult = null;
+        BatchSubmitResult coastalResult = null;
+
+        if (!inlandRequests.isEmpty()) {
+            inlandResult = submitBatchWithResult(inlandRequests, BatchType.FORECAST,
+                    "Scheduled batch — admin (inland)");
+        }
+        if (!coastalRequests.isEmpty()) {
+            coastalResult = submitBatchWithResult(coastalRequests, BatchType.FORECAST,
+                    "Scheduled batch — admin (coastal)");
+        }
+
+        LOG.info("[BATCH DIAG] Admin batch split: {} inland in {}, {} coastal in {}",
+                inlandRequests.size(),
+                inlandResult != null ? inlandResult.batchId() : "(empty)",
+                coastalRequests.size(),
+                coastalResult != null ? coastalResult.batchId() : "(empty)");
+
+        // Return whichever result succeeded — prefer inland (typically larger)
+        return inlandResult != null ? inlandResult : coastalResult;
     }
 
     /**
