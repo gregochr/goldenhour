@@ -1046,11 +1046,16 @@ public class ScheduledBatchEvaluationService {
     private Map<String, ForecastStability> buildStabilityLookup() {
         StabilitySummaryResponse snapshot = forecastCommandExecutor.getLatestStabilitySummary();
         if (snapshot == null || snapshot.cells() == null) {
-            LOG.warn("[BATCH DIAG] No stability snapshot available — all regions will use "
-                    + "UNSETTLED threshold ({}h)", freshnessResolver.maxAgeFor(
-                    ForecastStability.UNSETTLED).toHours());
+            LOG.warn("[BATCH DIAG] Stability snapshot unavailable — no snapshot in memory or DB, "
+                    + "all regions treated as UNSETTLED ({}h threshold)",
+                    freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED).toHours());
             return Map.of();
         }
+        long ageHours = java.time.temporal.ChronoUnit.HOURS.between(
+                snapshot.generatedAt(), java.time.Instant.now());
+        String source = ageHours > 12 ? "DB (recovered after restart)" : "in-memory";
+        LOG.info("[BATCH DIAG] Stability snapshot loaded from {}: age={}h, {} grid cells",
+                source, ageHours, snapshot.cells().size());
         Map<String, ForecastStability> lookup = new HashMap<>();
         for (StabilitySummaryResponse.GridCellDetail cell : snapshot.cells()) {
             for (String locName : cell.locationNames()) {

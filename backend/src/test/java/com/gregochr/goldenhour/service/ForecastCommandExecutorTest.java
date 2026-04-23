@@ -12,6 +12,8 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.ForecastStability;
+import com.gregochr.goldenhour.entity.StabilitySnapshotEntity;
+import com.gregochr.goldenhour.repository.StabilitySnapshotRepository;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
@@ -32,9 +34,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -97,6 +101,9 @@ class ForecastCommandExecutorTest {
     private OpenMeteoService openMeteoService;
 
     @Mock
+    private StabilitySnapshotRepository stabilitySnapshotRepository;
+
+    @Mock
     private EvaluationStrategy haikuStrategy;
 
     private NoOpEvaluationStrategy noOpStrategy;
@@ -144,7 +151,7 @@ class ForecastCommandExecutorTest {
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
                 optimisationStrategyService, progressTracker, eventPublisher,
                 sentinelSelector, astroConditionsService, stabilityClassifier,
-                openMeteoService);
+                openMeteoService, stabilitySnapshotRepository);
     }
 
     /**
@@ -2075,6 +2082,125 @@ class ForecastCommandExecutorTest {
             // All 4 tasks (2 dates × 2 target types) should be evaluated
             verify(forecastService, times(4))
                     .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("Stability snapshot persistence")
+    class StabilitySnapshotPersistence {
+
+        private StabilitySummaryResponse buildTestSnapshot(Instant generatedAt) {
+            var cell = new StabilitySummaryResponse.GridCellDetail(
+                    "54.7500,-1.6250", 54.75, -1.625,
+                    ForecastStability.SETTLED, "high pressure dominant", 3,
+                    List.of("Durham UK", "Penshaw Monument"));
+            return new StabilitySummaryResponse(
+                    generatedAt, 1,
+                    Map.of(ForecastStability.SETTLED, 1L),
+                    List.of(cell));
+        }
+
+        private StabilitySnapshotEntity buildDbEntity(
+                String key, ForecastStability level, Instant classifiedAt) {
+            var entity = new StabilitySnapshotEntity();
+            entity.setId(1L);
+            entity.setGridCellKey(key);
+            entity.setGridLat(54.75);
+            entity.setGridLng(-1.625);
+            entity.setStabilityLevel(level);
+            entity.setReason("high pressure dominant");
+            entity.setEvaluationWindowDays(level.evaluationWindowDays());
+            entity.setLocationNames("Durham UK,Penshaw Monument");
+            entity.setClassifiedAt(classifiedAt);
+            entity.setUpdatedAt(classifiedAt);
+            return entity;
+        }
+
+        @Test
+        @DisplayName("getLatestStabilitySummary returns in-memory value when set (no DB query)")
+        void returnsInMemoryWhenSet() {
+            // Manually set via reflection since applyStabilityFilter is private
+            StabilitySummaryResponse snapshot = buildTestSnapshot(Instant.now());
+            // Access the AtomicReference via getLatestStabilitySummary after direct set
+            // We need to populate in-memory by calling the getter after DB load first
+            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
+                    .thenReturn(List.of(buildDbEntity("54.7500,-1.6250",
+                            ForecastStability.SETTLED, Instant.now())));
+
+            // First call loads from DB and warms cache
+            StabilitySummaryResponse first = executor.getLatestStabilitySummary();
+            assertThat(first).isNotNull();
+
+            // Second call should NOT hit DB again
+            org.mockito.Mockito.clearInvocations(stabilitySnapshotRepository);
+            StabilitySummaryResponse second = executor.getLatestStabilitySummary();
+            assertThat(second).isNotNull();
+            verify(stabilitySnapshotRepository, never()).findByClassifiedAtAfter(any());
+        }
+
+        @Test
+        @DisplayName("Returns DB snapshot when in-memory is null and DB snapshot is fresh")
+        void returnsDbSnapshotWhenFresh() {
+            var entity = buildDbEntity("54.7500,-1.6250",
+                    ForecastStability.SETTLED, Instant.now().minus(2, ChronoUnit.HOURS));
+            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
+                    .thenReturn(List.of(entity));
+
+            StabilitySummaryResponse result = executor.getLatestStabilitySummary();
+
+            assertThat(result).isNotNull();
+            assertThat(result.cells()).hasSize(1);
+            assertThat(result.cells().get(0).stability()).isEqualTo(ForecastStability.SETTLED);
+            assertThat(result.cells().get(0).locationNames())
+                    .containsExactly("Durham UK", "Penshaw Monument");
+        }
+
+        @Test
+        @DisplayName("Returns null when in-memory is null and DB has no rows")
+        void returnsNullWhenNoDbRows() {
+            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
+                    .thenReturn(List.of());
+
+            assertThat(executor.getLatestStabilitySummary()).isNull();
+        }
+
+        @Test
+        @DisplayName("Returns null when in-memory is null and DB snapshot is stale (>24h)")
+        void returnsNullWhenDbStale() {
+            // findByClassifiedAtAfter with 24h threshold will return empty for old rows
+            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
+                    .thenReturn(List.of());
+
+            assertThat(executor.getLatestStabilitySummary()).isNull();
+        }
+
+        @Test
+        @DisplayName("DB load warms in-memory cache for subsequent calls")
+        void dbLoadWarmsCacheForSubsequentCalls() {
+            var entity = buildDbEntity("54.7500,-1.6250",
+                    ForecastStability.TRANSITIONAL, Instant.now());
+            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
+                    .thenReturn(List.of(entity));
+
+            // First call: DB hit
+            StabilitySummaryResponse first = executor.getLatestStabilitySummary();
+            assertThat(first).isNotNull();
+            verify(stabilitySnapshotRepository, times(1)).findByClassifiedAtAfter(any());
+
+            // Second call: in-memory, no DB hit
+            org.mockito.Mockito.clearInvocations(stabilitySnapshotRepository);
+            StabilitySummaryResponse second = executor.getLatestStabilitySummary();
+            assertThat(second).isSameAs(first);
+            verify(stabilitySnapshotRepository, never()).findByClassifiedAtAfter(any());
+        }
+
+        @Test
+        @DisplayName("DB read failure returns null gracefully")
+        void dbReadFailureReturnsNull() {
+            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
+                    .thenThrow(new RuntimeException("DB connection lost"));
+
+            assertThat(executor.getLatestStabilitySummary()).isNull();
         }
     }
 }
