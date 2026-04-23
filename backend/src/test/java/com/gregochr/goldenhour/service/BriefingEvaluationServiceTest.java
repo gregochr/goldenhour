@@ -162,6 +162,36 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("Out-of-range rating from persisted entity is nulled before caching")
+    void evaluateRegion_outOfRangeRatingFromEntity_isNulled() {
+        LocationEntity loc = locationInRegion("Almscliffe Crag", REGION);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.SONNET)))
+                .thenReturn(JobRunEntity.builder().id(1L).build());
+        stubBriefing(List.of(slot("Almscliffe Crag", Verdict.GO)));
+
+        ForecastPreEvalResult preEval = nonTriagedResult(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), eq(DATE), eq(TargetType.SUNSET), any(), any(), eq(false), any()))
+                .thenReturn(preEval);
+        // Simulates a schema-non-compliant Sonnet response that slipped into the entity
+        when(forecastService.evaluateAndPersist(any(), any()))
+                .thenReturn(evaluationEntity(491, 72, 65, "Out-of-range"));
+
+        service.evaluateRegion(REGION, DATE, TargetType.SUNSET, mock(SseEmitter.class));
+
+        Map<String, BriefingEvaluationResult> cached =
+                service.getCachedScores(REGION, DATE, TargetType.SUNSET);
+        assertThat(cached).hasSize(1);
+        BriefingEvaluationResult result = cached.get("Almscliffe Crag");
+        assertThat(result.rating()).isNull();             // 491 → null
+        assertThat(result.fierySkyPotential()).isEqualTo(72);
+        assertThat(result.goldenHourPotential()).isEqualTo(65);
+    }
+
+    @Test
     @DisplayName("Cache hit replays results without new Claude calls")
     void cacheHit_noCalls() {
         LocationEntity loc = locationInRegion("Bamburgh", REGION);

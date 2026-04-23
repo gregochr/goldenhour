@@ -27,6 +27,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -569,9 +570,14 @@ public class BriefingEvaluationService {
         }
 
         ForecastEvaluationEntity entity = forecastService.evaluateAndPersist(preEval, jobRun);
+        String regionName = location.getRegion() != null
+                ? location.getRegion().getName() : location.getName();
+        Integer safeRating = RatingValidator.validateRating(
+                entity.getRating(), regionName, date, targetType,
+                location.getName(), model.name());
         return new BriefingEvaluationResult(
                 location.getName(),
-                entity.getRating(),
+                safeRating,
                 entity.getFierySkyPotential(),
                 entity.getGoldenHourPotential(),
                 entity.getSummary());
