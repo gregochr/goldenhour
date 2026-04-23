@@ -29,6 +29,7 @@ import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.config.AuroraProperties;
@@ -310,9 +311,14 @@ public class BatchResultProcessor {
                     ClaudeEvaluationStrategy strategy =
                             (ClaudeEvaluationStrategy) evaluationStrategies.get(model);
                     SunsetEvaluation eval = strategy.parseEvaluation(text, objectMapper);
+                    TargetType eventType = parseTargetType(targetTypePart);
+                    LocalDate eventDate = parseDate(date);
+                    Integer safeRating = RatingValidator.validateRating(
+                            eval.rating(), regionName, eventDate, eventType,
+                            locationName, model.name());
                     BriefingEvaluationResult result = new BriefingEvaluationResult(
                             locationName,
-                            eval.rating(),
+                            safeRating,
                             eval.fierySkyPotential(),
                             eval.goldenHourPotential(),
                             eval.summary());
@@ -320,11 +326,9 @@ public class BatchResultProcessor {
                     succeeded++;
 
                     TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead);
-                    TargetType tt = parseTargetType(targetTypePart);
-                    LocalDate td = parseDate(date);
                     persistBatchResult(batch, customId, true, "SUCCESS",
                             null, null, resolveEvaluationModel(firstModelId),
-                            tokens, td, tt);
+                            tokens, eventDate, eventType);
                 } catch (Exception e) {
                     LOG.warn("Forecast batch: parse failed for '{}': {}", customId, e.getMessage());
                     LOG.warn("Forecast batch: raw response for '{}': {}", customId, text);

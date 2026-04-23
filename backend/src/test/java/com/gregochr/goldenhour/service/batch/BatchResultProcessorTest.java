@@ -255,6 +255,53 @@ class BatchResultProcessorTest {
     }
 
     @Test
+    @DisplayName("out-of-range rating from schema-non-compliant Claude response is nulled by RatingValidator")
+    void processResults_forecastBatch_outOfRangeRating_isNulledByGuardrail() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+
+        // Simulates a schema-non-compliant response: rating=491 (what shipped 2026-04-22)
+        String responseText = "{\"rating\":491,\"fiery_sky\":70,\"golden_hour\":60,"
+                + "\"summary\":\"Out-of-range rating\"}";
+
+        LocationEntity location = buildLocationWithRegion(42L, "Almscliffe Crag",
+                "Yorkshire Dales");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-25-SUNSET", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        491, 70, 60, "Out-of-range rating"));
+
+        processor.processResults(batch);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<BriefingEvaluationResult>> resultsCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(briefingEvaluationService).writeFromBatch(
+                eq("Yorkshire Dales|2026-04-25|SUNSET"), resultsCaptor.capture());
+
+        List<BriefingEvaluationResult> results = resultsCaptor.getValue();
+        assertThat(results).hasSize(1);
+        BriefingEvaluationResult result = results.get(0);
+        assertThat(result.locationName()).isEqualTo("Almscliffe Crag");
+        assertThat(result.rating()).isNull();                 // 491 → null
+        assertThat(result.fierySkyPotential()).isEqualTo(70); // scores passed through
+        assertThat(result.goldenHourPotential()).isEqualTo(60);
+    }
+
+    @Test
     @DisplayName("processResults for FORECAST groups two responses under the same cache key")
     void processResults_forecastBatch_twoLocationsOneRegion_groupedUnderSameKey() throws Exception {
         stubBatchService();
