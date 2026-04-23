@@ -884,9 +884,10 @@ export default function MarkerPopupContent({
         const hasChips = hasAuroraChip || hasDriveChip;
 
         const isStandDown = briefingScore?.triageReason != null;
+        const isBatchScored = !isStandDown && briefingScore?.rating != null;
 
         return (
-          <div data-testid={isStandDown ? 'standdown-popup' : 'empty-popup'}>
+          <div data-testid={isStandDown ? 'standdown-popup' : isBatchScored ? 'batch-scored-popup' : 'empty-popup'}>
 
             {/* Event badge (outer header has no badge when forecast is null) */}
             {emptyEventTime && !isAuroraMode && !isAstroMode && (
@@ -956,6 +957,39 @@ export default function MarkerPopupContent({
                 triageMessage={briefingScore.triageMessage}
                 darkMode={darkMode}
               />
+            ) : isBatchScored ? (
+              <>
+                {briefingScore.rating != null && (
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ fontSize: '14px', color: '#E5A00D', letterSpacing: '2px', marginBottom: '4px' }}>
+                      {'★'.repeat(briefingScore.rating)}{'☆'.repeat(5 - briefingScore.rating)}
+                      <span style={{ fontSize: '11px', color: '#6B6B6B', marginLeft: '6px', letterSpacing: 0 }}>
+                        {briefingScore.rating}/5
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {briefingScore.summary && (
+                  <div style={{ fontSize: '12px', lineHeight: '1.5', color: darkMode ? '#A0A0A0' : '#3A3D45', marginBottom: '8px' }}>
+                    {briefingScore.summary}
+                  </div>
+                )}
+                {role !== 'LITE_USER' && briefingScore.fierySkyPotential != null && (
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#6B6B6B', marginBottom: '4px' }}>
+                      <span>Scores</span>
+                      <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
+                    </div>
+                    <PopupScoreRow label="Fiery Sky" score={briefingScore.fierySkyPotential} />
+                    <PopupScoreRow label="Golden Hour" score={briefingScore.goldenHourPotential} />
+                  </div>
+                )}
+                {role === 'LITE_USER' && (
+                  <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: '#6B6B6B', marginBottom: '8px' }}>
+                    <a href="/upgrade" style={{ color: '#6366f1', textDecoration: 'none' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
+                  </p>
+                )}
+              </>
             ) : (
               <>
                 {/* Dashed divider */}

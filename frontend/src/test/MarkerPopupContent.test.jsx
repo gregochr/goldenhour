@@ -1027,24 +1027,27 @@ describe('MarkerPopupContent', () => {
       expect(badge.textContent).toMatch(/Stand-down — heavy low cloud at the solar horizon/);
     });
 
-    it('falls through to "no forecast yet" when briefingScore has no triageReason', () => {
-      // Scored briefingScore (rating set, triageReason null) must NOT enter the
-      // stand-down branch — a mutation replacing `briefingScore?.triageReason != null`
-      // with `briefingScore != null` would incorrectly render the badge here.
+    it('renders batch-scored body from briefingScore when forecast is null (was fall-through before batch scoring)', () => {
+      // Architecture change: batch-scored locations have briefingScore.rating
+      // but no forecast row. Previously this fell through to "no forecast yet".
+      // Now the isBatchScored branch renders scored content from briefingScore.
       render(
         <MarkerPopupContent
           {...DEFAULT_PROPS}
           location={TRIAGED_LOCATION}
           forecast={null}
-          briefingScore={{ rating: 4, fierySkyPotential: 70, goldenHourPotential: 55, summary: 's', triageReason: null, triageMessage: null }}
+          briefingScore={{ rating: 4, fierySkyPotential: 70, goldenHourPotential: 55, summary: 'Vivid colours likely.', triageReason: null, triageMessage: null }}
           eventType="SUNRISE"
           role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
         />,
       );
-      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.getByTestId('batch-scored-popup')).toBeInTheDocument();
       expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
       expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
-      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.queryByText('no forecast yet')).not.toBeInTheDocument();
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+      expect(screen.getByText('Vivid colours likely.')).toBeInTheDocument();
     });
 
     it('forecast branch takes precedence — briefingScore.triageReason is ignored when forecast is present', () => {
@@ -1111,6 +1114,168 @@ describe('MarkerPopupContent', () => {
         expect(screen.getByTestId('drive-time-badge')).toBeInTheDocument();
         expect(screen.getByTestId('drive-time-badge')).toHaveTextContent('1 hr 30 mins');
       });
+    });
+  });
+
+  describe('four-state popup branch coverage (forecast → batch-scored → standdown → empty)', () => {
+    // Mutation-targeted: each test fails if the popup renders the wrong branch.
+    // Flipping any condition to an adjacent branch breaks exactly one test.
+
+    const BRANCH_LOCATION = {
+      name: 'Whitley Bay',
+      solarEventType: ['SUNSET'],
+      locationType: ['SEASCAPE'],
+      tideType: [],
+      regionName: 'Tyne and Wear',
+      forecastsByDate: new Map([
+        ['2026-03-03', {
+          sunrise: { solarEventTime: '2026-03-03T06:30:00' },
+          sunset: { solarEventTime: '2026-03-03T18:10:00' },
+        }],
+      ]),
+    };
+
+    const BATCH_SCORE = {
+      rating: 4,
+      fierySkyPotential: 70,
+      goldenHourPotential: 55,
+      summary: 'Good potential for vivid colour.',
+      triageReason: null,
+      triageMessage: null,
+    };
+
+    const TRIAGE_SCORE = {
+      rating: null,
+      fierySkyPotential: null,
+      goldenHourPotential: null,
+      summary: null,
+      triageReason: 'HIGH_CLOUD',
+      triageMessage: 'Low cloud 92% — sun blocked.',
+    };
+
+    it('state 1 (SSE-scored): forecast present renders scored branch, not batch-scored', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={BASE_FORECAST}
+          briefingScore={BATCH_SCORE}
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      // forecast branch — shows rating from forecast, not from briefingScore
+      expect(screen.getByText('Good conditions expected.')).toBeInTheDocument();
+      expect(screen.getByTestId('more-details-toggle')).toBeInTheDocument();
+      expect(screen.queryByTestId('batch-scored-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
+    });
+
+    it('state 2 (batch-scored): briefingScore.rating present, forecast null, renders scored content', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={null}
+          briefingScore={BATCH_SCORE}
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('batch-scored-popup')).toBeInTheDocument();
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+      expect(screen.getByText('Good potential for vivid colour.')).toBeInTheDocument();
+      // Must NOT fall through to empty or standdown
+      expect(screen.queryByText('no forecast yet')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('run-forecast-btn')).not.toBeInTheDocument();
+    });
+
+    it('state 2 (batch-scored): shows score bars for PRO_USER', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={null}
+          briefingScore={BATCH_SCORE}
+          role="PRO_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
+      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
+      expect(screen.getByText('70')).toBeInTheDocument();
+      expect(screen.getByText('55')).toBeInTheDocument();
+    });
+
+    it('state 2 (batch-scored): hides score bars for LITE_USER and shows upgrade hint', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={null}
+          briefingScore={BATCH_SCORE}
+          role="LITE_USER" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('batch-scored-popup')).toBeInTheDocument();
+      expect(screen.getByText('4/5')).toBeInTheDocument();
+      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
+      expect(screen.queryByText('Golden Hour')).not.toBeInTheDocument();
+      expect(screen.getByTestId('upgrade-hint')).toBeInTheDocument();
+    });
+
+    it('state 3 (standdown): triageReason present renders StandDownBadge, not batch-scored or empty', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={null}
+          briefingScore={TRIAGE_SCORE}
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('standdown-popup')).toBeInTheDocument();
+      expect(screen.getByTestId('triage-standdown-badge')).toBeInTheDocument();
+      expect(screen.queryByTestId('batch-scored-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('empty-popup')).not.toBeInTheDocument();
+      expect(screen.queryByText('no forecast yet')).not.toBeInTheDocument();
+    });
+
+    it('state 4 (empty): no forecast, no briefingScore renders "no forecast yet"', () => {
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={null}
+          briefingScore={null}
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.getByText('no forecast yet')).toBeInTheDocument();
+      expect(screen.getByTestId('run-forecast-btn')).toBeInTheDocument();
+      expect(screen.queryByTestId('batch-scored-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('triage-standdown-badge')).not.toBeInTheDocument();
+    });
+
+    it('state 4 (empty): briefingScore with neither rating nor triageReason renders "no forecast yet"', () => {
+      // Guards against a mutation that checks `briefingScore != null` instead of
+      // `briefingScore?.rating != null` — an empty briefingScore object should
+      // still fall through to the empty state.
+      render(
+        <MarkerPopupContent
+          {...DEFAULT_PROPS}
+          location={BRANCH_LOCATION}
+          forecast={null}
+          briefingScore={{ rating: null, fierySkyPotential: null, goldenHourPotential: null, summary: null, triageReason: null, triageMessage: null }}
+          role="ADMIN" // eslint-disable-line jsx-a11y/aria-role
+        />,
+      );
+      expect(screen.getByTestId('empty-popup')).toBeInTheDocument();
+      expect(screen.getByText('no forecast yet')).toBeInTheDocument();
+      expect(screen.queryByTestId('batch-scored-popup')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('standdown-popup')).not.toBeInTheDocument();
     });
   });
 });
