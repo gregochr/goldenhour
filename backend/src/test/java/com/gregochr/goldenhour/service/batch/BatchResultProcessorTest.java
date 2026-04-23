@@ -1732,6 +1732,202 @@ class BatchResultProcessorTest {
         verify(jobRunService).completeBatchRun(103L, 2, 4);
     }
 
+    // ── api_call_log persistence ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("succeeded forecast result persists api_call_log row via logBatchResult")
+    void processResults_succeededResult_persistsApiCallLog() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_obs", 1, 200L);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
+                + "\"summary\":\"Good conditions\"}";
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-16-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_obs")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        4, 72, 68, "Good conditions"));
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(
+                eq(200L), eq("msgbatch_obs"), eq("fc-42-2026-04-16-SUNRISE"),
+                eq(true), eq("SUCCESS"),
+                eq(null), eq(null),
+                any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("errored forecast result persists api_call_log row with error details")
+    void processResults_erroredResult_persistsApiCallLogWithErrorDetails() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_obs", 1, 201L);
+
+        MessageBatchIndividualResponse response = erroredResponse(
+                "fc-42-2026-04-16-SUNSET", "overloaded_error", "Server is overloaded");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_obs")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(
+                eq(201L), eq("msgbatch_obs"), eq("fc-42-2026-04-16-SUNSET"),
+                eq(false), eq("OVERLOADED_ERROR"),
+                eq("overloaded_error"), eq("Server is overloaded"),
+                eq(null), eq(null), eq(null), eq(null));
+    }
+
+    @Test
+    @DisplayName("api_call_log persistence failure does not break batch processing")
+    void processResults_apiCallLogFailure_doesNotBreakProcessing() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_obs", 1, 202L);
+
+        String responseText = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":68,"
+                + "\"summary\":\"Good conditions\"}";
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-16-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_obs")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenReturn(new com.gregochr.goldenhour.model.SunsetEvaluation(
+                        4, 72, 68, "Good conditions"));
+
+        // Simulate DB failure on api_call_log write
+        org.mockito.Mockito.doThrow(new RuntimeException("DB connection lost"))
+                .when(jobRunService).logBatchResult(any(), any(), any(), any(boolean.class),
+                        any(), any(), any(), any(), any(), any(), any());
+
+        processor.processResults(batch);
+
+        // Batch should still complete successfully despite api_call_log failure
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(captor.getValue().getSucceededCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("no api_call_log persistence when batch has no jobRunId")
+    void processResults_noJobRunId_skipsApiCallLogPersistence() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST); // no jobRunId
+
+        MessageBatchIndividualResponse response = erroredResponse(
+                "fc-42-2026-04-16-SUNSET", "overloaded_error", "Server is overloaded");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        // logBatchResult should never be called when jobRunId is null
+        verify(jobRunService, org.mockito.Mockito.never()).logBatchResult(
+                any(), any(), any(), any(boolean.class), any(), any(), any(),
+                any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("parse failure persists api_call_log row with PARSE_FAILED status")
+    void processResults_parseFailure_persistsApiCallLogWithParseError() throws Exception {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_obs", 1, 203L);
+
+        String responseText = "not valid json";
+        LocationEntity location = buildLocationWithRegion(42L, "Durham UK", "North East");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-16-SUNRISE", responseText);
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_obs")).thenReturn(streamResp);
+
+        when(modelSelectionService.getActiveModel(eq(RunType.SHORT_TERM)))
+                .thenReturn(EvaluationModel.SONNET);
+        ClaudeEvaluationStrategy strategy = mock(ClaudeEvaluationStrategy.class);
+        when(evaluationStrategies.get(EvaluationModel.SONNET)).thenReturn(strategy);
+        when(strategy.parseEvaluation(responseText, objectMapper))
+                .thenThrow(new RuntimeException("Invalid JSON"));
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(
+                eq(203L), eq("msgbatch_obs"), eq("fc-42-2026-04-16-SUNRISE"),
+                eq(false), eq("PARSE_FAILED"),
+                eq("parse_error"), eq("Invalid JSON"),
+                eq(null), eq(null), eq(null), eq(null));
+    }
+
+    @Test
+    @DisplayName("describeFailedResult NPE is caught and does not abort the loop")
+    void processResults_describeFailedResultNpe_caughtAndContinues() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_obs", 2, 204L);
+
+        // First response: errored with null error chain (triggers NPE in describeFailedResult)
+        MessageBatchIndividualResponse npeResponse = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult npeResult =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchErroredResult npeErroredResult =
+                mock(com.anthropic.models.messages.batches.MessageBatchErroredResult.class);
+        when(npeResponse.result()).thenReturn(npeResult);
+        when(npeResponse.customId()).thenReturn("fc-1-2026-04-16-SUNRISE");
+        when(npeResult.isSucceeded()).thenReturn(false);
+        when(npeResult.isErrored()).thenReturn(true);
+        when(npeResult.asErrored()).thenReturn(npeErroredResult);
+        when(npeErroredResult.error()).thenReturn(null); // triggers NPE
+
+        // Second response: normal errored
+        MessageBatchIndividualResponse normalResponse = erroredResponse(
+                "fc-2-2026-04-16-SUNSET", "overloaded_error", "overloaded");
+
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(npeResponse, normalResponse));
+        when(batchService.resultsStreaming("msgbatch_obs")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        // Both errors should be counted (loop was not aborted by the NPE)
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(2);
+    }
+
     /**
      * Builds a {@link ForecastBatchEntity} pre-populated with a job run ID.
      */

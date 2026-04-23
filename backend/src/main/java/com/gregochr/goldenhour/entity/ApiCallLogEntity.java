@@ -81,8 +81,8 @@ public class ApiCallLogEntity {
     @Column(name = "succeeded", nullable = false)
     private Boolean succeeded;
 
-    /** Brief error message on failure, truncated to fit. */
-    @Column(name = "error_message", length = 500)
+    /** Error message on failure. */
+    @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
     /** Cost of this API call in pence (e.g., 130 for Sonnet, 20 for WorldTides). */
@@ -131,4 +131,16 @@ public class ApiCallLogEntity {
     /** Cost of this API call in micro-dollars (1 dollar = 1,000,000 micro-dollars). */
     @Column(name = "cost_micro_dollars")
     private Long costMicroDollars;
+
+    /** Anthropic batch custom ID (e.g. "fc-42-2026-04-16-SUNRISE"). Null for SSE calls. */
+    @Column(name = "custom_id", length = 64)
+    private String customId;
+
+    /** Anthropic error type (e.g. "overloaded_error"). Null on success. */
+    @Column(name = "error_type", length = 100)
+    private String errorType;
+
+    /** Anthropic batch ID (e.g. "msgbatch_01VyXG"). Null for SSE calls. */
+    @Column(name = "batch_id", length = 100)
+    private String batchId;
 }

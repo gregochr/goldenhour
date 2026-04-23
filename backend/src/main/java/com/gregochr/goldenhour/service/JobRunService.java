@@ -167,6 +167,70 @@ public class JobRunService {
     }
 
     /**
+     * Records a single batch result row in {@code api_call_log}.
+     *
+     * <p>Called once per request in a completed Anthropic batch — both for succeeded and
+     * errored/expired/canceled results. The resulting rows provide durable, queryable
+     * forensic data that survives log rotation.
+     *
+     * @param jobRunId      the linked job run ID
+     * @param batchId       the Anthropic batch ID (e.g. {@code "msgbatch_01..."})
+     * @param customId      the per-request custom ID (e.g. {@code "fc-42-2026-04-16-SUNRISE"})
+     * @param succeeded     true if the request succeeded, false otherwise
+     * @param status        result status string (e.g. "SUCCESS", "ERRORED", "EXPIRED", "CANCELED")
+     * @param errorType     Anthropic error type (e.g. "overloaded_error"), or null on success
+     * @param errorMessage  Anthropic error message, or null on success
+     * @param model         evaluation model, or null if unknown
+     * @param tokenUsage    token counts, or null for failed requests
+     * @param targetDate    target date decoded from customId, or null
+     * @param targetType    target type decoded from customId, or null
+     */
+    public void logBatchResult(Long jobRunId, String batchId, String customId,
+            boolean succeeded, String status,
+            String errorType, String errorMessage,
+            EvaluationModel model, TokenUsage tokenUsage,
+            LocalDate targetDate, TargetType targetType) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+
+        long costMicroDollars = 0;
+        Long inputTokens = null;
+        Long outputTokens = null;
+        Long cacheCreationTokens = null;
+        Long cacheReadTokens = null;
+
+        if (tokenUsage != null) {
+            inputTokens = tokenUsage.inputTokens();
+            outputTokens = tokenUsage.outputTokens();
+            cacheCreationTokens = tokenUsage.cacheCreationInputTokens();
+            cacheReadTokens = tokenUsage.cacheReadInputTokens();
+            costMicroDollars = costCalculator.calculateCostMicroDollars(
+                    model != null ? model : EvaluationModel.SONNET, tokenUsage, true);
+        }
+
+        ApiCallLogEntity log = ApiCallLogEntity.builder()
+                .jobRunId(jobRunId)
+                .service(ServiceName.ANTHROPIC)
+                .calledAt(now)
+                .completedAt(now)
+                .succeeded(succeeded)
+                .errorMessage(truncate(errorMessage, 2000))
+                .isBatch(true)
+                .costMicroDollars(costMicroDollars)
+                .evaluationModel(model)
+                .targetDate(targetDate)
+                .targetType(targetType)
+                .inputTokens(inputTokens)
+                .outputTokens(outputTokens)
+                .cacheCreationInputTokens(cacheCreationTokens)
+                .cacheReadInputTokens(cacheReadTokens)
+                .customId(customId)
+                .errorType(errorType)
+                .batchId(batchId)
+                .build();
+        apiCallLogRepository.save(log);
+    }
+
+    /**
      * Records a single API call made during a job run (legacy method, for non-Anthropic services).
      *
      * @param jobRunId       the job run ID

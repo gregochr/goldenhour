@@ -76,7 +76,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V97 Flyway migrations
+│       └── db/migration/            V1–V99 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -143,7 +143,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V97)
+## Database Migrations (V1–V99)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -180,6 +180,8 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V68 | `scheduler_job_config` table + 5 seed rows (tide, briefing, aurora, met office, cleanup) |
 | V89–V96 | Batch job run costs, cached evaluation, batch near/far term model, forecast triage |
 | V97 | `evaluation_delta_log` table for empirical freshness threshold refinement |
+| V98 | `stability_snapshot` table for persisting stability state across restarts |
+| V99 | Batch observability: `custom_id`, `error_type`, `batch_id` on `api_call_log`; widen `error_message` to TEXT; partial indexes |
 
 ---
 

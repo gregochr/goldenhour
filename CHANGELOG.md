@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Batch observability: per-request api_call_log persistence
+- **`api_call_log` persistence for batch results** — every request in a completed Anthropic batch (success or failure) now writes a row to `api_call_log` with `is_batch=true`, `custom_id`, `batch_id`, `error_type`, token counts, and decoded `target_date`/`target_type`. Turns ephemeral log output into durable, queryable forensic data that survives log rotation.
+- **`describeFailedResult()` NPE guard** — Anthropic SDK errored results with a null error chain no longer abort the entire processing loop; the error is caught, logged as "unknown", and processing continues to the next request
+- **V99 migration** — adds `custom_id` (VARCHAR 64), `error_type` (VARCHAR 100), `batch_id` (VARCHAR 100) columns to `api_call_log`; widens `error_message` from VARCHAR(500) to TEXT; adds partial indexes on `(is_batch, called_at)` and `(custom_id)`
+- **`JobRunService.logBatchResult()`** — new method for persisting batch result rows with token-based cost calculation; all DB writes are try/catch-guarded — persistence failures never break batch processing
+- **Tests** — 6 new tests: succeeded/errored result persistence, persistence failure resilience, no-jobRunId skip, parse failure persistence, describeFailedResult NPE guard
+
 ### Changed — Stability-driven cache freshness for overnight batch
 
 - **`FreshnessProperties`** — new `@ConfigurationProperties("photocast.freshness")` class with per-stability thresholds: SETTLED=36h (blocking persistence), TRANSITIONAL=12h (half synoptic cycle), UNSETTLED=4h (nowcasting window), safety floor=2h

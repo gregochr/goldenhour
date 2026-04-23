@@ -30,6 +30,7 @@ import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import tools.jackson.databind.ObjectMapper;
@@ -40,6 +41,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -179,7 +181,13 @@ public class BatchResultProcessor {
                 String customId = response.customId();
 
                 if (!response.result().isSucceeded()) {
-                    String[] detail = describeFailedResult(response.result());
+                    String[] detail;
+                    try {
+                        detail = describeFailedResult(response.result());
+                    } catch (Exception ex) {
+                        detail = new String[]{"unknown", "failed to extract error: "
+                                + ex.getMessage()};
+                    }
                     LOG.warn("Forecast batch: request '{}' {} — {}", customId,
                             detail[0], detail[1]);
                     if (firstError) {
@@ -189,6 +197,9 @@ public class BatchResultProcessor {
                     }
                     errorTypeCounts.merge(detail[0], 1, Integer::sum);
                     errored++;
+                    persistBatchResult(batch, customId, false,
+                            detail[0].toUpperCase(), detail[0], detail[1],
+                            null, null, null, null);
                     continue;
                 }
 
@@ -196,6 +207,8 @@ public class BatchResultProcessor {
                 if (message == null) {
                     LOG.warn("Forecast batch: no message for '{}'", customId);
                     errored++;
+                    persistBatchResult(batch, customId, false, "NO_MESSAGE",
+                            "extraction_error", "succeeded but no message", null, null, null, null);
                     continue;
                 }
 
@@ -203,6 +216,8 @@ public class BatchResultProcessor {
                 if (text == null) {
                     LOG.warn("Forecast batch: no text content for '{}'", customId);
                     errored++;
+                    persistBatchResult(batch, customId, false, "NO_TEXT",
+                            "extraction_error", "no text content blocks", null, null, null, null);
                     continue;
                 }
 
@@ -247,6 +262,8 @@ public class BatchResultProcessor {
                 } else {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
+                    persistBatchResult(batch, customId, false, "MALFORMED_ID",
+                            "parse_error", "malformed customId", null, null, null, null);
                     continue;
                 }
 
@@ -256,6 +273,8 @@ public class BatchResultProcessor {
                 } catch (NumberFormatException e) {
                     LOG.warn("Forecast batch: non-numeric locationId in '{}', skipping", customId);
                     errored++;
+                    persistBatchResult(batch, customId, false, "INVALID_LOCATION_ID",
+                            "parse_error", "non-numeric locationId", null, null, null, null);
                     continue;
                 }
 
@@ -264,6 +283,9 @@ public class BatchResultProcessor {
                     LOG.warn("Forecast batch: location {} not found for customId '{}', skipping",
                             locationId, customId);
                     errored++;
+                    persistBatchResult(batch, customId, false, "LOCATION_NOT_FOUND",
+                            "lookup_error", "location " + locationId + " not found",
+                            null, null, null, null);
                     continue;
                 }
 
@@ -296,10 +318,19 @@ public class BatchResultProcessor {
                             eval.summary());
                     byKey.computeIfAbsent(cacheKey, k -> new ArrayList<>()).add(result);
                     succeeded++;
+
+                    TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead);
+                    TargetType tt = parseTargetType(targetTypePart);
+                    LocalDate td = parseDate(date);
+                    persistBatchResult(batch, customId, true, "SUCCESS",
+                            null, null, resolveEvaluationModel(firstModelId),
+                            tokens, td, tt);
                 } catch (Exception e) {
                     LOG.warn("Forecast batch: parse failed for '{}': {}", customId, e.getMessage());
                     LOG.warn("Forecast batch: raw response for '{}': {}", customId, text);
                     errored++;
+                    persistBatchResult(batch, customId, false, "PARSE_FAILED",
+                            "parse_error", e.getMessage(), null, null, null, null);
                 }
             }
         } catch (Exception e) {
@@ -659,6 +690,52 @@ public class BatchResultProcessor {
             return 0L;
         }
         return costUsd.multiply(BigDecimal.valueOf(1_000_000)).longValue();
+    }
+
+    /**
+     * Persists a single batch result row to {@code api_call_log}.
+     *
+     * <p>Non-fatal — an exception here must never break batch processing.
+     */
+    private void persistBatchResult(ForecastBatchEntity batch, String customId,
+            boolean succeeded, String status,
+            String errorType, String errorMessage,
+            EvaluationModel model, TokenUsage tokenUsage,
+            LocalDate targetDate, TargetType targetType) {
+        if (batch.getJobRunId() == null) {
+            return;
+        }
+        try {
+            jobRunService.logBatchResult(
+                    batch.getJobRunId(), batch.getAnthropicBatchId(), customId,
+                    succeeded, status, errorType, errorMessage,
+                    model, tokenUsage, targetDate, targetType);
+        } catch (Exception e) {
+            LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
+                    customId, e.getMessage());
+        }
+    }
+
+    /**
+     * Parses a target type string to a {@link TargetType} enum, or null if unrecognised.
+     */
+    private static TargetType parseTargetType(String value) {
+        try {
+            return TargetType.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses a date string (yyyy-MM-dd) to a {@link LocalDate}, or null if malformed.
+     */
+    private static LocalDate parseDate(String value) {
+        try {
+            return LocalDate.parse(value);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {
