@@ -40,4 +40,15 @@ public record BriefingEvaluationResult(
             Integer fierySkyPotential, Integer goldenHourPotential, String summary) {
         this(locationName, rating, fierySkyPotential, goldenHourPotential, summary, null, null);
     }
+
+    /**
+     * Returns a copy of this result with the rating replaced. All other fields are preserved.
+     *
+     * @param newRating the rating to apply (may be {@code null} to mark as unscored)
+     * @return a new {@code BriefingEvaluationResult} with the updated rating
+     */
+    public BriefingEvaluationResult withRating(Integer newRating) {
+        return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
+                goldenHourPotential, summary, triageReason, triageMessage);
+    }
 }

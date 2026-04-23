@@ -472,14 +472,31 @@ public class BriefingEvaluationService {
                 cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today);
 
         int loaded = 0;
+        int clamped = 0;
         for (CachedEvaluationEntity entity : entries) {
             try {
                 List<BriefingEvaluationResult> results = objectMapper.readValue(
                         entity.getResultsJson(),
                         new TypeReference<List<BriefingEvaluationResult>>() { });
+
+                String[] parts = entity.getCacheKey().split("\\|");
+                String regionName = parts.length > 0 ? parts[0] : null;
+                LocalDate evalDate = entity.getEvaluationDate();
+                TargetType eventType = entity.getTargetType() != null
+                        ? TargetType.valueOf(entity.getTargetType()) : null;
+
                 ConcurrentHashMap<String, BriefingEvaluationResult> resultMap =
                         new ConcurrentHashMap<>();
-                results.forEach(r -> resultMap.put(r.locationName(), r));
+                for (BriefingEvaluationResult r : results) {
+                    Integer safe = RatingValidator.validateRating(r.rating(),
+                            regionName, evalDate, eventType, r.locationName(), null);
+                    if (safe == null && r.rating() != null) {
+                        clamped++;
+                        resultMap.put(r.locationName(), r.withRating(null));
+                    } else {
+                        resultMap.put(r.locationName(), r);
+                    }
+                }
                 cache.put(entity.getCacheKey(),
                         new CachedEvaluation(resultMap, entity.getEvaluatedAt()));
                 loaded++;
@@ -490,8 +507,8 @@ public class BriefingEvaluationService {
         }
 
         if (loaded > 0) {
-            LOG.info("Evaluation cache rehydrated on startup: {} entries loaded (dates >= {})",
-                    loaded, today);
+            LOG.info("[EVAL HYDRATE] Loaded {} entries from cached_evaluation "
+                    + "({} ratings clamped, dates >= {})", loaded, clamped, today);
         }
     }
 

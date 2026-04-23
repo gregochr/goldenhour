@@ -1195,6 +1195,40 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
+    @DisplayName("rehydrateCacheOnStartup nulls out-of-range ratings from persisted JSON")
+    void rehydrate_clampsOutOfRangeRatings() throws Exception {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
+        String cacheKey = REGION + "|" + today + "|SUNSET";
+
+        // Simulates a cached_evaluation row written before the guardrail existed,
+        // carrying a schema-non-compliant Sonnet rating of 491.
+        BriefingEvaluationResult bad =
+                new BriefingEvaluationResult("Almscliffe Crag", 491, 72, 65, "Out-of-range");
+        BriefingEvaluationResult good =
+                new BriefingEvaluationResult("Bamburgh", 4, 70, 60, "Good");
+
+        CachedEvaluationEntity entity = new CachedEvaluationEntity();
+        entity.setCacheKey(cacheKey);
+        entity.setRegionName(REGION);
+        entity.setEvaluationDate(today);
+        entity.setTargetType("SUNSET");
+        entity.setResultsJson(objectMapper.writeValueAsString(List.of(bad, good)));
+        entity.setEvaluatedAt(Instant.now());
+
+        when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                .thenReturn(List.of(entity));
+
+        service.rehydrateCacheOnStartup();
+
+        Map<String, BriefingEvaluationResult> scores =
+                service.getCachedScores(REGION, today, TargetType.SUNSET);
+        assertThat(scores).containsKeys("Almscliffe Crag", "Bamburgh");
+        assertThat(scores.get("Almscliffe Crag").rating()).isNull();       // 491 → null
+        assertThat(scores.get("Almscliffe Crag").fierySkyPotential()).isEqualTo(72);
+        assertThat(scores.get("Bamburgh").rating()).isEqualTo(4);          // untouched
+    }
+
+    @Test
     @DisplayName("rehydrateCacheOnStartup skips entries with corrupt JSON")
     void rehydrate_skipsCorruptJson() {
         LocalDate today = LocalDate.now(java.time.ZoneId.of("Europe/London"));
