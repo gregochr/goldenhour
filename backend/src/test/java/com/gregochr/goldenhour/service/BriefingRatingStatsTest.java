@@ -7,6 +7,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -29,7 +30,9 @@ class BriefingRatingStatsTest {
 
     @BeforeEach
     void attachAppender() {
-        helperLogger = (Logger) LoggerFactory.getLogger(BriefingRatingStats.class);
+        // WARN logs for out-of-range ratings are emitted by the shared RatingValidator,
+        // which BriefingRatingStats now delegates to.
+        helperLogger = (Logger) LoggerFactory.getLogger(RatingValidator.class);
         appender = new ListAppender<>();
         appender.start();
         helperLogger.addAppender(appender);

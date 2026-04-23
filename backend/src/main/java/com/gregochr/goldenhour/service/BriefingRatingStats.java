@@ -3,8 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.Verdict;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -16,16 +15,11 @@ import java.util.List;
  * (for region-level {@code displayVerdict} + {@code scoredLocationCount}) and
  * {@code BriefingBestBetAdvisor.appendClaudeScores()} (for the Best Bet prompt).
  *
- * <p>Defensively skips null or out-of-range ratings. Valid ratings are integers in
- * the inclusive range {@code [1, 5]}. Out-of-range values are logged at WARN so
- * we can track batch responses that produced bad data without polluting the rollup.
+ * <p>Defensively skips null or out-of-range ratings by delegating to
+ * {@link RatingValidator} — which is the single source of truth for the
+ * {@code [1, 5]} bound and the {@code [RATING GUARDRAIL]} WARN log.
  */
 public final class BriefingRatingStats {
-
-    private static final Logger LOG = LoggerFactory.getLogger(BriefingRatingStats.class);
-
-    private static final int MIN_RATING = 1;
-    private static final int MAX_RATING = 5;
 
     private BriefingRatingStats() {
     }
@@ -79,13 +73,9 @@ public final class BriefingRatingStats {
         long medium = 0L;
         long sum = 0L;
         for (Entry entry : entries) {
-            Integer rating = entry.rating();
+            Integer rating = RatingValidator.validateRating(
+                    entry.rating(), regionName, date, targetType, entry.locationName(), null);
             if (rating == null) {
-                continue;
-            }
-            if (rating < MIN_RATING || rating > MAX_RATING) {
-                LOG.warn("Skipping out-of-range Claude rating {} for region={} date={} event={} location={}",
-                        rating, regionName, date, targetType, entry.locationName());
                 continue;
             }
             count++;
