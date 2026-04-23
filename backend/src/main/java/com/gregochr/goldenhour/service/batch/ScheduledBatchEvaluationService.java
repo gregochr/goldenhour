@@ -49,8 +49,10 @@ import com.gregochr.goldenhour.util.TimeSlotUtils;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -106,6 +108,9 @@ public class ScheduledBatchEvaluationService {
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
 
+    /** Max age (hours) for a cached evaluation to be considered fresh by the overnight batch. */
+    private final int cachedGateFreshnessHours;
+
     /** Prevents concurrent forecast batch submissions. */
     private final AtomicBoolean forecastBatchRunning = new AtomicBoolean(false);
 
@@ -135,6 +140,7 @@ public class ScheduledBatchEvaluationService {
      * @param jobRunService               service for creating and updating job run records
      * @param openMeteoService            Open-Meteo service for bulk weather pre-fetch
      * @param solarService                solar calculation service for azimuth and event times
+     * @param cachedGateFreshnessHours    max age (hours) for a cached evaluation to count as fresh
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -155,7 +161,9 @@ public class ScheduledBatchEvaluationService {
             DynamicSchedulerService dynamicSchedulerService,
             JobRunService jobRunService,
             OpenMeteoService openMeteoService,
-            SolarService solarService) {
+            SolarService solarService,
+            @Value("${photocast.batch.cached-gate-freshness-hours:18}")
+            int cachedGateFreshnessHours) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationService = locationService;
@@ -176,6 +184,8 @@ public class ScheduledBatchEvaluationService {
         this.jobRunService = jobRunService;
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
+        this.cachedGateFreshnessHours = cachedGateFreshnessHours;
+        LOG.info("Batch cached-gate freshness threshold: {} hours", cachedGateFreshnessHours);
     }
 
     /**
@@ -751,7 +761,8 @@ public class ScheduledBatchEvaluationService {
                 TargetType targetType = eventSummary.targetType();
                 for (BriefingRegion region : eventSummary.regions()) {
                     String cacheKey = region.regionName() + "|" + date + "|" + targetType;
-                    if (briefingEvaluationService.hasEvaluation(cacheKey)) {
+                    Duration freshness = Duration.ofHours(cachedGateFreshnessHours);
+                    if (briefingEvaluationService.hasFreshEvaluation(cacheKey, freshness)) {
                         int regionSlots = region.slots() != null ? region.slots().size() : 0;
                         LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED ({} slots skipped)",
                                 cacheKey, regionSlots);

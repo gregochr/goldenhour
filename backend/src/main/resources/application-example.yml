@@ -124,6 +124,8 @@ photocast:
     max-users: 3             # early-access cap (excludes admin accounts)
     default-role: PRO_USER   # role assigned to new self-registered users
     enabled: true
+  batch:
+    cached-gate-freshness-hours: 18  # overnight batch refreshes entries older than this
 
 cors:
   extra-origins: https://app.example.com,https://www.example.com  # comma-separated list

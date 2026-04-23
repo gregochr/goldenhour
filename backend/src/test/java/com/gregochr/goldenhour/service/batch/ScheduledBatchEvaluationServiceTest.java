@@ -146,7 +146,7 @@ class ScheduledBatchEvaluationServiceTest {
                 promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
-                jobRunService, openMeteoService, solarService);
+                jobRunService, openMeteoService, solarService, 18);
     }
 
     private void stubBatchService() {
@@ -415,8 +415,9 @@ class ScheduledBatchEvaluationServiceTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
-        when(briefingEvaluationService.hasEvaluation(eq("North East|" + TEST_DATE + "|SUNRISE")))
-                .thenReturn(true);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                eq("North East|" + TEST_DATE + "|SUNRISE"),
+                eq(java.time.Duration.ofHours(18)))).thenReturn(true);
 
         service.submitForecastBatch();
 
@@ -454,11 +455,13 @@ class ScheduledBatchEvaluationServiceTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
-        // North East is cached; Yorkshire is not
-        when(briefingEvaluationService.hasEvaluation(eq("North East|" + TEST_DATE + "|SUNRISE")))
-                .thenReturn(true);
-        when(briefingEvaluationService.hasEvaluation(eq("Yorkshire|" + TEST_DATE + "|SUNRISE")))
-                .thenReturn(false);
+        // North East is cached (fresh); Yorkshire is not
+        when(briefingEvaluationService.hasFreshEvaluation(
+                eq("North East|" + TEST_DATE + "|SUNRISE"),
+                eq(java.time.Duration.ofHours(18)))).thenReturn(true);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                eq("Yorkshire|" + TEST_DATE + "|SUNRISE"),
+                eq(java.time.Duration.ofHours(18)))).thenReturn(false);
 
         LocationEntity yorkshireLoc = buildLocation("Flamborough Head");
         RegionEntity yorkshireRegionEntity = new RegionEntity();
