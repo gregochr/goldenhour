@@ -10,7 +10,7 @@ import HeatmapGrid from './HeatmapGrid.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
 import QualitySlider from './QualitySlider.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
-import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
+import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
@@ -18,20 +18,35 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 // ── Small shared components ─────────────────────────────────────────────────
 /* eslint-disable react/prop-types */
 
-/** Colour pill for a verdict (GO / MARGINAL / STANDDOWN). */
-function VerdictPill({ verdict }) {
+/**
+ * Colour pill for a display signal. Accepts either a {@code displayVerdict}
+ * (preferred — already reflects Claude ratings when available) or falls back
+ * to the legacy {@code verdict} prop for not-yet-migrated call sites.
+ */
+function VerdictPill({ displayVerdict, verdict }) {
+  const signal = displayVerdict
+    || (verdict === 'GO' ? 'WORTH_IT'
+      : verdict === 'MARGINAL' ? 'MAYBE'
+        : verdict === 'STANDDOWN' ? 'STAND_DOWN'
+          : 'AWAITING');
   const colours = {
-    GO: 'bg-green-600 text-white',
-    MARGINAL: 'bg-amber-600 text-white',
-    STANDDOWN: 'bg-red-900/60 text-red-200/70',
+    WORTH_IT: 'bg-green-600 text-white',
+    MAYBE: 'bg-amber-600 text-white',
+    STAND_DOWN: 'bg-red-900/60 text-red-200/70',
+    AWAITING: 'bg-plex-surface text-plex-text-secondary border border-plex-border',
   };
-  const labels = { GO: 'WORTH IT', MARGINAL: 'MAYBE', STANDDOWN: 'Stand Down' };
+  const labels = {
+    WORTH_IT: 'Worth it',
+    MAYBE: 'Maybe',
+    STAND_DOWN: 'Stand down',
+    AWAITING: 'Awaiting',
+  };
   return (
     <span
       data-testid="verdict-pill"
-      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[verdict] || 'bg-plex-surface text-plex-text-secondary'}`}
+      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[signal] || 'bg-plex-surface text-plex-text-secondary'}`}
     >
-      {labels[verdict] || verdict}
+      {labels[signal] || signal}
     </span>
   );
 }
@@ -133,6 +148,9 @@ function resolveEventKey(event, todayStr, tomorrowStr) {
 /** Sort order for verdict: GO first, MARGINAL second, STANDDOWN last. */
 const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
+/** Sort order for the unified display signal, used for region rollups. */
+const DISPLAY_ORDER = { WORTH_IT: 0, MAYBE: 1, STAND_DOWN: 2, AWAITING: 3 };
+
 function sortedSlots(slots) {
   return [...slots].sort((a, b) => {
     const vd = (VERDICT_ORDER[a.verdict] ?? 3) - (VERDICT_ORDER[b.verdict] ?? 3);
@@ -205,7 +223,7 @@ function getDayCellData(date, regionName, briefingDays) {
   if (!day) return null;
 
   const allEvents = [];
-  let bestVerdict = null;
+  let bestDisplay = null;
   let bestEs = null;
   let bestRegion = null;
 
@@ -214,17 +232,18 @@ function getDayCellData(date, regionName, briefingDays) {
     if (!region) continue;
     allEvents.push({ es, region, past: isEventPast(es) });
     if (isEventPast(es)) continue;
-    const vOrder = VERDICT_ORDER[region.verdict] ?? 3;
-    const bestOrder = bestVerdict != null ? (VERDICT_ORDER[bestVerdict] ?? 3) : 4;
-    if (vOrder < bestOrder) {
-      bestVerdict = region.verdict;
+    const dv = resolveRegionDisplay(region);
+    const dOrder = DISPLAY_ORDER[dv] ?? 4;
+    const bestOrder = bestDisplay != null ? (DISPLAY_ORDER[bestDisplay] ?? 4) : 5;
+    if (dOrder < bestOrder) {
+      bestDisplay = dv;
       bestEs = es;
       bestRegion = region;
     }
   }
 
-  if (allEvents.length === 0 || !bestVerdict) return null;
-  return { bestVerdict, bestEs, bestRegion, allEvents };
+  if (allEvents.length === 0 || !bestDisplay) return null;
+  return { bestDisplay, bestEs, bestRegion, allEvents };
 }
 
 /**
@@ -232,7 +251,7 @@ function getDayCellData(date, regionName, briefingDays) {
  * sorted by best verdict (GO first, then MARGINAL, then STANDDOWN), then A-Z.
  */
 function getSortedRegions(upcomingEvents, briefingDays) {
-  const regionBest = new Map(); // regionName → best VERDICT_ORDER value
+  const regionBest = new Map(); // regionName → best DISPLAY_ORDER value
   const regionSeen = [];
 
   for (const { date, targetType } of upcomingEvents) {
@@ -242,7 +261,7 @@ function getSortedRegions(upcomingEvents, briefingDays) {
     if (!es) continue;
     for (const region of es.regions || []) {
       const name = region.regionName;
-      const v = VERDICT_ORDER[region.verdict] ?? 3;
+      const v = DISPLAY_ORDER[resolveRegionDisplay(region)] ?? 4;
       if (!regionBest.has(name)) {
         regionBest.set(name, v);
         regionSeen.push(name);
@@ -253,7 +272,7 @@ function getSortedRegions(upcomingEvents, briefingDays) {
   }
 
   return regionSeen.sort((a, b) => {
-    const diff = (regionBest.get(a) ?? 3) - (regionBest.get(b) ?? 3);
+    const diff = (regionBest.get(a) ?? 4) - (regionBest.get(b) ?? 4);
     return diff !== 0 ? diff : a.localeCompare(b);
   });
 }
@@ -314,14 +333,19 @@ function EventSummaryRow({ dayLabel, es, isOpen, onToggle }) {
 // ── Event pips (tiny coloured labels inside a day cell) ───────────────────
 
 function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unused-vars
-  const upcoming = allEvents.filter((e) => !e.past && e.region.verdict !== 'STANDDOWN');
+  const upcoming = allEvents.filter((e) => {
+    if (e.past) return false;
+    const dv = resolveRegionDisplay(e.region);
+    return dv === 'WORTH_IT' || dv === 'MAYBE';
+  });
   if (upcoming.length === 0 && !auroraActive) return null;
   return (
     <div className="flex flex-wrap gap-0.5 mt-1">
       {upcoming.map(({ es, region }) => {
         const emoji = es.targetType === 'SUNRISE' ? '🌅' : '🌇';
-        const label = region.verdict === 'GO' ? 'WORTH IT' : 'MAYBE';
-        const c = region.verdict === 'GO'
+        const dv = resolveRegionDisplay(region);
+        const label = dv === 'WORTH_IT' ? 'Worth it' : 'Maybe';
+        const c = dv === 'WORTH_IT'
           ? 'bg-green-500/30 text-green-300'
           : 'bg-amber-500/30 text-amber-300';
         return (
@@ -436,7 +460,7 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  con
               <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
                 {eventName}{eventTime ? ` · ${eventTime}` : ''}
               </span>
-              <VerdictPill verdict={region.verdict} />
+              <VerdictPill displayVerdict={region.displayVerdict} verdict={region.verdict} />
               <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                 {region.summary}
               </span>
@@ -519,19 +543,20 @@ function HeatmapDrillDown({ date, regionName, briefingDays, driveMap, typeMap, o
 function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, isOpen, onToggle, onShowOnMap }) {  const cellData = getDayCellData(date, regionName, briefingDays);
   if (!cellData) return null;
 
-  const { bestVerdict, bestRegion, bestEs, allEvents } = cellData;
-  const isStanddown = bestVerdict === 'STANDDOWN';
+  const { bestDisplay, bestRegion, bestEs, allEvents } = cellData;
+  const isStanddown = bestDisplay === 'STAND_DOWN' || bestDisplay === 'AWAITING';
 
   const cardBg = isStanddown
     ? 'border-red-500/8'
-    : bestVerdict === 'GO'
+    : bestDisplay === 'WORTH_IT'
       ? 'bg-green-600/15 border-green-600/25'
       : 'bg-amber-500/15 border-amber-500/25';
 
   const eventLabel = bestEs?.targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
-  const verdictLabel = isStanddown ? 'Poor'
-    : bestVerdict === 'GO' ? `Worth it ${eventLabel}`
-      : `Maybe ${eventLabel}`;
+  const verdictLabel = bestDisplay === 'STAND_DOWN' ? 'Poor'
+    : bestDisplay === 'AWAITING' ? 'Awaiting'
+      : bestDisplay === 'WORTH_IT' ? `Worth it ${eventLabel}`
+        : `Maybe ${eventLabel}`;
 
   return (
     <div className={`rounded border ${cardBg} mb-1.5`}
@@ -544,7 +569,7 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
         style={{ pointerEvents: isStanddown ? 'none' : undefined }}
         onClick={isStanddown ? undefined : onToggle}
       >
-        <VerdictPill verdict={bestVerdict} />
+        <VerdictPill displayVerdict={bestDisplay} />
         <span className="font-medium text-plex-text flex-1" style={{ fontSize: '13px' }}>
           {regionName}
         </span>
@@ -1266,10 +1291,10 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
                         if (idx === selectedDayIndex) return null;
                         const goCount = sortedRegions.filter((r) => {
                           const cd = getDayCellData(date, r, briefing.days);
-                          return cd?.bestVerdict === 'GO';
+                          return cd?.bestDisplay === 'WORTH_IT';
                         }).length;
                         const label = goCount > 0
-                          ? `${getDayLabel(date, todayStr, tomorrowStr)} · ${goCount} GO`
+                          ? `${getDayLabel(date, todayStr, tomorrowStr)} · ${goCount} worth it`
                           : `${getDayLabel(date, todayStr, tomorrowStr)} · washout`;
                         const isWashout = goCount === 0;
                         return (

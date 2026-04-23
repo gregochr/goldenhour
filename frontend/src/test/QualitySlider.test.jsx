@@ -89,19 +89,19 @@ describe('QualitySlider', () => {
     expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', TIER_LABELS[3]);
   });
 
-  it('displays WORTH IT label at best-quality tier', () => {
+  it('displays "Worth it + king tide only" at best-quality tier', () => {
     render(<QualitySlider value={0} onChange={() => {}} showing={2} total={10} />);
-    expect(screen.getByText((t) => t.includes('WORTH IT + king tide'))).toBeInTheDocument();
+    expect(screen.getByText((t) => t.includes('Worth it + king tide only'))).toBeInTheDocument();
   });
 
-  it('displays MAYBE label at marginal tier', () => {
+  it('displays "Maybe + tide-aligned" at marginal tier', () => {
     render(<QualitySlider value={3} onChange={() => {}} showing={5} total={12} />);
-    expect(screen.getByText((t) => t.includes('MAYBE + tide aligned'))).toBeInTheDocument();
+    expect(screen.getByText((t) => t.includes('Maybe + tide-aligned'))).toBeInTheDocument();
   });
 
-  it('displays Everything including standdown at lowest tier', () => {
+  it('displays "Everything including stand down" at lowest tier', () => {
     render(<QualitySlider value={5} onChange={() => {}} showing={12} total={12} />);
-    expect(screen.getByText((t) => t.includes('Everything including standdown'))).toBeInTheDocument();
+    expect(screen.getByText((t) => t.includes('Everything including stand down'))).toBeInTheDocument();
   });
 
   // ── Full inversion table: all 6 internal → visual positions ───────────────

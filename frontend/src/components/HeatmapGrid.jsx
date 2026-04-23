@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { computeCellTier, isCellVisible } from '../utils/tierUtils.js';
+import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import { formatEventTimeUk, formatTideHighlight } from '../utils/conversions.js';
 import InfoTip from './InfoTip.jsx';
@@ -105,19 +105,36 @@ function getRegionLocationNames(date, regionName, briefingDays) {
 /** Small shared components (local copies for the extracted file) */
 /* eslint-disable react/prop-types */
 
-function VerdictPill({ verdict }) {
+/**
+ * Colour pill for a display signal. Accepts either a {@code displayVerdict}
+ * ({@code WORTH_IT} / {@code MAYBE} / {@code STAND_DOWN} / {@code AWAITING})
+ * or falls back to the legacy {@code verdict} ({@code GO} / {@code MARGINAL}
+ * / {@code STANDDOWN}) for call-sites that haven't been migrated.
+ */
+function VerdictPill({ displayVerdict, verdict }) {
+  const signal = displayVerdict
+    || (verdict === 'GO' ? 'WORTH_IT'
+      : verdict === 'MARGINAL' ? 'MAYBE'
+        : verdict === 'STANDDOWN' ? 'STAND_DOWN'
+          : 'AWAITING');
   const colours = {
-    GO: 'bg-green-600 text-white',
-    MARGINAL: 'bg-amber-600 text-white',
-    STANDDOWN: 'bg-red-900/60 text-red-200/70',
+    WORTH_IT: 'bg-green-600 text-white',
+    MAYBE: 'bg-amber-600 text-white',
+    STAND_DOWN: 'bg-red-900/60 text-red-200/70',
+    AWAITING: 'bg-plex-surface text-plex-text-secondary border border-plex-border',
   };
-  const labels = { GO: 'WORTH IT', MARGINAL: 'MAYBE', STANDDOWN: 'Stand Down' };
+  const labels = {
+    WORTH_IT: 'Worth it',
+    MAYBE: 'Maybe',
+    STAND_DOWN: 'Stand down',
+    AWAITING: 'Awaiting',
+  };
   return (
     <span
       data-testid="verdict-pill"
-      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[verdict] || 'bg-plex-surface text-plex-text-secondary'}`}
+      className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[signal] || 'bg-plex-surface text-plex-text-secondary'}`}
     >
-      {labels[verdict] || verdict}
+      {labels[signal] || signal}
     </span>
   );
 }
@@ -470,7 +487,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                 <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
                   {eventName}{eventTime ? ` · ${eventTime}` : ''}
                 </span>
-                <VerdictPill verdict={region.verdict} />
+                <VerdictPill displayVerdict={region.displayVerdict} verdict={region.verdict} />
                 <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                   {region.summary}
                 </span>
@@ -618,7 +635,8 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   const cellTier = computeCellTier(region);
   const visible = isCellVisible(cellTier, qualityTier);
 
-  const isStanddown = region.verdict === 'STANDDOWN';
+  const displaySignal = resolveRegionDisplay(region);
+  const isStanddown = displaySignal === 'STAND_DOWN' || displaySignal === 'AWAITING';
 
   // Extract the best tide label from tideHighlights (e.g. "King Tide at 3 coastal spots" → "3 king tides")
   const tideHighlight = (region.tideHighlights || []).find((h) =>
@@ -639,14 +657,15 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
   const verdictTextColour = isStanddown
     ? 'text-plex-text-muted'
-    : region.verdict === 'GO'
+    : displaySignal === 'WORTH_IT'
       ? 'text-green-300'
       : 'text-amber-300';
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
-  const verdictLabel = isStanddown ? 'Poor'
-    : region.verdict === 'GO' ? `Worth it ${eventLabel}`
-      : `Maybe ${eventLabel}`;
+  const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
+    : displaySignal === 'AWAITING' ? 'Awaiting'
+      : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
+        : `Maybe ${eventLabel}`;
 
   // Clear % from best slot
   const bestSlot = (region.slots || []).reduce((best, s) => {

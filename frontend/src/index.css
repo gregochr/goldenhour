@@ -30,6 +30,7 @@
   --color-verdict-go: #16a34a;
   --color-verdict-marginal: #d97706;
   --color-verdict-standdown: #b91c1c;
+  --color-verdict-awaiting: #6b7280;
 }
 
 @layer base {

@@ -2,36 +2,55 @@
  * Quality tier constants — each tier is a 0-based index matching the 6 slider positions.
  *
  * Tier hierarchy (lower number = higher quality):
- *   0  go-king    GO verdict + king tide signal
- *   1  go-tide    GO verdict + any tide-aligned location (no king)
- *   2  go-plain   GO verdict, no tide alignment
- *   3  ma-tide    MARGINAL verdict + any tide-aligned location
- *   4  ma-plain   MARGINAL verdict, no tide alignment
- *   5  standdown  STANDDOWN verdict
+ *   0  go-king    WORTH_IT + king tide signal
+ *   1  go-tide    WORTH_IT + any tide-aligned location (no king)
+ *   2  go-plain   WORTH_IT, no tide alignment
+ *   3  ma-tide    MAYBE + any tide-aligned location
+ *   4  ma-plain   MAYBE, no tide alignment
+ *   5  standdown  STAND_DOWN / AWAITING
  */
 export const TIER_KEYS = ['go-king', 'go-tide', 'go-plain', 'ma-tide', 'ma-plain', 'standdown'];
 
 export const TIER_LABELS = [
-  'WORTH IT + king tide',
-  'WORTH IT + any tide alignment',
-  'All WORTH IT conditions',
-  'MAYBE + tide aligned',
-  'All MAYBE included',
-  'Everything including standdown',
+  'Worth it + king tide only',
+  'Worth it + tide-aligned',
+  'All worth it',
+  'Maybe + tide-aligned',
+  'All maybe',
+  'Everything including stand down',
 ];
+
+/**
+ * Resolves the display signal for a region. Prefers the backend-provided
+ * {@code displayVerdict} (which already incorporates Claude ratings when
+ * scored) and falls back to mapping the triage {@code verdict} otherwise.
+ *
+ * @param {{ displayVerdict?: string, verdict?: string }} region
+ * @returns {'WORTH_IT' | 'MAYBE' | 'STAND_DOWN' | 'AWAITING'}
+ */
+export function resolveRegionDisplay(region) {
+  if (!region) return 'AWAITING';
+  if (region.displayVerdict) return region.displayVerdict;
+  switch (region.verdict) {
+    case 'GO': return 'WORTH_IT';
+    case 'MARGINAL': return 'MAYBE';
+    case 'STANDDOWN': return 'STAND_DOWN';
+    default: return 'AWAITING';
+  }
+}
 
 /**
  * Returns the quality tier (0–5) for a briefing region object.
  *
- * @param {{ verdict: string, tideHighlights?: string[], slots?: Array<{ tideAligned?: boolean }> }} region
+ * @param {{ displayVerdict?: string, verdict?: string, tideHighlights?: string[], slots?: Array<{ tideAligned?: boolean }> }} region
  * @returns {number} 0–5
  */
 export function computeCellTier(region) {
   if (!region) return 5;
 
-  const verdict = region.verdict;
+  const dv = resolveRegionDisplay(region);
 
-  if (verdict === 'STANDDOWN') return 5;
+  if (dv === 'STAND_DOWN' || dv === 'AWAITING') return 5;
 
   const hasKingTide = (region.tideHighlights || [])
     .some((h) => h.toLowerCase().includes('king'));
@@ -39,18 +58,17 @@ export function computeCellTier(region) {
   const hasTideAligned = (region.slots || [])
     .some((s) => s.tideAligned === true);
 
-  if (verdict === 'GO') {
+  if (dv === 'WORTH_IT') {
     if (hasKingTide) return 0;
     if (hasTideAligned) return 1;
     return 2;
   }
 
-  if (verdict === 'MARGINAL') {
+  if (dv === 'MAYBE') {
     if (hasTideAligned) return 3;
     return 4;
   }
 
-  // Unknown verdict — treat as standdown
   return 5;
 }
 

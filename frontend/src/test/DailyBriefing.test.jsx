@@ -419,7 +419,7 @@ describe('DailyBriefing', () => {
     expect(screen.getAllByText('Lake District').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('shows GO and STANDDOWN verdict pills', async () => {
+  it('shows Worth it and Stand down verdict pills', async () => {
     // Set quality tier to "All" so all verdict types are visible on mobile
     localStorage.setItem('plannerQualityTier', JSON.stringify(5));
     getDailyBriefing.mockResolvedValue(buildBriefing());
@@ -429,11 +429,11 @@ describe('DailyBriefing', () => {
 
     const pills = screen.getAllByTestId('verdict-pill');
     const pillTexts = pills.map((p) => p.textContent);
-    expect(pillTexts).toContain('Stand Down');
-    expect(pillTexts).toContain('WORTH IT');
+    expect(pillTexts).toContain('Stand down');
+    expect(pillTexts).toContain('Worth it');
   });
 
-  it('shows MAYBE verdict pill for MARGINAL region', async () => {
+  it('shows Maybe verdict pill for MARGINAL region', async () => {
     localStorage.setItem('plannerQualityTier', JSON.stringify(5));
     getDailyBriefing.mockResolvedValue(buildBriefing());
     render(<DailyBriefing />);
@@ -442,7 +442,7 @@ describe('DailyBriefing', () => {
 
     const pills = screen.getAllByTestId('verdict-pill');
     const pillTexts = pills.map((p) => p.textContent);
-    expect(pillTexts).toContain('MAYBE');
+    expect(pillTexts).toContain('Maybe');
   });
 
   it('mobile region card shows Worth it sunset for GO sunset region', async () => {
@@ -2075,7 +2075,7 @@ describe('DailyBriefing', () => {
       await waitFor(() => screen.getByTestId('briefing-collapsed-events'));
 
       const input = screen.getByRole('slider');
-      expect(input).toHaveAttribute('aria-valuetext', 'All WORTH IT conditions');
+      expect(input).toHaveAttribute('aria-valuetext', 'All worth it');
     });
 
     it('dragging slider to show-everything updates the showing count', async () => {
