@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stability-driven cache freshness for overnight batch
+
+- **`FreshnessProperties`** — new `@ConfigurationProperties("photocast.freshness")` class with per-stability thresholds: SETTLED=36h (blocking persistence), TRANSITIONAL=12h (half synoptic cycle), UNSETTLED=4h (nowcasting window), safety floor=2h
+- **`FreshnessResolver`** — shared primitive resolving `ForecastStability` → `Duration` maxAge, used by both the overnight batch CACHED gate and (future) intraday refresh; applies safety floor; logs effective thresholds at startup
+- **`ScheduledBatchEvaluationService`** — CACHED gate now uses stability-driven freshness instead of flat 18h; looks up most volatile stability per region from the latest snapshot; DIAG output enriched with stability level, threshold, and per-stability breakdown summary
+- **`BriefingEvaluationService`** — `writeFromBatch()` logs rating deltas to `evaluation_delta_log` for empirical threshold refinement; delta logging is try/catch-guarded — failures never break the cache write path
+- **V97 migration** — `evaluation_delta_log` table with stability/age/rating-delta columns and an index on `(stability_level, age_hours)` for post-deploy analysis
+- **Config** — removed `photocast.batch.cached-gate-freshness-hours`; replaced with `photocast.freshness.{settled,transitional,unsettled,safety-floor}-hours`
+- **Tests** — 19 new tests: `FreshnessResolverTest` (7: per-stability returns, safety floor enforcement), `CollectForecastTasksCachedGateTest` rewritten (8: SETTLED/TRANSITIONAL/UNSETTLED skip/refresh, no-snapshot fallback), `EvaluationDeltaLogTest` (3: delta insert, no-prior-entry skip, failure resilience); existing `ScheduledBatchEvaluationServiceTest` updated
+
 ### Fixed — Unified score reads for Plan and Map tabs
 - **Bug A**: Map tab didn't render batch-evaluated scores — it only read `forecast_evaluation`, while batch results live in `cached_evaluation`
 - **Bug B**: Sunset toggle disabled for dates where only `cached_evaluation` had data — availability check only looked at `forecastsByDate`

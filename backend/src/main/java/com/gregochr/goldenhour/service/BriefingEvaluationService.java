@@ -5,8 +5,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
+import com.gregochr.goldenhour.entity.EvaluationDeltaLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -17,11 +19,13 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
+import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,8 +72,11 @@ public class BriefingEvaluationService {
     private final JobRunService jobRunService;
     private final ForecastBatchRepository batchRepository;
     private final CachedEvaluationRepository cachedEvaluationRepository;
+    private final EvaluationDeltaLogRepository deltaLogRepository;
     private final AnthropicClient anthropicClient;
     private final ObjectMapper objectMapper;
+    private final FreshnessResolver freshnessResolver;
+    private final ForecastCommandExecutor forecastCommandExecutor;
 
     /** Outer key: "regionName|date|targetType", value: cached entry with results + timestamp. */
     private final ConcurrentHashMap<String, CachedEvaluation> cache = new ConcurrentHashMap<>();
@@ -93,8 +100,11 @@ public class BriefingEvaluationService {
      * @param jobRunService              service for job run tracking
      * @param batchRepository            repository for looking up and cancelling outstanding batches
      * @param cachedEvaluationRepository repository for durable cache persistence
+     * @param deltaLogRepository         repository for evaluation delta log entries
      * @param anthropicClient            raw SDK client for cancelling batch API jobs
      * @param objectMapper               Jackson mapper for JSON serialisation
+     * @param freshnessResolver          resolves per-stability cache freshness thresholds
+     * @param forecastCommandExecutor    provides the latest stability snapshot for delta logging
      */
     public BriefingEvaluationService(LocationService locationService,
             BriefingService briefingService,
@@ -103,8 +113,11 @@ public class BriefingEvaluationService {
             JobRunService jobRunService,
             ForecastBatchRepository batchRepository,
             CachedEvaluationRepository cachedEvaluationRepository,
+            EvaluationDeltaLogRepository deltaLogRepository,
             AnthropicClient anthropicClient,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            FreshnessResolver freshnessResolver,
+            ForecastCommandExecutor forecastCommandExecutor) {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.forecastService = forecastService;
@@ -112,8 +125,11 @@ public class BriefingEvaluationService {
         this.jobRunService = jobRunService;
         this.batchRepository = batchRepository;
         this.cachedEvaluationRepository = cachedEvaluationRepository;
+        this.deltaLogRepository = deltaLogRepository;
         this.anthropicClient = anthropicClient;
         this.objectMapper = objectMapper;
+        this.freshnessResolver = freshnessResolver;
+        this.forecastCommandExecutor = forecastCommandExecutor;
     }
 
     /**
@@ -309,10 +325,87 @@ public class BriefingEvaluationService {
      */
     public void writeFromBatch(String cacheKey,
             List<BriefingEvaluationResult> results) {
+        CachedEvaluation prior = cache.get(cacheKey);
         ConcurrentHashMap<String, BriefingEvaluationResult> resultMap = new ConcurrentHashMap<>();
         results.forEach(r -> resultMap.put(r.locationName(), r));
-        cache.put(cacheKey, new CachedEvaluation(resultMap, Instant.now()));
+        Instant now = Instant.now();
+        cache.put(cacheKey, new CachedEvaluation(resultMap, now));
         persistToDb(cacheKey, resultMap, "BATCH");
+        logEvaluationDeltas(cacheKey, prior, resultMap, now);
+    }
+
+    /**
+     * Logs rating deltas to {@code evaluation_delta_log} for empirical freshness
+     * threshold refinement. Only inserts rows when a prior cache entry existed.
+     * Failures are logged at WARN and never break the cache write path.
+     */
+    private void logEvaluationDeltas(String cacheKey, CachedEvaluation prior,
+            Map<String, BriefingEvaluationResult> newResults, Instant newEvaluatedAt) {
+        if (prior == null || prior.results().isEmpty()) {
+            return;
+        }
+        try {
+            String[] parts = cacheKey.split("\\|");
+            if (parts.length < 3) {
+                return;
+            }
+            LocalDate evalDate = LocalDate.parse(parts[1]);
+            String targetType = parts[2];
+
+            Map<String, ForecastStability> stabilityLookup = buildStabilityLookup();
+
+            for (Map.Entry<String, BriefingEvaluationResult> entry : newResults.entrySet()) {
+                String locationName = entry.getKey();
+                BriefingEvaluationResult oldResult = prior.results().get(locationName);
+                if (oldResult == null) {
+                    continue;
+                }
+                BriefingEvaluationResult newResult = entry.getValue();
+                ForecastStability stability = stabilityLookup.getOrDefault(
+                        locationName, ForecastStability.UNSETTLED);
+                Duration threshold = freshnessResolver.maxAgeFor(stability);
+                Duration age = Duration.between(prior.evaluatedAt(), newEvaluatedAt);
+
+                EvaluationDeltaLogEntity delta = new EvaluationDeltaLogEntity();
+                delta.setCacheKey(cacheKey);
+                delta.setLocationName(locationName);
+                delta.setEvaluationDate(evalDate);
+                delta.setTargetType(targetType);
+                delta.setStabilityLevel(stability.name());
+                delta.setOldEvaluatedAt(prior.evaluatedAt());
+                delta.setNewEvaluatedAt(newEvaluatedAt);
+                delta.setAgeHours(java.math.BigDecimal.valueOf(
+                        age.toMinutes() / 60.0).setScale(2, java.math.RoundingMode.HALF_UP));
+                delta.setOldRating(oldResult.rating());
+                delta.setNewRating(newResult.rating());
+                if (oldResult.rating() != null && newResult.rating() != null) {
+                    delta.setRatingDelta(java.math.BigDecimal.valueOf(
+                            Math.abs(newResult.rating() - oldResult.rating())));
+                }
+                delta.setThresholdUsedHours(java.math.BigDecimal.valueOf(threshold.toHours()));
+                delta.setLoggedAt(newEvaluatedAt);
+                deltaLogRepository.save(delta);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to log evaluation deltas for {}: {}", cacheKey, e.getMessage());
+        }
+    }
+
+    /**
+     * Builds a location-name → stability lookup from the latest snapshot.
+     */
+    private Map<String, ForecastStability> buildStabilityLookup() {
+        StabilitySummaryResponse snapshot = forecastCommandExecutor.getLatestStabilitySummary();
+        if (snapshot == null || snapshot.cells() == null) {
+            return Map.of();
+        }
+        Map<String, ForecastStability> lookup = new java.util.HashMap<>();
+        for (StabilitySummaryResponse.GridCellDetail cell : snapshot.cells()) {
+            for (String locName : cell.locationNames()) {
+                lookup.put(locName, cell.stability());
+            }
+        }
+        return lookup;
     }
 
     /**

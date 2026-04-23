@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.config.FreshnessProperties;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -9,14 +11,17 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
+import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -30,6 +35,7 @@ import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -37,17 +43,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
- * Tests that the CACHED gate in {@code collectForecastTasks} uses freshness-aware
- * cache checks, so stale entries are refreshed by the overnight batch.
+ * Tests that the CACHED gate in {@code collectForecastTasks} uses stability-driven
+ * freshness thresholds via {@link FreshnessResolver}.
  */
 @ExtendWith(MockitoExtension.class)
 class CollectForecastTasksCachedGateTest {
@@ -72,6 +81,7 @@ class CollectForecastTasksCachedGateTest {
     @Mock private JobRunService jobRunService;
     @Mock private OpenMeteoService openMeteoService;
     @Mock private SolarService solarService;
+    @Mock private ForecastCommandExecutor forecastCommandExecutor;
 
     private ScheduledBatchEvaluationService service;
 
@@ -80,6 +90,13 @@ class CollectForecastTasksCachedGateTest {
 
     @BeforeEach
     void setUp() {
+        FreshnessProperties props = new FreshnessProperties();
+        props.setSettledHours(36);
+        props.setTransitionalHours(12);
+        props.setUnsettledHours(4);
+        props.setSafetyFloorHours(2);
+        FreshnessResolver freshnessResolver = new FreshnessResolver(props);
+
         service = new ScheduledBatchEvaluationService(
                 anthropicClient, batchRepository, locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
@@ -87,12 +104,9 @@ class CollectForecastTasksCachedGateTest {
                 noaaSwpcClient, weatherTriageService, claudeAuroraInterpreter,
                 auroraOrchestrator, locationRepository, auroraProperties,
                 dynamicSchedulerService, jobRunService, openMeteoService, solarService,
-                18, 0.5);  // 18-hour freshness threshold, 50% min prefetch ratio
+                freshnessResolver, forecastCommandExecutor, 0.5);
     }
 
-    /**
-     * Invokes the private {@code collectForecastTasks} method via reflection.
-     */
     @SuppressWarnings("unchecked")
     private List<?> invokeCollectForecastTasks(DailyBriefingResponse briefing) throws Exception {
         Method method = ScheduledBatchEvaluationService.class
@@ -123,46 +137,151 @@ class CollectForecastTasksCachedGateTest {
         return loc;
     }
 
-    @Test
-    @DisplayName("stale cache entry (24h old) is NOT skipped — slot becomes a task")
-    void staleCacheEntryRefreshed() throws Exception {
-        String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-        when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
-                eq(Duration.ofHours(18)))).thenReturn(false);
-        when(locationService.findAllEnabled())
-                .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
-
-        List<?> tasks = invokeCollectForecastTasks(
-                briefingWithOneSlot("North East", "Bamburgh"));
-
-        assertThat(tasks).hasSize(1);
+    private StabilitySummaryResponse snapshotWith(String locationName,
+            ForecastStability stability) {
+        StabilitySummaryResponse.GridCellDetail cell =
+                new StabilitySummaryResponse.GridCellDetail(
+                        "54.75,-1.63", 54.75, -1.63, stability,
+                        "test", stability.evaluationWindowDays(),
+                        List.of(locationName));
+        return new StabilitySummaryResponse(
+                Instant.now(), 1, Map.of(stability, 1L), List.of(cell));
     }
 
-    @Test
-    @DisplayName("fresh cache entry (3h old) IS skipped — slot does not become a task")
-    void freshCacheEntrySkipped() throws Exception {
-        String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-        when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
-                eq(Duration.ofHours(18)))).thenReturn(true);
+    @Nested
+    @DisplayName("Stability-driven CACHED gate")
+    class StabilityDrivenCachedGate {
 
-        List<?> tasks = invokeCollectForecastTasks(
-                briefingWithOneSlot("North East", "Bamburgh"));
+        @Test
+        @DisplayName("SETTLED cell with 30h-old cache entry — skipped (within 36h threshold)")
+        void settledWithin36hSkipped() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(36)))).thenReturn(true);
 
-        assertThat(tasks).isEmpty();
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("SETTLED cell with 40h-old cache entry — candidate (beyond 36h threshold)")
+        void settledBeyond36hRefreshed() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(36)))).thenReturn(false);
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
+
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("UNSETTLED cell with 6h-old cache entry — candidate (beyond 4h threshold)")
+        void unsettledBeyond4hRefreshed() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(4)))).thenReturn(false);
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
+
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("UNSETTLED cell with 3h-old cache entry — skipped (within 4h threshold)")
+        void unsettledWithin4hSkipped() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(4)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("No stability snapshot — treated as UNSETTLED (4h threshold)")
+        void noSnapshotFallsBackToUnsettled() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(4)))).thenReturn(false);
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
+
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("Location not in snapshot — treated as UNSETTLED (4h threshold)")
+        void unknownLocationFallsBackToUnsettled() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            // Snapshot has a different location
+            when(forecastCommandExecutor.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("OtherPlace", ForecastStability.SETTLED));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(4)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).isEmpty();
+        }
+
+        @Test
+        @DisplayName("TRANSITIONAL cell — uses 12h threshold")
+        void transitionalUses12hThreshold() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary())
+                    .thenReturn(snapshotWith("Bamburgh", ForecastStability.TRANSITIONAL));
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    eq(Duration.ofHours(12)))).thenReturn(true);
+
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).isEmpty();
+        }
     }
 
-    @Test
-    @DisplayName("absent cache entry falls through to other filters")
-    void absentCacheEntryPassesThrough() throws Exception {
-        String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-        when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
-                eq(Duration.ofHours(18)))).thenReturn(false);
-        when(locationService.findAllEnabled())
-                .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
+    @Nested
+    @DisplayName("Absent cache entry")
+    class AbsentCacheEntry {
 
-        List<?> tasks = invokeCollectForecastTasks(
-                briefingWithOneSlot("North East", "Bamburgh"));
+        @Test
+        @DisplayName("absent cache entry falls through to other filters")
+        void absentCacheEntryPassesThrough() throws Exception {
+            String cacheKey = "North East|" + tomorrow + "|SUNRISE";
+            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
+                    any(Duration.class))).thenReturn(false);
+            when(locationService.findAllEnabled())
+                    .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
-        assertThat(tasks).hasSize(1);
+            List<?> tasks = invokeCollectForecastTasks(
+                    briefingWithOneSlot("North East", "Bamburgh"));
+
+            assertThat(tasks).hasSize(1);
+        }
     }
 }

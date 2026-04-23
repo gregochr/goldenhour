@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.service.aurora.TriggerType;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -23,6 +24,7 @@ import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.Verdict;
@@ -37,6 +39,8 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
@@ -107,9 +111,8 @@ public class ScheduledBatchEvaluationService {
     private final JobRunService jobRunService;
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
-
-    /** Max age (hours) for a cached evaluation to be considered fresh by the overnight batch. */
-    private final int cachedGateFreshnessHours;
+    private final FreshnessResolver freshnessResolver;
+    private final ForecastCommandExecutor forecastCommandExecutor;
 
     /** Minimum ratio of successful weather pre-fetches to proceed with batch submission. */
     private final double minPrefetchSuccessRatio;
@@ -143,7 +146,8 @@ public class ScheduledBatchEvaluationService {
      * @param jobRunService               service for creating and updating job run records
      * @param openMeteoService            Open-Meteo service for bulk weather pre-fetch
      * @param solarService                solar calculation service for azimuth and event times
-     * @param cachedGateFreshnessHours    max age (hours) for a cached evaluation to count as fresh
+     * @param freshnessResolver           resolves per-stability cache freshness thresholds
+     * @param forecastCommandExecutor     provides the latest stability snapshot
      * @param minPrefetchSuccessRatio    minimum ratio of successful pre-fetches to proceed
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
@@ -166,8 +170,8 @@ public class ScheduledBatchEvaluationService {
             JobRunService jobRunService,
             OpenMeteoService openMeteoService,
             SolarService solarService,
-            @Value("${photocast.batch.cached-gate-freshness-hours:18}")
-            int cachedGateFreshnessHours,
+            FreshnessResolver freshnessResolver,
+            ForecastCommandExecutor forecastCommandExecutor,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio) {
         this.anthropicClient = anthropicClient;
@@ -190,10 +194,10 @@ public class ScheduledBatchEvaluationService {
         this.jobRunService = jobRunService;
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
-        this.cachedGateFreshnessHours = cachedGateFreshnessHours;
+        this.freshnessResolver = freshnessResolver;
+        this.forecastCommandExecutor = forecastCommandExecutor;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
-        LOG.info("Batch config: cached-gate freshness={}h, min-prefetch-success-ratio={}",
-                cachedGateFreshnessHours, minPrefetchSuccessRatio);
+        LOG.info("Batch config: min-prefetch-success-ratio={}", minPrefetchSuccessRatio);
     }
 
     /**
@@ -760,6 +764,16 @@ public class ScheduledBatchEvaluationService {
         int skippedUnknown = 0;
         int skippedPastDate = 0;
         int totalSlots = 0;
+        Map<ForecastStability, int[]> cachedByStability = new HashMap<>();
+        Map<ForecastStability, int[]> eligibleByStability = new HashMap<>();
+        for (ForecastStability s : ForecastStability.values()) {
+            cachedByStability.put(s, new int[]{0});
+            eligibleByStability.put(s, new int[]{0});
+        }
+
+        // Build location → stability lookup from the latest snapshot.
+        // Falls back to UNSETTLED (aggressive refresh) if no snapshot exists.
+        Map<String, ForecastStability> stabilityByLocation = buildStabilityLookup();
 
         // Use Europe/London because solar events are for UK locations — a sunrise
         // in Northumberland on April 19th BST is what matters, not the UTC date.
@@ -782,11 +796,17 @@ public class ScheduledBatchEvaluationService {
                 TargetType targetType = eventSummary.targetType();
                 for (BriefingRegion region : eventSummary.regions()) {
                     String cacheKey = region.regionName() + "|" + date + "|" + targetType;
-                    Duration freshness = Duration.ofHours(cachedGateFreshnessHours);
+                    ForecastStability regionStability = mostVolatileStability(
+                            region, stabilityByLocation);
+                    Duration freshness = freshnessResolver.maxAgeFor(regionStability);
+                    int regionSlots = region.slots() != null ? region.slots().size() : 0;
+                    eligibleByStability.get(regionStability)[0] += regionSlots;
                     if (briefingEvaluationService.hasFreshEvaluation(cacheKey, freshness)) {
-                        int regionSlots = region.slots() != null ? region.slots().size() : 0;
-                        LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED ({} slots skipped)",
-                                cacheKey, regionSlots);
+                        LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED "
+                                        + "(stability={}, threshold={}h, {} slots skipped)",
+                                cacheKey, regionStability,
+                                freshness.toHours(), regionSlots);
+                        cachedByStability.get(regionStability)[0] += regionSlots;
                         skippedCache += regionSlots;
                         totalSlots += regionSlots;
                         continue;
@@ -818,6 +838,7 @@ public class ScheduledBatchEvaluationService {
                         + "(pastDate={}, cached={}, verdict={}, unknownLoc={})",
                 tasks.size(), totalSlots, skippedPastDate, skippedCache,
                 skippedVerdict, skippedUnknown);
+        logStabilityBreakdown(eligibleByStability, cachedByStability);
         return tasks;
     }
 
@@ -990,6 +1011,79 @@ public class ScheduledBatchEvaluationService {
                 .filter(loc -> loc.getName().equals(name))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Logs a stability-level breakdown of cached vs eligible candidates.
+     */
+    private void logStabilityBreakdown(Map<ForecastStability, int[]> eligible,
+            Map<ForecastStability, int[]> cached) {
+        StringBuilder sb = new StringBuilder("[BATCH DIAG] Candidate breakdown by stability:");
+        for (ForecastStability level : ForecastStability.values()) {
+            int elig = eligible.get(level)[0];
+            int cach = cached.get(level)[0];
+            if (elig == 0) {
+                continue;
+            }
+            int refreshed = elig - cach;
+            double pct = elig > 0 ? (refreshed * 100.0 / elig) : 0;
+            Duration threshold = freshnessResolver.maxAgeFor(level);
+            sb.append(String.format(" %s: %d of %d (%.1f%% refreshed, threshold %dh) |",
+                    level, refreshed, elig, pct, threshold.toHours()));
+        }
+        // Remove trailing pipe
+        if (sb.charAt(sb.length() - 1) == '|') {
+            sb.setLength(sb.length() - 1);
+        }
+        LOG.warn("{}", sb);
+    }
+
+    /**
+     * Builds a location-name → stability lookup from the latest stability snapshot
+     * held in {@link ForecastCommandExecutor}. Returns an empty map if no snapshot
+     * exists (e.g. first run), causing all regions to fall back to UNSETTLED.
+     */
+    private Map<String, ForecastStability> buildStabilityLookup() {
+        StabilitySummaryResponse snapshot = forecastCommandExecutor.getLatestStabilitySummary();
+        if (snapshot == null || snapshot.cells() == null) {
+            LOG.warn("[BATCH DIAG] No stability snapshot available — all regions will use "
+                    + "UNSETTLED threshold ({}h)", freshnessResolver.maxAgeFor(
+                    ForecastStability.UNSETTLED).toHours());
+            return Map.of();
+        }
+        Map<String, ForecastStability> lookup = new HashMap<>();
+        for (StabilitySummaryResponse.GridCellDetail cell : snapshot.cells()) {
+            for (String locName : cell.locationNames()) {
+                lookup.put(locName, cell.stability());
+            }
+        }
+        return lookup;
+    }
+
+    /**
+     * Returns the most volatile stability level among a region's slots.
+     * UNSETTLED > TRANSITIONAL > SETTLED — if any location in the region is
+     * UNSETTLED, the whole region uses the UNSETTLED (shortest) freshness threshold.
+     * Falls back to UNSETTLED if no stability data is available for any slot.
+     */
+    private ForecastStability mostVolatileStability(BriefingRegion region,
+            Map<String, ForecastStability> stabilityByLocation) {
+        if (region.slots() == null || region.slots().isEmpty()
+                || stabilityByLocation.isEmpty()) {
+            return ForecastStability.UNSETTLED;
+        }
+        ForecastStability most = ForecastStability.SETTLED;
+        for (BriefingSlot slot : region.slots()) {
+            ForecastStability slotStability = stabilityByLocation.getOrDefault(
+                    slot.locationName(), ForecastStability.UNSETTLED);
+            if (slotStability == ForecastStability.UNSETTLED) {
+                return ForecastStability.UNSETTLED;
+            }
+            if (slotStability == ForecastStability.TRANSITIONAL) {
+                most = ForecastStability.TRANSITIONAL;
+            }
+        }
+        return most;
     }
 
     /**

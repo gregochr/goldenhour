@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
+import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,7 +34,10 @@ class BriefingEvaluationServiceCacheFreshnessTest {
     @Mock private JobRunService jobRunService;
     @Mock private ForecastBatchRepository batchRepository;
     @Mock private CachedEvaluationRepository cachedEvaluationRepository;
+    @Mock private EvaluationDeltaLogRepository deltaLogRepository;
     @Mock private AnthropicClient anthropicClient;
+    @Mock private FreshnessResolver freshnessResolver;
+    @Mock private ForecastCommandExecutor forecastCommandExecutor;
 
     private BriefingEvaluationService service;
 
@@ -42,7 +46,9 @@ class BriefingEvaluationServiceCacheFreshnessTest {
         service = new BriefingEvaluationService(
                 locationService, briefingService, forecastService,
                 modelSelectionService, jobRunService, batchRepository,
-                cachedEvaluationRepository, anthropicClient, new ObjectMapper());
+                cachedEvaluationRepository, deltaLogRepository,
+                anthropicClient, new ObjectMapper(),
+                freshnessResolver, forecastCommandExecutor);
     }
 
     /**

@@ -25,6 +25,7 @@ import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
+import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,7 +78,13 @@ class BriefingEvaluationServiceTest {
     @Mock
     private CachedEvaluationRepository cachedEvaluationRepository;
     @Mock
+    private EvaluationDeltaLogRepository deltaLogRepository;
+    @Mock
     private AnthropicClient anthropicClient;
+    @Mock
+    private FreshnessResolver freshnessResolver;
+    @Mock
+    private ForecastCommandExecutor forecastCommandExecutor;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -91,7 +98,9 @@ class BriefingEvaluationServiceTest {
         service = new BriefingEvaluationService(
                 locationService, briefingService, forecastService,
                 modelSelectionService, jobRunService, batchRepository,
-                cachedEvaluationRepository, anthropicClient, objectMapper);
+                cachedEvaluationRepository, deltaLogRepository,
+                anthropicClient, objectMapper,
+                freshnessResolver, forecastCommandExecutor);
         // Default: all locations are colour locations
         org.mockito.Mockito.lenient().when(briefingService.isColourLocation(any())).thenReturn(true);
         // Default: no outstanding batches

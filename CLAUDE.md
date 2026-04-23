@@ -76,7 +76,7 @@ goldenhour/
 │       ├── application-example.yml  (committed)
 │       ├── application-local.yml    (H2 local dev)
 │       ├── application-prod.yml     (production)
-│       └── db/migration/            V1–V67 Flyway migrations
+│       └── db/migration/            V1–V97 Flyway migrations
 ├── frontend/              React 19 + Vite (port 5173)
 │   └── src/
 │       ├── api/           Axios API modules
@@ -143,7 +143,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 
 ---
 
-## Database Migrations (V1–V68)
+## Database Migrations (V1–V97)
 
 | Range | Key tables/changes |
 |-------|-------------------|
@@ -178,6 +178,8 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V66 | `inversion_score` and `inversion_potential` columns on forecast_evaluation |
 | V67 | User home location (postcode, lat/lon) + `user_drive_time` table |
 | V68 | `scheduler_job_config` table + 5 seed rows (tide, briefing, aurora, met office, cleanup) |
+| V89–V96 | Batch job run costs, cached evaluation, batch near/far term model, forecast triage |
+| V97 | `evaluation_delta_log` table for empirical freshness threshold refinement |
 
 ---
 

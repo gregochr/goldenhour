@@ -39,7 +39,9 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
+import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
@@ -64,6 +66,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -137,6 +140,10 @@ class ScheduledBatchEvaluationServiceTest {
     private OpenMeteoService openMeteoService;
     @Mock
     private SolarService solarService;
+    @Mock
+    private FreshnessResolver freshnessResolver;
+    @Mock
+    private ForecastCommandExecutor forecastCommandExecutor;
 
     private ScheduledBatchEvaluationService service;
 
@@ -148,7 +155,8 @@ class ScheduledBatchEvaluationServiceTest {
                 promptBuilder, coastalPromptBuilder, modelSelectionService, noaaSwpcClient,
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
-                jobRunService, openMeteoService, solarService, 18, 0.5);
+                jobRunService, openMeteoService, solarService,
+                freshnessResolver, forecastCommandExecutor, 0.5);
     }
 
     /**
@@ -434,9 +442,13 @@ class ScheduledBatchEvaluationServiceTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
+        // No stability snapshot → falls back to UNSETTLED
+        when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+        when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
+                .thenReturn(Duration.ofHours(4));
         when(briefingEvaluationService.hasFreshEvaluation(
                 eq("North East|" + TEST_DATE + "|SUNRISE"),
-                eq(java.time.Duration.ofHours(18)))).thenReturn(true);
+                eq(Duration.ofHours(4)))).thenReturn(true);
 
         service.submitForecastBatch();
 
@@ -474,13 +486,18 @@ class ScheduledBatchEvaluationServiceTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
 
+        // No stability snapshot → falls back to UNSETTLED (4h threshold)
+        when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+        when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
+                .thenReturn(Duration.ofHours(4));
+
         // North East is cached (fresh); Yorkshire is not
         when(briefingEvaluationService.hasFreshEvaluation(
                 eq("North East|" + TEST_DATE + "|SUNRISE"),
-                eq(java.time.Duration.ofHours(18)))).thenReturn(true);
+                eq(Duration.ofHours(4)))).thenReturn(true);
         when(briefingEvaluationService.hasFreshEvaluation(
                 eq("Yorkshire|" + TEST_DATE + "|SUNRISE"),
-                eq(java.time.Duration.ofHours(18)))).thenReturn(false);
+                eq(Duration.ofHours(4)))).thenReturn(false);
 
         LocationEntity yorkshireLoc = buildLocation("Flamborough Head");
         RegionEntity yorkshireRegionEntity = new RegionEntity();
