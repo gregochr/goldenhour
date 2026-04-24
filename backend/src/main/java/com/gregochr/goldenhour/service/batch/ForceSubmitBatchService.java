@@ -1,7 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -22,6 +21,7 @@ import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
@@ -51,6 +51,10 @@ public class ForceSubmitBatchService {
     private final CoastalPromptBuilder coastalPromptBuilder;
     private final ModelSelectionService modelSelectionService;
     private final JobRunService jobRunService;
+    private final BatchRequestFactory batchRequestFactory;
+
+    /** Max tokens used historically by force/JFDI paths — preserved verbatim. */
+    private static final int FORCE_JFDI_MAX_TOKENS = 512;
 
     /**
      * Constructs the force-submit batch service.
@@ -64,6 +68,7 @@ public class ForceSubmitBatchService {
      * @param coastalPromptBuilder builds prompts for coastal locations
      * @param modelSelectionService resolves the active Claude model
      * @param jobRunService        service for creating job run records
+     * @param batchRequestFactory  builds forecast batch requests (builder selection + cache control)
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -73,7 +78,8 @@ public class ForceSubmitBatchService {
             PromptBuilder promptBuilder,
             CoastalPromptBuilder coastalPromptBuilder,
             ModelSelectionService modelSelectionService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            BatchRequestFactory batchRequestFactory) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.regionRepository = regionRepository;
@@ -83,6 +89,7 @@ public class ForceSubmitBatchService {
         this.coastalPromptBuilder = coastalPromptBuilder;
         this.modelSelectionService = modelSelectionService;
         this.jobRunService = jobRunService;
+        this.batchRequestFactory = batchRequestFactory;
     }
 
     /**
@@ -143,35 +150,10 @@ public class ForceSubmitBatchService {
                             continue;
                         }
 
-                        PromptBuilder builder = data.tide() != null
-                                ? coastalPromptBuilder : promptBuilder;
-
-                        String userMessage = data.surge() != null
-                                ? builder.buildUserMessage(data, data.surge(),
-                                        data.adjustedRangeMetres(),
-                                        data.astronomicalRangeMetres())
-                                : builder.buildUserMessage(data);
-
                         String customId = CustomIdFactory.forJfdi(
                                 location.getId(), date, event);
-
-                        BatchCreateParams.Request request = BatchCreateParams.Request.builder()
-                                .customId(customId)
-                                .params(BatchCreateParams.Request.Params.builder()
-                                        .model(model.getModelId())
-                                        .maxTokens(512)
-                                        .systemOfTextBlockParams(List.of(
-                                                com.anthropic.models.messages.TextBlockParam
-                                                        .builder()
-                                                        .text(builder.getSystemPrompt())
-                                                        .cacheControl(CacheControlEphemeral
-                                                                .builder()
-                                                                .build())
-                                                        .build()))
-                                        .outputConfig(builder.buildOutputConfig())
-                                        .addUserMessage(userMessage)
-                                        .build())
-                                .build();
+                        BatchCreateParams.Request request = batchRequestFactory.buildForecastRequest(
+                                customId, model, data, FORCE_JFDI_MAX_TOKENS);
 
                         requests.add(request);
                     } catch (Exception e) {
@@ -263,32 +245,10 @@ public class ForceSubmitBatchService {
                     continue;
                 }
 
-                PromptBuilder builder = data.tide() != null
-                        ? coastalPromptBuilder : promptBuilder;
-
-                String userMessage = data.surge() != null
-                        ? builder.buildUserMessage(data, data.surge(),
-                                data.adjustedRangeMetres(), data.astronomicalRangeMetres())
-                        : builder.buildUserMessage(data);
-
                 String customId = CustomIdFactory.forForceSubmit(
                         region.getName(), location.getId(), date, event);
-
-                BatchCreateParams.Request request = BatchCreateParams.Request.builder()
-                        .customId(customId)
-                        .params(BatchCreateParams.Request.Params.builder()
-                                .model(model.getModelId())
-                                .maxTokens(512)
-                                .systemOfTextBlockParams(List.of(
-                                        com.anthropic.models.messages.TextBlockParam.builder()
-                                                .text(builder.getSystemPrompt())
-                                                .cacheControl(CacheControlEphemeral.builder()
-                                                        .build())
-                                                .build()))
-                                .outputConfig(builder.buildOutputConfig())
-                                .addUserMessage(userMessage)
-                                .build())
-                        .build();
+                BatchCreateParams.Request request = batchRequestFactory.buildForecastRequest(
+                        customId, model, data, FORCE_JFDI_MAX_TOKENS);
 
                 requests.add(request);
                 LOG.info("[FORCE BATCH] INCLUDE {} | date={} event={}",

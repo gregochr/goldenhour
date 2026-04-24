@@ -1,8 +1,6 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
-import com.anthropic.models.messages.CacheControlEphemeral;
-import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.gregochr.goldenhour.config.AuroraProperties;
@@ -46,6 +44,7 @@ import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
@@ -115,6 +114,7 @@ public class ScheduledBatchEvaluationService {
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
     private final ForecastCommandExecutor forecastCommandExecutor;
+    private final BatchRequestFactory batchRequestFactory;
 
     /** Minimum ratio of successful weather pre-fetches to proceed with batch submission. */
     private final double minPrefetchSuccessRatio;
@@ -150,6 +150,7 @@ public class ScheduledBatchEvaluationService {
      * @param solarService                solar calculation service for azimuth and event times
      * @param freshnessResolver           resolves per-stability cache freshness thresholds
      * @param forecastCommandExecutor     provides the latest stability snapshot
+     * @param batchRequestFactory         builds forecast batch requests (builder selection + cache control)
      * @param minPrefetchSuccessRatio    minimum ratio of successful pre-fetches to proceed
      */
     public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
@@ -174,6 +175,7 @@ public class ScheduledBatchEvaluationService {
             SolarService solarService,
             FreshnessResolver freshnessResolver,
             ForecastCommandExecutor forecastCommandExecutor,
+            BatchRequestFactory batchRequestFactory,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio) {
         this.anthropicClient = anthropicClient;
@@ -198,6 +200,7 @@ public class ScheduledBatchEvaluationService {
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
         this.forecastCommandExecutor = forecastCommandExecutor;
+        this.batchRequestFactory = batchRequestFactory;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         LOG.info("Batch config: min-prefetch-success-ratio={}", minPrefetchSuccessRatio);
     }
@@ -980,30 +983,9 @@ public class ScheduledBatchEvaluationService {
     private BatchCreateParams.Request buildForecastRequest(LocalDate date,
             TargetType targetType, LocationEntity location, AtmosphericData data,
             EvaluationModel model) {
-        PromptBuilder builder = data.tide() != null
-                ? coastalPromptBuilder : promptBuilder;
-
-        String userMessage = data.surge() != null
-                ? builder.buildUserMessage(data, data.surge(),
-                        data.adjustedRangeMetres(), data.astronomicalRangeMetres())
-                : builder.buildUserMessage(data);
-
         String customId = CustomIdFactory.forForecast(location.getId(), date, targetType);
-
-        return BatchCreateParams.Request.builder()
-                .customId(customId)
-                .params(BatchCreateParams.Request.Params.builder()
-                        .model(model.getModelId())
-                        .maxTokens(model.getMaxTokens())
-                        .systemOfTextBlockParams(List.of(
-                                TextBlockParam.builder()
-                                        .text(builder.getSystemPrompt())
-                                        .cacheControl(CacheControlEphemeral.builder().build())
-                                        .build()))
-                        .outputConfig(builder.buildOutputConfig())
-                        .addUserMessage(userMessage)
-                        .build())
-                .build();
+        return batchRequestFactory.buildForecastRequest(
+                customId, model, data, model.getMaxTokens());
     }
 
     /**

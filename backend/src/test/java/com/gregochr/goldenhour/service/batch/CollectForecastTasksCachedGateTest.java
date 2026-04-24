@@ -97,6 +97,9 @@ class CollectForecastTasksCachedGateTest {
         props.setSafetyFloorHours(2);
         FreshnessResolver freshnessResolver = new FreshnessResolver(props);
 
+        com.gregochr.goldenhour.service.evaluation.BatchRequestFactory batchRequestFactory =
+                new com.gregochr.goldenhour.service.evaluation.BatchRequestFactory(
+                        promptBuilder, coastalPromptBuilder);
         service = new ScheduledBatchEvaluationService(
                 anthropicClient, batchRepository, locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
@@ -104,7 +107,7 @@ class CollectForecastTasksCachedGateTest {
                 noaaSwpcClient, weatherTriageService, claudeAuroraInterpreter,
                 auroraOrchestrator, locationRepository, auroraProperties,
                 dynamicSchedulerService, jobRunService, openMeteoService, solarService,
-                freshnessResolver, forecastCommandExecutor, 0.5);
+                freshnessResolver, forecastCommandExecutor, batchRequestFactory, 0.5);
     }
 
     @SuppressWarnings("unchecked")

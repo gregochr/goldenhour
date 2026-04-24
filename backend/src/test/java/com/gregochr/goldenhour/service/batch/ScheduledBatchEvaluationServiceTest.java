@@ -149,6 +149,9 @@ class ScheduledBatchEvaluationServiceTest {
 
     @BeforeEach
     void setUp() {
+        com.gregochr.goldenhour.service.evaluation.BatchRequestFactory batchRequestFactory =
+                new com.gregochr.goldenhour.service.evaluation.BatchRequestFactory(
+                        promptBuilder, coastalPromptBuilder);
         service = new ScheduledBatchEvaluationService(
                 anthropicClient, batchRepository, locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
@@ -156,7 +159,7 @@ class ScheduledBatchEvaluationServiceTest {
                 weatherTriageService, claudeAuroraInterpreter, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 jobRunService, openMeteoService, solarService,
-                freshnessResolver, forecastCommandExecutor, 0.5);
+                freshnessResolver, forecastCommandExecutor, batchRequestFactory, 0.5);
     }
 
     /**
