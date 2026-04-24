@@ -48,6 +48,7 @@ import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
+import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
@@ -720,7 +721,7 @@ public class ScheduledBatchEvaluationService {
 
         EvaluationModel model =
                 modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
-        String customId = String.format("au-%s-%s", level.name(), LocalDate.now());
+        String customId = CustomIdFactory.forAurora(level, LocalDate.now());
 
         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                 .customId(customId)
@@ -987,8 +988,7 @@ public class ScheduledBatchEvaluationService {
                         data.adjustedRangeMetres(), data.astronomicalRangeMetres())
                 : builder.buildUserMessage(data);
 
-        String customId = String.format("fc-%s-%s-%s",
-                location.getId(), date, targetType.name());
+        String customId = CustomIdFactory.forForecast(location.getId(), date, targetType);
 
         return BatchCreateParams.Request.builder()
                 .customId(customId)

@@ -23,6 +23,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
+import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -151,11 +152,8 @@ public class ForceSubmitBatchService {
                                         data.astronomicalRangeMetres())
                                 : builder.buildUserMessage(data);
 
-                        String customId = String.format("jfdi-%s-%s-%s",
-                                location.getId(), date, event.name());
-                        if (customId.length() > 64) {
-                            customId = customId.substring(0, 64);
-                        }
+                        String customId = CustomIdFactory.forJfdi(
+                                location.getId(), date, event);
 
                         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                                 .customId(customId)
@@ -273,14 +271,8 @@ public class ForceSubmitBatchService {
                                 data.adjustedRangeMetres(), data.astronomicalRangeMetres())
                         : builder.buildUserMessage(data);
 
-                String customId = String.format("force-%s-%s-%s-%s",
-                        region.getName().replaceAll("[^a-zA-Z0-9]", ""),
-                        location.getId(), date, event.name());
-
-                // Truncate customId to 64 chars (Anthropic limit)
-                if (customId.length() > 64) {
-                    customId = customId.substring(0, 64);
-                }
+                String customId = CustomIdFactory.forForceSubmit(
+                        region.getName(), location.getId(), date, event);
 
                 BatchCreateParams.Request request = BatchCreateParams.Request.builder()
                         .customId(customId)

@@ -29,7 +29,9 @@ import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.ParsedCustomId;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -241,27 +243,12 @@ public class BatchResultProcessor {
                 totalCacheRead += cacheRead;
                 totalCacheCreate += cacheCreate;
 
-                // Scheduled format: "fc-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
-                // e.g. "fc-42-2026-04-16-SUNRISE" → 6 parts
-                // JFDI format: "jfdi-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
-                // e.g. "jfdi-42-2026-04-16-SUNRISE" → 6 parts
-                // Force-submit format: "force-{regionName}-{locationId}-{yyyy}-{MM}-{dd}-{targetType}"
-                // e.g. "force-TheNorthYorkMoors-93-2026-04-16-SUNSET" → 7 parts
-                String[] parts = customId.split("-");
-                int locationIdIdx;
-                int dateStartIdx;
-                int eventIdx;
-
-                if (parts.length == 6
-                        && ("fc".equals(parts[0]) || "jfdi".equals(parts[0]))) {
-                    locationIdIdx = 1;
-                    dateStartIdx = 2;
-                    eventIdx = 5;
-                } else if (parts.length == 7 && "force".equals(parts[0])) {
-                    locationIdIdx = 2;
-                    dateStartIdx = 3;
-                    eventIdx = 6;
-                } else {
+                // Parses fc- / jfdi- / force- custom IDs into a structured record via
+                // prefix dispatch. Aurora IDs are handled by processAuroraBatch, not here.
+                ParsedCustomId parsed;
+                try {
+                    parsed = CustomIdFactory.parse(customId);
+                } catch (IllegalArgumentException e) {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
                     persistBatchResult(batch, customId, false, "MALFORMED_ID",
@@ -270,14 +257,36 @@ public class BatchResultProcessor {
                 }
 
                 long locationId;
-                try {
-                    locationId = Long.parseLong(parts[locationIdIdx]);
-                } catch (NumberFormatException e) {
-                    LOG.warn("Forecast batch: non-numeric locationId in '{}', skipping", customId);
-                    errored++;
-                    persistBatchResult(batch, customId, false, "INVALID_LOCATION_ID",
-                            "parse_error", "non-numeric locationId", null, null, null, null);
-                    continue;
+                LocalDate eventDate;
+                TargetType eventType;
+                switch (parsed) {
+                    case ParsedCustomId.Forecast f -> {
+                        locationId = f.locationId();
+                        eventDate = f.date();
+                        eventType = f.targetType();
+                    }
+                    case ParsedCustomId.Jfdi j -> {
+                        locationId = j.locationId();
+                        eventDate = j.date();
+                        eventType = j.targetType();
+                    }
+                    case ParsedCustomId.ForceSubmit fs -> {
+                        locationId = fs.locationId();
+                        eventDate = fs.date();
+                        eventType = fs.targetType();
+                        LOG.info("Batch result: processing force-submit result for "
+                                + "locationId={} date={} event={}",
+                                locationId, eventDate, eventType);
+                    }
+                    case ParsedCustomId.Aurora ignored -> {
+                        LOG.warn("Forecast batch: aurora customId '{}' in forecast batch, "
+                                + "skipping", customId);
+                        errored++;
+                        persistBatchResult(batch, customId, false, "MALFORMED_ID",
+                                "parse_error", "aurora customId in forecast batch",
+                                null, null, null, null);
+                        continue;
+                    }
                 }
 
                 LocationEntity location = locationRepository.findById(locationId).orElse(null);
@@ -291,19 +300,10 @@ public class BatchResultProcessor {
                     continue;
                 }
 
-                if (customId.startsWith("force-")) {
-                    LOG.info("Batch result: processing force-submit result for locationId={} "
-                            + "date={}-{}-{} event={}",
-                            locationId, parts[dateStartIdx], parts[dateStartIdx + 1],
-                            parts[dateStartIdx + 2], parts[eventIdx]);
-                }
-
-                String date = parts[dateStartIdx] + "-" + parts[dateStartIdx + 1]
-                        + "-" + parts[dateStartIdx + 2];
-                String targetTypePart = parts[eventIdx];
                 String regionName = location.getRegion() != null
                         ? location.getRegion().getName() : location.getName();
                 String locationName = location.getName();
+                String cacheKey = CacheKeyFactory.build(regionName, eventDate, eventType);
 
                 try {
                     EvaluationModel model =
@@ -311,9 +311,6 @@ public class BatchResultProcessor {
                     ClaudeEvaluationStrategy strategy =
                             (ClaudeEvaluationStrategy) evaluationStrategies.get(model);
                     SunsetEvaluation eval = strategy.parseEvaluation(text, objectMapper);
-                    TargetType eventType = parseTargetType(targetTypePart);
-                    LocalDate eventDate = parseDate(date);
-                    String cacheKey = CacheKeyFactory.build(regionName, eventDate, eventType);
                     Integer safeRating = RatingValidator.validateRating(
                             eval.rating(), regionName, eventDate, eventType,
                             locationName, model.name());
@@ -718,28 +715,6 @@ public class BatchResultProcessor {
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     customId, e.getMessage());
-        }
-    }
-
-    /**
-     * Parses a target type string to a {@link TargetType} enum, or null if unrecognised.
-     */
-    private static TargetType parseTargetType(String value) {
-        try {
-            return TargetType.valueOf(value);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    /**
-     * Parses a date string (yyyy-MM-dd) to a {@link LocalDate}, or null if malformed.
-     */
-    private static LocalDate parseDate(String value) {
-        try {
-            return LocalDate.parse(value);
-        } catch (Exception e) {
-            return null;
         }
     }
 
