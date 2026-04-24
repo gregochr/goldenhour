@@ -398,48 +398,64 @@ public class PromptBuilderTest {
         }
 
         @Test
-        @DisplayName("rating field is bounded to [1, 5] to prevent schema non-compliance")
+        @DisplayName("rating field is constrained to enum [1, 5] — "
+                + "Anthropic rejects minimum/maximum on integer types")
         void outputConfig_ratingIsBoundedOneToFive() {
             String configStr = promptBuilder.buildOutputConfig().toString();
 
-            int ratingIdx = configStr.indexOf("rating");
-            int nextFieldIdx = configStr.indexOf("fiery_sky", ratingIdx);
-            String ratingSegment = configStr.substring(ratingIdx, nextFieldIdx);
+            int ratingIdx = configStr.indexOf("rating={");
+            assertThat(ratingIdx).as("rating field must appear").isNotNegative();
+            int ratingEnd = configStr.indexOf("}", ratingIdx);
+            String ratingSegment = configStr.substring(ratingIdx, ratingEnd + 1);
 
-            assertThat(ratingSegment).contains("minimum=1");
-            assertThat(ratingSegment).contains("maximum=5");
+            assertThat(ratingSegment).contains("enum=[1, 2, 3, 4, 5]");
+            assertThat(ratingSegment).doesNotContain("minimum");
+            assertThat(ratingSegment).doesNotContain("maximum");
         }
 
         @Test
-        @DisplayName("fiery_sky and golden_hour are bounded to [0, 100]")
+        @DisplayName("fiery_sky and golden_hour describe 0-100 range in description — "
+                + "Anthropic rejects minimum/maximum on integer types")
         void outputConfig_scoresBoundedZeroToHundred() {
             String configStr = promptBuilder.buildOutputConfig().toString();
 
             for (String field : List.of("fiery_sky", "golden_hour",
                     "basic_fiery_sky", "basic_golden_hour")) {
-                int idx = configStr.indexOf(field);
-                String segment = configStr.substring(idx,
-                        Math.min(idx + 200, configStr.length()));
+                int idx = configStr.indexOf(field + "={");
+                assertThat(idx)
+                        .as("%s field must appear", field)
+                        .isNotNegative();
+                int end = configStr.indexOf("}", idx);
+                String segment = configStr.substring(idx, end + 1);
+
                 assertThat(segment)
-                        .as("%s must declare minimum=0", field)
-                        .contains("minimum=0");
+                        .as("%s must declare description with 0-100 range", field)
+                        .contains("description=0-100 inclusive");
                 assertThat(segment)
-                        .as("%s must declare maximum=100", field)
-                        .contains("maximum=100");
+                        .as("%s must not declare minimum "
+                                + "(Anthropic rejects it)", field)
+                        .doesNotContain("minimum");
+                assertThat(segment)
+                        .as("%s must not declare maximum "
+                                + "(Anthropic rejects it)", field)
+                        .doesNotContain("maximum");
             }
         }
 
         @Test
-        @DisplayName("inversion_score is bounded to [0, 10]")
+        @DisplayName("inversion_score describes 0-10 range in description — "
+                + "Anthropic rejects minimum/maximum on integer types")
         void outputConfig_inversionScoreBoundedZeroToTen() {
             String configStr = promptBuilder.buildOutputConfig().toString();
 
-            int idx = configStr.indexOf("inversion_score");
-            String segment = configStr.substring(idx,
-                    Math.min(idx + 200, configStr.length()));
+            int idx = configStr.indexOf("inversion_score={");
+            assertThat(idx).as("inversion_score field must appear").isNotNegative();
+            int end = configStr.indexOf("}", idx);
+            String segment = configStr.substring(idx, end + 1);
 
-            assertThat(segment).contains("minimum=0");
-            assertThat(segment).contains("maximum=10");
+            assertThat(segment).contains("description=0-10 inclusive");
+            assertThat(segment).doesNotContain("minimum");
+            assertThat(segment).doesNotContain("maximum");
         }
     }
 
