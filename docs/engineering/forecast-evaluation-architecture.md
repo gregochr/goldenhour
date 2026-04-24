@@ -697,3 +697,96 @@ Based on the investigation, I recommend a 4-pass consolidation programme:
 | Command executor observability gaps | Pass 4 | After architecture is stable |
 | Aurora real-time observability gaps | Pass 4 | After architecture is stable |
 | SSE gate consistency | Pass 5 | Behavioural change, needs review |
+
+---
+
+## Pass 2.5: Force-submit result path investigation
+
+### Scope
+
+Pass 1 flagged that `ForceSubmitBatchService` has its own `getResult()` path that bypasses `BatchPollingService`. This investigation characterises that bypass before Pass 3 attempts any result-path consolidation, so Pass 3 does not regress the force-submit admin UX or the observability coverage.
+
+### Where the bypass lives
+
+`ForceSubmitBatchService.getResult(String batchId)` — post-Pass-2 the method lives at roughly `ForceSubmitBatchService.java:246-296`. Entry point: `BatchAdminController` at `POST /api/admin/batches/{batchId}/result` (or similar; check controller for exact mapping).
+
+Behaviour:
+
+1. Calls `anthropicClient.messages().batches().retrieve(batchId)` synchronously to check `processingStatus`.
+2. If the status is not `ENDED`, returns a `ForceResultResponse` with counts only (processing/succeeded/errored/cancelled) — no result streaming attempted.
+3. If `ENDED`, opens a `resultsStreaming(batchId)` session and iterates every `MessageBatchIndividualResponse`. For each:
+   - Counts successes vs errors.
+   - For the first 5 entries only, captures `customId`, status, and a 500-char preview of the raw Claude text (no parsing, no schema validation).
+4. Returns a `ForceResultResponse` summarising the admin-facing state.
+
+**Crucially, `getResult` does not write anywhere.** It never touches `cached_evaluation`, `api_call_log`, `forecast_batch`, `evaluation_delta_log`, or `JobRunEntity`. It is a read-only peek for the admin UI.
+
+### Does it actually bypass the standard result path?
+
+No — it supplements it.
+
+Force-submitted batches are still persisted as `ForecastBatchEntity` rows with `status=SUBMITTED` (via `BatchSubmissionService.submit` post-Pass-2). `BatchPollingService` sweeps every 60 seconds for all `SUBMITTED` rows regardless of trigger source, and when one reaches `ENDED` it calls `BatchResultProcessor.processResults(batch)` which performs the full write set:
+
+- `cached_evaluation` via `BriefingEvaluationService.writeFromBatch` (source=`BATCH`)
+- `evaluation_delta_log` conditionally via `BriefingEvaluationService.logEvaluationDeltas` (only when a prior cache entry existed — same gating as scheduled)
+- `api_call_log` per request via `BatchResultProcessor.persistBatchResult`
+- `forecast_batch` lifecycle: `SUBMITTED` → `COMPLETED` / `FAILED`, with `succeededCount`, `erroredCount`, `endedAt`, and token-usage totals populated
+- `JobRunEntity` completion via `JobRunService.completeBatchRun`
+- Rating validation via `RatingValidator.validateRating`
+- Claude-response parsing via `ClaudeEvaluationStrategy.parseEvaluation`
+
+So force-submit is fully observable through the standard chain. Pass 1's Section 6 claim that "Force/JFDI paths skip `evaluation_delta_log`" is inaccurate: the delta log is written on any cache write (scheduled or force) when a prior entry exists; the `—` in that table should be `conditional`.
+
+### What does the admin peek actually show?
+
+A temporal view. Because the poller runs on a 60 s cycle, there is a window of up to ~60 s where a batch has `processingStatus=ENDED` at Anthropic but `status=SUBMITTED` in our DB and the results are not yet streamed/processed. `getResult` gives the admin a way to see the raw Claude output during that window without waiting for the poller.
+
+The first-5 cap and 500-char preview are deliberate for UI purposes — the admin wants to eyeball Claude's raw text, not read 400 parsed `SunsetEvaluation` objects.
+
+### Comparison table
+
+| Attribute | `BatchPollingService` → `BatchResultProcessor` | `ForceSubmitBatchService.getResult` |
+|---|---|---|
+| Trigger | Cron (60 s) | Admin HTTP GET |
+| Sync/async | Async | Synchronous for the admin |
+| Writes `cached_evaluation` | ✓ (BATCH source) | ✗ |
+| Writes `evaluation_delta_log` | ✓ (conditional) | ✗ |
+| Writes `api_call_log` | ✓ per request | ✗ |
+| Updates `forecast_batch` status | ✓ (COMPLETED/FAILED + token totals) | ✗ |
+| Completes `JobRunEntity` | ✓ | ✗ |
+| Parses Claude JSON | ✓ via `ClaudeEvaluationStrategy.parseEvaluation` | ✗ raw text preview |
+| Validates ratings | ✓ | ✗ |
+| Streams all results | ✓ | ✓ but only first 5 captured |
+| Returns batchId + counts | Internal | ✓ to admin |
+| Returns raw text preview | ✗ | ✓ (first 5, 500 chars each) |
+
+### Load-bearing vs drift
+
+**Load-bearing (keep):**
+
+- **Synchronous admin peek.** Force-submit is a diagnostic tool; the admin is literally sitting at the screen wanting to see Claude's output. Adding a 60 s wait for the poller would defeat the purpose.
+- **Raw text preview.** For prompt debugging the admin needs to see what Claude actually said before parsing, not a post-parse `SunsetEvaluation`.
+- **First-5 cap and 500-char truncation.** Intentional UI bounding.
+- **Admin-facing status strings** (`"in_progress"`, `"ended"`) are separate from the domain `BatchStatus` enum and should stay that way — they describe the Anthropic processing state, not our persistence state.
+
+**Drift / minor gaps (not blockers):**
+
+- `getResult` re-streams results from Anthropic even when the poller has already persisted them. Once `BatchResultProcessor` has written a batch, a DB read from `api_call_log` would produce the same preview without the re-stream cost. This is an opportunistic optimisation, not a correctness issue.
+- Pass 1's Section 6 table row for Force/JFDI `evaluation_delta_log` should be corrected to `conditional` rather than `—`.
+
+### Recommendation for Pass 3
+
+**Do not consolidate `getResult` into the polling path.** The two paths are complementary, not overlapping:
+
+- The poller is the system-of-record writer — runs on its own schedule, writes everywhere the domain needs.
+- The admin peek is a UI-facing diagnostic — synchronous, preview-only, read-only.
+
+Pass 3's scope can safely ignore `getResult`. Batch request *building* is already consolidated (Pass 2, via `BatchRequestFactory`); batch request *submission* is already consolidated (Pass 2, via `BatchSubmissionService`). Result processing for scheduled/admin/force/JFDI is already unified — they all flow through `BatchPollingService` → `BatchResultProcessor`. There is nothing to collapse.
+
+If Pass 3 is tempted to remove `getResult` and tell admins to wait for the poller, the UX regression is not worth the ~50 lines of deduplication. Leave it alone.
+
+### What's left to touch in this area
+
+1. Correct the Pass 1 Section 6 table row for `evaluation_delta_log` under Force/JFDI from `—` to `conditional`.
+2. Consider (optional, low-priority) optimising `getResult` to read from `api_call_log` when the poller has already processed the batch. Not scoped for any specific pass.
+
