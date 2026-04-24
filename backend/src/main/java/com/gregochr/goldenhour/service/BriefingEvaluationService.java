@@ -27,6 +27,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -146,7 +147,7 @@ public class BriefingEvaluationService {
      */
     public void evaluateRegion(String regionName, LocalDate date, TargetType targetType,
             SseEmitter emitter) {
-        String cacheKey = regionName + "|" + date + "|" + targetType;
+        String cacheKey = CacheKeyFactory.build(regionName, date, targetType);
 
         // Cancel any outstanding FORECAST batches — real-time evaluation takes priority
         cancelOutstandingForecastBatches();
@@ -261,7 +262,7 @@ public class BriefingEvaluationService {
      */
     public Map<String, BriefingEvaluationResult> getCachedScores(String regionName,
             LocalDate date, TargetType targetType) {
-        String cacheKey = regionName + "|" + date + "|" + targetType;
+        String cacheKey = CacheKeyFactory.build(regionName, date, targetType);
         CachedEvaluation cached = cache.get(cacheKey);
         return cached != null ? Collections.unmodifiableMap(cached.results()) : Map.of();
     }
@@ -275,7 +276,7 @@ public class BriefingEvaluationService {
      * @return formatted time string (e.g. "14:32") or null
      */
     public String getCachedEvaluatedAt(String regionName, LocalDate date, TargetType targetType) {
-        String cacheKey = regionName + "|" + date + "|" + targetType;
+        String cacheKey = CacheKeyFactory.build(regionName, date, targetType);
         CachedEvaluation cached = cache.get(cacheKey);
         return cached != null ? UK_TIME.format(cached.evaluatedAt()) : null;
     }
@@ -346,12 +347,14 @@ public class BriefingEvaluationService {
             return;
         }
         try {
-            String[] parts = cacheKey.split("\\|");
-            if (parts.length < 3) {
+            CacheKeyFactory.CacheKey parsed;
+            try {
+                parsed = CacheKeyFactory.parse(cacheKey);
+            } catch (IllegalArgumentException e) {
                 return;
             }
-            LocalDate evalDate = LocalDate.parse(parts[1]);
-            String targetType = parts[2];
+            LocalDate evalDate = parsed.date();
+            String targetType = parsed.targetType().name();
 
             Map<String, ForecastStability> stabilityLookup = buildStabilityLookup();
 
@@ -479,8 +482,12 @@ public class BriefingEvaluationService {
                         entity.getResultsJson(),
                         new TypeReference<List<BriefingEvaluationResult>>() { });
 
-                String[] parts = entity.getCacheKey().split("\\|");
-                String regionName = parts.length > 0 ? parts[0] : null;
+                String regionName;
+                try {
+                    regionName = CacheKeyFactory.parse(entity.getCacheKey()).regionName();
+                } catch (IllegalArgumentException e) {
+                    regionName = null;
+                }
                 LocalDate evalDate = entity.getEvaluationDate();
                 TargetType eventType = entity.getTargetType() != null
                         ? TargetType.valueOf(entity.getTargetType()) : null;
@@ -537,10 +544,10 @@ public class BriefingEvaluationService {
     private void persistToDb(String cacheKey,
             Map<String, BriefingEvaluationResult> results, String source) {
         try {
-            String[] parts = cacheKey.split("\\|");
-            String regionName = parts[0];
-            LocalDate date = LocalDate.parse(parts[1]);
-            String targetType = parts[2];
+            CacheKeyFactory.CacheKey parsed = CacheKeyFactory.parse(cacheKey);
+            String regionName = parsed.regionName();
+            LocalDate date = parsed.date();
+            String targetType = parsed.targetType().name();
 
             List<BriefingEvaluationResult> resultList = new ArrayList<>(results.values());
             String json = objectMapper.writeValueAsString(resultList);

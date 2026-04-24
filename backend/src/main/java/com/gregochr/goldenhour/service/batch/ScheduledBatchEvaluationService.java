@@ -46,6 +46,7 @@ import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
@@ -820,7 +821,8 @@ public class ScheduledBatchEvaluationService {
             for (BriefingEventSummary eventSummary : day.eventSummaries()) {
                 TargetType targetType = eventSummary.targetType();
                 for (BriefingRegion region : eventSummary.regions()) {
-                    String cacheKey = region.regionName() + "|" + date + "|" + targetType;
+                    String cacheKey = CacheKeyFactory.build(
+                            region.regionName(), date, targetType);
                     ForecastStability regionStability = mostVolatileStability(
                             region, stabilityByLocation);
                     Duration freshness = freshnessResolver.maxAgeFor(regionStability);

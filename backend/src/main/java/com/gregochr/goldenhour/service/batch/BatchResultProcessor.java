@@ -27,6 +27,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
@@ -302,7 +303,6 @@ public class BatchResultProcessor {
                 String targetTypePart = parts[eventIdx];
                 String regionName = location.getRegion() != null
                         ? location.getRegion().getName() : location.getName();
-                String cacheKey = regionName + "|" + date + "|" + targetTypePart;
                 String locationName = location.getName();
 
                 try {
@@ -313,6 +313,7 @@ public class BatchResultProcessor {
                     SunsetEvaluation eval = strategy.parseEvaluation(text, objectMapper);
                     TargetType eventType = parseTargetType(targetTypePart);
                     LocalDate eventDate = parseDate(date);
+                    String cacheKey = CacheKeyFactory.build(regionName, eventDate, eventType);
                     Integer safeRating = RatingValidator.validateRating(
                             eval.rating(), regionName, eventDate, eventType,
                             locationName, model.name());
