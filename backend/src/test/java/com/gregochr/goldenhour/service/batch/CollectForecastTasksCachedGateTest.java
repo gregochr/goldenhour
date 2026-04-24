@@ -100,14 +100,17 @@ class CollectForecastTasksCachedGateTest {
         com.gregochr.goldenhour.service.evaluation.BatchRequestFactory batchRequestFactory =
                 new com.gregochr.goldenhour.service.evaluation.BatchRequestFactory(
                         promptBuilder, coastalPromptBuilder);
+        BatchSubmissionService batchSubmissionService = new BatchSubmissionService(
+                anthropicClient, batchRepository, jobRunService);
         service = new ScheduledBatchEvaluationService(
-                anthropicClient, batchRepository, locationService, briefingService,
+                locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 promptBuilder, coastalPromptBuilder, modelSelectionService,
                 noaaSwpcClient, weatherTriageService, claudeAuroraInterpreter,
                 auroraOrchestrator, locationRepository, auroraProperties,
-                dynamicSchedulerService, jobRunService, openMeteoService, solarService,
-                freshnessResolver, forecastCommandExecutor, batchRequestFactory, 0.5);
+                dynamicSchedulerService, openMeteoService, solarService,
+                freshnessResolver, forecastCommandExecutor,
+                batchRequestFactory, batchSubmissionService, 0.5);
     }
 
     @SuppressWarnings("unchecked")

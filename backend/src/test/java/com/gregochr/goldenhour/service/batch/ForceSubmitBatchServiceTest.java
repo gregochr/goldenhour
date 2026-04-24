@@ -103,10 +103,12 @@ class ForceSubmitBatchServiceTest {
         com.gregochr.goldenhour.service.evaluation.BatchRequestFactory batchRequestFactory =
                 new com.gregochr.goldenhour.service.evaluation.BatchRequestFactory(
                         promptBuilder, coastalPromptBuilder);
+        BatchSubmissionService batchSubmissionService = new BatchSubmissionService(
+                anthropicClient, batchRepository, jobRunService);
         service = new ForceSubmitBatchService(
-                anthropicClient, batchRepository, regionRepository, locationService,
-                forecastService, promptBuilder, coastalPromptBuilder, modelSelectionService,
-                jobRunService, batchRequestFactory);
+                anthropicClient, regionRepository, locationService,
+                forecastService, modelSelectionService,
+                batchRequestFactory, batchSubmissionService);
     }
 
     private void stubBatchService() {

@@ -5,6 +5,7 @@ import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -37,7 +38,8 @@ public class BatchRequestFactory {
      * @param inlandBuilder  builder for inland (non-tidal) locations
      * @param coastalBuilder builder for coastal (tidal) locations
      */
-    public BatchRequestFactory(PromptBuilder inlandBuilder, CoastalPromptBuilder coastalBuilder) {
+    public BatchRequestFactory(@Qualifier("promptBuilder") PromptBuilder inlandBuilder,
+            CoastalPromptBuilder coastalBuilder) {
         this.inlandBuilder = inlandBuilder;
         this.coastalBuilder = coastalBuilder;
     }

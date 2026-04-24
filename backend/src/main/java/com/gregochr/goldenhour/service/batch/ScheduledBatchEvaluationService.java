@@ -1,13 +1,10 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.batches.BatchCreateParams;
-import com.anthropic.models.messages.batches.MessageBatch;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -27,13 +24,11 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
-import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -92,8 +87,6 @@ public class ScheduledBatchEvaluationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
 
-    private final AnthropicClient anthropicClient;
-    private final ForecastBatchRepository batchRepository;
     private final LocationService locationService;
     private final BriefingService briefingService;
     private final BriefingEvaluationService briefingEvaluationService;
@@ -109,12 +102,12 @@ public class ScheduledBatchEvaluationService {
     private final LocationRepository locationRepository;
     private final AuroraProperties auroraProperties;
     private final DynamicSchedulerService dynamicSchedulerService;
-    private final JobRunService jobRunService;
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
     private final ForecastCommandExecutor forecastCommandExecutor;
     private final BatchRequestFactory batchRequestFactory;
+    private final BatchSubmissionService batchSubmissionService;
 
     /** Minimum ratio of successful weather pre-fetches to proceed with batch submission. */
     private final double minPrefetchSuccessRatio;
@@ -128,8 +121,6 @@ public class ScheduledBatchEvaluationService {
     /**
      * Constructs the batch evaluation service.
      *
-     * @param anthropicClient             raw Anthropic SDK client for batch API access
-     * @param batchRepository             repository for persisting batch records
      * @param locationService             service for retrieving enabled locations
      * @param briefingService             service for accessing the cached daily briefing
      * @param briefingEvaluationService   evaluation cache — checked before building requests
@@ -145,17 +136,15 @@ public class ScheduledBatchEvaluationService {
      * @param locationRepository          location JPA repository for Bortle-filtered candidates
      * @param auroraProperties            aurora configuration (Bortle thresholds)
      * @param dynamicSchedulerService     scheduler to register job targets
-     * @param jobRunService               service for creating and updating job run records
      * @param openMeteoService            Open-Meteo service for bulk weather pre-fetch
      * @param solarService                solar calculation service for azimuth and event times
      * @param freshnessResolver           resolves per-stability cache freshness thresholds
      * @param forecastCommandExecutor     provides the latest stability snapshot
      * @param batchRequestFactory         builds forecast batch requests (builder selection + cache control)
+     * @param batchSubmissionService      unified Anthropic batch submitter
      * @param minPrefetchSuccessRatio    minimum ratio of successful pre-fetches to proceed
      */
-    public ScheduledBatchEvaluationService(AnthropicClient anthropicClient,
-            ForecastBatchRepository batchRepository,
-            LocationService locationService,
+    public ScheduledBatchEvaluationService(LocationService locationService,
             BriefingService briefingService,
             BriefingEvaluationService briefingEvaluationService,
             ForecastService forecastService,
@@ -170,16 +159,14 @@ public class ScheduledBatchEvaluationService {
             LocationRepository locationRepository,
             AuroraProperties auroraProperties,
             DynamicSchedulerService dynamicSchedulerService,
-            JobRunService jobRunService,
             OpenMeteoService openMeteoService,
             SolarService solarService,
             FreshnessResolver freshnessResolver,
             ForecastCommandExecutor forecastCommandExecutor,
             BatchRequestFactory batchRequestFactory,
+            BatchSubmissionService batchSubmissionService,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio) {
-        this.anthropicClient = anthropicClient;
-        this.batchRepository = batchRepository;
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.briefingEvaluationService = briefingEvaluationService;
@@ -195,12 +182,12 @@ public class ScheduledBatchEvaluationService {
         this.locationRepository = locationRepository;
         this.auroraProperties = auroraProperties;
         this.dynamicSchedulerService = dynamicSchedulerService;
-        this.jobRunService = jobRunService;
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
         this.forecastCommandExecutor = forecastCommandExecutor;
         this.batchRequestFactory = batchRequestFactory;
+        this.batchSubmissionService = batchSubmissionService;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         LOG.info("Batch config: min-prefetch-success-ratio={}", minPrefetchSuccessRatio);
     }
@@ -466,25 +453,25 @@ public class ScheduledBatchEvaluationService {
 
         // Submit near-term batches (inland + coastal)
         if (!nearInlandRequests.isEmpty()) {
-            submitBatch(nearInlandRequests, BatchType.FORECAST,
-                    "Near-term batch (inland)");
+            batchSubmissionService.submit(nearInlandRequests, BatchType.FORECAST,
+                    BatchTriggerSource.SCHEDULED, "Near-term batch (inland)");
             logBatchBreakdown(nearInlandTasks, "near-term inland");
         }
         if (!nearCoastalRequests.isEmpty()) {
-            submitBatch(nearCoastalRequests, BatchType.FORECAST,
-                    "Near-term batch (coastal)");
+            batchSubmissionService.submit(nearCoastalRequests, BatchType.FORECAST,
+                    BatchTriggerSource.SCHEDULED, "Near-term batch (coastal)");
             logBatchBreakdown(nearCoastalTasks, "near-term coastal");
         }
 
         // Submit far-term batches (inland + coastal)
         if (!farInlandRequests.isEmpty()) {
-            submitBatch(farInlandRequests, BatchType.FORECAST,
-                    "Far-term batch (inland)");
+            batchSubmissionService.submit(farInlandRequests, BatchType.FORECAST,
+                    BatchTriggerSource.SCHEDULED, "Far-term batch (inland)");
             logBatchBreakdown(farInlandTasks, "far-term inland");
         }
         if (!farCoastalRequests.isEmpty()) {
-            submitBatch(farCoastalRequests, BatchType.FORECAST,
-                    "Far-term batch (coastal)");
+            batchSubmissionService.submit(farCoastalRequests, BatchType.FORECAST,
+                    BatchTriggerSource.SCHEDULED, "Far-term batch (coastal)");
             logBatchBreakdown(farCoastalTasks, "far-term coastal");
         }
 
@@ -622,12 +609,12 @@ public class ScheduledBatchEvaluationService {
         BatchSubmitResult coastalResult = null;
 
         if (!inlandRequests.isEmpty()) {
-            inlandResult = submitBatchWithResult(inlandRequests, BatchType.FORECAST,
-                    "Scheduled batch — admin (inland)");
+            inlandResult = batchSubmissionService.submit(inlandRequests, BatchType.FORECAST,
+                    BatchTriggerSource.ADMIN, "Scheduled batch — admin (inland)");
         }
         if (!coastalRequests.isEmpty()) {
-            coastalResult = submitBatchWithResult(coastalRequests, BatchType.FORECAST,
-                    "Scheduled batch — admin (coastal)");
+            coastalResult = batchSubmissionService.submit(coastalRequests, BatchType.FORECAST,
+                    BatchTriggerSource.ADMIN, "Scheduled batch — admin (coastal)");
         }
 
         LOG.info("[BATCH DIAG] Admin batch split: {} inland in {}, {} coastal in {}",
@@ -640,47 +627,7 @@ public class ScheduledBatchEvaluationService {
         return inlandResult != null ? inlandResult : coastalResult;
     }
 
-    /**
-     * Result of an admin-triggered batch submission.
-     *
-     * @param batchId      the Anthropic batch ID
-     * @param requestCount number of requests submitted
-     */
-    public record BatchSubmitResult(String batchId, int requestCount) {}
-
-    /**
-     * Submits requests and returns a result record (for admin-triggered submissions).
-     */
-    private BatchSubmitResult submitBatchWithResult(List<BatchCreateParams.Request> requests,
-            BatchType batchType, String logPrefix) {
-        try {
-            BatchCreateParams params = BatchCreateParams.builder()
-                    .requests(requests)
-                    .build();
-
-            MessageBatch batch = anthropicClient.messages().batches().create(params);
-            java.time.Instant expiresAt = batch.expiresAt().toInstant();
-
-            com.gregochr.goldenhour.entity.JobRunEntity jobRun =
-                    jobRunService.startBatchRun(requests.size(), batch.id());
-
-            ForecastBatchEntity entity = new ForecastBatchEntity(
-                    batch.id(), batchType, requests.size(), expiresAt);
-            if (jobRun != null) {
-                entity.setJobRunId(jobRun.getId());
-            }
-            batchRepository.save(entity);
-
-            LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}",
-                    logPrefix, batch.id(), requests.size(), expiresAt,
-                    jobRun != null ? jobRun.getId() : null);
-
-            return new BatchSubmitResult(batch.id(), requests.size());
-        } catch (Exception e) {
-            LOG.error("{} submission failed: {}", logPrefix, e.getMessage(), e);
-            return null;
-        }
-    }
+    // BatchSubmitResult was promoted to a top-level record in the same package.
 
     /**
      * Core aurora batch logic extracted to keep the public method a thin guard wrapper.
@@ -735,50 +682,12 @@ public class ScheduledBatchEvaluationService {
                         .build())
                 .build();
 
-        submitBatch(List.of(request), BatchType.AURORA, "Aurora batch");
+        batchSubmissionService.submit(List.of(request), BatchType.AURORA,
+                BatchTriggerSource.SCHEDULED, "Aurora batch");
     }
 
-    /**
-     * Submits a list of requests to the Anthropic Batch API and persists the tracking entity.
-     *
-     * <p>Creates a {@link com.gregochr.goldenhour.entity.JobRunEntity} with status
-     * IN_PROGRESS (completedAt = null) so the batch appears in the Job Runs screen.
-     * The job run ID is stored on the batch entity so the poller can update progress.
-     */
-    private void submitBatch(List<BatchCreateParams.Request> requests,
-            BatchType batchType, String logPrefix) {
-        try {
-            if (LOG.isDebugEnabled() && !requests.isEmpty()) {
-                LOG.debug("[BATCH DIAG] Output config schema: {}",
-                        requests.get(0).params().outputConfig());
-            }
-
-            BatchCreateParams params = BatchCreateParams.builder()
-                    .requests(requests)
-                    .build();
-
-            MessageBatch batch = anthropicClient.messages().batches().create(params);
-
-            java.time.Instant expiresAt = batch.expiresAt().toInstant();
-
-            // Create the job run first so we can link the batch entity to it
-            com.gregochr.goldenhour.entity.JobRunEntity jobRun =
-                    jobRunService.startBatchRun(requests.size(), batch.id());
-
-            ForecastBatchEntity entity = new ForecastBatchEntity(
-                    batch.id(), batchType, requests.size(), expiresAt);
-            if (jobRun != null) {
-                entity.setJobRunId(jobRun.getId());
-            }
-            batchRepository.save(entity);
-
-            LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}",
-                    logPrefix, batch.id(), requests.size(), expiresAt,
-                    jobRun != null ? jobRun.getId() : null);
-        } catch (Exception e) {
-            LOG.error("{} submission failed: {}", logPrefix, e.getMessage(), e);
-        }
-    }
+    // submitBatch / submitBatchWithResult were collapsed into BatchSubmissionService.submit
+    // (called inline above with the appropriate BatchTriggerSource).
 
     /**
      * First pass over the briefing: collects all GO/MARGINAL tasks that are not already

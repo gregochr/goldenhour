@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultEntry;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultResponse;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmitResult;
-import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService.BatchSubmitResult;
+import com.gregochr.goldenhour.service.batch.BatchSubmitResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

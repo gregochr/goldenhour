@@ -7,7 +7,6 @@ import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
@@ -15,16 +14,12 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
-import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
-import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
-import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,15 +38,12 @@ public class ForceSubmitBatchService {
     private static final Logger LOG = LoggerFactory.getLogger(ForceSubmitBatchService.class);
 
     private final AnthropicClient anthropicClient;
-    private final ForecastBatchRepository batchRepository;
     private final RegionRepository regionRepository;
     private final LocationService locationService;
     private final ForecastService forecastService;
-    private final PromptBuilder promptBuilder;
-    private final CoastalPromptBuilder coastalPromptBuilder;
     private final ModelSelectionService modelSelectionService;
-    private final JobRunService jobRunService;
     private final BatchRequestFactory batchRequestFactory;
+    private final BatchSubmissionService batchSubmissionService;
 
     /** Max tokens used historically by force/JFDI paths — preserved verbatim. */
     private static final int FORCE_JFDI_MAX_TOKENS = 512;
@@ -59,37 +51,29 @@ public class ForceSubmitBatchService {
     /**
      * Constructs the force-submit batch service.
      *
-     * @param anthropicClient      raw Anthropic SDK client for batch API access
-     * @param batchRepository      repository for persisting batch records
-     * @param regionRepository     repository for looking up regions by ID
-     * @param locationService      service for retrieving enabled locations
-     * @param forecastService      service for weather fetch and data assembly
-     * @param promptBuilder        builds prompts for inland locations
-     * @param coastalPromptBuilder builds prompts for coastal locations
-     * @param modelSelectionService resolves the active Claude model
-     * @param jobRunService        service for creating job run records
-     * @param batchRequestFactory  builds forecast batch requests (builder selection + cache control)
+     * @param anthropicClient         raw Anthropic SDK client (still used by {@link #getResult}
+     *                                which bypasses {@code BatchPollingService} — see Pass 2.5)
+     * @param regionRepository        repository for looking up regions by ID
+     * @param locationService         service for retrieving enabled locations
+     * @param forecastService         service for weather fetch and data assembly
+     * @param modelSelectionService   resolves the active Claude model
+     * @param batchRequestFactory     builds forecast batch requests (builder selection + cache control)
+     * @param batchSubmissionService  unified Anthropic batch submitter
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
-            ForecastBatchRepository batchRepository,
             RegionRepository regionRepository,
             LocationService locationService,
             ForecastService forecastService,
-            PromptBuilder promptBuilder,
-            CoastalPromptBuilder coastalPromptBuilder,
             ModelSelectionService modelSelectionService,
-            JobRunService jobRunService,
-            BatchRequestFactory batchRequestFactory) {
+            BatchRequestFactory batchRequestFactory,
+            BatchSubmissionService batchSubmissionService) {
         this.anthropicClient = anthropicClient;
-        this.batchRepository = batchRepository;
         this.regionRepository = regionRepository;
         this.locationService = locationService;
         this.forecastService = forecastService;
-        this.promptBuilder = promptBuilder;
-        this.coastalPromptBuilder = coastalPromptBuilder;
         this.modelSelectionService = modelSelectionService;
-        this.jobRunService = jobRunService;
         this.batchRequestFactory = batchRequestFactory;
+        this.batchSubmissionService = batchSubmissionService;
     }
 
     /**
@@ -99,7 +83,7 @@ public class ForceSubmitBatchService {
      * @param regionIds region IDs to include — null or empty means all regions
      * @return submission result, or null if no requests were built
      */
-    public ScheduledBatchEvaluationService.BatchSubmitResult submitJfdiBatch(
+    public BatchSubmitResult submitJfdiBatch(
             List<Long> regionIds) {
         java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
                 ? new java.util.HashSet<>(regionIds) : null;
@@ -174,33 +158,8 @@ public class ForceSubmitBatchService {
                         + "{} failed)",
                 requests.size(), locations.size(), dates.size(), failedCount);
 
-        try {
-            BatchCreateParams params = BatchCreateParams.builder()
-                    .requests(requests)
-                    .build();
-
-            MessageBatch batch = anthropicClient.messages().batches().create(params);
-            java.time.Instant expiresAt = batch.expiresAt().toInstant();
-
-            com.gregochr.goldenhour.entity.JobRunEntity jobRun =
-                    jobRunService.startBatchRun(requests.size(), batch.id());
-
-            ForecastBatchEntity entity = new ForecastBatchEntity(
-                    batch.id(), BatchType.FORECAST, requests.size(), expiresAt);
-            if (jobRun != null) {
-                entity.setJobRunId(jobRun.getId());
-            }
-            batchRepository.save(entity);
-
-            LOG.info("[JFDI BATCH] Submitted: batchId={}, {} request(s)",
-                    batch.id(), requests.size());
-
-            return new ScheduledBatchEvaluationService.BatchSubmitResult(
-                    batch.id(), requests.size());
-        } catch (Exception e) {
-            LOG.error("[JFDI BATCH] Submission failed: {}", e.getMessage(), e);
-            return null;
-        }
+        return batchSubmissionService.submit(requests, BatchType.FORECAST,
+                BatchTriggerSource.JFDI, "[JFDI BATCH]");
     }
 
     /**
@@ -266,34 +225,17 @@ public class ForceSubmitBatchService {
                     locations.size(), 0, locations.size(), failedLocations);
         }
 
-        // Submit to Anthropic Batch API
-        if (LOG.isDebugEnabled() && !requests.isEmpty()) {
-            LOG.debug("[BATCH DIAG] Output config schema: {}",
-                    requests.get(0).params().outputConfig());
+        BatchSubmitResult submission = batchSubmissionService.submit(requests,
+                BatchType.FORECAST, BatchTriggerSource.FORCE,
+                "[FORCE BATCH] region=" + region.getName());
+        if (submission == null) {
+            return new ForceSubmitResult(null, 0, "failed",
+                    locations.size(), requests.size(),
+                    failedLocations.size(), failedLocations);
         }
 
-        BatchCreateParams params = BatchCreateParams.builder()
-                .requests(requests)
-                .build();
-
-        MessageBatch batch = anthropicClient.messages().batches().create(params);
-        java.time.Instant expiresAt = batch.expiresAt().toInstant();
-
-        com.gregochr.goldenhour.entity.JobRunEntity jobRun =
-                jobRunService.startBatchRun(requests.size(), batch.id());
-
-        ForecastBatchEntity entity = new ForecastBatchEntity(
-                batch.id(), BatchType.FORECAST, requests.size(), expiresAt);
-        if (jobRun != null) {
-            entity.setJobRunId(jobRun.getId());
-        }
-        batchRepository.save(entity);
-
-        LOG.info("[FORCE BATCH] Submitted: batchId={}, {} request(s), region={}",
-                batch.id(), requests.size(), region.getName());
-
-        return new ForceSubmitResult(batch.id(), requests.size(), "in_progress",
-                locations.size(), requests.size(),
+        return new ForceSubmitResult(submission.batchId(), submission.requestCount(),
+                "in_progress", locations.size(), submission.requestCount(),
                 failedLocations.size(), failedLocations);
     }
 
