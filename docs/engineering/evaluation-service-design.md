@@ -8,7 +8,7 @@
 
 ## Executive summary
 
-The unified `EvaluationService` proposed here is a thin orchestration layer that turns a **list of `EvaluationTask` records + a `BatchTriggerSource`** into a submitted batch and routes its eventual results to a per-task-type `ResultHandler`. Pass 2 already extracted submission, request building, custom IDs, and cache keys; Pass 3 wires those primitives behind a single facade and lets aurora and forecast share the engine through a sealed interface (`EvaluationTask.Forecast` / `EvaluationTask.Aurora`) instead of `instanceof` branches in the engine itself. **Single-location batch is too slow** — the production poller is 60 s, so a one-request batch takes ~120 s end-to-end before results are visible. The recommendation for v2.12 is therefore **path (b)** for SSE: retire only multi-location SSE, replace single-location admin triggers with a direct (non-batch) Anthropic call wrapped by the same observability scaffolding. **`ForecastCommandExecutor` cannot be deleted in v2.12** — it is the sole writer of `forecast_evaluation`, which `GET /api/forecast` (the main React forecast view) reads on every request. Plan: keep the executor in v2.12 (route it through `EvaluationService` for observability parity in Pass 3.3), and tackle reader migration (`forecast_evaluation` → `cached_evaluation` or a successor) as a separate v2.13 programme. Pass 3.2 lands the engine + scheduled callers; Pass 3.3 migrates admin endpoints and retires multi-location SSE without touching the main forecast read path.
+The unified `EvaluationService` proposed here is a thin orchestration layer with two methods: `submit(tasks, trigger)` for the asynchronous Anthropic Batch API path and `evaluateNow(task, trigger)` for the synchronous Messages API path. Both consume the same `EvaluationTask` sealed type (`Forecast` / `Aurora`) and route their results to the same `ResultHandler` per task type, so cost and latency become transport-level concerns rather than result-shape concerns. Pass 2 already extracted submission, request building, custom IDs, and cache keys; Pass 3 wires those primitives behind this facade. **Single-location batch is too slow** — the 60 s poller × 2 polls means a one-request batch takes ~120 s end-to-end — so multi-location SSE retires but single-task admin triggers and aurora real-time keep a synchronous path through `evaluateNow()`. That path costs ~2× per-token (no batch discount) but is deliberately low-volume. **`ForecastCommandExecutor` stays in v2.12.x** — it is the sole writer of `forecast_evaluation`, which `GET /api/forecast` (the main React forecast view) reads on every request. Pass 3.3 routes its per-location Claude call through `evaluateNow()` for observability parity; the table and the executor remain alive. Reader migration (`forecast_evaluation` → `cached_evaluation` or a successor) is a separate v2.13 programme. Pass 3.2 lands the engine + scheduled callers; Pass 3.3 migrates admin endpoints, routes the executor through the engine, and retires multi-location SSE.
 
 ---
 
@@ -42,18 +42,26 @@ The `ForecastBatchPipelineRealApiE2ETest` itself uses `Awaitility.atMost(30 min)
 
 There is **no production telemetry** on single-request batch latency today, because production batches are large (~400+ requests overnight). The daily cron smoke is the only structured source. To turn it into a usable signal, log batch wall-clock at four points (submit, first-poll-not-done, first-poll-done, results-fetched) into `api_call_log` or a new `forecast_batch.first_poll_at` column, and aggregate over 7+ daily smoke runs.
 
-### Recommendation: (c) with a scoped twist
+### Recommendation (CONFIRMED): retire multi-location SSE only; add `evaluateNow()` to `EvaluationService` using the direct Anthropic Messages API for single-task synchronous evaluation
 
 **1-request batch is too slow for an interactive single-location admin trigger.** ~90–120 s is materially worse than SSE's ~10 s and degrades the admin UX (and any future "evaluate this location now" map popup) for no benefit beyond batch's 50 % cost discount.
 
-The recommendation is to retire **multi-location SSE** as planned but to keep a **single-location synchronous evaluation path** that calls the Anthropic Messages API (not the batch API) directly through `EvaluationService`:
+The decision is to retire **multi-location SSE** as planned but to keep a **single-location synchronous evaluation path** that calls the Anthropic Messages API (not the batch API) directly through `EvaluationService`:
 
 ```
 EvaluationService.evaluateNow(EvaluationTask task)  // synchronous, returns EvaluationResult
 EvaluationService.submit(List<EvaluationTask> tasks, BatchTriggerSource trigger)  // async, batch
 ```
 
-Both call sites share the same `EvaluationTask` model, the same `PromptBuilder` selection, the same `RatingValidator`, and the same `api_call_log` / `evaluation_delta_log` writes — the only divergence is "synchronous Messages API" vs. "Batch API + polling". This preserves the SSE-retirement decision in spirit (no more streaming-emitter churn) while preserving the latency the admin UX needs. The synchronous path is also what aurora real-time uses today (`AuroraOrchestrator.scoreAndCache()`), so wiring this in earns observability for that path too (Pass 1 §6 observability gap).
+Both call sites share the same `EvaluationTask` model, the same `PromptBuilder` selection, the same `RatingValidator`, the same `api_call_log` / `evaluation_delta_log` writes, and **the same `ResultHandler` per task type**. The only divergence is "synchronous Messages API" vs. "Batch API + polling". This preserves the SSE-retirement decision in spirit (no more streaming-emitter churn) while preserving the latency the admin UX needs. The synchronous path is also what aurora real-time uses today (`AuroraOrchestrator.scoreAndCache()`), so wiring this in earns observability for that path too (Pass 1 §6 observability gap).
+
+**Cost note.** `evaluateNow()` uses the standard Anthropic Messages API and therefore pays the **full per-token rate — roughly 2× the cost of `submit()`'s batch path** (the Anthropic Batch API discount is approximately 50 %). This is intentional: `evaluateNow()` is a deliberately low-volume path. Expected callers:
+
+- Admin "Run forecast" buttons (4 endpoints) — small, ad-hoc, infrequent
+- Aurora real-time polling — gated by night-only + Kp threshold + state-machine NOTIFY action; typically a handful of calls per geomagnetic storm event
+- Future "evaluate this location now" map popup, if PRO-gated — interactive, low volume by definition
+
+The bulk of evaluation traffic — overnight scheduled batches with hundreds of locations — flows through `submit()` and benefits from the batch discount. Latency, not cost, is the constraint that picks the path.
 
 If empirical data later shows 1-request batches consistently completing under 30 s end-to-end (e.g. by tightening the poller for small batches), reverting single-location to batch is a one-line change inside `EvaluationService.evaluateNow`. Until then, keep it synchronous.
 
@@ -111,20 +119,18 @@ The deepest issue is `GET /api/forecast`. Today it returns **`ForecastEvaluation
 | Region name | derived via FK to `location.region` | denormalised |
 | Region-level cache key | not applicable | `region\|date\|targetType` |
 
-### Recommendation: (c) with deferral — preserve the executor in v2.12, migrate readers in v2.13
+### Recommendation (CONFIRMED): (b) preserve `ForecastCommandExecutor` in v2.12; reader migration is a separate v2.13 programme
 
 Of the three options:
 
 - **(a) delete entirely** — would break `GET /api/forecast` and three optimisation strategies. Not viable for v2.12.
-- **(b) preserve and unify observability** — the realistic v2.12 outcome.
-- **(c) migrate readers first, then delete** — the right end-state, but the migration is a multi-week programme (schema redesign of either `cached_evaluation` or a successor "forecast slot" table; rewrite of `EvaluationViewService`, three optimisation strategies, two hot-topic strategies, three controller endpoints; data backfill).
+- **(b) preserve and unify observability** — the v2.12 outcome.
+- **(c) migrate readers first, then delete** — the right end-state, but the migration is a multi-week programme (schema redesign of either `cached_evaluation` or a successor "forecast slot" table; rewrite of `EvaluationViewService`, three optimisation strategies, two hot-topic strategies, three controller endpoints; data backfill). **Deferred to a separate v2.13 programme.**
 
-The pragmatic split:
+The agreed split:
 
-- **v2.12 (Pass 3.3):** keep `ForecastCommandExecutor` alive but route it through `EvaluationService.submit(..., BatchTriggerSource.ADMIN)` for the four admin "Run forecast" endpoints. Wire `api_call_log` and `evaluation_delta_log` from the unified service (closing the Pass 1 §6 gap automatically). Stop calling `evaluateAndPersist` from the SSE path because Pass 3.3 retires SSE; the executor remains the sole `forecast_evaluation` writer.
-- **v2.13 (separate programme):** redesign the `forecast_evaluation` reader contract — either by widening `cached_evaluation` (or its successor) into a per-location slot table, or by re-projecting `forecast_evaluation` reads onto `cached_evaluation + locations` joins. After that lands, `ForecastCommandExecutor` and the table can be deleted.
-
-This recommendation explicitly **does not match Pass 3.1's "delete in 3.3" preface in the prompt**. The investigation evidence — the executor is the only writer and the table is read by the primary React forecast view — does not support deletion in v2.12. Flagging this as a scope change in §"Recommendations for Pass 3.2+".
+- **v2.12.x (Pass 3.3):** `ForecastCommandExecutor` stays. Its inline `ForecastService.evaluateAndPersist(...)` per-location Claude calls are routed through `EvaluationService.evaluateNow(forecastTask, BatchTriggerSource.ADMIN)` so observability (`api_call_log`, `evaluation_delta_log`) is on parity with the batch path. The 3-phase pipeline (triage → sentinel sampling → full evaluation), stability snapshot writes, and the four `/api/forecast/run/*` admin endpoints are preserved verbatim. The executor remains the sole writer of `forecast_evaluation`. Pass 3.3 retiring multi-location SSE removes the second writer (`BriefingEvaluationService.evaluateSingleLocation`) — which is harmless because it was a duplicate path into the same table.
+- **v2.13 (separate programme, scoped later):** redesign the `forecast_evaluation` reader contract — either by widening `cached_evaluation` (or its successor) into a per-location slot table, or by re-projecting `forecast_evaluation` reads onto `cached_evaluation + locations` joins. After that lands, `ForecastCommandExecutor` and the `forecast_evaluation` table can be deleted as a single follow-up commit. This is explicitly **not** in scope for Pass 3 / v2.12.x.
 
 ---
 
@@ -261,21 +267,36 @@ The engine **never inspects the inner fields** of either record. It only calls `
 
 ### Public interface
 
+The engine exposes **two methods**, both consuming `EvaluationTask` and routing through the same `ResultHandler` per task type — only the transport (Anthropic Batch API vs Anthropic Messages API) differs:
+
 ```java
 public interface EvaluationService {
 
     /**
-     * Asynchronous batch path. Builds requests via per-task-type strategies,
-     * submits via BatchSubmissionService, returns a handle. Results land in
-     * the appropriate ResultHandler when the poller sees ENDED.
+     * Asynchronous batch path. Builds requests via per-task-type
+     * PromptBuilderStrategy.buildBatchRequest, submits via
+     * BatchSubmissionService, returns a handle. Results land in the
+     * appropriate ResultHandler.handleBatchResult() when the poller sees
+     * ENDED. Uses the Anthropic Batch API — ~50 % cost discount.
+     *
+     * Used by: scheduled cron (overnight forecast batch, aurora batch),
+     * admin nuclear options (force-submit, JFDI, region admin run).
      */
     EvaluationHandle submit(List<EvaluationTask> tasks, BatchTriggerSource trigger);
 
     /**
-     * Synchronous path for single-task evaluations that need low latency
-     * (admin "evaluate now", aurora real-time). Uses the Anthropic Messages
-     * API (not batch). Writes the same api_call_log / evaluation_delta_log
-     * as the batch path; the only difference is sync vs async.
+     * Synchronous path for single-task evaluations that need low latency.
+     * Builds a request via PromptBuilderStrategy.buildSyncRequest, calls
+     * AnthropicApiClient.createMessage (Messages API, not Batch API), and
+     * dispatches the parsed result to ResultHandler.handleSyncResult.
+     *
+     * Cost: roughly 2× the per-token rate of submit() — no batch discount.
+     * Intentionally low-volume.
+     *
+     * Used by: ForecastCommandExecutor's per-location call (admin Run
+     * Forecast), aurora real-time (AuroraOrchestrator.scoreAndCache after
+     * the state machine NOTIFY action), future "evaluate this location now"
+     * map popup.
      */
     EvaluationResult evaluateNow(EvaluationTask task, BatchTriggerSource trigger);
 }
@@ -294,7 +315,9 @@ public sealed interface EvaluationResult
 }
 ```
 
-The engine returns a structured `EvaluationHandle` for batch and a structured `EvaluationResult` for sync. Status-checking and result-streaming for batch handles is **not** part of the engine — that's `BatchPollingService` + `BatchResultProcessor`'s job, which already do it. A frontend that wants to know "is my batch done" polls a new admin endpoint that reads `forecast_batch` directly. The engine stays narrow.
+`submit()` returns a structured `EvaluationHandle`; `evaluateNow()` returns a structured `EvaluationResult`. **Both methods route to the same `ResultHandler` per task type** — `ForecastResultHandler` and `AuroraResultHandler` each implement `handleBatchResult` and `handleSyncResult`, doing the same writes (`api_call_log`, `evaluation_delta_log`, `cached_evaluation` / `AuroraStateCache`, `forecast_evaluation` for the executor's `ADMIN`-trigger case) regardless of which transport produced the outcome. This is the single biggest reason for picking this shape: the cost/latency trade-off is a transport concern, not a result-shape concern.
+
+Status-checking and result-streaming for batch handles is **not** part of the engine — that's `BatchPollingService` + `BatchResultProcessor`'s job, which already do it. A frontend that wants to know "is my batch done" polls a new admin endpoint that reads `forecast_batch` directly. The engine stays narrow.
 
 ### Per-task-type strategies (the seams)
 
@@ -415,15 +438,20 @@ The critical frontend retirement is the SSE event source for `/api/briefing/eval
 
 ### Pass 3.3 — admin migration + SSE retirement (target: v2.12.5)
 
-**Goal:** route the admin nuclear options through the engine; retire all SSE code paths; close the `ForecastCommandExecutor` observability gap.
+**Goal:** route the admin nuclear options through the engine; retire multi-location SSE; route `ForecastCommandExecutor` through `EvaluationService.evaluateNow()` for observability parity. **The executor itself stays — only its inline Claude call moves.**
 
 **Modify (production):**
 
 - `ForceSubmitBatchService.forceSubmit()` — collect `EvaluationTask.Forecast` list from the location/date/event triple, then `evaluationService.submit(tasks, FORCE)`. Inline request building deleted.
 - `ForceSubmitBatchService.submitJfdiBatch()` — same shape; submit via `JFDI` trigger.
 - `BatchAdminController.submitScheduledBatch` — unchanged URL, calls now flow through the engine via the modified `ScheduledBatchEvaluationService` from 3.2.
-- `ForecastCommandExecutor.executeFullEvaluationPhase()` — replace `forecastService.evaluateAndPersist(task, jobRun)` with a path that wraps the existing per-location Claude call inside `evaluationService.evaluateNow(forecastTask, ADMIN)`. The persist-to-`forecast_evaluation` step stays inside the executor (or moves into `ForecastResultHandler.handleSyncResult` with a `BatchTriggerSource == ADMIN` branch — design call at 3.3 implementation time).
-- `AuroraOrchestrator.scoreAndCache()` — replace `claudeInterpreter.interpret(...)` with `evaluationService.evaluateNow(auroraTask, SCHEDULED)`. The result handler does the `AuroraStateCache.updateScores` write.
+- **`ForecastCommandExecutor` — route per-location Claude calls through `EvaluationService.evaluateNow(forecastTask, BatchTriggerSource.ADMIN)`. The executor stays alive.** Specifically:
+  - `executeFullEvaluationPhase()` (`:597`) — replace the inline `forecastService.evaluateAndPersist(task, jobRun)` with: build `EvaluationTask.Forecast` from `preEval`, call `evaluationService.evaluateNow(task, ADMIN)`, then persist the result to `forecast_evaluation` via the existing `ForecastService.persistEvaluation(...)` extracted from `evaluateAndPersist` (or via a `BatchTriggerSource == ADMIN` branch inside `ForecastResultHandler.handleSyncResult` that does the `forecast_evaluation` write — implementation choice at 3.3).
+  - `executeSentinelPhase()` (`:547`) — same pattern.
+  - The 3-phase pipeline (triage → sentinel sampling → full evaluation), stability snapshot writes (`stability_snapshot`), `RunProgressTracker` events, and the four `/api/forecast/run/*` admin endpoints are **preserved verbatim**.
+  - The wildlife/comfort path (`NoOpEvaluationStrategy` callers) is **not touched** — those tasks don't go through Claude at all and have no business in `EvaluationService`.
+  - **Outcome:** `ForecastCommandExecutor` writes to `api_call_log` and `evaluation_delta_log` for the first time (closing the Pass 1 §6 observability gap), and continues to write `forecast_evaluation` (preserving the `GET /api/forecast` reader contract until v2.13).
+- `AuroraOrchestrator.scoreAndCache()` — replace `claudeInterpreter.interpret(...)` with `evaluationService.evaluateNow(auroraTask, SCHEDULED)`. `AuroraResultHandler.handleSyncResult` does the `AuroraStateCache.updateScores` write. Closes Pass 1 §6 aurora-real-time observability gap.
 - `BriefingEvaluationController.evaluate()` — endpoint deleted (HTTP 410 for one release if cautious).
 - `BriefingEvaluationService.evaluateRegion()` and `evaluateSingleLocation()` — methods deleted. `getCachedScores`, `getCachedTimestamp`, and the in-memory cache stay.
 - `ClaudeEvaluationStrategy` and `MetricsLoggingDecorator` — strategy deleted; the decorator moves to wrap `AnthropicApiClient.createMessage` directly so sync calls still log.
@@ -516,11 +544,11 @@ Yes — but with two caveats:
 
 ## Recommendations for Pass 3.2+
 
-### Headline departures from the prompt's framing
+### Headline departures from the prompt's framing (both ACCEPTED post-review)
 
-1. **Single-location SSE retirement is split: keep a synchronous direct-Messages-API path** for low-latency single-eval (admin "Run forecast" + future map "evaluate now"). Multi-location SSE retires as planned. This is a softening of decision (1) in the prompt's "Pass 3 is..." preamble. The evidence (60 s polling cadence × 2 polls = ~120 s) makes batch unsuitable for one-off interactive evaluations. The synchronous path runs through `EvaluationService.evaluateNow()` so observability is unified — the spirit of the consolidation is preserved.
+1. **Single-location SSE retirement is split: keep a synchronous direct-Messages-API path** for low-latency single-eval (admin "Run forecast" + future map "evaluate now"). Multi-location SSE retires as planned. The evidence (60 s polling cadence × 2 polls = ~120 s) makes batch unsuitable for one-off interactive evaluations. The synchronous path runs through `EvaluationService.evaluateNow()` so observability is unified — the spirit of the consolidation is preserved. The cost trade-off (~2× per-token, no batch discount) is acceptable because `evaluateNow()` is intentionally low-volume.
 
-2. **`ForecastCommandExecutor` cannot be deleted in v2.12.** The reader of `forecast_evaluation` is the main React forecast view, not just niche optimisation strategies. Reader migration is its own programme (v2.13 or later). v2.12.5 lands the executor's per-location Claude call routed through `EvaluationService` for observability parity, but the executor and table stay alive.
+2. **`ForecastCommandExecutor` cannot be deleted in v2.12.** The reader of `forecast_evaluation` is the main React forecast view, not just niche optimisation strategies. Reader migration is **a separate v2.13 programme**. v2.12.5 lands the executor's per-location Claude call routed through `EvaluationService.evaluateNow()` for observability parity, but the executor and table stay alive.
 
 3. **`forecast_evaluation` lives.** It is the system of record for the per-location, per-run colour evaluation. `cached_evaluation` is the briefing-shaped cache. The two are not interchangeable. v2.13's reader-migration programme either widens `cached_evaluation`'s schema or builds a successor — that's a separate design pass.
 
@@ -543,13 +571,13 @@ Yes — but with two caveats:
 - **`ScheduledForecastService`'s commented-out `@Scheduled` annotations** (`:80, 95, 106, 115`) are dead code — the methods only run from `ForecastController` endpoints today. Worth cleaning the commented-out annotation lines as a small inline tidy in Pass 3.2 (no behaviour change). Do not delete the methods; they are still controller-driven.
 - **`ScheduledBatchEvaluationService` constructor parameter count** (22 per Pass 1 §10). After Pass 3.2, several dependencies (`BatchRequestFactory`, `BatchSubmissionService`, prompt builders) move into the engine, so the constructor naturally shrinks. Don't pre-empt the cleanup; let the migration produce it.
 
-### Blocking concerns to resolve before Pass 3.2 starts
+### Resolved decisions (post-review)
 
-- **Confirm Section 2's recommendation with the user.** The prompt expected (a) "delete `ForecastCommandExecutor`" or at most (c) with a preliminary reader-migration pass. The recommendation here is (b)+defer, which is a programme-level scope change. Get explicit alignment before committing 3.2.
-- **Confirm Section 1's recommendation with the user.** The prompt expected single-location SSE to retire. The recommendation here keeps a synchronous (non-batch) single-eval path. Confirm this is acceptable framing before committing 3.2.
+- **Section 1 recommendation accepted.** Multi-location SSE retires; single-task synchronous path lives as `EvaluationService.evaluateNow()` using the Anthropic Messages API. ~2× per-token cost vs `submit()` is acceptable for the low-volume interactive callers.
+- **Section 2 recommendation accepted.** `ForecastCommandExecutor` stays in v2.12.x. Pass 3.3 routes its per-location Claude call through `EvaluationService.evaluateNow()` for observability parity. `forecast_evaluation` reader migration is **deferred to v2.13** as a separate programme.
+- **Tag decision agreed.** No docs-only v2.12.3 tag. The design document ships as a commit on `main` and is folded into v2.12.4 when Pass 3.2 lands.
+
+### Outstanding pre-flight checks (Pass 3.2 implementation)
+
 - **Audit `NoOpEvaluationStrategy` callers.** If wildlife/comfort still depends on the strategy abstraction, `EvaluationStrategy` cannot be deleted in 3.3 (`NoOpEvaluationStrategy` keeps it alive). 5-minute grep at the start of 3.2.
 - **Confirm the v2.13 visitor-pattern programme's relationship to this design.** Is the proposed sealed-interface + `ResultHandler` arrangement the v2.13 visitor pattern, or is it something different? If different, design here may need revision before 3.2 implementation.
-
-### Tag decision
-
-The prompt offered: tag now as v2.12.3 (docs-only deploy, no production behaviour change), or hold the tag until Pass 3.2 ships. **Recommendation: hold the tag.** Ship the design document as a commit on `main`, get review, then tag v2.12.4 when Pass 3.2 lands. The release pipeline is built around behavioural changes; a docs-only tag triggers a no-op deploy and pollutes the release timeline. The design document has value as a `main` commit regardless of tagging.
