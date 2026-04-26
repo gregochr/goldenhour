@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Test dependencies for integration testing pyramid (v2.12.2 prep)
+- **Testcontainers** (`spring-boot-testcontainers`, `testcontainers-junit-jupiter`, `testcontainers-postgresql`) — versions managed by Spring Boot 4.0.5 testcontainers-bom (2.0.4); enables Postgres-backed integration tests that run real Flyway migrations, matching production exactly instead of relying on H2 with `ddl-auto=create-drop`
+- **WireMock** (`org.wiremock:wiremock-standalone:3.10.0`) — stubs Anthropic API endpoints at the HTTP boundary so the full forecast batch pipeline (BatchRequestFactory → BatchSubmissionService → BatchPollingService → BatchResultProcessor → cache write) can be exercised without burning API cost; standalone variant chosen to avoid classpath conflicts with Spring's Jetty/Jackson
+- **Awaitility** — version managed by Spring Boot (4.3.0); replaces `Thread.sleep` for condition-based polling in async integration tests
+
 ### Added — Batch observability: per-request api_call_log persistence
 - **`api_call_log` persistence for batch results** — every request in a completed Anthropic batch (success or failure) now writes a row to `api_call_log` with `is_batch=true`, `custom_id`, `batch_id`, `error_type`, token counts, and decoded `target_date`/`target_type`. Turns ephemeral log output into durable, queryable forensic data that survives log rotation.
 - **`describeFailedResult()` NPE guard** — Anthropic SDK errored results with a null error chain no longer abort the entire processing loop; the error is caught, logged as "unknown", and processing continues to the next request

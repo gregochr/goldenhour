@@ -253,6 +253,46 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- ==================== Integration Testing ==================== -->
+
+        <!-- Testcontainers — Postgres container matches production schema exactly,
+             unlike the H2 fallback which has Flyway disabled. Used by
+             integration-test profile only; unit tests still use H2 in-memory.
+             Version pulled from the testcontainers-bom managed by Spring Boot 4.0.5. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- WireMock — stubs Anthropic API endpoints for integration tests.
+             Standalone variant shades dependencies to avoid classpath conflicts
+             with Spring's Jetty/Jackson. Not managed by Spring Boot — pinned here. -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.10.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Awaitility — condition-based polling for async assertions in integration
+             tests. Version managed by Spring Boot 4.0.5 (4.3.0). -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
 
     <build>
