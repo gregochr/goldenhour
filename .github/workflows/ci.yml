@@ -79,6 +79,61 @@ jobs:
       - name: Build
         run: cd frontend && npm run build
 
+  # ── Real-API E2E gate ────────────────────────────────────────────────────────
+  # Runs the two tests that hit the real Anthropic Batch API:
+  #   - BatchSchemaIntegrationTest        (narrow, fast — schema-compile guard)
+  #   - ForecastBatchPipelineRealApiE2ETest (broad — full pipeline contract)
+  #
+  # Both auto-skip via @EnabledIfEnvironmentVariable when ANTHROPIC_API_KEY is
+  # absent, so they cost nothing in the standard `backend` job and on PRs.
+  # This dedicated job runs them only on main pushes (not PRs) so each PR
+  # does not burn pence on every commit.
+  #
+  # Test ordering: Surefire runs alphabetically, so BatchSchemaIntegrationTest
+  # executes before ForecastBatchPipelineRealApiE2ETest. With
+  # `-Dsurefire.skipAfterFailureCount=1`, a failed schema test skips the
+  # broader pipeline test, avoiding the cost of a second Anthropic call when
+  # the schema is already known to be rejected.
+  #
+  # Cost: ~2 Haiku batch inferences per run (sub-pence each).
+  # Prerequisite: ANTHROPIC_API_KEY must be set as a repository secret.
+  e2e-real-api:
+    name: Real-API E2E Gate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run real-API tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          chmod +x backend/mvnw
+          cd backend && ./mvnw verify \
+            -Dtest='BatchSchemaIntegrationTest,*RealApiE2ETest' \
+            -Dsurefire.skipAfterFailureCount=1 \
+            -DfailIfNoTests=false \
+            -Dcheckstyle.skip=true \
+            -Dspotbugs.skip=true \
+            -Djacoco.skip=true \
+            --batch-mode --no-transfer-progress
+
+      - name: Upload Surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-api-surefire-reports
+          path: backend/target/surefire-reports/
+
   # ── Playwright E2E ───────────────────────────────────────────────────────────
   # E2E tests require a live Spring Boot backend (Open-Meteo + Claude + DB).
   # They run against a real environment rather than in the standard CI pipeline.
