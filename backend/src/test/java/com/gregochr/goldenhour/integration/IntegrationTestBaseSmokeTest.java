@@ -62,9 +62,10 @@ class IntegrationTestBaseSmokeTest extends IntegrationTestBase {
     void flywayMigrations_seededSchedulerJobConfig() {
         long count = schedulerJobConfigRepository.count();
         assertThat(count)
-                .as("V68 seeds 5 scheduler job configs (tide, briefing, aurora, "
-                        + "met office, cleanup) — if this is 0, Flyway did not run")
-                .isEqualTo(5L);
+                .as("V68 seeds the scheduler_job_config baseline; later migrations "
+                        + "layer additional jobs on top. Anything < 5 means V68 "
+                        + "didn't run or rows were deleted unexpectedly.")
+                .isGreaterThanOrEqualTo(5L);
     }
 
     @Test

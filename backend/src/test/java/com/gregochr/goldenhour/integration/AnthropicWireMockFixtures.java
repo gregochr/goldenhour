@@ -311,13 +311,22 @@ public final class AnthropicWireMockFixtures {
                         + "}"
                         + "}";
             }
+            // Anthropic's batch errored payload is doubly nested: an outer
+            // error-response envelope ({type:"error", error:{...}}) wrapping
+            // the actual typed error ({type:"overloaded_error", message:"..."}).
+            // The SDK's MessageBatchErroredResult.error is an ErrorResponse,
+            // whose own .error() field is the inner Error object. Production
+            // code reads that inner type via the SDK's getter chain.
             return "{"
                     + "\"custom_id\":\"" + customId + "\","
                     + "\"result\":{"
                     + "\"type\":\"errored\","
                     + "\"error\":{"
+                    + "\"type\":\"error\","
+                    + "\"error\":{"
                     + "\"type\":\"" + errorType + "\","
                     + "\"message\":\"" + errorMessage.replace("\"", "\\\"") + "\""
+                    + "}"
                     + "}"
                     + "}"
                     + "}";
