@@ -34,4 +34,12 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
      * @return the batch entity if found
      */
     Optional<ForecastBatchEntity> findByJobRunId(Long jobRunId);
+
+    /**
+     * Finds the batch by its Anthropic-assigned batch ID.
+     *
+     * @param anthropicBatchId the {@code msgbatch_*} ID returned by the Batch API
+     * @return the batch entity if found
+     */
+    Optional<ForecastBatchEntity> findByAnthropicBatchId(String anthropicBatchId);
 }
