@@ -35,7 +35,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.gregochr.goldenhour.integration.AnthropicWireMockFixtures.RequestCounts;
+import static com.gregochr.goldenhour.integration.AnthropicWireMockFixtures.erroredOverloaded;
 import static com.gregochr.goldenhour.integration.AnthropicWireMockFixtures.stubBatchCreate;
 import static com.gregochr.goldenhour.integration.AnthropicWireMockFixtures.stubBatchResults;
 import static com.gregochr.goldenhour.integration.AnthropicWireMockFixtures.stubBatchRetrieve;
@@ -225,6 +229,294 @@ class ForecastBatchPipelineIntegrationTest extends IntegrationTestBase {
         assertThat(log.getErrorType()).isNull();
         assertThat(log.getTargetDate()).isEqualTo(date);
         assertThat(log.getTargetType()).isEqualTo(TargetType.SUNRISE);
+    }
+
+    @Test
+    @DisplayName("Errored-only batch: api_call_log captures error_type but no cache write")
+    void erroredOnlyBatch_persistsErrorButSkipsCache() {
+        RegionEntity ne = regionRepository.save(RegionEntity.builder()
+                .name("North East")
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        LocationEntity bamburgh = locationRepository.save(LocationEntity.builder()
+                .name("Bamburgh Castle")
+                .lat(55.6090)
+                .lon(-1.7099)
+                .region(ne)
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        LocalDate date = LocalDate.now().plusDays(1);
+        TargetType target = TargetType.SUNRISE;
+        String customId = CustomIdFactory.forForecast(bamburgh.getId(), date, target);
+        BatchCreateParams.Request request = batchRequestFactory.buildForecastRequest(
+                customId, EvaluationModel.HAIKU,
+                TestAtmosphericData.defaults(),
+                EvaluationModel.HAIKU.getMaxTokens());
+
+        String batchId = "msgbatch_test_errored";
+        WIRE_MOCK.stubFor(stubBatchCreate(batchId));
+
+        BatchSubmitResult result = batchSubmissionService.submit(
+                List.of(request),
+                BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED,
+                "Integration test errored path");
+        assertThat(result).isNotNull();
+
+        WIRE_MOCK.resetMappings();
+        WIRE_MOCK.stubFor(stubBatchRetrieve(batchId, "ended",
+                new RequestCounts(0, 0, 1, 0, 0)));
+        WIRE_MOCK.stubFor(stubBatchResults(batchId, List.of(
+                erroredOverloaded(customId))));
+
+        batchPollingService.pollPendingBatches();
+
+        // No succeeded results means no cache_evaluation row was written.
+        String cacheKey = CacheKeyFactory.build("North East", date, target);
+        assertThat(cachedEvaluationRepository.findByCacheKey(cacheKey))
+                .as("Errored result must not produce a cached_evaluation row")
+                .isEmpty();
+
+        // Forecast batch row reflects the error counts and ended_at.
+        assertThat(forecastBatchRepository.findByAnthropicBatchId(batchId))
+                .hasValueSatisfying(b -> {
+                    assertThat(b.getErroredCount()).isEqualTo(1);
+                    assertThat(b.getSucceededCount()).isZero();
+                    assertThat(b.getEndedAt()).isNotNull();
+                });
+
+        // api_call_log row captures the error type from Anthropic's payload.
+        Long jobRunId = forecastBatchRepository.findByAnthropicBatchId(batchId)
+                .orElseThrow().getJobRunId();
+        List<ApiCallLogEntity> logs =
+                apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(jobRunId);
+        assertThat(logs).hasSize(1);
+        ApiCallLogEntity log = logs.get(0);
+        assertThat(log.getCustomId()).isEqualTo(customId);
+        assertThat(log.getSucceeded()).isFalse();
+        assertThat(log.getErrorType()).isEqualTo("overloaded_error");
+        assertThat(log.getInputTokens()).isNull();
+        assertThat(log.getOutputTokens()).isNull();
+    }
+
+    @Test
+    @DisplayName("Submission failure: 500 from Anthropic create returns null, no DB writes")
+    void submissionFailure_returnsNullAndPersistsNothing() {
+        RegionEntity nw = regionRepository.save(RegionEntity.builder()
+                .name("North West")
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        LocationEntity buttermere = locationRepository.save(LocationEntity.builder()
+                .name("Buttermere")
+                .lat(54.5410)
+                .lon(-3.2762)
+                .region(nw)
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        String customId = CustomIdFactory.forForecast(
+                buttermere.getId(), LocalDate.now().plusDays(1), TargetType.SUNRISE);
+        BatchCreateParams.Request request = batchRequestFactory.buildForecastRequest(
+                customId, EvaluationModel.HAIKU,
+                TestAtmosphericData.defaults(),
+                EvaluationModel.HAIKU.getMaxTokens());
+
+        WIRE_MOCK.stubFor(post(urlPathEqualTo("/v1/messages/batches"))
+                .willReturn(aResponse()
+                        .withStatus(500)
+                        .withBody("{\"error\":\"internal_server_error\"}")));
+
+        BatchSubmitResult result = batchSubmissionService.submit(
+                List.of(request),
+                BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED,
+                "Integration test submission failure");
+
+        assertThat(result)
+                .as("BatchSubmissionService.submit must return null on Anthropic-side failure"
+                        + " (its catch-all swallows and logs)")
+                .isNull();
+        assertThat(forecastBatchRepository.findAll())
+                .as("No forecast_batch row should be persisted on submission failure")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("Multi-location batch: each region's cache key is written independently")
+    void multiLocationBatch_writesPerRegionCacheKeys() {
+        RegionEntity lakes = regionRepository.save(RegionEntity.builder()
+                .name("Lake District")
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        RegionEntity ne = regionRepository.save(RegionEntity.builder()
+                .name("North East")
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        LocationEntity castlerigg = locationRepository.save(LocationEntity.builder()
+                .name("Castlerigg Stone Circle")
+                .lat(54.6029).lon(-3.0980)
+                .region(lakes)
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        LocationEntity bamburgh = locationRepository.save(LocationEntity.builder()
+                .name("Bamburgh Castle")
+                .lat(55.6090).lon(-1.7099)
+                .region(ne)
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        LocalDate date = LocalDate.now().plusDays(1);
+        TargetType target = TargetType.SUNRISE;
+        String customIdLakes = CustomIdFactory.forForecast(castlerigg.getId(), date, target);
+        String customIdNe = CustomIdFactory.forForecast(bamburgh.getId(), date, target);
+
+        BatchCreateParams.Request reqLakes = batchRequestFactory.buildForecastRequest(
+                customIdLakes, EvaluationModel.HAIKU,
+                TestAtmosphericData.defaults(),
+                EvaluationModel.HAIKU.getMaxTokens());
+        BatchCreateParams.Request reqNe = batchRequestFactory.buildForecastRequest(
+                customIdNe, EvaluationModel.HAIKU,
+                TestAtmosphericData.defaults(),
+                EvaluationModel.HAIKU.getMaxTokens());
+
+        String batchId = "msgbatch_test_multi";
+        WIRE_MOCK.stubFor(stubBatchCreate(batchId));
+
+        BatchSubmitResult result = batchSubmissionService.submit(
+                List.of(reqLakes, reqNe),
+                BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED,
+                "Integration test multi-location");
+        assertThat(result.requestCount()).isEqualTo(2);
+
+        WIRE_MOCK.resetMappings();
+        WIRE_MOCK.stubFor(stubBatchRetrieve(batchId, "ended",
+                new RequestCounts(0, 2, 0, 0, 0)));
+        WIRE_MOCK.stubFor(stubBatchResults(batchId, List.of(
+                succeededWithEvaluation(customIdLakes, 5, 80, 75),
+                succeededWithEvaluation(customIdNe, 3, 40, 50))));
+
+        batchPollingService.pollPendingBatches();
+
+        // Each region writes to a distinct cache key with its own location's scores.
+        String keyLakes = CacheKeyFactory.build("Lake District", date, target);
+        String keyNe = CacheKeyFactory.build("North East", date, target);
+
+        BriefingEvaluationResult lakesResult = parseResultsJson(
+                cachedEvaluationRepository.findByCacheKey(keyLakes).orElseThrow().getResultsJson())
+                .get(0);
+        assertThat(lakesResult.locationName()).isEqualTo("Castlerigg Stone Circle");
+        assertThat(lakesResult.rating()).isEqualTo(5);
+        assertThat(lakesResult.fierySkyPotential()).isEqualTo(80);
+
+        BriefingEvaluationResult neResult = parseResultsJson(
+                cachedEvaluationRepository.findByCacheKey(keyNe).orElseThrow().getResultsJson())
+                .get(0);
+        assertThat(neResult.locationName()).isEqualTo("Bamburgh Castle");
+        assertThat(neResult.rating()).isEqualTo(3);
+        assertThat(neResult.fierySkyPotential()).isEqualTo(40);
+
+        // ForecastBatchEntity reflects 2 succeeded, 0 errored.
+        assertThat(forecastBatchRepository.findByAnthropicBatchId(batchId))
+                .hasValueSatisfying(b -> {
+                    assertThat(b.getSucceededCount()).isEqualTo(2);
+                    assertThat(b.getErroredCount()).isZero();
+                    assertThat(b.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+                });
+
+        // api_call_log has both rows, each with its own custom_id.
+        Long jobRunId = forecastBatchRepository.findByAnthropicBatchId(batchId)
+                .orElseThrow().getJobRunId();
+        List<ApiCallLogEntity> logs =
+                apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(jobRunId);
+        assertThat(logs).hasSize(2);
+        assertThat(logs).extracting(ApiCallLogEntity::getCustomId)
+                .containsExactlyInAnyOrder(customIdLakes, customIdNe);
+        assertThat(logs).allMatch(ApiCallLogEntity::getSucceeded);
+    }
+
+    @Test
+    @DisplayName("Mixed batch: succeeded location writes cache, errored does not")
+    void mixedBatch_partialCacheWrite() {
+        RegionEntity lakes = regionRepository.save(RegionEntity.builder()
+                .name("Lake District")
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        RegionEntity ne = regionRepository.save(RegionEntity.builder()
+                .name("North East")
+                .enabled(true)
+                .createdAt(LocalDateTime.now())
+                .build());
+        LocationEntity castlerigg = locationRepository.save(LocationEntity.builder()
+                .name("Castlerigg Stone Circle")
+                .lat(54.6029).lon(-3.0980)
+                .region(lakes).enabled(true).createdAt(LocalDateTime.now()).build());
+        LocationEntity bamburgh = locationRepository.save(LocationEntity.builder()
+                .name("Bamburgh Castle")
+                .lat(55.6090).lon(-1.7099)
+                .region(ne).enabled(true).createdAt(LocalDateTime.now()).build());
+
+        LocalDate date = LocalDate.now().plusDays(1);
+        TargetType target = TargetType.SUNRISE;
+        String customIdLakes = CustomIdFactory.forForecast(castlerigg.getId(), date, target);
+        String customIdNe = CustomIdFactory.forForecast(bamburgh.getId(), date, target);
+
+        BatchCreateParams.Request reqLakes = batchRequestFactory.buildForecastRequest(
+                customIdLakes, EvaluationModel.HAIKU,
+                TestAtmosphericData.defaults(),
+                EvaluationModel.HAIKU.getMaxTokens());
+        BatchCreateParams.Request reqNe = batchRequestFactory.buildForecastRequest(
+                customIdNe, EvaluationModel.HAIKU,
+                TestAtmosphericData.defaults(),
+                EvaluationModel.HAIKU.getMaxTokens());
+
+        String batchId = "msgbatch_test_mixed";
+        WIRE_MOCK.stubFor(stubBatchCreate(batchId));
+
+        batchSubmissionService.submit(
+                List.of(reqLakes, reqNe),
+                BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED,
+                "Integration test mixed batch");
+
+        WIRE_MOCK.resetMappings();
+        WIRE_MOCK.stubFor(stubBatchRetrieve(batchId, "ended",
+                new RequestCounts(0, 1, 1, 0, 0)));
+        WIRE_MOCK.stubFor(stubBatchResults(batchId, List.of(
+                succeededWithEvaluation(customIdLakes, 4, 60, 65),
+                erroredOverloaded(customIdNe))));
+
+        batchPollingService.pollPendingBatches();
+
+        // Lakes succeeded → cache_evaluation row exists.
+        assertThat(cachedEvaluationRepository.findByCacheKey(
+                CacheKeyFactory.build("Lake District", date, target)))
+                .as("Successful Lake District result should produce a cache row")
+                .isPresent();
+
+        // North East errored → no cache_evaluation row.
+        assertThat(cachedEvaluationRepository.findByCacheKey(
+                CacheKeyFactory.build("North East", date, target)))
+                .as("Errored North East result must not produce a cache row")
+                .isEmpty();
+
+        // Forecast batch entity reports 1 succeeded, 1 errored.
+        assertThat(forecastBatchRepository.findByAnthropicBatchId(batchId))
+                .hasValueSatisfying(b -> {
+                    assertThat(b.getSucceededCount()).isEqualTo(1);
+                    assertThat(b.getErroredCount()).isEqualTo(1);
+                    assertThat(b.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+                });
     }
 
     private List<BriefingEvaluationResult> parseResultsJson(String json) {
