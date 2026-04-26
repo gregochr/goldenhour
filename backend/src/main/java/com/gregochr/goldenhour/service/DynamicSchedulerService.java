@@ -7,8 +7,6 @@ import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.scheduling.support.CronTrigger;
@@ -28,8 +26,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * Orchestrates dynamic scheduling of jobs based on persisted {@link SchedulerJobConfigEntity} rows.
  *
  * <p>Each owning service registers its job target via {@link #registerJobTarget(String, Runnable)}
- * during {@code @PostConstruct}. On {@link ApplicationReadyEvent}, this service loads all configs
- * from the database and schedules ACTIVE jobs.
+ * during {@code @PostConstruct}. {@link DynamicSchedulerBootstrap} (active outside the
+ * {@code integration-test} profile) calls {@link #initSchedules()} on
+ * {@code ApplicationReadyEvent} to load all configs from the database and schedule ACTIVE jobs.
  */
 @Service
 public class DynamicSchedulerService {
@@ -82,11 +81,15 @@ public class DynamicSchedulerService {
     }
 
     /**
-     * Initialises all schedules after the application context is fully ready.
+     * Initialises all schedules from persisted config rows.
      *
      * <p>Checks aurora config and adjusts status for aurora-dependent jobs accordingly.
+     *
+     * <p>Invoked at startup by {@link DynamicSchedulerBootstrap} (which is profile-gated
+     * with {@code @Profile("!integration-test")}). Made a plain public method so that
+     * unit tests can call it directly and integration tests using the
+     * {@code integration-test} profile can choose when (or whether) to bootstrap.
      */
-    @EventListener(ApplicationReadyEvent.class)
     public void initSchedules() {
         List<SchedulerJobConfigEntity> configs = repository.findAllByOrderByIdAsc();
         for (SchedulerJobConfigEntity config : configs) {
