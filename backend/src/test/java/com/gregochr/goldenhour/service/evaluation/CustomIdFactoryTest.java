@@ -200,6 +200,66 @@ class CustomIdFactoryTest {
     }
 
     @Test
+    void forForceSubmitRejectsRegionThatSanitisesToEmpty() {
+        // "!!!", "—", "***" all sanitise to "" and would produce "force--{id}-{date}-{type}".
+        // The parse-side cannot recover the empty region segment (it requires at least
+        // one char before the locationId hyphen), so build must fail-fast rather than
+        // emit an ID that round-trips to MALFORMED_ID at result time.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
+                        "!!!", 1L, DATE, TargetType.SUNRISE))
+                .withMessageContaining("no alphanumeric");
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
+                        "", 1L, DATE, TargetType.SUNRISE))
+                .withMessageContaining("no alphanumeric");
+    }
+
+    @Test
+    void forForceSubmitAcceptsIdAtExactly64Chars() {
+        // "force-" (6) + region (38) + "-" (1) + "1" (1) + "-" (1)
+        //   + "2026-04-16" (10) + "-" (1) + "SUNSET" (6) = 64
+        String region = "A".repeat(38);
+        String id = CustomIdFactory.forForceSubmit(region, 1L, DATE, TargetType.SUNSET);
+        assertThat(id).hasSize(64);
+        // Round-trips cleanly — boundary value is genuinely valid, not just accidentally
+        // accepted by an off-by-one mutation.
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.ForceSubmit(region, 1L, DATE, TargetType.SUNSET));
+    }
+
+    @Test
+    void forForceSubmitRejectsIdAtExactly65Chars() {
+        // 39 chars of A — one over the boundary tested above. Mutation guard for `> 64`
+        // vs `>= 64` boundary in CustomIdFactory.validate.
+        String region = "A".repeat(39);
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.forForceSubmit(
+                        region, 1L, DATE, TargetType.SUNSET))
+                .withMessageContaining("64 chars");
+    }
+
+    @Test
+    void forForecastAcceptsZeroLocationId() {
+        // Defensive: locationId=0 is unusual but technically valid (Long.parseLong("0")
+        // succeeds). Asserts the factory does not silently reject non-positive IDs.
+        String id = CustomIdFactory.forForecast(0L, DATE, TargetType.SUNRISE);
+        assertThat(id).isEqualTo("fc-0-2026-04-16-SUNRISE");
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.Forecast(0L, DATE, TargetType.SUNRISE));
+    }
+
+    @Test
+    void forForecastRoundTripsLongMaxValueLocationId() {
+        // 19-digit max long. ID is 41 chars total — comfortably under the 64-char limit
+        // even at the largest possible locationId, confirming the boundary holds.
+        String id = CustomIdFactory.forForecast(Long.MAX_VALUE, DATE, TargetType.SUNRISE);
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.Forecast(
+                        Long.MAX_VALUE, DATE, TargetType.SUNRISE));
+    }
+
+    @Test
     void sanitiseRegionPreservesExistingBehaviour() {
         // Rule preserved verbatim from ForceSubmitBatchService:276-278
         assertThat(CustomIdFactory.sanitiseRegionName("North York Moors"))

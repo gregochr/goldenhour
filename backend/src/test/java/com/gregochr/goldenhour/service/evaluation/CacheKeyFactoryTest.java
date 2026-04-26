@@ -103,4 +103,14 @@ class CacheKeyFactoryTest {
         assertThat(parsed.date()).isEqualTo(DATE);
         assertThat(parsed.targetType()).isEqualTo(TargetType.SUNRISE);
     }
+
+    @Test
+    void parseRejectsTrailingSeparator() {
+        // Mutation guard: split(\\|, -1) must keep trailing empty strings so a trailing
+        // pipe surfaces as 4 parts and is rejected. Mutating the limit to 0 (default)
+        // would silently drop the trailing empty and accept this as a valid 3-part key.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CacheKeyFactory.parse("North East|2026-04-23|SUNRISE|"))
+                .withMessageContaining("expected 3 parts");
+    }
 }

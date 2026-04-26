@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.model.ComfortData;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.PressureTrend;
+import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.WeatherData;
 
@@ -58,6 +59,9 @@ public final class TestAtmosphericData {
     private ForecastStability stability = null;
     private String stabilityReason = null;
     private PressureTrend pressureTrend = null;
+    private StormSurgeBreakdown surge = null;
+    private Double adjustedRangeMetres = null;
+    private Double astronomicalRangeMetres = null;
 
     private TestAtmosphericData() {
     }
@@ -240,6 +244,21 @@ public final class TestAtmosphericData {
         return this;
     }
 
+    public TestAtmosphericData surge(StormSurgeBreakdown val) {
+        this.surge = val;
+        return this;
+    }
+
+    public TestAtmosphericData adjustedRangeMetres(Double val) {
+        this.adjustedRangeMetres = val;
+        return this;
+    }
+
+    public TestAtmosphericData astronomicalRangeMetres(Double val) {
+        this.astronomicalRangeMetres = val;
+        return this;
+    }
+
     /**
      * Builds the {@link AtmosphericData} from the configured values.
      *
@@ -254,7 +273,8 @@ public final class TestAtmosphericData {
                 new AerosolData(pm25, dust, aod, boundaryLayerHeight),
                 new ComfortData(temperature, apparentTemperature, precipProbability),
                 directionalCloud, tide, cloudApproach, mistTrend,
-                locationOrientation, null, null, null, inversionScore,
+                locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
+                inversionScore,
                 bluebellConditionScore, stability, stabilityReason, pressureTrend);
     }
 }

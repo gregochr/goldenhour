@@ -106,6 +106,10 @@ public final class CustomIdFactory {
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
         String sanitised = sanitiseRegionName(regionName);
+        if (sanitised.isEmpty()) {
+            throw new IllegalArgumentException("Region name has no alphanumeric characters: "
+                    + regionName);
+        }
         return validate(PREFIX_FORCE + sanitised + "-" + locationId + "-" + date
                 + "-" + targetType.name());
     }
