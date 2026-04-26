@@ -13,8 +13,23 @@ UPDATE locations SET bluebell_exposure = 'WOODLAND' WHERE id = 40;  -- Allen Ban
 UPDATE locations SET bluebell_exposure = 'WOODLAND' WHERE id = 87;  -- Roseberry Topping
 
 -- Add BLUEBELL type to existing locations
-INSERT INTO location_location_type (location_id, location_type) VALUES (40, 'BLUEBELL');
-INSERT INTO location_location_type (location_id, location_type) VALUES (87, 'BLUEBELL');
+-- Conditional: skip cleanly if location is absent (e.g. fresh test database).
+-- In production these locations exist (id=40 Allen Banks, id=87 Roseberry Topping).
+INSERT INTO location_location_type (location_id, location_type)
+SELECT 40, 'BLUEBELL'
+WHERE EXISTS (SELECT 1 FROM locations WHERE id = 40)
+  AND NOT EXISTS (
+    SELECT 1 FROM location_location_type
+    WHERE location_id = 40 AND location_type = 'BLUEBELL'
+  );
+
+INSERT INTO location_location_type (location_id, location_type)
+SELECT 87, 'BLUEBELL'
+WHERE EXISTS (SELECT 1 FROM locations WHERE id = 87)
+  AND NOT EXISTS (
+    SELECT 1 FROM location_location_type
+    WHERE location_id = 87 AND location_type = 'BLUEBELL'
+  );
 
 -- ============================================================
 -- 3. Insert new bluebell locations

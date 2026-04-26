@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — V84 migration tolerant of missing locations (v2.12.2)
+- **`V84__add_bluebell_support.sql`** — replaced two `INSERT INTO location_location_type (location_id, location_type) VALUES (40/87, 'BLUEBELL')` statements with `INSERT…SELECT…WHERE EXISTS` against `locations.id`. The original hardcoded IDs 40 (Allen Banks) and 87 (Roseberry Topping) work in production where those rows exist from accumulated seed data, but fail the V8 foreign key against any fresh database — including the Postgres testcontainer introduced in v2.12.2's integration test pyramid. The bug was latent because existing `@SpringBootTest` tests use H2 with `ddl-auto=create-drop` and skip Flyway entirely. Production behaviour is unchanged: where IDs 40 and 87 exist, the new statement produces identical rows. The `NOT EXISTS` predicate also guards against accidental replay
+- Note: production Flyway has `validate-on-migrate: false`, so the changed migration checksum won't block redeploy. No equivalent latent FK bugs found in other migrations (V60 has many hardcoded `UPDATE…WHERE id = N` statements but UPDATE on a non-existent row is a clean no-op, not a constraint violation)
+
 ### Added — Test dependencies for integration testing pyramid (v2.12.2 prep)
 - **Testcontainers** (`spring-boot-testcontainers`, `testcontainers-junit-jupiter`, `testcontainers-postgresql`) — versions managed by Spring Boot 4.0.5 testcontainers-bom (2.0.4); enables Postgres-backed integration tests that run real Flyway migrations, matching production exactly instead of relying on H2 with `ddl-auto=create-drop`
 - **WireMock** (`org.wiremock:wiremock-standalone:3.10.0`) — stubs Anthropic API endpoints at the HTTP boundary so the full forecast batch pipeline (BatchRequestFactory → BatchSubmissionService → BatchPollingService → BatchResultProcessor → cache write) can be exercised without burning API cost; standalone variant chosen to avoid classpath conflicts with Spring's Jetty/Jackson
