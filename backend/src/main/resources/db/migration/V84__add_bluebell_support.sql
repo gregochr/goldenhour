@@ -2,6 +2,46 @@
 -- Bluebell seasonal support
 -- ============================================================
 
+-- ============================================================
+-- 0. Seed missing regions before location inserts (idempotent)
+--
+-- V31 created the regions table and seeded the original five
+-- (Tyne and Wear, The North Yorkshire Coast, The Lake District,
+-- The Yorkshire Dales, Northumberland — auto-assigned IDs 1–5).
+-- Two further regions were added later in production via the API
+-- and never made it into a Flyway migration:
+--   id = 6  Teesdale
+--   id = 7  The North York Moors
+--
+-- V84's location inserts reference region_id 6 and 7, which fails
+-- the locations.region_id FK on any database that did not receive
+-- those out-of-band inserts (notably the testcontainer Postgres
+-- in v2.12.2's integration test pyramid).
+--
+-- ON CONFLICT (id) DO NOTHING makes this a no-op in production
+-- (rows already exist) and a backfill in fresh databases. Region
+-- names match production exactly (verified via
+-- SELECT id, name FROM regions ORDER BY id).
+-- ============================================================
+
+INSERT INTO regions (id, name, enabled, created_at) VALUES
+    (6, 'Teesdale',             true, NOW()),
+    (7, 'The North York Moors', true, NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- Advance the regions identity sequence past the explicitly-seeded
+-- IDs. V31's INSERTs ran without an explicit id and so consumed
+-- sequence values 1–5; our explicit-id inserts above bypass the
+-- sequence. Without this setval a future INSERT INTO regions (name)
+-- VALUES (...) would attempt id = 6 and collide with Teesdale on
+-- the unique constraint. No-op in production where the sequence
+-- has already advanced.
+SELECT setval(
+    pg_get_serial_sequence('regions', 'id'),
+    COALESCE((SELECT MAX(id) FROM regions), 1),
+    true
+);
+
 -- 1. Add bluebell_exposure column to locations
 ALTER TABLE locations ADD COLUMN bluebell_exposure VARCHAR(20);
 
