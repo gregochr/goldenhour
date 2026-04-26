@@ -1,0 +1,56 @@
+name: Real API Smoke
+
+# Runs the real-Anthropic E2E test on a daily cadence rather than as a PR gate.
+# Anthropic's batch API is asynchronous with an SLA of up to 24 hours; a per-push
+# gate cannot wait that long without ruining CI throughput, but completion-path
+# response parsing still benefits from real coverage. Daily cron is the right
+# cadence: catches Anthropic schema/response drift within 24 hours, never blocks
+# a merge, costs ~1-2 batches/day in API spend.
+
+on:
+  schedule:
+    # 06:00 UTC daily. Chosen to be off-peak vs the 19:00 UTC scheduled batch
+    # so the smoke and the real production run don't compete for cluster slots.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from the Actions tab for ad-hoc verification.
+
+# Concurrency guard — if a previous smoke is still running (rare but possible
+# with long batch completion times), let it finish rather than queueing.
+concurrency:
+  group: real-api-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Real API completion smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run real-API E2E test
+        run: ./mvnw test -Dtest=ForecastBatchPipelineRealApiE2ETest -e
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Upload surefire reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-api-smoke-surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 14

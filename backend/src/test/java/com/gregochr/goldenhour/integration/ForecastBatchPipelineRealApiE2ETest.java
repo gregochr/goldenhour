@@ -145,7 +145,7 @@ class ForecastBatchPipelineRealApiE2ETest {
     }
 
     @Test
-    @Timeout(value = 5, unit = TimeUnit.MINUTES)
+    @Timeout(value = 30, unit = TimeUnit.MINUTES)
     @DisplayName("Real-API E2E: full pipeline with one Haiku request through Anthropic")
     void fullPipeline_singleRequest_realAnthropic() {
         RegionEntity lakes = regionRepository.save(RegionEntity.builder()
@@ -190,7 +190,7 @@ class ForecastBatchPipelineRealApiE2ETest {
         // Poll until the batch reaches a terminal state. The poller updates
         // forecast_batch.status synchronously when results arrive.
         Awaitility.await()
-                .atMost(Duration.ofMinutes(4))
+                .atMost(Duration.ofMinutes(30))
                 .pollInterval(Duration.ofSeconds(15))
                 .pollDelay(Duration.ofSeconds(15))
                 .untilAsserted(() -> {
