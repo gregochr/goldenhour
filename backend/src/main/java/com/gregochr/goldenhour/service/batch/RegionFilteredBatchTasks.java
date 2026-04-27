@@ -34,11 +34,4 @@ public record RegionFilteredBatchTasks(
     public boolean isEmpty() {
         return inland.isEmpty() && coastal.isEmpty();
     }
-
-    /**
-     * @return total task count across both buckets.
-     */
-    public int totalSize() {
-        return inland.size() + coastal.size();
-    }
 }
