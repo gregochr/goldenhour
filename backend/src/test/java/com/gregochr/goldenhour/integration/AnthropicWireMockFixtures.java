@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.integration;
 
 import com.github.tomakehurst.wiremock.client.MappingBuilder;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,10 +39,23 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
  */
 public final class AnthropicWireMockFixtures {
 
-    /** Hour-of-day used in fixture timestamps to keep test output readable. */
-    private static final String FIXED_CREATED_AT = "2026-04-26T09:30:00Z";
-    private static final String FIXED_EXPIRES_AT = "2026-04-27T09:30:00Z";
-    private static final String FIXED_ENDED_AT = "2026-04-26T10:00:00Z";
+    // Timestamps are computed relative to "now" rather than hardcoded so the
+    // fixtures cannot become time-bombs. Production polling treats a batch as
+    // EXPIRED when expires_at is in the past (BatchPollingService:126), so a
+    // hardcoded expires_at silently breaks any CI run that happens to fire
+    // after that wallclock instant. Relative ordering: created_at < ended_at
+    // < now < expires_at.
+    private static String createdAt() {
+        return Instant.now().minus(Duration.ofMinutes(30)).toString();
+    }
+
+    private static String expiresAt() {
+        return Instant.now().plus(Duration.ofHours(24)).toString();
+    }
+
+    private static String endedAt() {
+        return Instant.now().minus(Duration.ofMinutes(15)).toString();
+    }
 
     private AnthropicWireMockFixtures() {
         // utility — not instantiable
@@ -75,7 +90,7 @@ public final class AnthropicWireMockFixtures {
      */
     public static MappingBuilder stubBatchRetrieve(String batchId,
             String processingStatus, RequestCounts counts) {
-        String endedAt = "ended".equals(processingStatus) ? FIXED_ENDED_AT : null;
+        String endedAt = "ended".equals(processingStatus) ? endedAt() : null;
         String resultsUrl = "ended".equals(processingStatus)
                 ? "https://api.anthropic.com/v1/messages/batches/" + batchId + "/results"
                 : null;
@@ -203,8 +218,8 @@ public final class AnthropicWireMockFixtures {
                 .append("\"canceled\":").append(counts.canceled()).append(",")
                 .append("\"expired\":").append(counts.expired())
                 .append("},")
-                .append("\"created_at\":\"").append(FIXED_CREATED_AT).append("\",")
-                .append("\"expires_at\":\"").append(FIXED_EXPIRES_AT).append("\",")
+                .append("\"created_at\":\"").append(createdAt()).append("\",")
+                .append("\"expires_at\":\"").append(expiresAt()).append("\",")
                 .append("\"archived_at\":null,")
                 .append("\"cancel_initiated_at\":null,")
                 .append("\"ended_at\":");
