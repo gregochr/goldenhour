@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.config.FreshnessProperties;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -12,10 +11,8 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
-import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
@@ -24,9 +21,6 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
-import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
-import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
-import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -49,8 +43,12 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
- * Tests that the CACHED gate in {@code collectForecastTasks} uses stability-driven
- * freshness thresholds via {@link FreshnessResolver}.
+ * Tests that the CACHED gate inside {@link ForecastTaskCollector} uses
+ * stability-driven freshness thresholds via {@link FreshnessResolver}.
+ *
+ * <p>Originally tested {@code ScheduledBatchEvaluationService.collectForecastTasks}
+ * directly; following the v2.12.5 (Pass 3.2.1) collector extraction, this targets
+ * the collector's package-private {@code collectForecastCandidates} method.
  */
 @ExtendWith(MockitoExtension.class)
 class CollectForecastTasksCachedGateTest {
@@ -61,18 +59,11 @@ class CollectForecastTasksCachedGateTest {
     @Mock private ForecastService forecastService;
     @Mock private ForecastStabilityClassifier stabilityClassifier;
     @Mock private ModelSelectionService modelSelectionService;
-    @Mock private NoaaSwpcClient noaaSwpcClient;
-    @Mock private WeatherTriageService weatherTriageService;
-    @Mock private AuroraOrchestrator auroraOrchestrator;
-    @Mock private LocationRepository locationRepository;
-    @Mock private AuroraProperties auroraProperties;
-    @Mock private DynamicSchedulerService dynamicSchedulerService;
     @Mock private OpenMeteoService openMeteoService;
     @Mock private SolarService solarService;
     @Mock private ForecastCommandExecutor forecastCommandExecutor;
-    @Mock private com.gregochr.goldenhour.service.evaluation.EvaluationService evaluationService;
 
-    private ScheduledBatchEvaluationService service;
+    private ForecastTaskCollector collector;
 
     /** Tomorrow's date — always in the future so PAST_DATE doesn't trigger. */
     private final LocalDate tomorrow = LocalDate.now().plusDays(1);
@@ -86,23 +77,20 @@ class CollectForecastTasksCachedGateTest {
         props.setSafetyFloorHours(2);
         FreshnessResolver freshnessResolver = new FreshnessResolver(props);
 
-        service = new ScheduledBatchEvaluationService(
+        collector = new ForecastTaskCollector(
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
-                modelSelectionService,
-                noaaSwpcClient, weatherTriageService,
-                auroraOrchestrator, locationRepository, auroraProperties,
-                dynamicSchedulerService, openMeteoService, solarService,
-                freshnessResolver, forecastCommandExecutor,
-                evaluationService, 0.5);
+                modelSelectionService, openMeteoService, solarService,
+                freshnessResolver, forecastCommandExecutor, 0.5);
     }
 
     @SuppressWarnings("unchecked")
-    private List<?> invokeCollectForecastTasks(DailyBriefingResponse briefing) throws Exception {
-        Method method = ScheduledBatchEvaluationService.class
-                .getDeclaredMethod("collectForecastTasks", DailyBriefingResponse.class);
+    private List<?> invokeCollectForecastCandidates(DailyBriefingResponse briefing)
+            throws Exception {
+        Method method = ForecastTaskCollector.class
+                .getDeclaredMethod("collectForecastCandidates", DailyBriefingResponse.class);
         method.setAccessible(true);
-        return (List<?>) method.invoke(service, briefing);
+        return (List<?>) method.invoke(collector, briefing);
     }
 
     private DailyBriefingResponse briefingWithOneSlot(String regionName, String locationName) {
@@ -151,7 +139,7 @@ class CollectForecastTasksCachedGateTest {
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(36)))).thenReturn(true);
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).isEmpty();
@@ -168,7 +156,7 @@ class CollectForecastTasksCachedGateTest {
             when(locationService.findAllEnabled())
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).hasSize(1);
@@ -185,7 +173,7 @@ class CollectForecastTasksCachedGateTest {
             when(locationService.findAllEnabled())
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).hasSize(1);
@@ -200,7 +188,7 @@ class CollectForecastTasksCachedGateTest {
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(true);
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).isEmpty();
@@ -216,7 +204,7 @@ class CollectForecastTasksCachedGateTest {
             when(locationService.findAllEnabled())
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).hasSize(1);
@@ -232,7 +220,7 @@ class CollectForecastTasksCachedGateTest {
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(true);
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).isEmpty();
@@ -247,7 +235,7 @@ class CollectForecastTasksCachedGateTest {
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(12)))).thenReturn(true);
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).isEmpty();
@@ -268,7 +256,7 @@ class CollectForecastTasksCachedGateTest {
             when(locationService.findAllEnabled())
                     .thenReturn(List.of(locationEntity("Bamburgh", 42L)));
 
-            List<?> tasks = invokeCollectForecastTasks(
+            List<?> tasks = invokeCollectForecastCandidates(
                     briefingWithOneSlot("North East", "Bamburgh"));
 
             assertThat(tasks).hasSize(1);

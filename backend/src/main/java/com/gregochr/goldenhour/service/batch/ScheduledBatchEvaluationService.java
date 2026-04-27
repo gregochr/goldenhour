@@ -98,6 +98,7 @@ public class ScheduledBatchEvaluationService {
     private final FreshnessResolver freshnessResolver;
     private final ForecastCommandExecutor forecastCommandExecutor;
     private final EvaluationService evaluationService;
+    private final ForecastTaskCollector forecastTaskCollector;
 
     /** Minimum ratio of successful weather pre-fetches to proceed with batch submission. */
     private final double minPrefetchSuccessRatio;
@@ -128,6 +129,7 @@ public class ScheduledBatchEvaluationService {
      * @param freshnessResolver           resolves per-stability cache freshness thresholds
      * @param forecastCommandExecutor     provides the latest stability snapshot
      * @param evaluationService           Pass 3.2 engine — builds requests + submits + processes
+     * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
      * @param minPrefetchSuccessRatio    minimum ratio of successful pre-fetches to proceed
      */
     public ScheduledBatchEvaluationService(LocationService locationService,
@@ -147,6 +149,7 @@ public class ScheduledBatchEvaluationService {
             FreshnessResolver freshnessResolver,
             ForecastCommandExecutor forecastCommandExecutor,
             EvaluationService evaluationService,
+            ForecastTaskCollector forecastTaskCollector,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio) {
         this.locationService = locationService;
@@ -166,6 +169,7 @@ public class ScheduledBatchEvaluationService {
         this.freshnessResolver = freshnessResolver;
         this.forecastCommandExecutor = forecastCommandExecutor;
         this.evaluationService = evaluationService;
+        this.forecastTaskCollector = forecastTaskCollector;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         LOG.info("Batch config: min-prefetch-success-ratio={}", minPrefetchSuccessRatio);
     }
@@ -271,190 +275,40 @@ public class ScheduledBatchEvaluationService {
     static final int NEAR_TERM_MAX_DAYS = 1;
 
     /**
-     * Core forecast batch logic: collect candidates from the briefing, pre-fetch weather
-     * in bulk, triage, then split into near-term and far-term batches with independent
-     * model selection.
+     * Core forecast batch logic. Delegates task collection (briefing read, weather +
+     * cloud pre-fetch, triage, stability, bucketing) to {@link ForecastTaskCollector}
+     * and submits each non-empty bucket separately via {@link EvaluationService}.
      */
     private void doSubmitForecastBatch() {
-        DailyBriefingResponse briefing = briefingService.getCachedBriefing();
-        if (briefing == null) {
-            LOG.warn("[BATCH DIAG] Forecast batch skipped: no cached briefing available");
-            return;
-        }
-
-        EvaluationModel nearTermModel =
-                modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
-        EvaluationModel farTermModel =
-                modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM);
-        LOG.warn("[BATCH DIAG] Starting forecast batch — nearTermModel={}, farTermModel={}, "
-                        + "briefing days={}",
-                nearTermModel, farTermModel,
-                briefing.days() != null ? briefing.days().size() : 0);
-
-        // First pass: collect all GO/MARGINAL tasks without fetching weather yet
-        List<ForecastTask> tasks = collectForecastTasks(briefing);
+        ScheduledBatchTasks tasks = forecastTaskCollector.collectScheduledBatches();
         if (tasks.isEmpty()) {
-            LOG.warn("[BATCH DIAG] Forecast batch: no evaluable locations found after "
-                    + "task collection, skipping submission");
             return;
         }
 
-        LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather", tasks.size());
-
-        // Bulk weather pre-fetch: resilient chunked calls with per-chunk retry/isolation
-        int uniqueLocationCount = countUniqueLocations(tasks);
-        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchBatchWeather(tasks);
-        double successRatio = uniqueLocationCount > 0
-                ? (double) prefetchedWeather.size() / uniqueLocationCount : 0.0;
-        if (prefetchedWeather.isEmpty()) {
-            LOG.error("Forecast batch: weather pre-fetch returned 0/{} locations "
-                    + "— aborting (likely Open-Meteo outage)", uniqueLocationCount);
-            return;
+        if (!tasks.nearInland().isEmpty()) {
+            evaluationService.submit(tasks.nearInland(), BatchTriggerSource.SCHEDULED);
+            logBatchBreakdown(tasks.nearInland(), "near-term inland");
         }
-        if (successRatio < minPrefetchSuccessRatio) {
-            LOG.error("Forecast batch: weather pre-fetch too degraded — {}/{} locations "
-                            + "(ratio {}, threshold {}) — aborting (likely Open-Meteo outage)",
-                    prefetchedWeather.size(), uniqueLocationCount,
-                    String.format("%.2f", successRatio),
-                    String.format("%.2f", minPrefetchSuccessRatio));
-            return;
+        if (!tasks.nearCoastal().isEmpty()) {
+            evaluationService.submit(tasks.nearCoastal(), BatchTriggerSource.SCHEDULED);
+            logBatchBreakdown(tasks.nearCoastal(), "near-term coastal");
         }
-        if (prefetchedWeather.size() < uniqueLocationCount) {
-            LOG.warn("Forecast batch: weather pre-fetch partial — {}/{} locations fetched, "
-                            + "continuing with available data",
-                    prefetchedWeather.size(), uniqueLocationCount);
+        if (!tasks.farInland().isEmpty()) {
+            evaluationService.submit(tasks.farInland(), BatchTriggerSource.SCHEDULED);
+            logBatchBreakdown(tasks.farInland(), "far-term inland");
         }
-
-        // Bulk cloud point pre-fetch for directional cloud and approach sampling
-        CloudPointCache cloudCache;
-        try {
-            cloudCache = prefetchBatchCloudPoints(tasks, prefetchedWeather);
-        } catch (Exception e) {
-            LOG.warn("Forecast batch: cloud pre-fetch failed — continuing without cloud cache: {}",
-                    e.getMessage());
-            cloudCache = null;
-        }
-
-        // Second pass: triage each task, then split by near/far term and inland/coastal
-        List<EvaluationTask.Forecast> nearInland = new ArrayList<>();
-        List<EvaluationTask.Forecast> nearCoastal = new ArrayList<>();
-        List<EvaluationTask.Forecast> farInland = new ArrayList<>();
-        List<EvaluationTask.Forecast> farCoastal = new ArrayList<>();
-        List<ForecastTask> nearInlandTasks = new ArrayList<>();
-        List<ForecastTask> nearCoastalTasks = new ArrayList<>();
-        List<ForecastTask> farInlandTasks = new ArrayList<>();
-        List<ForecastTask> farCoastalTasks = new ArrayList<>();
-        Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
-
-        int skippedTriage = 0;
-        int skippedStability = 0;
-        int skippedError = 0;
-        int includedNear = 0;
-        int includedFar = 0;
-
-        LOG.warn("[BATCH DIAG] Starting triage loop — {} candidate tasks", tasks.size());
-
-        for (ForecastTask task : tasks) {
-            try {
-                // Use near-term model for triage — the model choice only affects the
-                // batch request, not the weather/triage logic
-                ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
-                        task.location(), task.date(), task.targetType(),
-                        task.location().getTideType(), nearTermModel, false, null,
-                        prefetchedWeather, cloudCache);
-                if (preEval.triaged()) {
-                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=TRIAGED ({})",
-                            task.location().getName(), task.date(), task.targetType(),
-                            preEval.triageReason());
-                    skippedTriage++;
-                    continue;
-                }
-                int daysAhead = preEval.daysAhead();
-                int maxDays = getStabilityWindowDays(task.location(), preEval, stabilityByCell);
-                if (daysAhead > maxDays) {
-                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY "
-                                    + "T+{}d maxDays={}",
-                            task.location().getName(), task.date(), task.targetType(),
-                            daysAhead, maxDays);
-                    skippedStability++;
-                    continue;
-                }
-
-                boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
-                EvaluationModel model = isNearTerm ? nearTermModel : farTermModel;
-                EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
-                        task.location(), task.date(), task.targetType(),
-                        model, preEval.atmosphericData());
-                boolean isCoastal = preEval.atmosphericData().tide() != null;
-                String locationType = isCoastal ? "coastal" : "inland";
-
-                if (isNearTerm) {
-                    if (isCoastal) {
-                        nearCoastal.add(eval);
-                        nearCoastalTasks.add(task);
-                    } else {
-                        nearInland.add(eval);
-                        nearInlandTasks.add(task);
-                    }
-                    includedNear++;
-                } else {
-                    if (isCoastal) {
-                        farCoastal.add(eval);
-                        farCoastalTasks.add(task);
-                    } else {
-                        farInland.add(eval);
-                        farInlandTasks.add(task);
-                    }
-                    includedFar++;
-                }
-                LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier={} type={}",
-                        task.location().getName(), task.date(), task.targetType(),
-                        isNearTerm ? "near" : "far", locationType);
-            } catch (Exception e) {
-                LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=ERROR ({})",
-                        task.location().getName(), task.date(), task.targetType(),
-                        e.getMessage());
-                skippedError++;
-            }
-        }
-
-        int totalIncluded = includedNear + includedFar;
-        LOG.warn("[BATCH DIAG] Triage complete — {} included (near={}, far={}), {} skipped "
-                        + "(triage={}, stability={}, error={})",
-                totalIncluded, includedNear, includedFar,
-                skippedTriage + skippedStability + skippedError,
-                skippedTriage, skippedStability, skippedError);
-
-        if (totalIncluded == 0) {
-            LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
-            return;
-        }
-
-        // Submit near-term batches (inland + coastal)
-        if (!nearInland.isEmpty()) {
-            evaluationService.submit(nearInland, BatchTriggerSource.SCHEDULED);
-            logBatchBreakdown(nearInlandTasks, "near-term inland");
-        }
-        if (!nearCoastal.isEmpty()) {
-            evaluationService.submit(nearCoastal, BatchTriggerSource.SCHEDULED);
-            logBatchBreakdown(nearCoastalTasks, "near-term coastal");
-        }
-
-        // Submit far-term batches (inland + coastal)
-        if (!farInland.isEmpty()) {
-            evaluationService.submit(farInland, BatchTriggerSource.SCHEDULED);
-            logBatchBreakdown(farInlandTasks, "far-term inland");
-        }
-        if (!farCoastal.isEmpty()) {
-            evaluationService.submit(farCoastal, BatchTriggerSource.SCHEDULED);
-            logBatchBreakdown(farCoastalTasks, "far-term coastal");
+        if (!tasks.farCoastal().isEmpty()) {
+            evaluationService.submit(tasks.farCoastal(), BatchTriggerSource.SCHEDULED);
+            logBatchBreakdown(tasks.farCoastal(), "far-term coastal");
         }
 
         LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
                         + "total {} requests",
-                includedNear, nearInland.size(), nearCoastal.size(),
-                includedFar, farInland.size(), farCoastal.size(),
-                totalIncluded);
+                tasks.nearInland().size() + tasks.nearCoastal().size(),
+                tasks.nearInland().size(), tasks.nearCoastal().size(),
+                tasks.farInland().size() + tasks.farCoastal().size(),
+                tasks.farInland().size(), tasks.farCoastal().size(),
+                tasks.totalSize());
     }
 
     /**
@@ -463,7 +317,7 @@ public class ScheduledBatchEvaluationService {
      * @param tasks the included tasks for this batch
      * @param label batch label (e.g. "inland" or "coastal")
      */
-    private void logBatchBreakdown(List<ForecastTask> tasks, String label) {
+    private void logBatchBreakdown(List<EvaluationTask.Forecast> tasks, String label) {
         LocalDate today = LocalDate.now(ZoneId.of("Europe/London"));
 
         String dateBreakdown = tasks.stream()
@@ -501,97 +355,29 @@ public class ScheduledBatchEvaluationService {
     }
 
     /**
-     * Region-filtered variant of the forecast batch. Same triage and stability gates,
-     * but only locations in the specified regions are considered. Uses the near-term
-     * model for all requests since region-filtered batches are typically admin-triggered
-     * for immediate results.
+     * Region-filtered variant of the forecast batch. Delegates collection to
+     * {@link ForecastTaskCollector} and submits the inland and coastal buckets
+     * via the engine. Returns the inland handle if any (preferring inland as
+     * typically larger), or the coastal handle, or null if both were empty.
      */
     private BatchSubmitResult doSubmitForecastBatchForRegions(List<Long> regionIds) {
-        DailyBriefingResponse briefing = briefingService.getCachedBriefing();
-        if (briefing == null) {
-            LOG.warn("[BATCH] Scheduled batch skipped: no cached briefing available");
-            return null;
-        }
-
-        java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
-                ? new java.util.HashSet<>(regionIds) : null;
-
-        EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
-        List<ForecastTask> tasks = collectForecastTasks(briefing);
-
-        if (regionFilter != null) {
-            tasks = tasks.stream()
-                    .filter(t -> t.location().getRegion() != null
-                            && regionFilter.contains(t.location().getRegion().getId()))
-                    .toList();
-        }
-
+        RegionFilteredBatchTasks tasks =
+                forecastTaskCollector.collectRegionFilteredBatches(regionIds);
         if (tasks.isEmpty()) {
-            LOG.warn("[BATCH] No evaluable locations after region filtering");
-            return null;
-        }
-
-        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchBatchWeather(tasks);
-        if (prefetchedWeather.isEmpty()) {
-            LOG.error("[BATCH] Weather pre-fetch returned zero results — aborting");
-            return null;
-        }
-
-        CloudPointCache cloudCache;
-        try {
-            cloudCache = prefetchBatchCloudPoints(tasks, prefetchedWeather);
-        } catch (Exception e) {
-            LOG.warn("[BATCH] Cloud pre-fetch failed — continuing without: {}", e.getMessage());
-            cloudCache = null;
-        }
-
-        List<EvaluationTask.Forecast> inland = new ArrayList<>();
-        List<EvaluationTask.Forecast> coastal = new ArrayList<>();
-        Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
-
-        for (ForecastTask task : tasks) {
-            try {
-                ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
-                        task.location(), task.date(), task.targetType(),
-                        task.location().getTideType(), model, false, null,
-                        prefetchedWeather, cloudCache);
-                if (preEval.triaged()) {
-                    continue;
-                }
-                int daysAhead = preEval.daysAhead();
-                int maxDays = getStabilityWindowDays(task.location(), preEval, stabilityByCell);
-                if (daysAhead > maxDays) {
-                    continue;
-                }
-                EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
-                        task.location(), task.date(), task.targetType(),
-                        model, preEval.atmosphericData());
-                if (preEval.atmosphericData().tide() != null) {
-                    coastal.add(eval);
-                } else {
-                    inland.add(eval);
-                }
-            } catch (Exception e) {
-                LOG.warn("[BATCH] Failed data assembly for {}: {}",
-                        task.location().getName(), e.getMessage());
-            }
-        }
-
-        if (inland.isEmpty() && coastal.isEmpty()) {
             return null;
         }
 
         com.gregochr.goldenhour.service.evaluation.EvaluationHandle inlandHandle =
-                inland.isEmpty() ? null
-                        : evaluationService.submit(inland, BatchTriggerSource.ADMIN);
+                tasks.inland().isEmpty() ? null
+                        : evaluationService.submit(tasks.inland(), BatchTriggerSource.ADMIN);
         com.gregochr.goldenhour.service.evaluation.EvaluationHandle coastalHandle =
-                coastal.isEmpty() ? null
-                        : evaluationService.submit(coastal, BatchTriggerSource.ADMIN);
+                tasks.coastal().isEmpty() ? null
+                        : evaluationService.submit(tasks.coastal(), BatchTriggerSource.ADMIN);
 
         LOG.info("[BATCH DIAG] Admin batch split: {} inland in {}, {} coastal in {}",
-                inland.size(),
+                tasks.inland().size(),
                 inlandHandle != null ? inlandHandle.batchId() : "(empty)",
-                coastal.size(),
+                tasks.coastal().size(),
                 coastalHandle != null ? coastalHandle.batchId() : "(empty)");
 
         // Return whichever result succeeded — prefer inland (typically larger)

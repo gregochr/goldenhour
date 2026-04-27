@@ -9,17 +9,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
-import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEventSummary;
-import com.gregochr.goldenhour.model.BriefingRegion;
-import com.gregochr.goldenhour.model.BriefingSlot;
-import com.gregochr.goldenhour.model.DailyBriefingResponse;
-import com.gregochr.goldenhour.model.ForecastPreEvalResult;
-import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
-import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
-import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -46,8 +36,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
-import java.math.BigDecimal;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -58,9 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static java.time.LocalDate.now;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -125,6 +111,8 @@ class ScheduledBatchEvaluationServiceTest {
     private ForecastCommandExecutor forecastCommandExecutor;
     @Mock
     private EvaluationService evaluationService;
+    @Mock
+    private ForecastTaskCollector forecastTaskCollector;
 
     private ScheduledBatchEvaluationService service;
 
@@ -138,15 +126,7 @@ class ScheduledBatchEvaluationServiceTest {
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 openMeteoService, solarService,
                 freshnessResolver, forecastCommandExecutor,
-                evaluationService, 0.5);
-    }
-
-    private void stubWeatherPrefetch() {
-        String coordKey = OpenMeteoService.coordKey(54.7753, -1.5849);
-        WeatherExtractionResult dummy = new WeatherExtractionResult(
-                null, new OpenMeteoForecastResponse(), new OpenMeteoAirQualityResponse());
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
-                .thenReturn(Map.of(coordKey, dummy));
+                evaluationService, forecastTaskCollector, 0.5);
     }
 
     // ── registerJobTargets ───────────────────────────────────────────────────
@@ -162,12 +142,13 @@ class ScheduledBatchEvaluationServiceTest {
                 eq("aurora_batch_evaluation"), any(Runnable.class));
     }
 
-    // ── Forecast: pre-collection short-circuits ──────────────────────────────
+    // ── Forecast: routes through ForecastTaskCollector ───────────────────────
 
     @Test
-    @DisplayName("submitForecastBatch skips when no cached briefing")
-    void submitForecastBatch_noBriefing_skips() {
-        when(briefingService.getCachedBriefing()).thenReturn(null);
+    @DisplayName("submitForecastBatch: empty collector result → no submission")
+    void submitForecastBatch_collectorReturnsEmpty_noSubmission() {
+        when(forecastTaskCollector.collectScheduledBatches())
+                .thenReturn(ScheduledBatchTasks.empty());
 
         service.submitForecastBatch();
 
@@ -175,104 +156,59 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("submitForecastBatch skips when all slots are STANDDOWN")
-    void submitForecastBatch_allStanddown_skips() {
-        when(briefingService.getCachedBriefing())
-                .thenReturn(buildBriefingForVerdict(Verdict.STANDDOWN));
-
-        service.submitForecastBatch();
-
-        verifyNoInteractions(evaluationService);
-    }
-
-    @Test
-    @DisplayName("submitForecastBatch skips past dates without weather fetch")
-    void submitForecastBatch_pastDatesOnly_skipsWithoutWeatherFetch() {
-        DailyBriefingResponse briefing = buildBriefingWithDate(
-                TEST_DATE.minusDays(1), Verdict.GO);
-        when(briefingService.getCachedBriefing()).thenReturn(briefing);
-
-        service.submitForecastBatch();
-
-        verifyNoInteractions(openMeteoService);
-        verifyNoInteractions(evaluationService);
-    }
-
-    // ── Forecast: dispatch through EvaluationService ─────────────────────────
-
-    @Test
-    @DisplayName("submitForecastBatch: viable GO location dispatches a task to evaluationService.submit")
-    void submitForecastBatch_goLocation_dispatchesToEvaluationService() {
-        DailyBriefingResponse briefing = buildBriefingForVerdict(Verdict.GO);
-        when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
+    @DisplayName("submitForecastBatch: collector returns near-inland tasks → one submit per bucket")
+    void submitForecastBatch_collectorReturnsTasks_submitsEachNonEmptyBucket() {
         LocationEntity location = buildLocation("Durham UK");
-        when(locationService.findAllEnabled()).thenReturn(List.of(location));
-
-        AtmosphericData data = buildAtmospheric();
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, location, TEST_DATE, TargetType.SUNRISE,
-                TEST_EVENT_TIME, 60, 0, EvaluationModel.HAIKU, Set.of(),
-                "k", null);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
-                .thenReturn(preEval);
-        when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
-        stubWeatherPrefetch();
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric());
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric());
+        when(forecastTaskCollector.collectScheduledBatches())
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask),
+                        List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
         service.submitForecastBatch();
 
-        ArgumentCaptor<List<EvaluationTask.Forecast>> captor =
-                ArgumentCaptor.forClass(List.class);
-        verify(evaluationService).submit(captor.capture(),
-                eq(BatchTriggerSource.SCHEDULED));
-        List<EvaluationTask.Forecast> tasks = captor.getValue();
-        assertThat(tasks).hasSize(1);
-        assertThat(tasks.get(0).location().getName()).isEqualTo("Durham UK");
-        assertThat(tasks.get(0).model()).isEqualTo(EvaluationModel.HAIKU);
+        // One submit per non-empty bucket — exactly two here
+        verify(evaluationService, org.mockito.Mockito.times(2))
+                .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED));
     }
 
     @Test
-    @DisplayName("submitForecastBatch: triaged location skipped — not in submitted task list")
-    void submitForecastBatch_triagedLocation_skipsTask() {
-        DailyBriefingResponse briefing = buildBriefingForVerdict(Verdict.GO);
-        when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
-        LocationEntity location = buildLocation("Durham UK");
-        when(locationService.findAllEnabled()).thenReturn(List.of(location));
+    @DisplayName("submitScheduledBatchForRegions: empty collector result → returns null")
+    void submitScheduledBatchForRegions_collectorEmpty_returnsNull() {
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(RegionFilteredBatchTasks.empty());
 
-        ForecastPreEvalResult triaged = new ForecastPreEvalResult(
-                true, "cloud", null, location, TEST_DATE, TargetType.SUNRISE,
-                TEST_EVENT_TIME, 60, 0, EvaluationModel.HAIKU, Set.of(),
-                "k", null);
-        when(forecastService.fetchWeatherAndTriage(
-                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
-                .thenReturn(triaged);
-        when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
-        stubWeatherPrefetch();
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
 
-        service.submitForecastBatch();
-
-        verify(evaluationService, never()).submit(any(List.class), any());
-    }
-
-    @Test
-    @DisplayName("submitForecastBatch: cached region skipped — task collection short-circuits")
-    void submitForecastBatch_cachedRegion_skipsRegion() {
-        DailyBriefingResponse briefing = buildBriefingForVerdict(Verdict.GO);
-        when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
-        when(briefingEvaluationService.hasFreshEvaluation(any(), any())).thenReturn(true);
-        when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
-
-        service.submitForecastBatch();
-
+        assertThat(result).isNull();
         verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("submitScheduledBatchForRegions: collector returns tasks → submits via ADMIN trigger")
+    void submitScheduledBatchForRegions_collectorReturnsTasks_submitsAdmin() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric());
+        when(forecastTaskCollector.collectRegionFilteredBatches(any()))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of()));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_admin", 1));
+
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(result).isNotNull();
+        assertThat(result.batchId()).isEqualTo("msgbatch_admin");
+        verify(evaluationService).submit(any(List.class), eq(BatchTriggerSource.ADMIN));
     }
 
     // ── Aurora ───────────────────────────────────────────────────────────────
@@ -366,9 +302,10 @@ class ScheduledBatchEvaluationServiceTest {
 
         service.resetBatchGuards();
 
-        when(briefingService.getCachedBriefing()).thenReturn(null);
+        when(forecastTaskCollector.collectScheduledBatches())
+                .thenReturn(ScheduledBatchTasks.empty());
         service.submitForecastBatch();
-        verify(briefingService).getCachedBriefing();
+        verify(forecastTaskCollector).collectScheduledBatches();
     }
 
     @Test
@@ -396,7 +333,7 @@ class ScheduledBatchEvaluationServiceTest {
 
         service.submitForecastBatch();
 
-        verifyNoInteractions(briefingService);
+        verifyNoInteractions(forecastTaskCollector);
     }
 
     @Test
@@ -413,11 +350,11 @@ class ScheduledBatchEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("submitForecastBatch clears guard even when inner method throws")
-    void submitForecastBatch_exceptionInDoSubmit_clearsGuard() {
-        when(briefingService.getCachedBriefing())
+    @DisplayName("submitForecastBatch clears guard even when collector throws")
+    void submitForecastBatch_exceptionInCollector_clearsGuard() {
+        when(forecastTaskCollector.collectScheduledBatches())
                 .thenThrow(new RuntimeException("boom"))
-                .thenReturn(null);
+                .thenReturn(ScheduledBatchTasks.empty());
 
         try {
             service.submitForecastBatch();
@@ -426,30 +363,11 @@ class ScheduledBatchEvaluationServiceTest {
         }
 
         service.submitForecastBatch();
-        verify(briefingService, org.mockito.Mockito.times(2)).getCachedBriefing();
+        verify(forecastTaskCollector, org.mockito.Mockito.times(2))
+                .collectScheduledBatches();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private DailyBriefingResponse buildBriefingForVerdict(Verdict verdict) {
-        return buildBriefingWithDate(TEST_DATE, verdict);
-    }
-
-    private DailyBriefingResponse buildBriefingWithDate(LocalDate date, Verdict verdict) {
-        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
-                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
-        BriefingSlot slot = new BriefingSlot("Durham UK",
-                date.atTime(5, 30),
-                verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
-        BriefingRegion region = new BriefingRegion(
-                "North East", verdict, "Summary", List.of(), List.of(slot),
-                null, null, null, null, null, null);
-        BriefingEventSummary eventSummary = new BriefingEventSummary(
-                TargetType.SUNRISE, List.of(region), List.of());
-        BriefingDay day = new BriefingDay(date, List.of(eventSummary));
-        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, false, 0, null, List.of(), List.of());
-    }
 
     private LocationEntity buildLocation(String name) {
         LocationEntity location = new LocationEntity();
