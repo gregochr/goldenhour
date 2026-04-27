@@ -1,16 +1,13 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
@@ -37,13 +34,10 @@ import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
-import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
-import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
 import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
-import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
-import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
-import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
+import com.gregochr.goldenhour.service.evaluation.EvaluationService;
+import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import jakarta.annotation.PostConstruct;
@@ -92,12 +86,9 @@ public class ScheduledBatchEvaluationService {
     private final BriefingEvaluationService briefingEvaluationService;
     private final ForecastService forecastService;
     private final ForecastStabilityClassifier stabilityClassifier;
-    private final PromptBuilder promptBuilder;
-    private final CoastalPromptBuilder coastalPromptBuilder;
     private final ModelSelectionService modelSelectionService;
     private final NoaaSwpcClient noaaSwpcClient;
     private final WeatherTriageService weatherTriageService;
-    private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
     private final AuroraOrchestrator auroraOrchestrator;
     private final LocationRepository locationRepository;
     private final AuroraProperties auroraProperties;
@@ -106,8 +97,7 @@ public class ScheduledBatchEvaluationService {
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
     private final ForecastCommandExecutor forecastCommandExecutor;
-    private final BatchRequestFactory batchRequestFactory;
-    private final BatchSubmissionService batchSubmissionService;
+    private final EvaluationService evaluationService;
 
     /** Minimum ratio of successful weather pre-fetches to proceed with batch submission. */
     private final double minPrefetchSuccessRatio;
@@ -126,12 +116,9 @@ public class ScheduledBatchEvaluationService {
      * @param briefingEvaluationService   evaluation cache — checked before building requests
      * @param forecastService             service for weather fetch and triage
      * @param stabilityClassifier         classifies forecast stability per grid cell
-     * @param promptBuilder               builds system prompt and user messages for inland locations
-     * @param coastalPromptBuilder        builds system prompt and user messages for coastal locations
      * @param modelSelectionService       resolves the active Claude model per run type
      * @param noaaSwpcClient              NOAA SWPC space weather data client
      * @param weatherTriageService        aurora weather triage
-     * @param claudeAuroraInterpreter     aurora prompt builder and response parser
      * @param auroraOrchestrator          derives alert level from space weather data
      * @param locationRepository          location JPA repository for Bortle-filtered candidates
      * @param auroraProperties            aurora configuration (Bortle thresholds)
@@ -140,8 +127,7 @@ public class ScheduledBatchEvaluationService {
      * @param solarService                solar calculation service for azimuth and event times
      * @param freshnessResolver           resolves per-stability cache freshness thresholds
      * @param forecastCommandExecutor     provides the latest stability snapshot
-     * @param batchRequestFactory         builds forecast batch requests (builder selection + cache control)
-     * @param batchSubmissionService      unified Anthropic batch submitter
+     * @param evaluationService           Pass 3.2 engine — builds requests + submits + processes
      * @param minPrefetchSuccessRatio    minimum ratio of successful pre-fetches to proceed
      */
     public ScheduledBatchEvaluationService(LocationService locationService,
@@ -149,12 +135,9 @@ public class ScheduledBatchEvaluationService {
             BriefingEvaluationService briefingEvaluationService,
             ForecastService forecastService,
             ForecastStabilityClassifier stabilityClassifier,
-            PromptBuilder promptBuilder,
-            CoastalPromptBuilder coastalPromptBuilder,
             ModelSelectionService modelSelectionService,
             NoaaSwpcClient noaaSwpcClient,
             WeatherTriageService weatherTriageService,
-            ClaudeAuroraInterpreter claudeAuroraInterpreter,
             AuroraOrchestrator auroraOrchestrator,
             LocationRepository locationRepository,
             AuroraProperties auroraProperties,
@@ -163,8 +146,7 @@ public class ScheduledBatchEvaluationService {
             SolarService solarService,
             FreshnessResolver freshnessResolver,
             ForecastCommandExecutor forecastCommandExecutor,
-            BatchRequestFactory batchRequestFactory,
-            BatchSubmissionService batchSubmissionService,
+            EvaluationService evaluationService,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio) {
         this.locationService = locationService;
@@ -172,12 +154,9 @@ public class ScheduledBatchEvaluationService {
         this.briefingEvaluationService = briefingEvaluationService;
         this.forecastService = forecastService;
         this.stabilityClassifier = stabilityClassifier;
-        this.promptBuilder = promptBuilder;
-        this.coastalPromptBuilder = coastalPromptBuilder;
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
-        this.claudeAuroraInterpreter = claudeAuroraInterpreter;
         this.auroraOrchestrator = auroraOrchestrator;
         this.locationRepository = locationRepository;
         this.auroraProperties = auroraProperties;
@@ -186,8 +165,7 @@ public class ScheduledBatchEvaluationService {
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
         this.forecastCommandExecutor = forecastCommandExecutor;
-        this.batchRequestFactory = batchRequestFactory;
-        this.batchSubmissionService = batchSubmissionService;
+        this.evaluationService = evaluationService;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         LOG.info("Batch config: min-prefetch-success-ratio={}", minPrefetchSuccessRatio);
     }
@@ -358,10 +336,10 @@ public class ScheduledBatchEvaluationService {
         }
 
         // Second pass: triage each task, then split by near/far term and inland/coastal
-        List<BatchCreateParams.Request> nearInlandRequests = new ArrayList<>();
-        List<BatchCreateParams.Request> nearCoastalRequests = new ArrayList<>();
-        List<BatchCreateParams.Request> farInlandRequests = new ArrayList<>();
-        List<BatchCreateParams.Request> farCoastalRequests = new ArrayList<>();
+        List<EvaluationTask.Forecast> nearInland = new ArrayList<>();
+        List<EvaluationTask.Forecast> nearCoastal = new ArrayList<>();
+        List<EvaluationTask.Forecast> farInland = new ArrayList<>();
+        List<EvaluationTask.Forecast> farCoastal = new ArrayList<>();
         List<ForecastTask> nearInlandTasks = new ArrayList<>();
         List<ForecastTask> nearCoastalTasks = new ArrayList<>();
         List<ForecastTask> farInlandTasks = new ArrayList<>();
@@ -404,26 +382,27 @@ public class ScheduledBatchEvaluationService {
 
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
                 EvaluationModel model = isNearTerm ? nearTermModel : farTermModel;
-                BatchCreateParams.Request request = buildForecastRequest(task.date(),
-                        task.targetType(), task.location(), preEval.atmosphericData(), model);
+                EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
+                        task.location(), task.date(), task.targetType(),
+                        model, preEval.atmosphericData());
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
 
                 if (isNearTerm) {
                     if (isCoastal) {
-                        nearCoastalRequests.add(request);
+                        nearCoastal.add(eval);
                         nearCoastalTasks.add(task);
                     } else {
-                        nearInlandRequests.add(request);
+                        nearInland.add(eval);
                         nearInlandTasks.add(task);
                     }
                     includedNear++;
                 } else {
                     if (isCoastal) {
-                        farCoastalRequests.add(request);
+                        farCoastal.add(eval);
                         farCoastalTasks.add(task);
                     } else {
-                        farInlandRequests.add(request);
+                        farInland.add(eval);
                         farInlandTasks.add(task);
                     }
                     includedFar++;
@@ -452,33 +431,29 @@ public class ScheduledBatchEvaluationService {
         }
 
         // Submit near-term batches (inland + coastal)
-        if (!nearInlandRequests.isEmpty()) {
-            batchSubmissionService.submit(nearInlandRequests, BatchType.FORECAST,
-                    BatchTriggerSource.SCHEDULED, "Near-term batch (inland)");
+        if (!nearInland.isEmpty()) {
+            evaluationService.submit(nearInland, BatchTriggerSource.SCHEDULED);
             logBatchBreakdown(nearInlandTasks, "near-term inland");
         }
-        if (!nearCoastalRequests.isEmpty()) {
-            batchSubmissionService.submit(nearCoastalRequests, BatchType.FORECAST,
-                    BatchTriggerSource.SCHEDULED, "Near-term batch (coastal)");
+        if (!nearCoastal.isEmpty()) {
+            evaluationService.submit(nearCoastal, BatchTriggerSource.SCHEDULED);
             logBatchBreakdown(nearCoastalTasks, "near-term coastal");
         }
 
         // Submit far-term batches (inland + coastal)
-        if (!farInlandRequests.isEmpty()) {
-            batchSubmissionService.submit(farInlandRequests, BatchType.FORECAST,
-                    BatchTriggerSource.SCHEDULED, "Far-term batch (inland)");
+        if (!farInland.isEmpty()) {
+            evaluationService.submit(farInland, BatchTriggerSource.SCHEDULED);
             logBatchBreakdown(farInlandTasks, "far-term inland");
         }
-        if (!farCoastalRequests.isEmpty()) {
-            batchSubmissionService.submit(farCoastalRequests, BatchType.FORECAST,
-                    BatchTriggerSource.SCHEDULED, "Far-term batch (coastal)");
+        if (!farCoastal.isEmpty()) {
+            evaluationService.submit(farCoastal, BatchTriggerSource.SCHEDULED);
             logBatchBreakdown(farCoastalTasks, "far-term coastal");
         }
 
         LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
                         + "total {} requests",
-                includedNear, nearInlandRequests.size(), nearCoastalRequests.size(),
-                includedFar, farInlandRequests.size(), farCoastalRequests.size(),
+                includedNear, nearInland.size(), nearCoastal.size(),
+                includedFar, farInland.size(), farCoastal.size(),
                 totalIncluded);
     }
 
@@ -570,8 +545,8 @@ public class ScheduledBatchEvaluationService {
             cloudCache = null;
         }
 
-        List<BatchCreateParams.Request> inlandRequests = new ArrayList<>();
-        List<BatchCreateParams.Request> coastalRequests = new ArrayList<>();
+        List<EvaluationTask.Forecast> inland = new ArrayList<>();
+        List<EvaluationTask.Forecast> coastal = new ArrayList<>();
         Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         for (ForecastTask task : tasks) {
@@ -588,12 +563,13 @@ public class ScheduledBatchEvaluationService {
                 if (daysAhead > maxDays) {
                     continue;
                 }
-                BatchCreateParams.Request request = buildForecastRequest(task.date(),
-                        task.targetType(), task.location(), preEval.atmosphericData(), model);
+                EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
+                        task.location(), task.date(), task.targetType(),
+                        model, preEval.atmosphericData());
                 if (preEval.atmosphericData().tide() != null) {
-                    coastalRequests.add(request);
+                    coastal.add(eval);
                 } else {
-                    inlandRequests.add(request);
+                    inland.add(eval);
                 }
             } catch (Exception e) {
                 LOG.warn("[BATCH] Failed data assembly for {}: {}",
@@ -601,30 +577,33 @@ public class ScheduledBatchEvaluationService {
             }
         }
 
-        if (inlandRequests.isEmpty() && coastalRequests.isEmpty()) {
+        if (inland.isEmpty() && coastal.isEmpty()) {
             return null;
         }
 
-        BatchSubmitResult inlandResult = null;
-        BatchSubmitResult coastalResult = null;
-
-        if (!inlandRequests.isEmpty()) {
-            inlandResult = batchSubmissionService.submit(inlandRequests, BatchType.FORECAST,
-                    BatchTriggerSource.ADMIN, "Scheduled batch — admin (inland)");
-        }
-        if (!coastalRequests.isEmpty()) {
-            coastalResult = batchSubmissionService.submit(coastalRequests, BatchType.FORECAST,
-                    BatchTriggerSource.ADMIN, "Scheduled batch — admin (coastal)");
-        }
+        com.gregochr.goldenhour.service.evaluation.EvaluationHandle inlandHandle =
+                inland.isEmpty() ? null
+                        : evaluationService.submit(inland, BatchTriggerSource.ADMIN);
+        com.gregochr.goldenhour.service.evaluation.EvaluationHandle coastalHandle =
+                coastal.isEmpty() ? null
+                        : evaluationService.submit(coastal, BatchTriggerSource.ADMIN);
 
         LOG.info("[BATCH DIAG] Admin batch split: {} inland in {}, {} coastal in {}",
-                inlandRequests.size(),
-                inlandResult != null ? inlandResult.batchId() : "(empty)",
-                coastalRequests.size(),
-                coastalResult != null ? coastalResult.batchId() : "(empty)");
+                inland.size(),
+                inlandHandle != null ? inlandHandle.batchId() : "(empty)",
+                coastal.size(),
+                coastalHandle != null ? coastalHandle.batchId() : "(empty)");
 
         // Return whichever result succeeded — prefer inland (typically larger)
-        return inlandResult != null ? inlandResult : coastalResult;
+        return handleToResult(inlandHandle != null ? inlandHandle : coastalHandle);
+    }
+
+    private static BatchSubmitResult handleToResult(
+            com.gregochr.goldenhour.service.evaluation.EvaluationHandle handle) {
+        if (handle == null || handle.batchId() == null) {
+            return null;
+        }
+        return new BatchSubmitResult(handle.batchId(), handle.submittedCount());
     }
 
     // BatchSubmitResult was promoted to a top-level record in the same package.
@@ -665,25 +644,13 @@ public class ScheduledBatchEvaluationService {
             return;
         }
 
-        String userMessage = claudeAuroraInterpreter.buildUserMessage(
-                level, triage.viable(), triage.cloudByLocation(), spaceWeather,
-                TriggerType.FORECAST_LOOKAHEAD, null);
-
         EvaluationModel model =
                 modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
-        String customId = CustomIdFactory.forAurora(level, LocalDate.now());
-
-        BatchCreateParams.Request request = BatchCreateParams.Request.builder()
-                .customId(customId)
-                .params(BatchCreateParams.Request.Params.builder()
-                        .model(model.getModelId())
-                        .maxTokens(1024)
-                        .addUserMessage(userMessage)
-                        .build())
-                .build();
-
-        batchSubmissionService.submit(List.of(request), BatchType.AURORA,
-                BatchTriggerSource.SCHEDULED, "Aurora batch");
+        EvaluationTask.Aurora task = new EvaluationTask.Aurora(
+                level, LocalDate.now(), model,
+                triage.viable(), triage.cloudByLocation(),
+                spaceWeather, TriggerType.FORECAST_LOOKAHEAD, null);
+        evaluationService.submit(List.of(task), BatchTriggerSource.SCHEDULED);
     }
 
     // submitBatch / submitBatchWithResult were collapsed into BatchSubmissionService.submit
@@ -879,22 +846,6 @@ public class ScheduledBatchEvaluationService {
         LOG.info("Forecast batch: cloud point pre-fetch — {} raw points from {} tasks",
                 allPoints.size(), tasks.size());
         return openMeteoService.prefetchCloudBatch(allPoints, null);
-    }
-
-    /**
-     * Builds a single batch request for a forecast location.
-     *
-     * <p>The {@code customId} format is {@code "fc-{locationId}-{date}-{targetType}"}
-     * (e.g. {@code "fc-42-2026-04-16-SUNRISE"}), which satisfies the Anthropic pattern
-     * {@code ^[a-zA-Z0-9_-]{1,64}$}. {@link BatchResultProcessor} reconstructs the region
-     * name by looking up the location by ID.
-     */
-    private BatchCreateParams.Request buildForecastRequest(LocalDate date,
-            TargetType targetType, LocationEntity location, AtmosphericData data,
-            EvaluationModel model) {
-        String customId = CustomIdFactory.forForecast(location.getId(), date, targetType);
-        return batchRequestFactory.buildForecastRequest(
-                customId, model, data, model.getMaxTokens());
     }
 
     /**

@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.anthropic.client.AnthropicClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.config.FreshnessProperties;
 import com.gregochr.goldenhour.entity.ForecastStability;
@@ -13,7 +12,6 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -22,16 +20,12 @@ import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
-import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
-import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
-import com.gregochr.goldenhour.service.evaluation.CoastalPromptBuilder;
-import com.gregochr.goldenhour.service.evaluation.PromptBuilder;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,27 +55,22 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CollectForecastTasksCachedGateTest {
 
-    @Mock private AnthropicClient anthropicClient;
-    @Mock private ForecastBatchRepository batchRepository;
     @Mock private LocationService locationService;
     @Mock private BriefingService briefingService;
     @Mock private BriefingEvaluationService briefingEvaluationService;
     @Mock private ForecastService forecastService;
     @Mock private ForecastStabilityClassifier stabilityClassifier;
-    @Mock private PromptBuilder promptBuilder;
-    @Mock private CoastalPromptBuilder coastalPromptBuilder;
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private NoaaSwpcClient noaaSwpcClient;
     @Mock private WeatherTriageService weatherTriageService;
-    @Mock private ClaudeAuroraInterpreter claudeAuroraInterpreter;
     @Mock private AuroraOrchestrator auroraOrchestrator;
     @Mock private LocationRepository locationRepository;
     @Mock private AuroraProperties auroraProperties;
     @Mock private DynamicSchedulerService dynamicSchedulerService;
-    @Mock private JobRunService jobRunService;
     @Mock private OpenMeteoService openMeteoService;
     @Mock private SolarService solarService;
     @Mock private ForecastCommandExecutor forecastCommandExecutor;
+    @Mock private com.gregochr.goldenhour.service.evaluation.EvaluationService evaluationService;
 
     private ScheduledBatchEvaluationService service;
 
@@ -97,20 +86,15 @@ class CollectForecastTasksCachedGateTest {
         props.setSafetyFloorHours(2);
         FreshnessResolver freshnessResolver = new FreshnessResolver(props);
 
-        com.gregochr.goldenhour.service.evaluation.BatchRequestFactory batchRequestFactory =
-                new com.gregochr.goldenhour.service.evaluation.BatchRequestFactory(
-                        promptBuilder, coastalPromptBuilder);
-        BatchSubmissionService batchSubmissionService = new BatchSubmissionService(
-                anthropicClient, batchRepository, jobRunService);
         service = new ScheduledBatchEvaluationService(
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
-                promptBuilder, coastalPromptBuilder, modelSelectionService,
-                noaaSwpcClient, weatherTriageService, claudeAuroraInterpreter,
+                modelSelectionService,
+                noaaSwpcClient, weatherTriageService,
                 auroraOrchestrator, locationRepository, auroraProperties,
                 dynamicSchedulerService, openMeteoService, solarService,
                 freshnessResolver, forecastCommandExecutor,
-                batchRequestFactory, batchSubmissionService, 0.5);
+                evaluationService, 0.5);
     }
 
     @SuppressWarnings("unchecked")
