@@ -24,7 +24,6 @@ import java.util.List;
  *   <li>Calls {@code retrieve(batchId)} on each to check {@code processingStatus}.</li>
  *   <li>If the status is {@code ENDED}, delegates to {@link BatchResultProcessor} to
  *       fetch results and write them to the appropriate cache.</li>
- *   <li>If the batch has expired, marks it {@code EXPIRED} and skips result fetching.</li>
  * </ol>
  *
  * <p>Registered with {@link DynamicSchedulerService} as {@code batch_result_polling}.
@@ -122,19 +121,12 @@ public class BatchPollingService {
                 LOG.info("Batch {}: ENDED — fetching results (type={})",
                         batchId, batch.getBatchType());
 
-                // Check expiry before attempting result download
-                if (batch.getExpiresAt() != null && Instant.now().isAfter(batch.getExpiresAt())) {
-                    LOG.warn("Batch {}: marked as ENDED but expiresAt is in the past, skipping",
-                            batchId);
-                    batch.setStatus(BatchStatus.EXPIRED);
-                    batch.setEndedAt(Instant.now());
-                    batchRepository.save(batch);
-                    if (batch.getJobRunId() != null) {
-                        jobRunService.completeBatchRun(batch.getJobRunId(), 0, batch.getRequestCount());
-                    }
-                    return;
-                }
-
+                // Once Anthropic reports processingStatus=ENDED, results are fetchable for ~29
+                // days regardless of expires_at (which is the processing deadline, not the
+                // results-purge time). The previous expires_at guard here false-positived on
+                // slow batches and polling-lag scenarios. Genuinely-purged results surface as
+                // an SDK exception in BatchResultProcessor's resultsStreaming call, which
+                // classifies the batch as FAILED. No predictive guard needed.
                 resultProcessor.processResults(batch);
             } else {
                 LOG.warn("Batch {}: unexpected processing status '{}', will retry next poll",

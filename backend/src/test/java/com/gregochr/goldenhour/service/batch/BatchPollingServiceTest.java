@@ -128,12 +128,15 @@ class BatchPollingServiceTest {
     }
 
     @Test
-    @DisplayName("pollPendingBatches marks batch EXPIRED when expiresAt is in the past and ENDED")
-    void pollPendingBatches_endedButExpired_marksExpired() {
+    @DisplayName("pollPendingBatches delegates to processor when ENDED even if expiresAt is in the past")
+    void pollPendingBatches_endedAfterExpiresAt_delegatesToProcessor() {
         stubBatchService();
-        ForecastBatchEntity batch = buildBatch("msgbatch_003");
-        // Set expiresAt in the past
-        batch = new ForecastBatchEntity("msgbatch_003", BatchType.FORECAST, 5,
+        // expiresAt is the processing deadline, not a results-purge boundary. Anthropic
+        // retains results for ~29 days from creation, so an ENDED batch with expiresAt
+        // in the past (slow batch finishing at the deadline, or polling lag) must still
+        // proceed to result fetching. Genuinely-purged results surface as an SDK
+        // exception inside BatchResultProcessor and are classified there.
+        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_003", BatchType.FORECAST, 5,
                 Instant.now().minusSeconds(3600));
 
         when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
@@ -144,11 +147,7 @@ class BatchPollingServiceTest {
 
         pollingService.pollPendingBatches();
 
-        verify(resultProcessor, never()).processResults(any());
-        ArgumentCaptor<ForecastBatchEntity> captor =
-                ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository).save(captor.capture());
-        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.EXPIRED);
+        verify(resultProcessor).processResults(batch);
     }
 
     @Test
@@ -205,42 +204,6 @@ class BatchPollingServiceTest {
         when(counts.succeeded()).thenReturn(0L);
         when(counts.errored()).thenReturn(0L);
         when(batchService.retrieve("msgbatch_006")).thenReturn(status);
-
-        pollingService.pollPendingBatches();
-
-        verifyNoInteractions(jobRunService);
-    }
-
-    @Test
-    @DisplayName("EXPIRED with jobRunId calls completeBatchRun with (0, requestCount)")
-    void pollPendingBatches_expiredWithJobRunId_completesJobRunAsFailed() {
-        stubBatchService();
-        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_007", BatchType.FORECAST, 5,
-                Instant.now().minusSeconds(3600));
-        batch.setJobRunId(99L);
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_007")).thenReturn(status);
-
-        pollingService.pollPendingBatches();
-
-        verify(jobRunService).completeBatchRun(99L, 0, 5);
-    }
-
-    @Test
-    @DisplayName("EXPIRED without jobRunId does not call jobRunService")
-    void pollPendingBatches_expiredNoJobRunId_doesNotCallJobRunService() {
-        stubBatchService();
-        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_008", BatchType.FORECAST, 5,
-                Instant.now().minusSeconds(3600));
-        // jobRunId is null by default
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_008")).thenReturn(status);
 
         pollingService.pollPendingBatches();
 
@@ -361,27 +324,6 @@ class BatchPollingServiceTest {
 
         assertThat(batch.getLastPolledAt()).isNotNull();
         verify(batchRepository).save(batch);
-    }
-
-    @Test
-    @DisplayName("EXPIRED batch has endedAt set before save")
-    void pollPendingBatches_expired_setsEndedAt() {
-        stubBatchService();
-        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_015", BatchType.FORECAST, 5,
-                Instant.now().minusSeconds(3600));
-        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
-                .thenReturn(List.of(batch));
-
-        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_015")).thenReturn(status);
-
-        pollingService.pollPendingBatches();
-
-        ArgumentCaptor<ForecastBatchEntity> captor =
-                ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository).save(captor.capture());
-        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.EXPIRED);
-        assertThat(captor.getValue().getEndedAt()).isNotNull();
     }
 
     @Test
