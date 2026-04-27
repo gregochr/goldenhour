@@ -8,36 +8,27 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.models.messages.batches.MessageBatchResult;
-import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.TokenUsage;
-import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
-import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
-import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
-import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
-import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
-import com.gregochr.goldenhour.service.evaluation.ClaudeEvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
+import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler.AuroraBatchOutcome;
+import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
-import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
+import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler;
+import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
+import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
 import com.gregochr.goldenhour.service.evaluation.ParsedCustomId;
-import com.gregochr.goldenhour.service.evaluation.RatingValidator;
-import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.service.evaluation.ResultContext;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.config.AuroraProperties;
-import com.gregochr.goldenhour.client.NoaaSwpcClient;
-import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -53,20 +44,14 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Fetches completed Anthropic Batch API results and writes them to the appropriate cache.
+ * Fetches completed Anthropic Batch API results and dispatches them through the per-task-type
+ * {@link ForecastResultHandler} / {@link AuroraResultHandler}.
  *
- * <p>For FORECAST batches: parses each per-location response, looks up the location by the ID
- * encoded in the {@code customId}. Two formats are accepted:
- * <ul>
- *   <li>Scheduled: {@code "fc-{locationId}-{date}-{targetType}"}</li>
- *   <li>Force-submit: {@code "force-{regionName}-{locationId}-{date}-{targetType}"}</li>
- * </ul>
- * Reconstructs the {@code "regionName|date|targetType"} cache key and writes to
- * {@link BriefingEvaluationService}.
- *
- * <p>For AURORA batches: re-runs weather triage to obtain current cloud data, parses the
- * single-response aurora evaluation, and writes scored results to {@link AuroraStateCache}.
- * The {@code customId} format is {@code "au-{alertLevel}-{date}"}.
+ * <p>This class owns only the outer loop (streaming individual responses, error counting,
+ * token aggregation, batch entity status updates). All per-response parsing, rating
+ * validation, cache writes, and {@code api_call_log} bookkeeping live inside the handlers,
+ * which are also reachable from {@code EvaluationService.evaluateNow} so the sync and batch
+ * paths produce byte-identical observability.
  *
  * <p>Called by {@link BatchPollingService} once a batch transitions to {@code ENDED}.
  */
@@ -77,65 +62,39 @@ public class BatchResultProcessor {
 
     private final AnthropicClient anthropicClient;
     private final ForecastBatchRepository batchRepository;
-    private final BriefingEvaluationService briefingEvaluationService;
-    private final Map<EvaluationModel, EvaluationStrategy> evaluationStrategies;
-    private final ModelSelectionService modelSelectionService;
-    private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
-    private final AuroraStateCache auroraStateCache;
-    private final WeatherTriageService weatherTriageService;
     private final LocationRepository locationRepository;
-    private final AuroraProperties auroraProperties;
-    private final NoaaSwpcClient noaaSwpcClient;
-    private final ObjectMapper objectMapper;
     private final JobRunService jobRunService;
     private final CostCalculator costCalculator;
+    private final ForecastResultHandler forecastResultHandler;
+    private final AuroraResultHandler auroraResultHandler;
 
     /**
      * Constructs the batch result processor.
      *
-     * @param anthropicClient             raw SDK client for downloading batch results
-     * @param batchRepository             repository for updating batch status
-     * @param briefingEvaluationService   evaluation cache writer for forecast results
-     * @param evaluationStrategies        map of model to evaluation strategy (for response parsing)
-     * @param modelSelectionService       resolves the active model for parsing
-     * @param claudeAuroraInterpreter     aurora response parser
-     * @param auroraStateCache            aurora score cache writer
-     * @param weatherTriageService        for re-running weather triage on aurora result processing
-     * @param locationRepository          for Bortle-filtered location lookup
-     * @param auroraProperties            aurora config (Bortle thresholds)
-     * @param noaaSwpcClient              NOAA SWPC client for aurora re-triage
-     * @param objectMapper                Jackson mapper for JSON parsing
-     * @param jobRunService               service for completing the linked job run record
-     * @param costCalculator              calculates token-based costs for batch results
+     * @param anthropicClient        raw SDK client for downloading batch results
+     * @param batchRepository        repository for updating batch status
+     * @param locationRepository     for {@code locationId → LocationEntity} resolution
+     * @param jobRunService          service for completing the linked job run record and
+     *                               recording inline failures (malformed id, missing
+     *                               location) where no handler can act
+     * @param costCalculator         calculates token-based costs for batch results
+     * @param forecastResultHandler  per-response forecast result handler
+     * @param auroraResultHandler    aurora batch handler
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
-            BriefingEvaluationService briefingEvaluationService,
-            Map<EvaluationModel, EvaluationStrategy> evaluationStrategies,
-            ModelSelectionService modelSelectionService,
-            ClaudeAuroraInterpreter claudeAuroraInterpreter,
-            AuroraStateCache auroraStateCache,
-            WeatherTriageService weatherTriageService,
             LocationRepository locationRepository,
-            AuroraProperties auroraProperties,
-            NoaaSwpcClient noaaSwpcClient,
-            ObjectMapper objectMapper,
             JobRunService jobRunService,
-            CostCalculator costCalculator) {
+            CostCalculator costCalculator,
+            ForecastResultHandler forecastResultHandler,
+            AuroraResultHandler auroraResultHandler) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
-        this.briefingEvaluationService = briefingEvaluationService;
-        this.evaluationStrategies = evaluationStrategies;
-        this.modelSelectionService = modelSelectionService;
-        this.claudeAuroraInterpreter = claudeAuroraInterpreter;
-        this.auroraStateCache = auroraStateCache;
-        this.weatherTriageService = weatherTriageService;
         this.locationRepository = locationRepository;
-        this.auroraProperties = auroraProperties;
-        this.noaaSwpcClient = noaaSwpcClient;
-        this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.costCalculator = costCalculator;
+        this.forecastResultHandler = forecastResultHandler;
+        this.auroraResultHandler = auroraResultHandler;
     }
 
     /**
@@ -163,8 +122,10 @@ public class BatchResultProcessor {
     /**
      * Processes a completed FORECAST batch.
      *
-     * <p>Streams individual responses, parses each forecast evaluation, groups by
-     * {@code "regionName|date|targetType"}, and writes each group to the briefing evaluation cache.
+     * <p>Streams individual responses, dispatches each through
+     * {@link ForecastResultHandler#parseBatchResponse}, groups successful results by
+     * {@code "regionName|date|targetType"}, and flushes each group to
+     * {@link ForecastResultHandler#flushCacheKey} after the loop.
      */
     private void processForecastBatch(ForecastBatchEntity batch) {
         Map<String, List<BriefingEvaluationResult>> byKey = new HashMap<>();
@@ -177,6 +138,9 @@ public class BatchResultProcessor {
         String firstModelId = null;
         Map<String, Integer> errorTypeCounts = new HashMap<>();
         boolean firstError = true;
+
+        ResultContext context = ResultContext.forBatch(
+                batch.getJobRunId(), batch.getAnthropicBatchId(), null);
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -201,9 +165,8 @@ public class BatchResultProcessor {
                     }
                     errorTypeCounts.merge(detail[0], 1, Integer::sum);
                     errored++;
-                    persistBatchResult(batch, customId, false,
-                            detail[0].toUpperCase(), detail[0], detail[1],
-                            null, null, null, null);
+                    inlineFailureLog(context, customId,
+                            detail[0].toUpperCase(), detail[0], detail[1], null, null);
                     continue;
                 }
 
@@ -211,8 +174,8 @@ public class BatchResultProcessor {
                 if (message == null) {
                     LOG.warn("Forecast batch: no message for '{}'", customId);
                     errored++;
-                    persistBatchResult(batch, customId, false, "NO_MESSAGE",
-                            "extraction_error", "succeeded but no message", null, null, null, null);
+                    inlineFailureLog(context, customId, "NO_MESSAGE",
+                            "extraction_error", "succeeded but no message", null, null);
                     continue;
                 }
 
@@ -220,17 +183,15 @@ public class BatchResultProcessor {
                 if (text == null) {
                     LOG.warn("Forecast batch: no text content for '{}'", customId);
                     errored++;
-                    persistBatchResult(batch, customId, false, "NO_TEXT",
-                            "extraction_error", "no text content blocks", null, null, null, null);
+                    inlineFailureLog(context, customId, "NO_TEXT",
+                            "extraction_error", "no text content blocks", null, null);
                     continue;
                 }
 
-                // Capture model from first response
                 if (firstModelId == null) {
                     firstModelId = message.model().asString();
                 }
 
-                // Log per-request token usage
                 Usage usage = message.usage();
                 long input = usage.inputTokens();
                 long output = usage.outputTokens();
@@ -243,96 +204,69 @@ public class BatchResultProcessor {
                 totalCacheRead += cacheRead;
                 totalCacheCreate += cacheCreate;
 
-                // Parses fc- / jfdi- / force- custom IDs into a structured record via
-                // prefix dispatch. Aurora IDs are handled by processAuroraBatch, not here.
                 ParsedCustomId parsed;
                 try {
                     parsed = CustomIdFactory.parse(customId);
                 } catch (IllegalArgumentException e) {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
-                    persistBatchResult(batch, customId, false, "MALFORMED_ID",
-                            "parse_error", "malformed customId", null, null, null, null);
+                    inlineFailureLog(context, customId, "MALFORMED_ID",
+                            "parse_error", "malformed customId", null, null);
                     continue;
                 }
 
-                long locationId;
-                LocalDate eventDate;
-                TargetType eventType;
+                ForecastIdentity identity;
                 switch (parsed) {
-                    case ParsedCustomId.Forecast f -> {
-                        locationId = f.locationId();
-                        eventDate = f.date();
-                        eventType = f.targetType();
-                    }
-                    case ParsedCustomId.Jfdi j -> {
-                        locationId = j.locationId();
-                        eventDate = j.date();
-                        eventType = j.targetType();
-                    }
+                    case ParsedCustomId.Forecast f ->
+                        identity = new ForecastIdentity(f.locationId(), f.date(), f.targetType());
+                    case ParsedCustomId.Jfdi j ->
+                        identity = new ForecastIdentity(j.locationId(), j.date(), j.targetType());
                     case ParsedCustomId.ForceSubmit fs -> {
-                        locationId = fs.locationId();
-                        eventDate = fs.date();
-                        eventType = fs.targetType();
+                        identity = new ForecastIdentity(fs.locationId(), fs.date(), fs.targetType());
                         LOG.info("Batch result: processing force-submit result for "
                                 + "locationId={} date={} event={}",
-                                locationId, eventDate, eventType);
+                                fs.locationId(), fs.date(), fs.targetType());
                     }
                     case ParsedCustomId.Aurora ignored -> {
                         LOG.warn("Forecast batch: aurora customId '{}' in forecast batch, "
                                 + "skipping", customId);
                         errored++;
-                        persistBatchResult(batch, customId, false, "MALFORMED_ID",
+                        inlineFailureLog(context, customId, "MALFORMED_ID",
                                 "parse_error", "aurora customId in forecast batch",
-                                null, null, null, null);
+                                null, null);
                         continue;
                     }
+                    default -> throw new IllegalStateException(
+                            "Unhandled parsed custom id: " + parsed);
                 }
 
-                LocationEntity location = locationRepository.findById(locationId).orElse(null);
+                LocationEntity location = locationRepository.findById(identity.locationId())
+                        .orElse(null);
                 if (location == null) {
                     LOG.warn("Forecast batch: location {} not found for customId '{}', skipping",
-                            locationId, customId);
+                            identity.locationId(), customId);
                     errored++;
-                    persistBatchResult(batch, customId, false, "LOCATION_NOT_FOUND",
-                            "lookup_error", "location " + locationId + " not found",
-                            null, null, null, null);
+                    inlineFailureLog(context, customId, "LOCATION_NOT_FOUND",
+                            "lookup_error",
+                            "location " + identity.locationId() + " not found",
+                            identity.date(), identity.targetType());
                     continue;
                 }
 
-                String regionName = location.getRegion() != null
-                        ? location.getRegion().getName() : location.getName();
-                String locationName = location.getName();
-                String cacheKey = CacheKeyFactory.build(regionName, eventDate, eventType);
+                TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead);
+                EvaluationModel model = resolveEvaluationModel(message.model().asString());
+                ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                        customId, text, tokens, model);
 
-                try {
-                    EvaluationModel model =
-                            modelSelectionService.getActiveModel(RunType.SHORT_TERM);
-                    ClaudeEvaluationStrategy strategy =
-                            (ClaudeEvaluationStrategy) evaluationStrategies.get(model);
-                    SunsetEvaluation eval = strategy.parseEvaluation(text, objectMapper);
-                    Integer safeRating = RatingValidator.validateRating(
-                            eval.rating(), regionName, eventDate, eventType,
-                            locationName, model.name());
-                    BriefingEvaluationResult result = new BriefingEvaluationResult(
-                            locationName,
-                            safeRating,
-                            eval.fierySkyPotential(),
-                            eval.goldenHourPotential(),
-                            eval.summary());
-                    byKey.computeIfAbsent(cacheKey, k -> new ArrayList<>()).add(result);
+                var success = forecastResultHandler.parseBatchResponse(
+                        location, identity, outcome, context);
+                if (success.isPresent()) {
+                    BatchSuccess hit = success.get();
+                    byKey.computeIfAbsent(hit.cacheKey(), k -> new ArrayList<>())
+                            .add(hit.result());
                     succeeded++;
-
-                    TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead);
-                    persistBatchResult(batch, customId, true, "SUCCESS",
-                            null, null, resolveEvaluationModel(firstModelId),
-                            tokens, eventDate, eventType);
-                } catch (Exception e) {
-                    LOG.warn("Forecast batch: parse failed for '{}': {}", customId, e.getMessage());
-                    LOG.warn("Forecast batch: raw response for '{}': {}", customId, text);
+                } else {
                     errored++;
-                    persistBatchResult(batch, customId, false, "PARSE_FAILED",
-                            "parse_error", e.getMessage(), null, null, null, null);
                 }
             }
         } catch (Exception e) {
@@ -342,7 +276,6 @@ public class BatchResultProcessor {
             return;
         }
 
-        // Log error type summary if there were failures
         if (!errorTypeCounts.isEmpty()) {
             String errorSummary = errorTypeCounts.entrySet().stream()
                     .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
@@ -352,9 +285,8 @@ public class BatchResultProcessor {
                     batch.getAnthropicBatchId(), errorSummary);
         }
 
-        // Write each group to the evaluation cache
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
-            briefingEvaluationService.writeFromBatch(entry.getKey(), entry.getValue());
+            forecastResultHandler.flushCacheKey(entry.getKey(), entry.getValue());
         }
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written",
@@ -377,15 +309,14 @@ public class BatchResultProcessor {
     }
 
     /**
-     * Processes a completed AURORA batch.
-     *
-     * <p>Streams the single aurora response, re-runs weather triage to get current cloud data,
-     * parses the multi-location aurora evaluation, and writes scores to {@link AuroraStateCache}.
+     * Processes a completed AURORA batch via {@link AuroraResultHandler}.
      */
     private void processAuroraBatch(ForecastBatchEntity batch) {
         String rawResponse = null;
-        AlertLevel level = AlertLevel.QUIET;
+        com.gregochr.goldenhour.entity.AlertLevel level =
+                com.gregochr.goldenhour.entity.AlertLevel.QUIET;
         String auroraModelId = null;
+        String customId = null;
         long totalInput = 0;
         long totalOutput = 0;
         long totalCacheRead = 0;
@@ -395,7 +326,7 @@ public class BatchResultProcessor {
                 .resultsStreaming(batch.getAnthropicBatchId())) {
             for (MessageBatchIndividualResponse response : (Iterable<MessageBatchIndividualResponse>)
                     streamResp.stream()::iterator) {
-                String customId = response.customId();
+                customId = response.customId();
 
                 if (!response.result().isSucceeded()) {
                     String[] detail = describeFailedResult(response.result());
@@ -423,19 +354,16 @@ public class BatchResultProcessor {
                             totalCacheRead, totalCacheCreate);
                 }
 
-                // customId format: "au-{alertLevel}-{date}"
-                // e.g. "au-MODERATE-2026-04-16" → split on "-" limit 3 gives
-                // ["au", "MODERATE", "2026-04-16"]
                 String[] parts = customId.split("-", 3);
                 if (parts.length >= 2) {
                     try {
-                        level = AlertLevel.valueOf(parts[1]);
+                        level = com.gregochr.goldenhour.entity.AlertLevel.valueOf(parts[1]);
                     } catch (IllegalArgumentException e) {
                         LOG.warn("Aurora batch: unrecognised alert level '{}', defaulting to QUIET",
                                 parts[1]);
                     }
                 }
-                break; // aurora batch has exactly 1 request
+                break;
             }
         } catch (Exception e) {
             LOG.error("Aurora batch: failed to stream results for {}: {}",
@@ -449,69 +377,59 @@ public class BatchResultProcessor {
             return;
         }
 
-        // Re-run weather triage to get current cloud data for the location list
-        int threshold = (level == AlertLevel.STRONG)
-                ? auroraProperties.getBortleThreshold().getStrong()
-                : auroraProperties.getBortleThreshold().getModerate();
+        ResultContext context = ResultContext.forBatch(
+                batch.getJobRunId(), batch.getAnthropicBatchId(), null);
+        EvaluationModel model = resolveEvaluationModel(auroraModelId);
+        TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                customId, rawResponse, tokens, model);
 
-        List<LocationEntity> candidates = locationRepository
-                .findByBortleClassLessThanEqualAndEnabledTrue(threshold);
-
-        if (candidates.isEmpty()) {
-            LOG.info("Aurora batch: no Bortle-eligible locations for re-triage, skipping score update");
-            markFailed(batch, "No Bortle-eligible locations at result processing time");
+        AuroraBatchOutcome handlerResult =
+                auroraResultHandler.processBatchResponse(level, outcome, context);
+        if (!handlerResult.success()) {
+            markFailed(batch, handlerResult.failureReason());
             return;
         }
 
-        WeatherTriageService.TriageResult triage;
+        LOG.info("Aurora batch complete: batchId={}, {} scores written to state cache",
+                batch.getAnthropicBatchId(), handlerResult.scoredCount());
+
+        batch.setSucceededCount(handlerResult.scoredCount());
+        batch.setErroredCount(0);
+        batch.setEndedAt(Instant.now());
+        batch.setStatus(BatchStatus.COMPLETED);
+
+        persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                auroraModelId);
+
+        batchRepository.save(batch);
+        if (batch.getJobRunId() != null) {
+            jobRunService.completeBatchRun(batch.getJobRunId(),
+                    handlerResult.scoredCount(), 0,
+                    toMicroDollars(batch.getEstimatedCostUsd()));
+        }
+    }
+
+    /**
+     * Logs an inline (pre-handler) failure where there is no resolved location entity to
+     * dispatch through {@link ForecastResultHandler#parseBatchResponse}. Used for SDK-level
+     * problems (no message / no text), malformed custom ids, location lookup misses, and
+     * cross-type custom ids.
+     */
+    private void inlineFailureLog(ResultContext context, String customId, String status,
+            String errorType, String errorMessage,
+            LocalDate targetDate, TargetType targetType) {
+        if (context == null || context.jobRunId() == null) {
+            return;
+        }
         try {
-            triage = weatherTriageService.triage(candidates);
+            jobRunService.logBatchResult(
+                    context.jobRunId(), context.batchId(), customId,
+                    false, status, errorType, errorMessage,
+                    null, null, targetDate, targetType);
         } catch (Exception e) {
-            LOG.warn("Aurora batch: weather re-triage failed: {}", e.getMessage());
-            markFailed(batch, "Weather re-triage failed: " + e.getMessage());
-            return;
-        }
-
-        if (triage.viable().isEmpty()) {
-            LOG.info("Aurora batch: no viable locations after re-triage, scores not updated");
-            markFailed(batch, "No viable locations after re-triage");
-            return;
-        }
-
-        try {
-            List<AuroraForecastScore> scores = claudeAuroraInterpreter.parseBatchResponse(
-                    rawResponse, level, triage.viable(), triage.cloudByLocation());
-
-            // Assign 1★ to locations that were rejected at result-processing time
-            List<AuroraForecastScore> allScores = new ArrayList<>(scores);
-            for (LocationEntity rejected : triage.rejected()) {
-                int cloud = triage.cloudByLocation().getOrDefault(rejected, 100);
-                allScores.add(new AuroraForecastScore(rejected, 1, level, cloud,
-                        "Overcast at time of evaluation", "✗ Cloud cover: Overcast"));
-            }
-
-            auroraStateCache.updateScores(allScores);
-
-            LOG.info("Aurora batch complete: batchId={}, {} scores written to state cache",
-                    batch.getAnthropicBatchId(), allScores.size());
-
-            batch.setSucceededCount(allScores.size());
-            batch.setErroredCount(0);
-            batch.setEndedAt(Instant.now());
-            batch.setStatus(BatchStatus.COMPLETED);
-
-            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
-                    auroraModelId);
-
-            batchRepository.save(batch);
-            if (batch.getJobRunId() != null) {
-                jobRunService.completeBatchRun(batch.getJobRunId(), allScores.size(), 0,
-                        toMicroDollars(batch.getEstimatedCostUsd()));
-            }
-
-        } catch (Exception e) {
-            LOG.error("Aurora batch: score parsing/caching failed: {}", e.getMessage(), e);
-            markFailed(batch, "Score parsing failed: " + e.getMessage());
+            LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
+                    customId, e.getMessage());
         }
     }
 
@@ -692,30 +610,6 @@ public class BatchResultProcessor {
             return 0L;
         }
         return costUsd.multiply(BigDecimal.valueOf(1_000_000)).longValue();
-    }
-
-    /**
-     * Persists a single batch result row to {@code api_call_log}.
-     *
-     * <p>Non-fatal — an exception here must never break batch processing.
-     */
-    private void persistBatchResult(ForecastBatchEntity batch, String customId,
-            boolean succeeded, String status,
-            String errorType, String errorMessage,
-            EvaluationModel model, TokenUsage tokenUsage,
-            LocalDate targetDate, TargetType targetType) {
-        if (batch.getJobRunId() == null) {
-            return;
-        }
-        try {
-            jobRunService.logBatchResult(
-                    batch.getJobRunId(), batch.getAnthropicBatchId(), customId,
-                    succeeded, status, errorType, errorMessage,
-                    model, tokenUsage, targetDate, targetType);
-        } catch (Exception e) {
-            LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
-                    customId, e.getMessage());
-        }
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {
