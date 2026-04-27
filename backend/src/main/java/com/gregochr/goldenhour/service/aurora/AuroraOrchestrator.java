@@ -3,17 +3,25 @@ package com.gregochr.goldenhour.service.aurora;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
+import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
+import com.gregochr.goldenhour.service.evaluation.EvaluationService;
+import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -49,33 +57,41 @@ public class AuroraOrchestrator {
 
     private final NoaaSwpcClient noaaClient;
     private final WeatherTriageService weatherTriage;
-    private final ClaudeAuroraInterpreter claudeInterpreter;
     private final AuroraStateCache stateCache;
     private final LocationRepository locationRepository;
     private final AuroraProperties properties;
+    private final EvaluationService evaluationService;
+    private final ModelSelectionService modelSelectionService;
 
     /**
      * Constructs the orchestrator with all required dependencies.
      *
-     * @param noaaClient         NOAA SWPC data client
-     * @param weatherTriage      cloud cover triage service
-     * @param claudeInterpreter  Claude aurora scoring service
-     * @param stateCache         aurora state machine
-     * @param locationRepository location data access
-     * @param properties         aurora configuration
+     * @param noaaClient            NOAA SWPC data client
+     * @param weatherTriage         cloud cover triage service
+     * @param stateCache            aurora state machine
+     * @param locationRepository    location data access
+     * @param properties            aurora configuration
+     * @param evaluationService     unified Pass 3.2 engine — used for the synchronous
+     *                              Claude call (replaces direct {@link ClaudeAuroraInterpreter}
+     *                              invocation; gains {@code api_call_log} + {@code job_run}
+     *                              observability for the aurora real-time path that previously
+     *                              had none)
+     * @param modelSelectionService resolves the active aurora model
      */
     public AuroraOrchestrator(NoaaSwpcClient noaaClient,
             WeatherTriageService weatherTriage,
-            ClaudeAuroraInterpreter claudeInterpreter,
             AuroraStateCache stateCache,
             LocationRepository locationRepository,
-            AuroraProperties properties) {
+            AuroraProperties properties,
+            EvaluationService evaluationService,
+            ModelSelectionService modelSelectionService) {
         this.noaaClient = noaaClient;
         this.weatherTriage = weatherTriage;
-        this.claudeInterpreter = claudeInterpreter;
         this.stateCache = stateCache;
         this.locationRepository = locationRepository;
         this.properties = properties;
+        this.evaluationService = evaluationService;
+        this.modelSelectionService = modelSelectionService;
     }
 
     /**
@@ -243,12 +259,28 @@ public class AuroraOrchestrator {
                             + "– Geomagnetic activity: " + level.description()));
         }
 
-        // Claude call for viable locations
+        // Claude call for viable locations — routed through EvaluationService for
+        // unified observability (api_call_log + job_run rows). Closes the Pass 1 §6
+        // aurora-real-time observability gap.
         if (!triage.viable().isEmpty()) {
-            List<AuroraForecastScore> claudeScores = claudeInterpreter.interpret(
-                    level, triage.viable(), triage.cloudByLocation(), spaceWeather,
-                    triggerType, tonightWindow);
-            allScores.addAll(claudeScores);
+            EvaluationModel model =
+                    modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION);
+            EvaluationTask.Aurora task = new EvaluationTask.Aurora(
+                    level, LocalDate.now(), model,
+                    triage.viable(), triage.cloudByLocation(),
+                    spaceWeather, triggerType, tonightWindow);
+            EvaluationResult result =
+                    evaluationService.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+            if (result instanceof EvaluationResult.Scored scored
+                    && scored.payload() instanceof List<?> rawScores) {
+                @SuppressWarnings("unchecked")
+                List<AuroraForecastScore> claudeScores =
+                        (List<AuroraForecastScore>) rawScores;
+                allScores.addAll(claudeScores);
+            } else if (result instanceof EvaluationResult.Errored err) {
+                LOG.warn("Aurora real-time scoring failed: {}: {}",
+                        err.errorType(), err.message());
+            }
         }
 
         stateCache.updateScores(allScores);

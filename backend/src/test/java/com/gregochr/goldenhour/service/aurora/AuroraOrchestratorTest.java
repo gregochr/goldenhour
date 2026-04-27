@@ -3,7 +3,9 @@ package com.gregochr.goldenhour.service.aurora;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
@@ -11,6 +13,11 @@ import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
+import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
+import com.gregochr.goldenhour.service.evaluation.EvaluationService;
+import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,11 +51,13 @@ class AuroraOrchestratorTest {
     @Mock
     private WeatherTriageService weatherTriage;
     @Mock
-    private ClaudeAuroraInterpreter claudeInterpreter;
-    @Mock
     private AuroraStateCache stateCache;
     @Mock
     private LocationRepository locationRepository;
+    @Mock
+    private EvaluationService evaluationService;
+    @Mock
+    private ModelSelectionService modelSelectionService;
 
     private AuroraOrchestrator orchestrator;
     private AuroraProperties properties;
@@ -57,8 +66,9 @@ class AuroraOrchestratorTest {
     void setUp() {
         properties = new AuroraProperties(); // uses all defaults: kpThreshold=5, ovation=20, etc.
         orchestrator = new AuroraOrchestrator(
-                noaaClient, weatherTriage, claudeInterpreter,
-                stateCache, locationRepository, properties);
+                noaaClient, weatherTriage,
+                stateCache, locationRepository, properties,
+                evaluationService, modelSelectionService);
     }
 
     // -------------------------------------------------------------------------
@@ -170,19 +180,17 @@ class AuroraOrchestratorTest {
 
         AuroraForecastScore score = new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 30,
                 "Good aurora conditions", "✓ Active geomagnetic storm");
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
-                .thenReturn(List.of(score));
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(evaluationService.evaluateNow(any(EvaluationTask.Aurora.class),
+                eq(BatchTriggerSource.SCHEDULED)))
+                .thenReturn(new EvaluationResult.Scored(List.of(score)));
 
         AuroraStateCache.Action action = orchestrator.run();
 
         assertThat(action).isEqualTo(AuroraStateCache.Action.NOTIFY);
-        verify(claudeInterpreter).interpret(
-                eq(AlertLevel.MODERATE),
-                eq(List.of(loc)),
-                any(),
-                any(),
-                org.mockito.ArgumentMatchers.eq(TriggerType.REALTIME),
-                org.mockito.ArgumentMatchers.isNull());
+        verify(evaluationService).evaluateNow(any(EvaluationTask.Aurora.class),
+                eq(BatchTriggerSource.SCHEDULED));
         verify(stateCache).updateScores(any());
     }
 
@@ -200,15 +208,21 @@ class AuroraOrchestratorTest {
         WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
                 List.of(loc), List.of(), Map.of(loc, 20));
         when(weatherTriage.triage(any())).thenReturn(triage);
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
-                .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 20, "ok", "")));
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(evaluationService.evaluateNow(any(EvaluationTask.Aurora.class),
+                eq(BatchTriggerSource.SCHEDULED)))
+                .thenReturn(new EvaluationResult.Scored(List.of(
+                        new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 20, "ok", ""))));
 
         orchestrator.run();
 
-        verify(claudeInterpreter).interpret(
-                any(), any(), any(), any(),
-                org.mockito.ArgumentMatchers.eq(TriggerType.REALTIME),
-                org.mockito.ArgumentMatchers.isNull());
+        org.mockito.ArgumentCaptor<EvaluationTask.Aurora> captor =
+                org.mockito.ArgumentCaptor.forClass(EvaluationTask.Aurora.class);
+        verify(evaluationService).evaluateNow(captor.capture(),
+                eq(BatchTriggerSource.SCHEDULED));
+        assertThat(captor.getValue().triggerType()).isEqualTo(TriggerType.REALTIME);
+        assertThat(captor.getValue().tonightWindow()).isNull();
     }
 
     @Test
@@ -232,7 +246,7 @@ class AuroraOrchestratorTest {
         verify(stateCache).updateScores(
                 org.mockito.ArgumentMatchers.argThat(scores ->
                         scores.size() == 1 && scores.get(0).stars() == 1));
-        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
+        verify(evaluationService, never()).evaluateNow(any(), any());
     }
 
     @Test
@@ -304,16 +318,22 @@ class AuroraOrchestratorTest {
         WeatherTriageService.TriageResult triage = new WeatherTriageService.TriageResult(
                 List.of(loc), List.of(), Map.of(loc, 10));
         when(weatherTriage.triage(any())).thenReturn(triage);
-        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
-                .thenReturn(List.of(new AuroraForecastScore(loc, 5, AlertLevel.STRONG, 10,
-                        "Forecast strong aurora tonight", "")));
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(evaluationService.evaluateNow(any(EvaluationTask.Aurora.class),
+                eq(BatchTriggerSource.SCHEDULED)))
+                .thenReturn(new EvaluationResult.Scored(List.of(
+                        new AuroraForecastScore(loc, 5, AlertLevel.STRONG, 10,
+                                "Forecast strong aurora tonight", ""))));
 
         orchestrator.runForecastLookahead(window);
 
-        verify(claudeInterpreter).interpret(
-                any(), any(), any(), any(),
-                org.mockito.ArgumentMatchers.eq(TriggerType.FORECAST_LOOKAHEAD),
-                org.mockito.ArgumentMatchers.eq(window));
+        org.mockito.ArgumentCaptor<EvaluationTask.Aurora> captor =
+                org.mockito.ArgumentCaptor.forClass(EvaluationTask.Aurora.class);
+        verify(evaluationService).evaluateNow(captor.capture(),
+                eq(BatchTriggerSource.SCHEDULED));
+        assertThat(captor.getValue().triggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
+        assertThat(captor.getValue().tonightWindow()).isEqualTo(window);
     }
 
     @Test
