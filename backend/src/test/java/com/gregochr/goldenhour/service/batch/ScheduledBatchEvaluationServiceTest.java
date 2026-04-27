@@ -11,17 +11,8 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
-import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
-import com.gregochr.goldenhour.service.ForecastService;
-import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
-import com.gregochr.goldenhour.service.FreshnessResolver;
-import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.OpenMeteoService;
-import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
@@ -78,16 +69,6 @@ class ScheduledBatchEvaluationServiceTest {
     private static final LocalDateTime TEST_EVENT_TIME = TEST_DATE.atTime(5, 30);
 
     @Mock
-    private LocationService locationService;
-    @Mock
-    private BriefingService briefingService;
-    @Mock
-    private BriefingEvaluationService briefingEvaluationService;
-    @Mock
-    private ForecastService forecastService;
-    @Mock
-    private ForecastStabilityClassifier stabilityClassifier;
-    @Mock
     private ModelSelectionService modelSelectionService;
     @Mock
     private NoaaSwpcClient noaaSwpcClient;
@@ -102,14 +83,6 @@ class ScheduledBatchEvaluationServiceTest {
     @Mock
     private DynamicSchedulerService dynamicSchedulerService;
     @Mock
-    private OpenMeteoService openMeteoService;
-    @Mock
-    private SolarService solarService;
-    @Mock
-    private FreshnessResolver freshnessResolver;
-    @Mock
-    private ForecastCommandExecutor forecastCommandExecutor;
-    @Mock
     private EvaluationService evaluationService;
     @Mock
     private ForecastTaskCollector forecastTaskCollector;
@@ -119,14 +92,10 @@ class ScheduledBatchEvaluationServiceTest {
     @BeforeEach
     void setUp() {
         service = new ScheduledBatchEvaluationService(
-                locationService, briefingService, briefingEvaluationService,
-                forecastService, stabilityClassifier,
                 modelSelectionService, noaaSwpcClient,
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
-                openMeteoService, solarService,
-                freshnessResolver, forecastCommandExecutor,
-                evaluationService, forecastTaskCollector, 0.5);
+                evaluationService, forecastTaskCollector);
     }
 
     // ── registerJobTargets ───────────────────────────────────────────────────
