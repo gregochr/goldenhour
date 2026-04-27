@@ -495,6 +495,174 @@ class BatchResultProcessorTest {
         assertThat(detail[0]).isEqualTo("unknown");
     }
 
+    @Test
+    @DisplayName("resolveErrorType maps each ErrorObject predicate to its string type")
+    void resolveErrorType_coversAllErrorVariants() {
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isOverloadedError")))
+                .isEqualTo("overloaded_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isInvalidRequestError")))
+                .isEqualTo("invalid_request_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isRateLimitError")))
+                .isEqualTo("rate_limit_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isAuthenticationError")))
+                .isEqualTo("authentication_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isBillingError")))
+                .isEqualTo("billing_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isPermissionError")))
+                .isEqualTo("permission_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isNotFoundError")))
+                .isEqualTo("not_found_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isTimeoutError")))
+                .isEqualTo("timeout_error");
+        assertThat(BatchResultProcessor.resolveErrorType(typeOnly("isApiError")))
+                .isEqualTo("api_error");
+    }
+
+    /**
+     * Builds an ErrorObject mock that returns true for exactly one is*Error() predicate.
+     * No as*Error() / message() stubs — keeps strict-mode happy when only the type is needed.
+     */
+    private static com.anthropic.models.ErrorObject typeOnly(String predicateName) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        switch (predicateName) {
+            case "isOverloadedError" -> when(err.isOverloadedError()).thenReturn(true);
+            case "isInvalidRequestError" -> when(err.isInvalidRequestError()).thenReturn(true);
+            case "isRateLimitError" -> when(err.isRateLimitError()).thenReturn(true);
+            case "isAuthenticationError" -> when(err.isAuthenticationError()).thenReturn(true);
+            case "isBillingError" -> when(err.isBillingError()).thenReturn(true);
+            case "isPermissionError" -> when(err.isPermissionError()).thenReturn(true);
+            case "isNotFoundError" -> when(err.isNotFoundError()).thenReturn(true);
+            case "isTimeoutError" -> when(err.isTimeoutError()).thenReturn(true);
+            case "isApiError" -> when(err.isApiError()).thenReturn(true);
+            default -> throw new IllegalArgumentException("Unknown predicate: " + predicateName);
+        }
+        return err;
+    }
+
+    @Test
+    @DisplayName("resolveErrorType returns 'unknown' when no predicate matches")
+    void resolveErrorType_unknown() {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        // All predicates default to false
+
+        assertThat(BatchResultProcessor.resolveErrorType(err)).isEqualTo("unknown");
+    }
+
+    @Test
+    @DisplayName("resolveErrorMessage extracts message from each typed error variant")
+    void resolveErrorMessage_extractsMessageForAllVariants() {
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildOverloaded("busy")))
+                .isEqualTo("busy");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildInvalidRequest("bad json")))
+                .isEqualTo("bad json");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildRateLimit("slow down")))
+                .isEqualTo("slow down");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildAuthentication("401")))
+                .isEqualTo("401");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildBilling("declined")))
+                .isEqualTo("declined");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildPermission("forbidden")))
+                .isEqualTo("forbidden");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildNotFound("404")))
+                .isEqualTo("404");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildTimeout("504")))
+                .isEqualTo("504");
+        assertThat(BatchResultProcessor.resolveErrorMessage(buildApiError("500")))
+                .isEqualTo("500");
+    }
+
+    @Test
+    @DisplayName("resolveEvaluationModel: substring fallback when modelId is not an exact getModelId() match")
+    void resolveEvaluationModel_substringFallback() {
+        assertThat(BatchResultProcessor.resolveEvaluationModel("internal-haiku-shim"))
+                .isEqualTo(EvaluationModel.HAIKU);
+        assertThat(BatchResultProcessor.resolveEvaluationModel("internal-opus-shim"))
+                .isEqualTo(EvaluationModel.OPUS);
+        assertThat(BatchResultProcessor.resolveEvaluationModel("internal-sonnet-shim"))
+                .isEqualTo(EvaluationModel.SONNET);
+    }
+
+    private static com.anthropic.models.ErrorObject buildOverloaded(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.OverloadedError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isOverloadedError()).thenReturn(true);
+        when(err.asOverloadedError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildInvalidRequest(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.InvalidRequestError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isInvalidRequestError()).thenReturn(true);
+        when(err.asInvalidRequestError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildRateLimit(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.RateLimitError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isRateLimitError()).thenReturn(true);
+        when(err.asRateLimitError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildAuthentication(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.AuthenticationError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isAuthenticationError()).thenReturn(true);
+        when(err.asAuthenticationError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildBilling(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.BillingError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isBillingError()).thenReturn(true);
+        when(err.asBillingError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildPermission(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.PermissionError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isPermissionError()).thenReturn(true);
+        when(err.asPermissionError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildNotFound(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.NotFoundError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isNotFoundError()).thenReturn(true);
+        when(err.asNotFoundError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildTimeout(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.GatewayTimeoutError.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isTimeoutError()).thenReturn(true);
+        when(err.asTimeoutError()).thenReturn(typed);
+        return err;
+    }
+
+    private static com.anthropic.models.ErrorObject buildApiError(String message) {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        var typed = mock(com.anthropic.models.ApiErrorObject.class);
+        when(typed.message()).thenReturn(message);
+        when(err.isApiError()).thenReturn(true);
+        when(err.asApiError()).thenReturn(typed);
+        return err;
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private ForecastBatchEntity buildBatch(BatchType type) {

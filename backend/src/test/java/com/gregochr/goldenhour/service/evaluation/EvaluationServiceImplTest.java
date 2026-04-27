@@ -1,5 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.anthropic.errors.AnthropicServiceException;
+import com.anthropic.models.messages.ContentBlock;
+import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.TextBlock;
+import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -27,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
@@ -259,6 +265,165 @@ class EvaluationServiceImplTest {
     }
 
     @Test
+    @DisplayName("evaluateNow: forecast success path drains SDK Message into ClaudeSyncOutcome.success")
+    void evaluateNow_forecastSuccess_drainsResponseIntoOutcome() {
+        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
+        // selectBuilder returns a real PromptBuilder so getSystemPrompt() / buildOutputConfig()
+        // produce SDK-valid values without us reconstructing them by hand.
+        when(batchRequestFactory.selectBuilder(eq(task.data())))
+                .thenReturn(new PromptBuilder());
+        Message message = mockMessageWithText("{\"rating\":4}", 500L, 200L, 0L, 1000L);
+        when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        when(forecastResultHandler.handleSyncResult(eq(task),
+                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Scored("ok"));
+
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
+                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        verify(forecastResultHandler).handleSyncResult(
+                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
+        ClaudeSyncOutcome outcome = outcomeCaptor.getValue();
+        assertThat(outcome.succeeded()).isTrue();
+        assertThat(outcome.rawText()).isEqualTo("{\"rating\":4}");
+        assertThat(outcome.tokenUsage().inputTokens()).isEqualTo(500L);
+        assertThat(outcome.tokenUsage().outputTokens()).isEqualTo(200L);
+        assertThat(outcome.tokenUsage().cacheReadInputTokens()).isEqualTo(1000L);
+        assertThat(outcome.tokenUsage().cacheCreationInputTokens()).isZero();
+        assertThat(outcome.model()).isEqualTo(EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("evaluateNow: aurora success path drains SDK Message into ClaudeSyncOutcome.success")
+    void evaluateNow_auroraSuccess_drainsResponseIntoOutcome() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        when(claudeAuroraInterpreter.buildUserMessage(
+                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+        Message message = mockMessageWithText("[{\"name\":\"X\",\"stars\":4}]",
+                400L, 150L, 50L, 800L);
+        when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        when(auroraResultHandler.handleSyncResult(eq(task),
+                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Scored(List.of()));
+
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.ADMIN);
+
+        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
+                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        verify(auroraResultHandler).handleSyncResult(
+                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
+        ClaudeSyncOutcome outcome = outcomeCaptor.getValue();
+        assertThat(outcome.succeeded()).isTrue();
+        assertThat(outcome.rawText()).isEqualTo("[{\"name\":\"X\",\"stars\":4}]");
+        assertThat(outcome.tokenUsage().cacheCreationInputTokens()).isEqualTo(50L);
+        assertThat(outcome.tokenUsage().cacheReadInputTokens()).isEqualTo(800L);
+    }
+
+    @Test
+    @DisplayName("evaluateNow: AnthropicServiceException → errorType formatted as anthropic_<status>")
+    void evaluateNow_anthropicServiceException_classifiedWithStatusCode() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        when(claudeAuroraInterpreter.buildUserMessage(
+                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+        AnthropicServiceException svc = mock(AnthropicServiceException.class);
+        when(svc.statusCode()).thenReturn(529);
+        when(svc.getMessage()).thenReturn("overloaded");
+        when(anthropicApiClient.createMessage(any())).thenThrow(svc);
+        when(auroraResultHandler.handleSyncResult(any(), any(), any()))
+                .thenReturn(new EvaluationResult.Errored("anthropic_529", "overloaded"));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
+                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        verify(auroraResultHandler).handleSyncResult(
+                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
+        assertThat(outcomeCaptor.getValue().errorType()).isEqualTo("anthropic_529");
+        assertThat(outcomeCaptor.getValue().errorMessage()).isEqualTo("overloaded");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: jobRunService.startRun throws → swallowed, handler still invoked")
+    void evaluateNow_jobRunStartFails_handlerStillInvoked() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        when(jobRunService.startRun(any(), eq(false), any()))
+                .thenThrow(new RuntimeException("DB down"));
+        when(claudeAuroraInterpreter.buildUserMessage(
+                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+        when(anthropicApiClient.createMessage(any()))
+                .thenThrow(new RuntimeException("Anthropic outage"));
+        when(auroraResultHandler.handleSyncResult(any(), any(), any()))
+                .thenReturn(new EvaluationResult.Errored("RuntimeException", "Anthropic outage"));
+
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
+        verify(auroraResultHandler).handleSyncResult(eq(task), any(), any());
+        // No completeRun call because jobRun is null after start failure
+        verify(jobRunService, org.mockito.Mockito.never())
+                .completeRun(any(), org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    @DisplayName("evaluateNow: jobRunService.completeRun throws → swallowed, result still returned")
+    void evaluateNow_jobRunCompleteFails_resultStillReturned() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        com.gregochr.goldenhour.entity.JobRunEntity jobRun =
+                mock(com.gregochr.goldenhour.entity.JobRunEntity.class);
+        when(jobRun.getId()).thenReturn(7L);
+        when(jobRunService.startRun(any(), eq(false), any())).thenReturn(jobRun);
+        org.mockito.Mockito.doThrow(new RuntimeException("DB write failure"))
+                .when(jobRunService).completeRun(eq(jobRun),
+                        org.mockito.ArgumentMatchers.anyInt(),
+                        org.mockito.ArgumentMatchers.anyInt());
+        when(claudeAuroraInterpreter.buildUserMessage(
+                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+        when(anthropicApiClient.createMessage(any()))
+                .thenThrow(new RuntimeException("err"));
+        EvaluationResult.Errored handlerResult =
+                new EvaluationResult.Errored("RuntimeException", "err");
+        when(auroraResultHandler.handleSyncResult(any(), any(), any()))
+                .thenReturn(handlerResult);
+
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        assertThat(result).isSameAs(handlerResult);
+        verify(jobRunService).completeRun(eq(jobRun), eq(0), eq(1));
+    }
+
+    @Test
+    @DisplayName("evaluateNow: forecast handler missing → IllegalStateException")
+    void evaluateNow_forecastHandlerMissing_throws() {
+        EvaluationServiceImpl noForecastHandler = new EvaluationServiceImpl(
+                batchSubmissionService, batchRequestFactory, anthropicApiClient,
+                claudeAuroraInterpreter, jobRunService,
+                List.of(auroraResultHandler));
+        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
+
+        org.assertj.core.api.Assertions.assertThatIllegalStateException()
+                .isThrownBy(() -> noForecastHandler.evaluateNow(task, BatchTriggerSource.SCHEDULED))
+                .withMessageContaining("ForecastResultHandler");
+    }
+
+    @Test
+    @DisplayName("evaluateNow: aurora handler missing → IllegalStateException")
+    void evaluateNow_auroraHandlerMissing_throws() {
+        EvaluationServiceImpl noAuroraHandler = new EvaluationServiceImpl(
+                batchSubmissionService, batchRequestFactory, anthropicApiClient,
+                claudeAuroraInterpreter, jobRunService,
+                List.of(forecastResultHandler));
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+
+        org.assertj.core.api.Assertions.assertThatIllegalStateException()
+                .isThrownBy(() -> noAuroraHandler.evaluateNow(task, BatchTriggerSource.SCHEDULED))
+                .withMessageContaining("AuroraResultHandler");
+    }
+
+    @Test
     @DisplayName("evaluateNow: starts and completes job_run via JobRunService")
     void evaluateNow_tracksJobRun() {
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
@@ -283,6 +448,24 @@ class EvaluationServiceImplTest {
 
     private static <T> T mock(Class<T> type) {
         return org.mockito.Mockito.mock(type);
+    }
+
+    private static Message mockMessageWithText(String text, long input, long output,
+            long cacheCreate, long cacheRead) {
+        Message message = mock(Message.class);
+        ContentBlock block = mock(ContentBlock.class);
+        TextBlock textBlock = mock(TextBlock.class);
+        Usage usage = mock(Usage.class);
+        when(message.content()).thenReturn(List.of(block));
+        when(block.isText()).thenReturn(true);
+        when(block.asText()).thenReturn(textBlock);
+        when(textBlock.text()).thenReturn(text);
+        when(message.usage()).thenReturn(usage);
+        when(usage.inputTokens()).thenReturn(input);
+        when(usage.outputTokens()).thenReturn(output);
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(cacheCreate));
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.of(cacheRead));
+        return message;
     }
 
     private EvaluationTask.Forecast forecastTask(long id, String name, String regionName) {

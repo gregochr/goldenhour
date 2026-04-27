@@ -14,7 +14,7 @@ package com.gregochr.goldenhour.service.evaluation;
  * fall back). This keeps the engine's contract uniform between transports.
  */
 public sealed interface EvaluationResult
-        permits EvaluationResult.Scored, EvaluationResult.Skipped, EvaluationResult.Errored {
+        permits EvaluationResult.Scored, EvaluationResult.Errored {
 
     /**
      * Successful evaluation. {@code payload} is the per-task-type parsed result
@@ -25,15 +25,6 @@ public sealed interface EvaluationResult
      * @param payload parsed result; cast on the caller side based on task type
      */
     record Scored(Object payload) implements EvaluationResult {
-    }
-
-    /**
-     * The evaluation was deliberately skipped — for example, an aurora task was
-     * dispatched but the alert level subsequently dropped to QUIET.
-     *
-     * @param reason short human-readable reason, surfaced in logs
-     */
-    record Skipped(String reason) implements EvaluationResult {
     }
 
     /**
