@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -20,6 +21,9 @@ import com.gregochr.goldenhour.model.TriageReason;
 import com.gregochr.goldenhour.model.TriageResult;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
+import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
+import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
@@ -56,6 +60,7 @@ public class ForecastService {
     private final OpenMeteoService openMeteoService;
     private final ForecastDataAugmentor augmentor;
     private final EvaluationService evaluationService;
+    private final com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService;
     private final ForecastEvaluationRepository repository;
     private final EmailNotificationService emailService;
     private final PushoverNotificationService pushoverService;
@@ -67,20 +72,23 @@ public class ForecastService {
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
      *
-     * @param solarService           calculates solar event times
-     * @param openMeteoService       retrieves Open-Meteo forecast data
-     * @param augmentor              enriches atmospheric data with directional cloud and tide information
-     * @param evaluationService      calls Claude to evaluate colour potential
-     * @param repository             persists forecast evaluation results
-     * @param emailService           email notification channel
-     * @param pushoverService        Pushover notification channel
-     * @param toastService           macOS toast notification channel
-     * @param eventPublisher         publishes location task state transition events
+     * @param solarService            calculates solar event times
+     * @param openMeteoService        retrieves Open-Meteo forecast data
+     * @param augmentor               enriches atmospheric data with directional cloud and tide information
+     * @param evaluationService       legacy facade — still used by {@code runForecasts}'s non-wildlife branch
+     *                                pending its v2.13 retirement
+     * @param engineEvaluationService Pass 3.2 engine — used by {@link #evaluateAndPersist}
+     * @param repository              persists forecast evaluation results
+     * @param emailService            email notification channel
+     * @param pushoverService         Pushover notification channel
+     * @param toastService            macOS toast notification channel
+     * @param eventPublisher          publishes location task state transition events
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
      * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
+            com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService,
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
             PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
@@ -89,6 +97,7 @@ public class ForecastService {
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
         this.evaluationService = evaluationService;
+        this.engineEvaluationService = engineEvaluationService;
         this.repository = repository;
         this.emailService = emailService;
         this.pushoverService = pushoverService;
@@ -422,8 +431,19 @@ public class ForecastService {
         publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
                 preEval.date().toString(), preEval.targetType().name(),
                 LocationTaskState.EVALUATING);
-        SunsetEvaluation evaluation = evaluationService.evaluate(
-                preEval.atmosphericData(), preEval.model(), jobRun);
+
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                preEval.location(), preEval.date(), preEval.targetType(),
+                preEval.model(), preEval.atmosphericData(),
+                EvaluationTask.Forecast.WriteTarget.NONE);
+        EvaluationResult outcome = engineEvaluationService.evaluateNow(
+                task, BatchTriggerSource.ADMIN);
+        SunsetEvaluation evaluation = switch (outcome) {
+            case EvaluationResult.Scored s -> (SunsetEvaluation) s.payload();
+            case EvaluationResult.Errored e -> throw new EvaluationFailedException(
+                    e.errorType(), e.message(), preEval.location().getName(),
+                    preEval.targetType(), preEval.date());
+        };
 
         ForecastEvaluationEntity entity = buildEntity(
                 preEval.location(), preEval.location().getLat(), preEval.location().getLon(),

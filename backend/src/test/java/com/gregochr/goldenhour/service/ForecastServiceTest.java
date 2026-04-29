@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
@@ -30,6 +31,9 @@ import com.gregochr.goldenhour.model.TriageRule;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
+import com.gregochr.goldenhour.service.evaluation.EvaluationResult;
+import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.service.notification.EmailNotificationService;
 import com.gregochr.goldenhour.service.notification.MacOsToastNotificationService;
 import com.gregochr.goldenhour.service.notification.PushoverNotificationService;
@@ -85,6 +89,8 @@ class ForecastServiceTest {
     private ForecastDataAugmentor augmentor;
     @Mock
     private EvaluationService evaluationService;
+    @Mock
+    private com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService;
     @Mock
     private ForecastEvaluationRepository repository;
     @Mock
@@ -616,14 +622,22 @@ class ForecastServiceTest {
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
                 DURHAM + "|" + date + "|SUNSET", null);
 
-        when(evaluationService.evaluate(eq(data), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(evaluation);
+        when(engineEvaluationService.evaluateNow(
+                any(EvaluationTask.Forecast.class), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenReturn(savedEntity);
 
         ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
 
         assertThat(result).isEqualTo(savedEntity);
-        verify(evaluationService).evaluate(eq(data), eq(EvaluationModel.SONNET), eq(null));
+        ArgumentCaptor<EvaluationTask.Forecast> taskCaptor =
+                ArgumentCaptor.forClass(EvaluationTask.Forecast.class);
+        verify(engineEvaluationService).evaluateNow(
+                taskCaptor.capture(), eq(BatchTriggerSource.ADMIN));
+        assertThat(taskCaptor.getValue().writeTarget())
+                .isEqualTo(EvaluationTask.Forecast.WriteTarget.NONE);
+        assertThat(taskCaptor.getValue().model()).isEqualTo(EvaluationModel.SONNET);
+        assertThat(taskCaptor.getValue().data()).isEqualTo(data);
 
         ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
                 ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
@@ -649,7 +663,8 @@ class ForecastServiceTest {
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.HAIKU, Set.of(),
                 DURHAM + "|" + date + "|SUNSET", null);
 
-        when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         forecastService.evaluateAndPersist(preEval, null);
@@ -672,7 +687,8 @@ class ForecastServiceTest {
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
                 DURHAM + "|" + date + "|SUNSET", null);
 
-        when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         doThrow(new RuntimeException("SMTP down")).when(emailService).notify(any(), any(), any(), any());
 
@@ -687,6 +703,30 @@ class ForecastServiceTest {
         assertThat(saved.getLocationName()).isEqualTo(DURHAM);
         assertThat(saved.getTargetType()).isEqualTo(TargetType.SUNSET);
         assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    @Test
+    @DisplayName("evaluateAndPersist() throws EvaluationFailedException when engine returns Errored, no entity saved")
+    void evaluateAndPersist_engineErrored_throwsAndDoesNotSave() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, data, DURHAM_LOCATION, date,
+                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
+                DURHAM + "|" + date + "|SUNSET", null);
+
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Errored("overloaded_error", "busy"));
+
+        assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval, null))
+                .isInstanceOf(EvaluationFailedException.class)
+                .extracting(t -> ((EvaluationFailedException) t).getErrorType())
+                .isEqualTo("overloaded_error");
+
+        verify(repository, never()).save(any());
+        verify(emailService, never()).notify(any(), any(), any(), any());
     }
 
     // --- persistCannedResult tests ---
@@ -938,8 +978,8 @@ class ForecastServiceTest {
                 TargetType.SUNSET, sunset, 310, 1, EvaluationModel.SONNET, Set.of(),
                 DURHAM + "|" + date + "|SUNSET", null);
 
-        when(evaluationService.evaluate(eq(data), eq(EvaluationModel.SONNET), eq(jobRun)))
-                .thenReturn(evaluation);
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         forecastService.evaluateAndPersist(preEval, jobRun);
@@ -974,8 +1014,8 @@ class ForecastServiceTest {
                 TargetType.SUNSET, sunset, 295, 2, EvaluationModel.HAIKU, Set.of(),
                 DURHAM + "|" + date + "|SUNSET", null);
 
-        when(evaluationService.evaluate(eq(data), eq(EvaluationModel.HAIKU), any()))
-                .thenReturn(evaluation);
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEval, null);
@@ -1227,8 +1267,8 @@ class ForecastServiceTest {
                 TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
                 DURHAM + "|" + date + "|SUNSET", null);
 
-        when(evaluationService.evaluate(eq(data), eq(EvaluationModel.SONNET), any()))
-                .thenReturn(evaluation);
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         doThrow(new RuntimeException("SMTP down"))
                 .when(emailService).notify(eq(evaluation), eq(DURHAM), eq(TargetType.SUNSET), eq(date));
@@ -1581,8 +1621,9 @@ class ForecastServiceTest {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).tide(tide).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1599,8 +1640,9 @@ class ForecastServiceTest {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1620,8 +1662,9 @@ class ForecastServiceTest {
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
                     .directionalCloud(dc).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1637,8 +1680,9 @@ class ForecastServiceTest {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1659,8 +1703,9 @@ class ForecastServiceTest {
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
                     .cloudApproach(new CloudApproachData(trend, upwind)).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1681,8 +1726,9 @@ class ForecastServiceTest {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1700,8 +1746,9 @@ class ForecastServiceTest {
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET)
                     .build().withSurge(surge, 3.5, 3.3);
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1719,8 +1766,9 @@ class ForecastServiceTest {
             AtmosphericData data = TestAtmosphericData.builder()
                     .solarEventTime(SUNSET).targetType(TargetType.SUNSET).build();
 
-            when(evaluationService.evaluate(any(), any(), any()))
-                    .thenReturn(new SunsetEvaluation(null, 75, 70, "Good."));
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(
+                            new SunsetEvaluation(null, 75, 70, "Good.")));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1739,7 +1787,8 @@ class ForecastServiceTest {
             SunsetEvaluation evaluation = new SunsetEvaluation(
                     null, 75, 70, "Good.", null, null, null, 7, "STRONG");
 
-            when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(evaluation));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
@@ -1756,7 +1805,8 @@ class ForecastServiceTest {
             SunsetEvaluation evaluation = new SunsetEvaluation(
                     null, 75, 70, "Good.", null, null, null, 8, "STRONG");
 
-            when(evaluationService.evaluate(any(), any(), any())).thenReturn(evaluation);
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(evaluation));
             when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             ForecastEvaluationEntity result = forecastService.evaluateAndPersist(preEvalWith(data), null);
