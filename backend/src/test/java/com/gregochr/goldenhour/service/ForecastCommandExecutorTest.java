@@ -12,8 +12,6 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.ForecastStability;
-import com.gregochr.goldenhour.entity.StabilitySnapshotEntity;
-import com.gregochr.goldenhour.repository.StabilitySnapshotRepository;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
@@ -34,22 +32,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -103,7 +97,7 @@ class ForecastCommandExecutorTest {
     private OpenMeteoService openMeteoService;
 
     @Mock
-    private StabilitySnapshotRepository stabilitySnapshotRepository;
+    private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     @Mock
     private EvaluationStrategy haikuStrategy;
@@ -153,7 +147,7 @@ class ForecastCommandExecutorTest {
                 commandFactory, Runnable::run, optimisationSkipEvaluator,
                 optimisationStrategyService, progressTracker, eventPublisher,
                 sentinelSelector, astroConditionsService, stabilityClassifier,
-                openMeteoService, stabilitySnapshotRepository);
+                openMeteoService, stabilitySnapshotProvider);
     }
 
     /**
@@ -1408,8 +1402,8 @@ class ForecastCommandExecutorTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("Stability snapshot: scheduled run populates getLatestStabilitySummary()")
-    void stabilitySnapshot_populatedAfterScheduledRun() {
+    @DisplayName("Stability snapshot: scheduled run publishes summary via provider.update()")
+    void stabilitySnapshot_publishedAfterScheduledRun() {
         stubExecuteDefaults();
         stubSolarNotPast();
         LocationEntity loc = durhamWithGrid();
@@ -1433,8 +1427,10 @@ class ForecastCommandExecutorTest {
                 List.of(today), List.of(loc), haikuStrategy, false);
         executor.execute(cmd);
 
-        StabilitySummaryResponse summary = executor.getLatestStabilitySummary();
-        assertThat(summary).isNotNull();
+        ArgumentCaptor<StabilitySummaryResponse> captor =
+                ArgumentCaptor.forClass(StabilitySummaryResponse.class);
+        verify(stabilitySnapshotProvider).update(captor.capture());
+        StabilitySummaryResponse summary = captor.getValue();
         assertThat(summary.totalGridCells()).isEqualTo(1);
         assertThat(summary.cells()).hasSize(1);
         StabilitySummaryResponse.GridCellDetail cell = summary.cells().get(0);
@@ -1445,8 +1441,8 @@ class ForecastCommandExecutorTest {
     }
 
     @Test
-    @DisplayName("Stability snapshot: manual run does not update getLatestStabilitySummary()")
-    void stabilitySnapshot_notUpdatedByManualRun() {
+    @DisplayName("Stability snapshot: manual run does not call provider.update()")
+    void stabilitySnapshot_notPublishedByManualRun() {
         stubExecuteDefaults();
         stubSolarNotPast();
         stubDefaultFetch();
@@ -1458,7 +1454,7 @@ class ForecastCommandExecutorTest {
                 List.of(today), List.of(loc), haikuStrategy, true);
         executor.execute(cmd);
 
-        assertThat(executor.getLatestStabilitySummary()).isNull();
+        verify(stabilitySnapshotProvider, never()).update(any());
     }
 
     // =========================================================================
@@ -2084,289 +2080,6 @@ class ForecastCommandExecutorTest {
             // All 4 tasks (2 dates × 2 target types) should be evaluated
             verify(forecastService, times(4))
                     .evaluateAndPersist(any(ForecastPreEvalResult.class), any());
-        }
-    }
-
-    @Nested
-    @DisplayName("Stability snapshot persistence")
-    class StabilitySnapshotPersistence {
-
-        private StabilitySummaryResponse buildTestSnapshot(Instant generatedAt) {
-            var cell = new StabilitySummaryResponse.GridCellDetail(
-                    "54.7500,-1.6250", 54.75, -1.625,
-                    ForecastStability.SETTLED, "high pressure dominant", 3,
-                    List.of("Durham UK", "Penshaw Monument"));
-            return new StabilitySummaryResponse(
-                    generatedAt, 1,
-                    Map.of(ForecastStability.SETTLED, 1L),
-                    List.of(cell));
-        }
-
-        private StabilitySnapshotEntity buildDbEntity(
-                String key, ForecastStability level, Instant classifiedAt) {
-            var entity = new StabilitySnapshotEntity();
-            entity.setId(1L);
-            entity.setGridCellKey(key);
-            entity.setGridLat(54.75);
-            entity.setGridLng(-1.625);
-            entity.setStabilityLevel(level);
-            entity.setReason("high pressure dominant");
-            entity.setEvaluationWindowDays(level.evaluationWindowDays());
-            entity.setLocationNames("Durham UK,Penshaw Monument");
-            entity.setClassifiedAt(classifiedAt);
-            entity.setUpdatedAt(classifiedAt);
-            return entity;
-        }
-
-        @Test
-        @DisplayName("getLatestStabilitySummary returns in-memory value when set (no DB query)")
-        void returnsInMemoryWhenSet() {
-            // Manually set via reflection since applyStabilityFilter is private
-            StabilitySummaryResponse snapshot = buildTestSnapshot(Instant.now());
-            // Access the AtomicReference via getLatestStabilitySummary after direct set
-            // We need to populate in-memory by calling the getter after DB load first
-            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
-                    .thenReturn(List.of(buildDbEntity("54.7500,-1.6250",
-                            ForecastStability.SETTLED, Instant.now())));
-
-            // First call loads from DB and warms cache
-            StabilitySummaryResponse first = executor.getLatestStabilitySummary();
-            assertThat(first).isNotNull();
-
-            // Second call should NOT hit DB again
-            org.mockito.Mockito.clearInvocations(stabilitySnapshotRepository);
-            StabilitySummaryResponse second = executor.getLatestStabilitySummary();
-            assertThat(second).isNotNull();
-            verify(stabilitySnapshotRepository, never()).findByClassifiedAtAfter(any());
-        }
-
-        @Test
-        @DisplayName("Returns DB snapshot when in-memory is null and DB snapshot is fresh")
-        void returnsDbSnapshotWhenFresh() {
-            var entity = buildDbEntity("54.7500,-1.6250",
-                    ForecastStability.SETTLED, Instant.now().minus(2, ChronoUnit.HOURS));
-            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
-                    .thenReturn(List.of(entity));
-
-            StabilitySummaryResponse result = executor.getLatestStabilitySummary();
-
-            assertThat(result).isNotNull();
-            assertThat(result.cells()).hasSize(1);
-            assertThat(result.cells().get(0).stability()).isEqualTo(ForecastStability.SETTLED);
-            assertThat(result.cells().get(0).locationNames())
-                    .containsExactly("Durham UK", "Penshaw Monument");
-        }
-
-        @Test
-        @DisplayName("Returns null when in-memory is null and DB has no rows")
-        void returnsNullWhenNoDbRows() {
-            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
-                    .thenReturn(List.of());
-
-            assertThat(executor.getLatestStabilitySummary()).isNull();
-        }
-
-        @Test
-        @DisplayName("Returns null when in-memory is null and DB snapshot is stale (>24h)")
-        void returnsNullWhenDbStale() {
-            // findByClassifiedAtAfter with 24h threshold will return empty for old rows
-            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
-                    .thenReturn(List.of());
-
-            assertThat(executor.getLatestStabilitySummary()).isNull();
-        }
-
-        @Test
-        @DisplayName("DB load warms in-memory cache for subsequent calls")
-        void dbLoadWarmsCacheForSubsequentCalls() {
-            var entity = buildDbEntity("54.7500,-1.6250",
-                    ForecastStability.TRANSITIONAL, Instant.now());
-            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
-                    .thenReturn(List.of(entity));
-
-            // First call: DB hit
-            StabilitySummaryResponse first = executor.getLatestStabilitySummary();
-            assertThat(first).isNotNull();
-            verify(stabilitySnapshotRepository, times(1)).findByClassifiedAtAfter(any());
-
-            // Second call: in-memory, no DB hit
-            org.mockito.Mockito.clearInvocations(stabilitySnapshotRepository);
-            StabilitySummaryResponse second = executor.getLatestStabilitySummary();
-            assertThat(second).isSameAs(first);
-            verify(stabilitySnapshotRepository, never()).findByClassifiedAtAfter(any());
-        }
-
-        @Test
-        @DisplayName("DB read failure returns null gracefully")
-        void dbReadFailureReturnsNull() {
-            when(stabilitySnapshotRepository.findByClassifiedAtAfter(any()))
-                    .thenThrow(new RuntimeException("DB connection lost"));
-
-            assertThat(executor.getLatestStabilitySummary()).isNull();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Stability snapshot persistence — WRITE path
-    // -------------------------------------------------------------------------
-
-    @Nested
-    @DisplayName("Stability snapshot write path")
-    class StabilitySnapshotWritePath {
-
-        @Test
-        @DisplayName("persistSnapshot saves one entity per grid cell with correct fields")
-        void persistSnapshot_savesEntityPerGridCellWithCorrectFields() {
-            stubExecuteDefaults();
-            stubSolarNotPast();
-            LocationEntity loc = durhamWithGrid();
-
-            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), any(), any(), any(), any(), anyBoolean(), any(),
-                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
-                    .thenAnswer(inv -> {
-                        LocalDate date = inv.getArgument(1);
-                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                                LocalDate.now(ZoneOffset.UTC), date);
-                        return new ForecastPreEvalResult(false, null, null,
-                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
-                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
-                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
-                    });
-            stubDefaultEval();
-
-            when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
-                    .thenReturn(new GridCellStabilityResult(
-                            loc.gridCellKey(), 54.75, -1.625,
-                            ForecastStability.SETTLED, "High pressure", 3));
-
-            // New entity — no existing row in DB
-            when(stabilitySnapshotRepository.findByGridCellKey(loc.gridCellKey()))
-                    .thenReturn(Optional.empty());
-
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
-            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
-                    List.of(today, today.plusDays(1)),
-                    List.of(loc), haikuStrategy, false);
-
-            executor.execute(cmd);
-
-            ArgumentCaptor<StabilitySnapshotEntity> captor =
-                    ArgumentCaptor.forClass(StabilitySnapshotEntity.class);
-            verify(stabilitySnapshotRepository).save(captor.capture());
-
-            StabilitySnapshotEntity saved = captor.getValue();
-            assertThat(saved.getGridCellKey()).isEqualTo(loc.gridCellKey());
-            assertThat(saved.getStabilityLevel()).isEqualTo(ForecastStability.SETTLED);
-            assertThat(saved.getGridLat()).isEqualTo(54.75);
-            assertThat(saved.getGridLng()).isEqualTo(-1.625);
-            assertThat(saved.getReason()).isEqualTo("High pressure");
-            assertThat(saved.getLocationNames()).isEqualTo("Durham UK");
-            assertThat(saved.getClassifiedAt()).isNotNull();
-            assertThat(saved.getUpdatedAt()).isNotNull();
-            assertThat(saved.getEvaluationWindowDays()).isEqualTo(3);
-        }
-
-        @Test
-        @DisplayName("persistSnapshot updates existing entity rather than creating new")
-        void persistSnapshot_updatesExistingEntity() {
-            stubExecuteDefaults();
-            stubSolarNotPast();
-            LocationEntity loc = durhamWithGrid();
-
-            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), any(), any(), any(), any(), anyBoolean(), any(),
-                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
-                    .thenAnswer(inv -> {
-                        LocalDate date = inv.getArgument(1);
-                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                                LocalDate.now(ZoneOffset.UTC), date);
-                        return new ForecastPreEvalResult(false, null, null,
-                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
-                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
-                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
-                    });
-            stubDefaultEval();
-
-            when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
-                    .thenReturn(new GridCellStabilityResult(
-                            loc.gridCellKey(), 54.75, -1.625,
-                            ForecastStability.TRANSITIONAL, "Frontal passage", 1));
-
-            // Existing entity in DB with old data
-            StabilitySnapshotEntity existing = new StabilitySnapshotEntity();
-            existing.setId(42L);
-            existing.setGridCellKey(loc.gridCellKey());
-            existing.setStabilityLevel(ForecastStability.SETTLED);
-            existing.setReason("Old reason");
-            when(stabilitySnapshotRepository.findByGridCellKey(loc.gridCellKey()))
-                    .thenReturn(Optional.of(existing));
-
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
-            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
-                    List.of(today, today.plusDays(1)),
-                    List.of(loc), haikuStrategy, false);
-
-            executor.execute(cmd);
-
-            ArgumentCaptor<StabilitySnapshotEntity> captor =
-                    ArgumentCaptor.forClass(StabilitySnapshotEntity.class);
-            verify(stabilitySnapshotRepository).save(captor.capture());
-
-            StabilitySnapshotEntity saved = captor.getValue();
-            // Should reuse the existing entity (same id) with updated fields
-            assertThat(saved.getId()).isEqualTo(42L);
-            assertThat(saved.getStabilityLevel()).isEqualTo(ForecastStability.TRANSITIONAL);
-            assertThat(saved.getReason()).isEqualTo("Frontal passage");
-            assertThat(saved.getEvaluationWindowDays()).isEqualTo(1);
-        }
-
-        @Test
-        @DisplayName("persistSnapshot failure does not break the forecast run")
-        void persistSnapshot_failureDoesNotBreakRun() {
-            stubExecuteDefaults();
-            stubSolarNotPast();
-            LocationEntity loc = durhamWithGrid();
-
-            OpenMeteoForecastResponse resp = new OpenMeteoForecastResponse();
-            when(forecastService.fetchWeatherAndTriage(
-                    any(), any(), any(), any(), any(), anyBoolean(), any(),
-                    eq(stubPrefetchedWeather), eq(stubCloudCache)))
-                    .thenAnswer(inv -> {
-                        LocalDate date = inv.getArgument(1);
-                        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(
-                                LocalDate.now(ZoneOffset.UTC), date);
-                        return new ForecastPreEvalResult(false, null, null,
-                                loc, date, inv.getArgument(2), LocalDateTime.now(), 90,
-                                daysAhead, EvaluationModel.HAIKU, loc.getTideType(),
-                                loc.getName() + "|" + date + "|" + inv.getArgument(2), resp);
-                    });
-            stubDefaultEval();
-
-            when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
-                    .thenReturn(new GridCellStabilityResult(
-                            loc.gridCellKey(), 54.75, -1.625,
-                            ForecastStability.SETTLED, "High pressure", 3));
-
-            when(stabilitySnapshotRepository.findByGridCellKey(loc.gridCellKey()))
-                    .thenReturn(Optional.empty());
-            when(stabilitySnapshotRepository.save(any()))
-                    .thenThrow(new RuntimeException("DB write failure"));
-
-            LocalDate today = LocalDate.now(ZoneOffset.UTC);
-            ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM,
-                    List.of(today, today.plusDays(1)),
-                    List.of(loc), haikuStrategy, false);
-
-            // Should not throw — persist failure is non-fatal
-            executor.execute(cmd);
-
-            // Evaluations should still complete despite persist failure
-            verify(forecastService, times(2 * EXPECTED_CALLS_PER_DAY))
-                    .evaluateAndPersist(any(ForecastPreEvalResult.class), eq(stubJobRun));
-            verify(jobRunService).completeRun(eq(stubJobRun), anyInt(), anyInt(), any());
         }
     }
 }

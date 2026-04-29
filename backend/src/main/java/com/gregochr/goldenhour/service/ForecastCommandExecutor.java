@@ -11,7 +11,6 @@ import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.entity.StabilitySnapshotEntity;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
@@ -22,7 +21,6 @@ import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.RunPhase;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
-import com.gregochr.goldenhour.repository.StabilitySnapshotRepository;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,9 +31,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,7 +40,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -84,14 +79,7 @@ public class ForecastCommandExecutor {
     private final AstroConditionsService astroConditionsService;
     private final ForecastStabilityClassifier stabilityClassifier;
     private final OpenMeteoService openMeteoService;
-    private final StabilitySnapshotRepository stabilitySnapshotRepository;
-
-    /** Hours after which a persisted snapshot is considered stale. */
-    private static final long SNAPSHOT_STALENESS_HOURS = 24;
-
-    /** Most recent stability snapshot, populated after each scheduled triage run. */
-    private final AtomicReference<StabilitySummaryResponse> latestStabilitySummary =
-            new AtomicReference<>();
+    private final StabilitySnapshotProvider stabilitySnapshotProvider;
 
     /**
      * Constructs a {@code ForecastCommandExecutor}.
@@ -110,7 +98,7 @@ public class ForecastCommandExecutor {
      * @param astroConditionsService      template scorer for nightly astro observing conditions
      * @param stabilityClassifier         classifies forecast stability per grid cell
      * @param openMeteoService            Open-Meteo service for batch weather pre-fetching
-     * @param stabilitySnapshotRepository repository for persisting stability snapshots
+     * @param stabilitySnapshotProvider   in-memory + DB store for stability snapshots
      */
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
@@ -122,7 +110,7 @@ public class ForecastCommandExecutor {
             AstroConditionsService astroConditionsService,
             ForecastStabilityClassifier stabilityClassifier,
             OpenMeteoService openMeteoService,
-            StabilitySnapshotRepository stabilitySnapshotRepository) {
+            StabilitySnapshotProvider stabilitySnapshotProvider) {
         this.forecastService = forecastService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
@@ -137,7 +125,7 @@ public class ForecastCommandExecutor {
         this.astroConditionsService = astroConditionsService;
         this.stabilityClassifier = stabilityClassifier;
         this.openMeteoService = openMeteoService;
-        this.stabilitySnapshotRepository = stabilitySnapshotRepository;
+        this.stabilitySnapshotProvider = stabilitySnapshotProvider;
     }
 
     /**
@@ -601,105 +589,6 @@ public class ForecastCommandExecutor {
     }
 
     /**
-     * Returns the most recent stability summary. Tries in-memory first, then falls
-     * back to the database (with a 24-hour staleness guard). Returns {@code null} if
-     * no fresh snapshot is available from either source.
-     *
-     * @return latest snapshot, or {@code null}
-     */
-    public StabilitySummaryResponse getLatestStabilitySummary() {
-        StabilitySummaryResponse inMemory = latestStabilitySummary.get();
-        if (inMemory != null) {
-            return inMemory;
-        }
-        return loadSnapshotFromDb();
-    }
-
-    /**
-     * Write-through: persists the stability snapshot to the database so it survives
-     * container restarts. Non-fatal — a DB failure never breaks the batch pipeline.
-     */
-    private void persistSnapshot(StabilitySummaryResponse summary) {
-        try {
-            Instant now = Instant.now();
-            for (StabilitySummaryResponse.GridCellDetail cell : summary.cells()) {
-                StabilitySnapshotEntity entity = stabilitySnapshotRepository
-                        .findByGridCellKey(cell.gridCellKey())
-                        .orElseGet(() -> {
-                            StabilitySnapshotEntity e = new StabilitySnapshotEntity();
-                            e.setGridCellKey(cell.gridCellKey());
-                            return e;
-                        });
-                entity.setGridLat(cell.gridLat());
-                entity.setGridLng(cell.gridLng());
-                entity.setStabilityLevel(cell.stability());
-                entity.setReason(cell.reason());
-                entity.setEvaluationWindowDays(cell.evaluationWindowDays());
-                entity.setLocationNames(String.join(",", cell.locationNames()));
-                entity.setClassifiedAt(now);
-                entity.setUpdatedAt(now);
-                stabilitySnapshotRepository.save(entity);
-            }
-            LOG.info("[STABILITY] Persisted snapshot for {} grid cells", summary.cells().size());
-        } catch (Exception e) {
-            LOG.warn("[STABILITY] Failed to persist snapshot — in-memory still valid: {}",
-                    e.getMessage());
-        }
-    }
-
-    /**
-     * Read-through: loads the stability snapshot from the database when the in-memory
-     * cache is empty (e.g. after container restart). Applies a 24-hour staleness guard —
-     * snapshots older than that are treated as missing.
-     *
-     * @return reconstructed snapshot, or {@code null} if no fresh rows exist
-     */
-    private StabilitySummaryResponse loadSnapshotFromDb() {
-        try {
-            Instant staleThreshold = Instant.now().minus(SNAPSHOT_STALENESS_HOURS, ChronoUnit.HOURS);
-            List<StabilitySnapshotEntity> fresh = stabilitySnapshotRepository
-                    .findByClassifiedAtAfter(staleThreshold);
-
-            if (fresh.isEmpty()) {
-                LOG.info("[STABILITY] No fresh snapshot in DB (threshold {}h)",
-                        SNAPSHOT_STALENESS_HOURS);
-                return null;
-            }
-
-            Map<ForecastStability, Long> countsByStability = fresh.stream()
-                    .collect(Collectors.groupingBy(
-                            StabilitySnapshotEntity::getStabilityLevel, Collectors.counting()));
-
-            List<StabilitySummaryResponse.GridCellDetail> cellDetails = fresh.stream()
-                    .map(e -> new StabilitySummaryResponse.GridCellDetail(
-                            e.getGridCellKey(), e.getGridLat(), e.getGridLng(),
-                            e.getStabilityLevel(), e.getReason(),
-                            e.getEvaluationWindowDays(),
-                            List.of(e.getLocationNames().split(","))))
-                    .sorted(Comparator.comparing(
-                            StabilitySummaryResponse.GridCellDetail::gridCellKey))
-                    .toList();
-
-            Instant mostRecent = fresh.stream()
-                    .map(StabilitySnapshotEntity::getClassifiedAt)
-                    .max(Comparator.naturalOrder())
-                    .orElse(Instant.now());
-
-            StabilitySummaryResponse summary = new StabilitySummaryResponse(
-                    mostRecent, fresh.size(), countsByStability, cellDetails);
-            latestStabilitySummary.set(summary);
-
-            long ageHours = ChronoUnit.HOURS.between(mostRecent, Instant.now());
-            LOG.info("[STABILITY] Loaded snapshot from DB: {} grid cells, age={}h",
-                    fresh.size(), ageHours);
-            return summary;
-        } catch (Exception e) {
-            LOG.warn("[STABILITY] Failed to load snapshot from DB: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * Result of stability filtering: the filtered task list plus the underlying classification map.
      *
      * @param filteredTasks    tasks within their grid cell's stability window
@@ -763,8 +652,7 @@ public class ForecastCommandExecutor {
                 .toList();
         StabilitySummaryResponse summary = new StabilitySummaryResponse(
                 Instant.now(), stabilityByCell.size(), countsByStability, cellDetails);
-        latestStabilitySummary.set(summary);
-        persistSnapshot(summary);
+        stabilitySnapshotProvider.update(summary);
 
         int originalSize = batch.size();
         List<ForecastPreEvalResult> filtered = batch.stream()
