@@ -276,11 +276,12 @@ class ForecastResultHandlerTest {
     // ── Sync path ────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("handleSyncResult: success → Scored + api_call_log + cache write")
+    @DisplayName("handleSyncResult: success with BRIEFING_CACHE → Scored + api_call_log + cache write")
     void handleSyncResult_success_writesEverything() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
                 "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
                 new TokenUsage(500, 200, 0, 1000),
@@ -304,11 +305,39 @@ class ForecastResultHandlerTest {
     }
 
     @Test
+    @DisplayName("handleSyncResult: success with NONE → Scored + api_call_log but NO cache write")
+    void handleSyncResult_success_writeTargetNone_skipsCache() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.NONE);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
+                "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU, 8500);
+        when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluation(5, 80, 75, "OK"));
+
+        EvaluationResult result = handler.handleSyncResult(
+                task, outcome, ResultContext.forSync(99L, BatchTriggerSource.ADMIN));
+
+        assertThat(result).isInstanceOf(EvaluationResult.Scored.class);
+        verify(briefingEvaluationService, never()).writeFromBatch(any(), any());
+        verify(jobRunService).logAnthropicApiCall(
+                eq(99L), eq(8500L), eq(200),
+                eq(null), eq(true), eq(null),
+                eq(EvaluationModel.HAIKU), any(TokenUsage.class),
+                eq(false),
+                eq(DATE), eq(SUNRISE));
+    }
+
+    @Test
     @DisplayName("handleSyncResult: failure → Errored + api_call_log error row, no cache write")
     void handleSyncResult_failure_returnsErroredAndSkipsCache() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
                 "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
 
@@ -332,7 +361,8 @@ class ForecastResultHandlerTest {
     void handleSyncResult_parseError_returnsErrored() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
                 "garbage", new TokenUsage(0, 0, 0, 0), EvaluationModel.HAIKU, 1500);
         when(parsingStrategy.parseEvaluation(outcome.rawText(), objectMapper))
@@ -352,7 +382,8 @@ class ForecastResultHandlerTest {
     void handleSyncResult_nullJobRun_skipsLogStillWritesCache() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
+                location, DATE, SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.success(
                 "{\"rating\":5,\"fiery_sky\":80,\"golden_hour\":75,\"summary\":\"OK\"}",
                 new TokenUsage(500, 200, 0, 1000),

@@ -130,10 +130,12 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric());
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric());
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         when(forecastTaskCollector.collectScheduledBatches())
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
@@ -166,7 +168,8 @@ class ScheduledBatchEvaluationServiceTest {
         LocationEntity location = buildLocation("Durham UK");
         EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
                 location, TEST_DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, buildAtmospheric());
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
         when(forecastTaskCollector.collectRegionFilteredBatches(any()))
                 .thenReturn(new RegionFilteredBatchTasks(
                         List.of(inlandTask), List.of()));

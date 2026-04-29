@@ -56,19 +56,38 @@ public sealed interface EvaluationTask
      * <p>Maps 1:1 to a single Anthropic Batch API request; the resulting
      * {@code customId} is built via {@link CustomIdFactory#forForecast}.
      *
-     * @param location   target location entity
-     * @param date       evaluation date
-     * @param targetType SUNRISE / SUNSET / HOURLY
-     * @param model      Claude model to use
-     * @param data       fully prepared atmospheric data (weather + cloud + tide + surge etc.)
+     * @param location    target location entity
+     * @param date        evaluation date
+     * @param targetType  SUNRISE / SUNSET / HOURLY
+     * @param model       Claude model to use
+     * @param data        fully prepared atmospheric data (weather + cloud + tide + surge etc.)
+     * @param writeTarget where the engine should write the parsed result
+     *                    ({@link WriteTarget#NONE} → caller owns persistence;
+     *                    {@link WriteTarget#BRIEFING_CACHE} → engine writes
+     *                    {@code cached_evaluation} via the result handler)
      */
     record Forecast(
             LocationEntity location,
             LocalDate date,
             TargetType targetType,
             EvaluationModel model,
-            AtmosphericData data
+            AtmosphericData data,
+            WriteTarget writeTarget
     ) implements EvaluationTask {
+
+        /**
+         * Engine-side persistence dispatch for forecast tasks.
+         *
+         * <p>Consulted by {@link ForecastResultHandler#handleSyncResult} on the sync
+         * path. The batch path always treats results as {@link #BRIEFING_CACHE}
+         * (region-aggregated cache writes) regardless of this field.
+         */
+        public enum WriteTarget {
+            /** Engine returns parsed result; caller persists separately. */
+            NONE,
+            /** Engine writes {@code cached_evaluation} via the result handler. */
+            BRIEFING_CACHE
+        }
 
         public Forecast {
             Objects.requireNonNull(location, "location");
@@ -80,6 +99,7 @@ public sealed interface EvaluationTask
             Objects.requireNonNull(targetType, "targetType");
             Objects.requireNonNull(model, "model");
             Objects.requireNonNull(data, "data");
+            Objects.requireNonNull(writeTarget, "writeTarget");
         }
 
         @Override

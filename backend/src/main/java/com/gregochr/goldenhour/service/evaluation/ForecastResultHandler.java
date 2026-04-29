@@ -30,7 +30,11 @@ import java.util.Optional;
  *       {@code briefingEvaluationService.writeFromBatch} call.</li>
  *   <li>{@link #handleSyncResult} — invoked by {@link EvaluationServiceImpl#evaluateNow}
  *       for forecast tasks; writes {@code api_call_log} (with {@code is_batch=false})
- *       and {@code cached_evaluation} atomically.</li>
+ *       unconditionally, and writes {@code cached_evaluation} only when the task's
+ *       {@link EvaluationTask.Forecast#writeTarget()} is
+ *       {@link EvaluationTask.Forecast.WriteTarget#BRIEFING_CACHE}. Tasks with
+ *       {@link EvaluationTask.Forecast.WriteTarget#NONE} skip the cache write so the
+ *       caller can manage its own persistence (e.g. {@code forecast_evaluation}).</li>
  * </ul>
  *
  * <p>Wraps the same {@link RatingValidator} call and the same
@@ -204,8 +208,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary());
 
         persistSyncLog(context, outcome, task);
-        String cacheKey = CacheKeyFactory.build(regionName, task.date(), task.targetType());
-        briefingEvaluationService.writeFromBatch(cacheKey, List.of(result));
+        if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
+            String cacheKey = CacheKeyFactory.build(regionName, task.date(), task.targetType());
+            briefingEvaluationService.writeFromBatch(cacheKey, List.of(result));
+        }
 
         return new EvaluationResult.Scored(eval);
     }

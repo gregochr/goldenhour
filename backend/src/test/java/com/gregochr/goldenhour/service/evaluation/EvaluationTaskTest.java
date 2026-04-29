@@ -46,13 +46,16 @@ class EvaluationTaskTest {
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
                 persistedLocation(42L, "Castlerigg"),
                 DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, ATMOSPHERIC);
+                EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
 
         assertThat(task.location().getId()).isEqualTo(42L);
         assertThat(task.date()).isEqualTo(DATE);
         assertThat(task.targetType()).isEqualTo(TargetType.SUNRISE);
         assertThat(task.model()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(task.data()).isSameAs(ATMOSPHERIC);
+        assertThat(task.writeTarget())
+                .isEqualTo(EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
     }
 
     @Test
@@ -60,7 +63,8 @@ class EvaluationTaskTest {
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
                 persistedLocation(7L, "Bamburgh"),
                 DATE, TargetType.SUNSET,
-                EvaluationModel.SONNET, ATMOSPHERIC);
+                EvaluationModel.SONNET, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
 
         assertThat(task.taskKey()).isEqualTo("7/2026-04-16/SUNSET");
     }
@@ -72,7 +76,8 @@ class EvaluationTaskTest {
 
         assertThatIllegalArgumentException().isThrownBy(() -> new EvaluationTask.Forecast(
                 unsaved, DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, ATMOSPHERIC))
+                EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE))
                 .withMessageContaining("non-null id");
     }
 
@@ -81,15 +86,35 @@ class EvaluationTaskTest {
         LocationEntity loc = persistedLocation(42L, "Castlerigg");
 
         assertThatNullPointerException().isThrownBy(() -> new EvaluationTask.Forecast(
-                null, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC));
+                null, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
         assertThatNullPointerException().isThrownBy(() -> new EvaluationTask.Forecast(
-                loc, null, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC));
+                loc, null, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
         assertThatNullPointerException().isThrownBy(() -> new EvaluationTask.Forecast(
-                loc, DATE, null, EvaluationModel.HAIKU, ATMOSPHERIC));
+                loc, DATE, null, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
         assertThatNullPointerException().isThrownBy(() -> new EvaluationTask.Forecast(
-                loc, DATE, TargetType.SUNRISE, null, ATMOSPHERIC));
+                loc, DATE, TargetType.SUNRISE, null, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
         assertThatNullPointerException().isThrownBy(() -> new EvaluationTask.Forecast(
-                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, null));
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, null,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
+        assertThatNullPointerException().isThrownBy(() -> new EvaluationTask.Forecast(
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                null));
+    }
+
+    @Test
+    void forecastTaskCarriesNoneWriteTargetWhenSpecified() {
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                persistedLocation(42L, "Castlerigg"),
+                DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.NONE);
+
+        assertThat(task.writeTarget())
+                .isEqualTo(EvaluationTask.Forecast.WriteTarget.NONE);
     }
 
     @Test
@@ -97,7 +122,8 @@ class EvaluationTaskTest {
         LocationEntity loc = persistedLocation(42L, "Castlerigg");
         EvaluationTask.Forecast task = new EvaluationTask.Forecast(
                 loc, DATE, TargetType.SUNRISE,
-                EvaluationModel.HAIKU, ATMOSPHERIC);
+                EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
 
         String customId = CustomIdFactory.forForecast(
                 task.location().getId(), task.date(), task.targetType());

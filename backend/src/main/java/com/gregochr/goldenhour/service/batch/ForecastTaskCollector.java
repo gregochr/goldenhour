@@ -264,7 +264,8 @@ public class ForecastTaskCollector {
                 EvaluationModel model = isNearTerm ? nearTermModel : farTermModel;
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
-                        model, preEval.atmosphericData());
+                        model, preEval.atmosphericData(),
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
 
@@ -384,7 +385,8 @@ public class ForecastTaskCollector {
                 }
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
-                        model, preEval.atmosphericData());
+                        model, preEval.atmosphericData(),
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
                 if (preEval.atmosphericData().tide() != null) {
                     coastal.add(eval);
                 } else {

@@ -476,7 +476,8 @@ class EvaluationServiceImplTest {
         region.setName(regionName);
         loc.setRegion(region);
         return new EvaluationTask.Forecast(
-                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC);
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
     }
 
     private EvaluationTask.Aurora auroraTask(AlertLevel level) {
