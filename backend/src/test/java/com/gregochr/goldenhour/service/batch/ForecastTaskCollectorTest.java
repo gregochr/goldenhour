@@ -23,7 +23,6 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -31,6 +30,7 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -93,7 +93,7 @@ class ForecastTaskCollectorTest {
     @Mock
     private FreshnessResolver freshnessResolver;
     @Mock
-    private ForecastCommandExecutor forecastCommandExecutor;
+    private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private ForecastTaskCollector collector;
 
@@ -103,7 +103,7 @@ class ForecastTaskCollectorTest {
                 locationService, briefingService, briefingEvaluationService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
-                forecastCommandExecutor, MIN_PREFETCH_RATIO);
+                stabilitySnapshotProvider, MIN_PREFETCH_RATIO);
         // Default freshness threshold (matches UNSETTLED-equivalent default in legacy code)
         lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
     }

@@ -30,7 +30,7 @@ class StabilityControllerTest extends AbstractControllerTest {
     @DisplayName("GET /api/admin/stability/summary returns 200 with summary when snapshot exists")
     void getSummary_returnsSnapshot() throws Exception {
         StabilitySummaryResponse summary = buildSummary();
-        when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+        when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
 
         mockMvc.perform(get("/api/admin/stability/summary"))
                 .andExpect(status().isOk())
@@ -48,7 +48,7 @@ class StabilityControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/admin/stability/summary returns 204 when no run has completed")
     void getSummary_returns204WhenNoSnapshot() throws Exception {
-        when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+        when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
 
         mockMvc.perform(get("/api/admin/stability/summary"))
                 .andExpect(status().isNoContent());

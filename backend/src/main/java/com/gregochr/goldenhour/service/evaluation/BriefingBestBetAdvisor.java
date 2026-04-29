@@ -29,7 +29,7 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -310,7 +310,7 @@ public class BriefingBestBetAdvisor {
     private final JobRunService jobRunService;
     private final ModelSelectionService modelSelectionService;
     private final AuroraStateCache auroraStateCache;
-    private final ForecastCommandExecutor forecastCommandExecutor;
+    private final StabilitySnapshotProvider stabilitySnapshotProvider;
     private final BriefingEvaluationService briefingEvaluationService;
 
     /**
@@ -321,21 +321,21 @@ public class BriefingBestBetAdvisor {
      * @param jobRunService              service for logging the API call in job run metrics
      * @param modelSelectionService      service for resolving the active Claude model
      * @param auroraStateCache           read-only access to the current aurora alert state
-     * @param forecastCommandExecutor    provides the latest stability summary for region rollup
+     * @param stabilitySnapshotProvider  provides the latest stability summary for region rollup
      * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
      */
     public BriefingBestBetAdvisor(AnthropicApiClient anthropicApiClient,
             ObjectMapper objectMapper, JobRunService jobRunService,
             ModelSelectionService modelSelectionService,
             AuroraStateCache auroraStateCache,
-            ForecastCommandExecutor forecastCommandExecutor,
+            StabilitySnapshotProvider stabilitySnapshotProvider,
             @Lazy BriefingEvaluationService briefingEvaluationService) {
         this.anthropicApiClient = anthropicApiClient;
         this.objectMapper = objectMapper;
         this.jobRunService = jobRunService;
         this.modelSelectionService = modelSelectionService;
         this.auroraStateCache = auroraStateCache;
-        this.forecastCommandExecutor = forecastCommandExecutor;
+        this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.briefingEvaluationService = briefingEvaluationService;
     }
 
@@ -817,7 +817,7 @@ public class BriefingBestBetAdvisor {
      * in the given region. If stability data is unavailable, the field is omitted.
      */
     private void appendStabilityToRegion(ObjectNode regionNode, BriefingRegion region) {
-        StabilitySummaryResponse summary = forecastCommandExecutor.getLatestStabilitySummary();
+        StabilitySummaryResponse summary = stabilitySnapshotProvider.getLatestStabilitySummary();
         if (summary == null || summary.cells().isEmpty()) {
             return;
         }

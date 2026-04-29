@@ -37,7 +37,7 @@ class BriefingEvaluationServiceCacheFreshnessTest {
     @Mock private EvaluationDeltaLogRepository deltaLogRepository;
     @Mock private AnthropicClient anthropicClient;
     @Mock private FreshnessResolver freshnessResolver;
-    @Mock private ForecastCommandExecutor forecastCommandExecutor;
+    @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private BriefingEvaluationService service;
 
@@ -48,7 +48,7 @@ class BriefingEvaluationServiceCacheFreshnessTest {
                 modelSelectionService, jobRunService, batchRepository,
                 cachedEvaluationRepository, deltaLogRepository,
                 anthropicClient, new ObjectMapper(),
-                freshnessResolver, forecastCommandExecutor);
+                freshnessResolver, stabilitySnapshotProvider);
     }
 
     /**

@@ -84,7 +84,7 @@ class BriefingEvaluationServiceTest {
     @Mock
     private FreshnessResolver freshnessResolver;
     @Mock
-    private ForecastCommandExecutor forecastCommandExecutor;
+    private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -100,7 +100,7 @@ class BriefingEvaluationServiceTest {
                 modelSelectionService, jobRunService, batchRepository,
                 cachedEvaluationRepository, deltaLogRepository,
                 anthropicClient, objectMapper,
-                freshnessResolver, forecastCommandExecutor);
+                freshnessResolver, stabilitySnapshotProvider);
         // Default: all locations are colour locations
         org.mockito.Mockito.lenient().when(briefingService.isColourLocation(any())).thenReturn(true);
         // Default: no outstanding batches

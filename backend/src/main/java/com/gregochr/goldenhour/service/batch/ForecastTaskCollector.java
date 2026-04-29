@@ -19,7 +19,6 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -27,6 +26,7 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.slf4j.Logger;
@@ -101,7 +101,7 @@ public class ForecastTaskCollector {
     private final OpenMeteoService openMeteoService;
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
-    private final ForecastCommandExecutor forecastCommandExecutor;
+    private final StabilitySnapshotProvider stabilitySnapshotProvider;
 
     /** Minimum ratio of successful weather pre-fetches to proceed (scheduled path only). */
     private final double minPrefetchSuccessRatio;
@@ -118,7 +118,7 @@ public class ForecastTaskCollector {
      * @param openMeteoService          bulk weather + cloud-point pre-fetch
      * @param solarService              solar azimuth and event time helpers
      * @param freshnessResolver         per-stability cache freshness thresholds
-     * @param forecastCommandExecutor   provides the latest stability snapshot
+     * @param stabilitySnapshotProvider provides the latest stability snapshot
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      */
     public ForecastTaskCollector(LocationService locationService,
@@ -130,7 +130,7 @@ public class ForecastTaskCollector {
             OpenMeteoService openMeteoService,
             SolarService solarService,
             FreshnessResolver freshnessResolver,
-            ForecastCommandExecutor forecastCommandExecutor,
+            StabilitySnapshotProvider stabilitySnapshotProvider,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio) {
         this.locationService = locationService;
@@ -142,7 +142,7 @@ public class ForecastTaskCollector {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
-        this.forecastCommandExecutor = forecastCommandExecutor;
+        this.stabilitySnapshotProvider = stabilitySnapshotProvider;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
     }
 
@@ -607,7 +607,7 @@ public class ForecastTaskCollector {
     }
 
     private Map<String, ForecastStability> buildStabilityLookup() {
-        StabilitySummaryResponse snapshot = forecastCommandExecutor.getLatestStabilitySummary();
+        StabilitySummaryResponse snapshot = stabilitySnapshotProvider.getLatestStabilitySummary();
         if (snapshot == null || snapshot.cells() == null) {
             LOG.warn("[BATCH DIAG] Stability snapshot unavailable — no snapshot in memory or DB, "
                     + "all regions treated as UNSETTLED ({}h threshold)",

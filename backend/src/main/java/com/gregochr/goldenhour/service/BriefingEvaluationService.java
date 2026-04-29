@@ -78,7 +78,7 @@ public class BriefingEvaluationService {
     private final AnthropicClient anthropicClient;
     private final ObjectMapper objectMapper;
     private final FreshnessResolver freshnessResolver;
-    private final ForecastCommandExecutor forecastCommandExecutor;
+    private final StabilitySnapshotProvider stabilitySnapshotProvider;
 
     /** Outer key: "regionName|date|targetType", value: cached entry with results + timestamp. */
     private final ConcurrentHashMap<String, CachedEvaluation> cache = new ConcurrentHashMap<>();
@@ -106,7 +106,7 @@ public class BriefingEvaluationService {
      * @param anthropicClient            raw SDK client for cancelling batch API jobs
      * @param objectMapper               Jackson mapper for JSON serialisation
      * @param freshnessResolver          resolves per-stability cache freshness thresholds
-     * @param forecastCommandExecutor    provides the latest stability snapshot for delta logging
+     * @param stabilitySnapshotProvider  provides the latest stability snapshot for delta logging
      */
     public BriefingEvaluationService(LocationService locationService,
             BriefingService briefingService,
@@ -119,7 +119,7 @@ public class BriefingEvaluationService {
             AnthropicClient anthropicClient,
             ObjectMapper objectMapper,
             FreshnessResolver freshnessResolver,
-            ForecastCommandExecutor forecastCommandExecutor) {
+            StabilitySnapshotProvider stabilitySnapshotProvider) {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.forecastService = forecastService;
@@ -131,7 +131,7 @@ public class BriefingEvaluationService {
         this.anthropicClient = anthropicClient;
         this.objectMapper = objectMapper;
         this.freshnessResolver = freshnessResolver;
-        this.forecastCommandExecutor = forecastCommandExecutor;
+        this.stabilitySnapshotProvider = stabilitySnapshotProvider;
     }
 
     /**
@@ -399,7 +399,7 @@ public class BriefingEvaluationService {
      * Builds a location-name → stability lookup from the latest snapshot.
      */
     private Map<String, ForecastStability> buildStabilityLookup() {
-        StabilitySummaryResponse snapshot = forecastCommandExecutor.getLatestStabilitySummary();
+        StabilitySummaryResponse snapshot = stabilitySnapshotProvider.getLatestStabilitySummary();
         if (snapshot == null || snapshot.cells() == null) {
             return Map.of();
         }

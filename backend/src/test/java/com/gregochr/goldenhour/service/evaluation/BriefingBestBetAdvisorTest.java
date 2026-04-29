@@ -25,7 +25,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -67,7 +67,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private JobRunService jobRunService;
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
-    @Mock private ForecastCommandExecutor forecastCommandExecutor;
+    @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
     @Mock private BriefingEvaluationService briefingEvaluationService;
 
     private BriefingBestBetAdvisor advisor;
@@ -77,7 +77,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                forecastCommandExecutor, briefingEvaluationService);
+                stabilitySnapshotProvider, briefingEvaluationService);
     }
 
     // ── parseBestBets ──
@@ -1853,7 +1853,7 @@ class BriefingBestBetAdvisorTest {
                                     "54.5000,-1.8750", 54.50, -1.875,
                                     ForecastStability.SETTLED, "Stable ridge",
                                     3, List.of("Loc2"))));
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -1882,7 +1882,7 @@ class BriefingBestBetAdvisorTest {
                                     "54.5000,-1.8750", 54.50, -1.875,
                                     ForecastStability.TRANSITIONAL, "Front approaching",
                                     1, List.of("Loc1", "Loc2"))));
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -1918,7 +1918,7 @@ class BriefingBestBetAdvisorTest {
                                     "54.2500,-2.0000", 54.25, -2.0,
                                     ForecastStability.UNSETTLED, "Active frontal zone",
                                     0, List.of("Loc2"))));
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -1936,7 +1936,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("No stability data → stability field omitted from JSON")
         void noStabilityData_fieldOmitted() throws Exception {
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(auroraStateCache.isActive()).thenReturn(false);
 
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);
@@ -1962,7 +1962,7 @@ class BriefingBestBetAdvisorTest {
                                     "51.5000,-0.1250", 51.50, -0.125,
                                     ForecastStability.UNSETTLED, "Active frontal zone",
                                     0, List.of("UnrelatedLocation"))));
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(summary);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(summary);
             when(auroraStateCache.isActive()).thenReturn(false);
 
             LocalDate tomorrow = LocalDate.now(ZoneOffset.UTC).plusDays(1);

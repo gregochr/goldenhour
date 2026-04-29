@@ -20,7 +20,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
+import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -108,7 +108,7 @@ class BestBetAuroraPromptRegressionTest {
         when(mss.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(EvaluationModel.OPUS);
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
-                mock(ForecastCommandExecutor.class),
+                mock(StabilitySnapshotProvider.class),
                 mock(BriefingEvaluationService.class));
 
         BriefingBestBetAdvisor.RollupResult rollup =
@@ -172,7 +172,7 @@ class BestBetAuroraPromptRegressionTest {
         when(mss.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(EvaluationModel.OPUS);
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
-                mock(ForecastCommandExecutor.class),
+                mock(StabilitySnapshotProvider.class),
                 mock(BriefingEvaluationService.class));
 
         BriefingBestBetAdvisor.RollupResult rollup =
@@ -216,7 +216,7 @@ class BestBetAuroraPromptRegressionTest {
         when(mss.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(EvaluationModel.OPUS);
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
-                mock(ForecastCommandExecutor.class),
+                mock(StabilitySnapshotProvider.class),
                 mock(BriefingEvaluationService.class));
 
         BriefingBestBetAdvisor.RollupResult rollup =

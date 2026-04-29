@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
-import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -21,6 +20,7 @@ import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
+import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -61,7 +61,7 @@ class CollectForecastTasksCachedGateTest {
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private OpenMeteoService openMeteoService;
     @Mock private SolarService solarService;
-    @Mock private ForecastCommandExecutor forecastCommandExecutor;
+    @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private ForecastTaskCollector collector;
 
@@ -81,7 +81,7 @@ class CollectForecastTasksCachedGateTest {
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
-                freshnessResolver, forecastCommandExecutor, 0.5);
+                freshnessResolver, stabilitySnapshotProvider, 0.5);
     }
 
     @SuppressWarnings("unchecked")
@@ -134,7 +134,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("SETTLED cell with 30h-old cache entry — skipped (within 36h threshold)")
         void settledWithin36hSkipped() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary())
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(36)))).thenReturn(true);
@@ -149,7 +149,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("SETTLED cell with 40h-old cache entry — candidate (beyond 36h threshold)")
         void settledBeyond36hRefreshed() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary())
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.SETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(36)))).thenReturn(false);
@@ -166,7 +166,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("UNSETTLED cell with 6h-old cache entry — candidate (beyond 4h threshold)")
         void unsettledBeyond4hRefreshed() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary())
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(false);
@@ -183,7 +183,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("UNSETTLED cell with 3h-old cache entry — skipped (within 4h threshold)")
         void unsettledWithin4hSkipped() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary())
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.UNSETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(true);
@@ -198,7 +198,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("No stability snapshot — treated as UNSETTLED (4h threshold)")
         void noSnapshotFallsBackToUnsettled() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(false);
             when(locationService.findAllEnabled())
@@ -215,7 +215,7 @@ class CollectForecastTasksCachedGateTest {
         void unknownLocationFallsBackToUnsettled() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
             // Snapshot has a different location
-            when(forecastCommandExecutor.getLatestStabilitySummary())
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("OtherPlace", ForecastStability.SETTLED));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(4)))).thenReturn(true);
@@ -230,7 +230,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("TRANSITIONAL cell — uses 12h threshold")
         void transitionalUses12hThreshold() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary())
+            when(stabilitySnapshotProvider.getLatestStabilitySummary())
                     .thenReturn(snapshotWith("Bamburgh", ForecastStability.TRANSITIONAL));
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     eq(Duration.ofHours(12)))).thenReturn(true);
@@ -250,7 +250,7 @@ class CollectForecastTasksCachedGateTest {
         @DisplayName("absent cache entry falls through to other filters")
         void absentCacheEntryPassesThrough() throws Exception {
             String cacheKey = "North East|" + tomorrow + "|SUNRISE";
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(briefingEvaluationService.hasFreshEvaluation(eq(cacheKey),
                     any(Duration.class))).thenReturn(false);
             when(locationService.findAllEnabled())

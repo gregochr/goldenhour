@@ -48,7 +48,7 @@ class EvaluationDeltaLogTest {
     @Mock private EvaluationDeltaLogRepository deltaLogRepository;
     @Mock private AnthropicClient anthropicClient;
     @Mock private FreshnessResolver freshnessResolver;
-    @Mock private ForecastCommandExecutor forecastCommandExecutor;
+    @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
     private BriefingEvaluationService service;
 
@@ -59,7 +59,7 @@ class EvaluationDeltaLogTest {
                 modelSelectionService, jobRunService, batchRepository,
                 cachedEvaluationRepository, deltaLogRepository,
                 anthropicClient, new ObjectMapper(),
-                freshnessResolver, forecastCommandExecutor);
+                freshnessResolver, stabilitySnapshotProvider);
     }
 
     @SuppressWarnings("unchecked")
@@ -99,7 +99,7 @@ class EvaluationDeltaLogTest {
             Instant oldTime = Instant.now().minus(Duration.ofHours(10));
             injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 3));
 
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(
                     new StabilitySummaryResponse(Instant.now(), 1,
                             Map.of(ForecastStability.TRANSITIONAL, 1L),
                             List.of(new StabilitySummaryResponse.GridCellDetail(
@@ -144,7 +144,7 @@ class EvaluationDeltaLogTest {
             Instant oldTime = Instant.now().minus(Duration.ofHours(5));
             injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 3));
 
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
                     .thenReturn(Duration.ofHours(4));
             when(deltaLogRepository.save(any())).thenThrow(
@@ -164,7 +164,7 @@ class EvaluationDeltaLogTest {
             Instant oldTime = Instant.now().minus(Duration.ofHours(6));
             injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 3));
 
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
                     .thenReturn(Duration.ofHours(4));
 
@@ -189,7 +189,7 @@ class EvaluationDeltaLogTest {
             Instant oldTime = Instant.now().minus(Duration.ofHours(8));
             injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 4));
 
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(null);
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
             when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED))
                     .thenReturn(Duration.ofHours(4));
 
@@ -214,7 +214,7 @@ class EvaluationDeltaLogTest {
             Instant oldTime = Instant.now().minus(Duration.ofHours(10));
             injectCacheEntry(cacheKey, oldTime, result("Bamburgh", 3));
 
-            when(forecastCommandExecutor.getLatestStabilitySummary()).thenReturn(
+            when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(
                     new StabilitySummaryResponse(Instant.now(), 1,
                             Map.of(ForecastStability.SETTLED, 1L),
                             List.of(new StabilitySummaryResponse.GridCellDetail(
