@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -88,7 +89,7 @@ public class ForecastService {
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
-            com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService,
+            @Lazy com.gregochr.goldenhour.service.evaluation.EvaluationService engineEvaluationService,
             ForecastEvaluationRepository repository, EmailNotificationService emailService,
             PushoverNotificationService pushoverService, MacOsToastNotificationService toastService,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
