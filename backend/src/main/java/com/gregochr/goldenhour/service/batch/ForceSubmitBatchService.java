@@ -3,11 +3,9 @@ package com.gregochr.goldenhour.service.batch;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.TextBlock;
-import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -18,8 +16,9 @@ import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.evaluation.BatchRequestFactory;
-import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
+import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
+import com.gregochr.goldenhour.service.evaluation.EvaluationService;
+import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -42,38 +41,32 @@ public class ForceSubmitBatchService {
     private final LocationService locationService;
     private final ForecastService forecastService;
     private final ModelSelectionService modelSelectionService;
-    private final BatchRequestFactory batchRequestFactory;
-    private final BatchSubmissionService batchSubmissionService;
-
-    /** Max tokens used historically by force/JFDI paths — preserved verbatim. */
-    private static final int FORCE_JFDI_MAX_TOKENS = 512;
+    private final EvaluationService evaluationService;
 
     /**
      * Constructs the force-submit batch service.
      *
-     * @param anthropicClient         raw Anthropic SDK client (still used by {@link #getResult}
-     *                                which bypasses {@code BatchPollingService} — see Pass 2.5)
-     * @param regionRepository        repository for looking up regions by ID
-     * @param locationService         service for retrieving enabled locations
-     * @param forecastService         service for weather fetch and data assembly
-     * @param modelSelectionService   resolves the active Claude model
-     * @param batchRequestFactory     builds forecast batch requests (builder selection + cache control)
-     * @param batchSubmissionService  unified Anthropic batch submitter
+     * @param anthropicClient        raw Anthropic SDK client (still used by {@link #getResult}
+     *                               which bypasses {@code BatchPollingService} — see Pass 2.5)
+     * @param regionRepository       repository for looking up regions by ID
+     * @param locationService        service for retrieving enabled locations
+     * @param forecastService        service for weather fetch and data assembly
+     * @param modelSelectionService  resolves the active Claude model
+     * @param evaluationService      Pass 3.2 engine — submits forecast tasks via the
+     *                               canonical batch path (request build + observability)
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
             RegionRepository regionRepository,
             LocationService locationService,
             ForecastService forecastService,
             ModelSelectionService modelSelectionService,
-            BatchRequestFactory batchRequestFactory,
-            BatchSubmissionService batchSubmissionService) {
+            EvaluationService evaluationService) {
         this.anthropicClient = anthropicClient;
         this.regionRepository = regionRepository;
         this.locationService = locationService;
         this.forecastService = forecastService;
         this.modelSelectionService = modelSelectionService;
-        this.batchRequestFactory = batchRequestFactory;
-        this.batchSubmissionService = batchSubmissionService;
+        this.evaluationService = evaluationService;
     }
 
     /**
@@ -117,7 +110,7 @@ public class ForceSubmitBatchService {
                 today.plusDays(2), today.plusDays(3));
         TargetType[] events = {TargetType.SUNRISE, TargetType.SUNSET};
 
-        List<BatchCreateParams.Request> requests = new ArrayList<>();
+        List<EvaluationTask.Forecast> tasks = new ArrayList<>();
         int failedCount = 0;
 
         for (LocationEntity location : locations) {
@@ -134,12 +127,9 @@ public class ForceSubmitBatchService {
                             continue;
                         }
 
-                        String customId = CustomIdFactory.forJfdi(
-                                location.getId(), date, event);
-                        BatchCreateParams.Request request = batchRequestFactory.buildForecastRequest(
-                                customId, model, data, FORCE_JFDI_MAX_TOKENS);
-
-                        requests.add(request);
+                        tasks.add(new EvaluationTask.Forecast(
+                                location, date, event, model, data,
+                                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
                     } catch (Exception e) {
                         LOG.warn("[JFDI BATCH] Failed data assembly for {} {} {}: {}",
                                 location.getName(), date, event, e.getMessage());
@@ -149,17 +139,20 @@ public class ForceSubmitBatchService {
             }
         }
 
-        if (requests.isEmpty()) {
+        if (tasks.isEmpty()) {
             LOG.warn("[JFDI BATCH] No requests built (all {} failed)", failedCount);
             return null;
         }
 
-        LOG.info("[JFDI BATCH] Submitting {} requests ({} locations x {} dates x 2 events, "
+        LOG.info("[JFDI BATCH] Submitting {} tasks ({} locations x {} dates x 2 events, "
                         + "{} failed)",
-                requests.size(), locations.size(), dates.size(), failedCount);
+                tasks.size(), locations.size(), dates.size(), failedCount);
 
-        return batchSubmissionService.submit(requests, BatchType.FORECAST,
-                BatchTriggerSource.JFDI, "[JFDI BATCH]");
+        EvaluationHandle handle = evaluationService.submit(tasks, BatchTriggerSource.JFDI);
+        if (handle == null || handle.batchId() == null) {
+            return null;
+        }
+        return new BatchSubmitResult(handle.batchId(), handle.submittedCount());
     }
 
     /**
@@ -188,7 +181,7 @@ public class ForceSubmitBatchService {
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);
 
-        List<BatchCreateParams.Request> requests = new ArrayList<>();
+        List<EvaluationTask.Forecast> tasks = new ArrayList<>();
         List<String> failedLocations = new ArrayList<>();
 
         for (LocationEntity location : locations) {
@@ -204,12 +197,9 @@ public class ForceSubmitBatchService {
                     continue;
                 }
 
-                String customId = CustomIdFactory.forForceSubmit(
-                        region.getName(), location.getId(), date, event);
-                BatchCreateParams.Request request = batchRequestFactory.buildForecastRequest(
-                        customId, model, data, FORCE_JFDI_MAX_TOKENS);
-
-                requests.add(request);
+                tasks.add(new EvaluationTask.Forecast(
+                        location, date, event, model, data,
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
                 LOG.info("[FORCE BATCH] INCLUDE {} | date={} event={}",
                         location.getName(), date, event);
 
@@ -220,22 +210,20 @@ public class ForceSubmitBatchService {
             }
         }
 
-        if (requests.isEmpty()) {
+        if (tasks.isEmpty()) {
             return new ForceSubmitResult(null, 0, null,
                     locations.size(), 0, locations.size(), failedLocations);
         }
 
-        BatchSubmitResult submission = batchSubmissionService.submit(requests,
-                BatchType.FORECAST, BatchTriggerSource.FORCE,
-                "[FORCE BATCH] region=" + region.getName());
-        if (submission == null) {
+        EvaluationHandle handle = evaluationService.submit(tasks, BatchTriggerSource.FORCE);
+        if (handle == null || handle.batchId() == null) {
             return new ForceSubmitResult(null, 0, "failed",
-                    locations.size(), requests.size(),
+                    locations.size(), tasks.size(),
                     failedLocations.size(), failedLocations);
         }
 
-        return new ForceSubmitResult(submission.batchId(), submission.requestCount(),
-                "in_progress", locations.size(), submission.requestCount(),
+        return new ForceSubmitResult(handle.batchId(), handle.submittedCount(),
+                "in_progress", locations.size(), handle.submittedCount(),
                 failedLocations.size(), failedLocations);
     }
 
