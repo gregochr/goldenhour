@@ -52,3 +52,22 @@ hs_err_pid*.log
 backend/.claude/
 backend/.m2/repository
 backend/.m2/settings.xml
+
+# macOS
+.DS_Store
+
+# IDE auth files
+.accessToken
+
+# Frontend local env (NEVER commit)
+frontend/.env.local
+
+# Playwright test output
+test-results/
+
+# Stale local H2 DB (Postgres is the real DB)
+frontend/data/
+
+# Stray Maven artifacts from wrong-cwd invocations
+/backend/main/
+/com/
