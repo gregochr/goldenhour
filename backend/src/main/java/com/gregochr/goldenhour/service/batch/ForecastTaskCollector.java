@@ -35,17 +35,21 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Collects forecast evaluation tasks from the cached daily briefing and applies
@@ -221,11 +225,13 @@ public class ForecastTaskCollector {
             cloudCache = null;
         }
 
+        Map<String, GridCellStabilityResult> stabilityByCell =
+                classifyGridCellsAndPublishSnapshot(candidates, prefetchedWeather);
+
         List<EvaluationTask.Forecast> nearInland = new ArrayList<>();
         List<EvaluationTask.Forecast> nearCoastal = new ArrayList<>();
         List<EvaluationTask.Forecast> farInland = new ArrayList<>();
         List<EvaluationTask.Forecast> farCoastal = new ArrayList<>();
-        Map<String, GridCellStabilityResult> stabilityByCell = new HashMap<>();
 
         int skippedTriage = 0;
         int skippedStability = 0;
@@ -565,6 +571,88 @@ public class ForecastTaskCollector {
         LOG.info("Forecast batch: cloud point pre-fetch — {} raw points from {} tasks",
                 allPoints.size(), candidates.size());
         return openMeteoService.prefetchCloudBatch(allPoints, null);
+    }
+
+    /**
+     * Classifies every unique grid cell touched by the candidate set, publishes the
+     * resulting snapshot via {@link StabilitySnapshotProvider#update}, and returns the
+     * classification map for reuse during the per-task triage loop.
+     *
+     * <p>This is the canonical producer of {@code stability_snapshot} rows for the
+     * overnight scheduled flow — previously written by
+     * {@code ForecastCommandExecutor.applyStabilityFilter} but stranded when that
+     * path's {@code @Scheduled} trigger was commented out during the v2.12
+     * consolidation. Without this write the reader at
+     * {@link #buildStabilityLookup()} sees nothing in memory or in the database and
+     * defaults every region to UNSETTLED, collapsing the stability gate.
+     *
+     * <p>Cells whose locations lack a grid assignment are skipped (the existing
+     * triage-loop helper handles those by returning a 1-day window). If no cells
+     * survive classification, no snapshot is published — the previously persisted
+     * snapshot remains authoritative.
+     *
+     * <p>The persist itself is best-effort: see the failure semantics in
+     * {@link StabilitySnapshotProvider}.
+     *
+     * @param candidates        surviving briefing candidates
+     * @param prefetchedWeather coord-key → prefetched forecast/air-quality result
+     * @return classification keyed by grid-cell key (empty if no cells classified)
+     */
+    private Map<String, GridCellStabilityResult> classifyGridCellsAndPublishSnapshot(
+            List<ForecastCandidate> candidates,
+            Map<String, WeatherExtractionResult> prefetchedWeather) {
+        Map<String, GridCellStabilityResult> stabilityByCell = new LinkedHashMap<>();
+        Map<String, Set<String>> locationsByCell = new LinkedHashMap<>();
+
+        for (ForecastCandidate candidate : candidates) {
+            LocationEntity loc = candidate.location();
+            if (!loc.hasGridCell()) {
+                continue;
+            }
+            String key = loc.gridCellKey();
+            stabilityByCell.computeIfAbsent(key, k -> {
+                String coordKey = OpenMeteoService.coordKey(loc.getLat(), loc.getLon());
+                WeatherExtractionResult weather = prefetchedWeather.get(coordKey);
+                OpenMeteoForecastResponse resp =
+                        weather != null ? weather.forecastResponse() : null;
+                return stabilityClassifier.classify(
+                        key, loc.getGridLat(), loc.getGridLng(),
+                        resp != null ? resp.getHourly() : null);
+            });
+            locationsByCell
+                    .computeIfAbsent(key, k -> new LinkedHashSet<>())
+                    .add(loc.getName());
+        }
+
+        if (stabilityByCell.isEmpty()) {
+            LOG.warn("[STABILITY] No grid cells classified in this batch run "
+                    + "— snapshot not written");
+            return stabilityByCell;
+        }
+
+        Map<ForecastStability, Long> countsByStability = stabilityByCell.values().stream()
+                .collect(Collectors.groupingBy(
+                        GridCellStabilityResult::stability, Collectors.counting()));
+
+        List<StabilitySummaryResponse.GridCellDetail> cellDetails =
+                stabilityByCell.values().stream()
+                        .map(r -> new StabilitySummaryResponse.GridCellDetail(
+                                r.gridCellKey(), r.gridLat(), r.gridLng(),
+                                r.stability(), r.reason(), r.evaluationWindowDays(),
+                                List.copyOf(locationsByCell.getOrDefault(
+                                        r.gridCellKey(), Set.of()))))
+                        .sorted(Comparator.comparing(
+                                StabilitySummaryResponse.GridCellDetail::gridCellKey))
+                        .toList();
+
+        StabilitySummaryResponse summary = new StabilitySummaryResponse(
+                Instant.now(), stabilityByCell.size(), countsByStability, cellDetails);
+
+        LOG.info("[STABILITY] Built snapshot for {} grid cells (counts: {})",
+                stabilityByCell.size(), countsByStability);
+        stabilitySnapshotProvider.update(summary);
+
+        return stabilityByCell;
     }
 
     private int getStabilityWindowDays(LocationEntity location, ForecastPreEvalResult preEval,

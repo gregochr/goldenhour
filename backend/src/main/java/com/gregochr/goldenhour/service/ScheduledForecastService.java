@@ -17,6 +17,24 @@ import java.util.List;
  *
  * <p>This is now a thin scheduling wrapper — all orchestration logic lives in
  * {@link ForecastCommandExecutor}.
+ *
+ * <h2>Dormant forecast methods</h2>
+ *
+ * <p>{@link #refreshExchangeRate()}, {@link #runNearTermForecasts()},
+ * {@link #runDistantForecasts()} and {@link #runWeatherForecasts()} retain
+ * their bodies but their {@code @Scheduled} annotations were commented out
+ * during the v2.12 consolidation programme in favour of the Anthropic Batch
+ * API pipeline driven by
+ * {@link com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService}.
+ * The methods are kept because admin endpoints and tests may still invoke
+ * them directly. Do not re-enable the cron triggers without also retiring
+ * the batch pipeline — running both paths would duplicate forecast spend
+ * and confuse the {@code stability_snapshot} write contract.
+ *
+ * <p>Snapshot-write responsibility (previously a side-effect of
+ * {@link ForecastCommandExecutor#applyStabilityFilter}) now sits on the
+ * batch path inside
+ * {@link com.gregochr.goldenhour.service.batch.ForecastTaskCollector}.
  */
 @Service
 public class ScheduledForecastService {
