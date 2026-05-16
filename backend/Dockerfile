@@ -18,8 +18,12 @@ RUN --mount=type=cache,target=/root/.m2 \
 # Layer 2: Copy config files and source code, then build
 COPY backend/checkstyle.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
 COPY backend/src src
+# Note: not using -o (offline). dependency:go-offline above misses some transitives
+# (e.g. org.jetbrains:annotations:13.0 via anthropic-java → kotlin-stdlib), which
+# breaks strict-offline package on a cold cache. The cache mount still gives the
+# perf benefit; we just allow online fallback for missed transitives.
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn package -DskipTests -Dspring-boot.run.profiles=prod -o
+    mvn package -DskipTests -Dspring-boot.run.profiles=prod
 
 # Runtime image
 FROM eclipse-temurin:21-jre-alpine
