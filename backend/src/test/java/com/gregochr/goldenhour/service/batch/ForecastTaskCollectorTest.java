@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -51,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -481,6 +484,210 @@ class ForecastTaskCollectorTest {
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
 
         assertThat(result.inland()).hasSize(1);
+    }
+
+    // ── Stability snapshot write ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("collectScheduledBatches: publishes stability snapshot for cells with grid cells")
+    void collectScheduledBatches_publishesStabilitySnapshot() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.SETTLED, "stable", 3));
+
+        collector.collectScheduledBatches();
+
+        ArgumentCaptor<StabilitySummaryResponse> captor =
+                ArgumentCaptor.forClass(StabilitySummaryResponse.class);
+        verify(stabilitySnapshotProvider).update(captor.capture());
+        StabilitySummaryResponse summary = captor.getValue();
+        assertThat(summary.totalGridCells()).isEqualTo(1);
+        assertThat(summary.cells()).hasSize(1);
+        StabilitySummaryResponse.GridCellDetail cell = summary.cells().get(0);
+        assertThat(cell.gridCellKey()).isEqualTo(loc.gridCellKey());
+        assertThat(cell.stability()).isEqualTo(ForecastStability.SETTLED);
+        assertThat(cell.locationNames()).containsExactly("Durham UK");
+        assertThat(summary.countsByStability())
+                .containsEntry(ForecastStability.SETTLED, 1L);
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: multiple locations sharing one grid cell → "
+            + "snapshot has single cell with both location names")
+    void collectScheduledBatches_sharedGridCell_singleCellMultipleNames() {
+        LocationEntity loc1 = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc1.setId(42L);
+        loc1.setGridLat(54.7500);
+        loc1.setGridLng(-1.6250);
+        LocationEntity loc2 = buildInlandLocation("Durham Cathedral", 54.7740, -1.5760);
+        loc2.setId(43L);
+        loc2.setGridLat(54.7500);
+        loc2.setGridLng(-1.6250);
+
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc1.getName(), loc2.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+        stubModels();
+        String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
+        String key2 = OpenMeteoService.coordKey(loc2.getLat(), loc2.getLon());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(key1, dummyExtraction(), key2, dummyExtraction()));
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc1, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc1.gridCellKey(), loc1.getGridLat(), loc1.getGridLng(),
+                        ForecastStability.TRANSITIONAL, "mixed signals", 2));
+
+        collector.collectScheduledBatches();
+
+        ArgumentCaptor<StabilitySummaryResponse> captor =
+                ArgumentCaptor.forClass(StabilitySummaryResponse.class);
+        verify(stabilitySnapshotProvider).update(captor.capture());
+        StabilitySummaryResponse summary = captor.getValue();
+        assertThat(summary.cells()).hasSize(1);
+        assertThat(summary.cells().get(0).locationNames())
+                .containsExactlyInAnyOrder("Durham UK", "Durham Cathedral");
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: classifier called once per unique grid cell, "
+            + "not per location-task")
+    void collectScheduledBatches_classifierCalledPerCellNotPerTask() {
+        LocationEntity loc1 = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc1.setId(42L);
+        loc1.setGridLat(54.7500);
+        loc1.setGridLng(-1.6250);
+        LocationEntity loc2 = buildInlandLocation("Durham Cathedral", 54.7740, -1.5760);
+        loc2.setId(43L);
+        loc2.setGridLat(54.7500);
+        loc2.setGridLng(-1.6250);
+
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc1.getName(), loc2.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+        stubModels();
+        String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
+        String key2 = OpenMeteoService.coordKey(loc2.getLat(), loc2.getLon());
+        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+                .thenReturn(Map.of(key1, dummyExtraction(), key2, dummyExtraction()));
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc1, TODAY.plusDays(1), 1));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc1.gridCellKey(), loc1.getGridLat(), loc1.getGridLng(),
+                        ForecastStability.SETTLED, "stable", 3));
+
+        collector.collectScheduledBatches();
+
+        verify(stabilityClassifier, org.mockito.Mockito.times(1))
+                .classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                        org.mockito.ArgumentMatchers.anyDouble(), any());
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: no candidates have grid cells → snapshot NOT written")
+    void collectScheduledBatches_noGridCells_snapshotNotWritten() {
+        LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
+        // Deliberately no setGridLat/setGridLng — hasGridCell() returns false
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+
+        collector.collectScheduledBatches();
+
+        verify(stabilitySnapshotProvider, never()).update(any());
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: empty briefing → snapshot NOT written")
+    void collectScheduledBatches_emptyBriefing_snapshotNotWritten() {
+        when(briefingService.getCachedBriefing()).thenReturn(null);
+
+        collector.collectScheduledBatches();
+
+        verify(stabilitySnapshotProvider, never()).update(any());
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: snapshot built BEFORE triage — includes cells "
+            + "that get triaged out")
+    void collectScheduledBatches_snapshotIncludesTriagedCells() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(1),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        // Triage rejects everything
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(triagedPreEval(loc));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.UNSETTLED, "thick cloud", 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        // Result is empty (triaged out)
+        assertThat(result.isEmpty()).isTrue();
+        // Snapshot still published — covering the triaged cell so the next run's
+        // freshness lookup knows this region is UNSETTLED.
+        ArgumentCaptor<StabilitySummaryResponse> captor =
+                ArgumentCaptor.forClass(StabilitySummaryResponse.class);
+        verify(stabilitySnapshotProvider).update(captor.capture());
+        assertThat(captor.getValue().cells()).hasSize(1);
+        assertThat(captor.getValue().cells().get(0).stability())
+                .isEqualTo(ForecastStability.UNSETTLED);
+    }
+
+    @Test
+    @DisplayName("collectRegionFilteredBatches: does NOT write snapshot (admin path)")
+    void collectRegionFilteredBatches_doesNotWriteSnapshot() {
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY,
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
+
+        collector.collectRegionFilteredBatches(List.of(1L));
+
+        verify(stabilitySnapshotProvider, never()).update(any());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
