@@ -972,39 +972,7 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
     expect(meanBadge.textContent).toContain('4.0');
   });
 
-  it('shows first sentence of summary in collapsed state', () => {
-    const days = buildDaysWithCachedScores(
-      3, 45, 60, 'Average conditions today. Cloud will build later in the afternoon.',
-    );
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    fireEvent.click(screen.getByTestId('heatmap-cell'));
-
-    // Collapsed: first sentence only (truncated)
-    const slot = screen.getByTestId('briefing-slot');
-    expect(slot.textContent).toContain('Average conditions today.');
-    // Full second sentence should NOT appear in collapsed state
-    expect(slot.textContent).not.toContain('Cloud will build');
-  });
-
-  it('shows expand button when summary exists', () => {
-    const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic light expected.');
-    renderGrid({
-      events: [{ date: DATE_1, targetType: 'SUNSET' }],
-      briefingDays: days,
-    });
-
-    fireEvent.click(screen.getByTestId('heatmap-cell'));
-
-    const toggle = screen.getByTestId('expand-toggle');
-    expect(toggle).toBeTruthy();
-    expect(toggle.textContent).toBe('+');
-  });
-
-  it('expands to show full summary and secondary scores on click', () => {
+  it('shows full summary and secondary scores by default (expanded)', () => {
     const days = buildDaysWithCachedScores(
       4, 78, 52, 'Dramatic light expected. Cloud approaching from the west.',
     );
@@ -1015,24 +983,42 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
 
     fireEvent.click(screen.getByTestId('heatmap-cell'));
 
-    const toggle = screen.getByTestId('expand-toggle');
-    fireEvent.click(toggle);
-
-    // Expanded: full summary visible
+    // Expanded by default: full summary visible
     const detail = screen.getByTestId('expanded-detail');
+    expect(detail.textContent).toContain('Dramatic light expected.');
     expect(detail.textContent).toContain('Cloud approaching from the west.');
 
     // Secondary scores visible
-    const fiery = screen.getByTestId('fiery-sky-score');
-    expect(fiery.textContent).toContain('78');
-    const golden = screen.getByTestId('golden-hour-score');
-    expect(golden.textContent).toContain('52');
+    expect(screen.getByTestId('fiery-sky-score').textContent).toContain('78');
+    expect(screen.getByTestId('golden-hour-score').textContent).toContain('52');
 
-    // Toggle shows minus
-    expect(toggle.textContent).toBe('\u2212');
+    // Toggle shows minus (already expanded)
+    expect(screen.getByTestId('expand-toggle').textContent).toBe('\u2212');
   });
 
-  it('collapses back on second click', () => {
+  it('collapses to first-sentence preview on toggle click', () => {
+    const days = buildDaysWithCachedScores(
+      3, 45, 60, 'Average conditions today. Cloud will build later in the afternoon.',
+    );
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const toggle = screen.getByTestId('expand-toggle');
+    fireEvent.click(toggle); // collapse
+
+    // Collapsed: first sentence only, no expanded-detail block
+    expect(screen.queryByTestId('expanded-detail')).toBeNull();
+    const slot = screen.getByTestId('briefing-slot');
+    expect(slot.textContent).toContain('Average conditions today.');
+    expect(slot.textContent).not.toContain('Cloud will build');
+    expect(toggle.textContent).toBe('+');
+  });
+
+  it('re-expands on second click', () => {
     const days = buildDaysWithCachedScores(4, 78, 52, 'Dramatic light.');
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
@@ -1042,11 +1028,11 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
     fireEvent.click(screen.getByTestId('heatmap-cell'));
 
     const toggle = screen.getByTestId('expand-toggle');
-    fireEvent.click(toggle); // expand
     fireEvent.click(toggle); // collapse
+    fireEvent.click(toggle); // re-expand
 
-    expect(screen.queryByTestId('expanded-detail')).toBeNull();
-    expect(toggle.textContent).toBe('+');
+    expect(screen.getByTestId('expanded-detail')).toBeTruthy();
+    expect(toggle.textContent).toBe('\u2212');
   });
 
   it('falls back to verdict pill when no Claude scores exist', () => {
@@ -1079,7 +1065,7 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
     expect(screen.queryByTestId('expand-toggle')).toBeNull();
   });
 
-  it('truncates first sentence to 100 chars with ellipsis', () => {
+  it('truncates first sentence to 100 chars with ellipsis when collapsed', () => {
     const longSentence = 'A'.repeat(120) + '.';
     const days = buildDaysWithCachedScores(3, 50, 50, longSentence);
     renderGrid({
@@ -1088,6 +1074,8 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
     });
 
     fireEvent.click(screen.getByTestId('heatmap-cell'));
+    // Collapse first \u2014 default is expanded
+    fireEvent.click(screen.getByTestId('expand-toggle'));
 
     const slot = screen.getByTestId('briefing-slot');
     // Should contain the truncation ellipsis
