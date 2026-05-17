@@ -244,7 +244,9 @@ function mergedScore(slot, sseScore) {
 }
 
 function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {
-  const [expandedRows, setExpandedRows] = useState(new Set());
+  // Track which rows are *collapsed* (not expanded) so default is expanded —
+  // any slot not in this set shows its full summary.
+  const [collapsedRows, setCollapsedRows] = useState(new Set());
   const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
   const standdownSlots = showAllLocations
     ? (slots || []).filter((s) => s.verdict === 'STANDDOWN')
@@ -280,7 +282,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
     : visible;
 
   const toggleExpand = (name) => {
-    setExpandedRows((prev) => {
+    setCollapsedRows((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -294,7 +296,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
         const drive = formatDriveDuration(driveMap.get(slot.locationName));
         const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
         const score = mergedScore(slot, scores.get(slot.locationName));
-        const expanded = expandedRows.has(slot.locationName);
+        const expanded = !collapsedRows.has(slot.locationName);
         const hasSummary = !!score?.summary;
         return (
           <div
