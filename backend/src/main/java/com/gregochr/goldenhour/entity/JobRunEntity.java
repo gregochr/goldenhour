@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.entity;
 
+import com.gregochr.goldenhour.model.BatchSummary;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -9,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -112,4 +114,12 @@ public class JobRunEntity {
     /** Child API call log entries for this job run. */
     @OneToMany(mappedBy = "jobRunId")
     private List<ApiCallLogEntity> apiCalls;
+
+    /**
+     * Read-time enrichment for batch run types (SCHEDULED_BATCH / BATCH_NEAR_TERM /
+     * BATCH_FAR_TERM) populated by the metrics endpoint from {@code api_call_log} rows.
+     * Not persisted; null on non-batch runs and on batch runs with no usable call rows.
+     */
+    @Transient
+    private BatchSummary batchSummary;
 }

@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.WaitlistEmailRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
+import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
@@ -82,6 +83,9 @@ abstract class AbstractControllerTest {
     protected WaitlistEmailRepository waitlistEmailRepository;
 
     // ── Services ──────────────────────────────────────────────────────────────
+
+    @MockitoBean
+    protected BatchSummaryDeriver batchSummaryDeriver;
 
     @MockitoBean
     protected BriefingEvaluationService evaluationService;
