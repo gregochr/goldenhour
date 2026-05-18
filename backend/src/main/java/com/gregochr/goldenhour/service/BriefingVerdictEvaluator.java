@@ -88,11 +88,11 @@ public class BriefingVerdictEvaluator {
         /** Coastal tide not aligned with location preference. */
         TIDE_MISMATCH("Tide mismatch"),
 
-        /** All cloud layers below threshold — no canvas for colour. */
-        CLEAR_SKY("Clear sky — no canvas"),
-
         /** Thick low cloud at the solar horizon blocks the sun. */
         SUN_BLOCKED_HORIZON("Sun blocked at horizon"),
+
+        /** All cloud layers below threshold — no canvas for colour. */
+        CLEAR_SKY("Clear sky — no canvas"),
 
         /** Fallback when no specific reason is identified. */
         POOR_CONDITIONS("Poor conditions");
@@ -338,9 +338,12 @@ public class BriefingVerdictEvaluator {
      *
      * @param weather         the core weather metrics
      * @param tidesNotAligned true if the coastal tide demotion was applied
+     * @param horizonLowCloud low cloud percentage at the solar horizon (~113 km offset),
+     *                        or null if unavailable
      * @return human-readable reason label
      */
-    public String deriveStanddownReason(WeatherMetrics weather, boolean tidesNotAligned) {
+    public String deriveStanddownReason(WeatherMetrics weather, boolean tidesNotAligned,
+            Integer horizonLowCloud) {
         if (weather.lowCloud() > CLOUD_STANDDOWN) {
             return StanddownReason.HEAVY_CLOUD.label();
         }
@@ -358,6 +361,9 @@ public class BriefingVerdictEvaluator {
         }
         if (tidesNotAligned) {
             return StanddownReason.TIDE_MISMATCH.label();
+        }
+        if (horizonLowCloud != null && horizonLowCloud >= HORIZON_CLOUD_STANDDOWN) {
+            return StanddownReason.SUN_BLOCKED_HORIZON.label();
         }
         int midVal = weather.midCloud() != null ? weather.midCloud() : 0;
         int highVal = weather.highCloud() != null ? weather.highCloud() : 0;

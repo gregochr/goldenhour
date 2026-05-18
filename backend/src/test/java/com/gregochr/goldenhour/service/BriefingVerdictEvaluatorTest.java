@@ -328,7 +328,7 @@ class BriefingVerdictEvaluatorTest {
         void clearSkyReasonLabel() {
             var metrics = new BriefingVerdictEvaluator.WeatherMetrics(
                     5, BigDecimal.ZERO, 15000, 70, 8, 10, false);
-            assertThat(evaluator.deriveStanddownReason(metrics, false))
+            assertThat(evaluator.deriveStanddownReason(metrics, false, null))
                     .isEqualTo("Clear sky — no canvas");
         }
     }
@@ -580,7 +580,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             85, BigDecimal.ZERO, 15000, 70, null, null, false),
-                    false)).isEqualTo("Heavy cloud");
+                    false, null)).isEqualTo("Heavy cloud");
         }
 
         @Test
@@ -589,7 +589,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             30, BigDecimal.ZERO, 15000, 70, 85, null, false),
-                    false)).isEqualTo("Overcast");
+                    false, null)).isEqualTo("Overcast");
         }
 
         @Test
@@ -598,7 +598,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             30, new BigDecimal("3.0"), 15000, 70, null, null, false),
-                    false)).isEqualTo("Rain");
+                    false, null)).isEqualTo("Rain");
         }
 
         @Test
@@ -607,7 +607,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             30, BigDecimal.ZERO, 3000, 70, null, null, false),
-                    false)).isEqualTo("Poor visibility");
+                    false, null)).isEqualTo("Poor visibility");
         }
 
         @Test
@@ -616,7 +616,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             30, BigDecimal.ZERO, 15000, 70, null, null, true),
-                    false)).isEqualTo("Building cloud");
+                    false, null)).isEqualTo("Building cloud");
         }
 
         @Test
@@ -625,7 +625,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             30, BigDecimal.ZERO, 15000, 70, 50, 50, false),
-                    true)).isEqualTo("Tide mismatch");
+                    true, null)).isEqualTo("Tide mismatch");
         }
 
         @Test
@@ -634,7 +634,7 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             30, BigDecimal.ZERO, 15000, 70, 50, 50, false),
-                    false)).isEqualTo("Poor conditions");
+                    false, null)).isEqualTo("Poor conditions");
         }
 
         @Test
@@ -643,7 +643,56 @@ class BriefingVerdictEvaluatorTest {
             assertThat(evaluator.deriveStanddownReason(
                     new BriefingVerdictEvaluator.WeatherMetrics(
                             85, new BigDecimal("5.0"), 3000, 70, 90, null, true),
-                    true)).isEqualTo("Heavy cloud");
+                    true, null)).isEqualTo("Heavy cloud");
+        }
+
+        @Test
+        @DisplayName("Sun blocked at horizon when overhead clear but horizon cloud >= 70%")
+        void sunBlockedHorizon_clearOverhead() {
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            5, BigDecimal.ZERO, 15000, 70, 8, 10, false),
+                    false, 80)).isEqualTo("Sun blocked at horizon");
+        }
+
+        @Test
+        @DisplayName("Priority: sun blocked at horizon takes precedence over clear-sky fallthrough")
+        void priority_horizonOverClearSky() {
+            // All cloud layers below CLEAR_ALL_LAYERS_MAX (15%) but horizon is blocked at 70%+
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            5, BigDecimal.ZERO, 15000, 70, 5, 5, false),
+                    false, 75)).isEqualTo("Sun blocked at horizon");
+        }
+
+        @Test
+        @DisplayName("Priority: heavy overhead cloud still wins over horizon block")
+        void priority_heavyCloudOverHorizon() {
+            // Overcast overhead AND blocked horizon — overcast reported, not horizon
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            85, BigDecimal.ZERO, 15000, 70, null, null, false),
+                    false, 90)).isEqualTo("Heavy cloud");
+        }
+
+        @Test
+        @DisplayName("Horizon below 70% does not trigger SUN_BLOCKED_HORIZON")
+        void horizonBelowThreshold_noTrigger() {
+            // Horizon at 65% (below STANDDOWN threshold) — falls through to CLEAR_SKY
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            5, BigDecimal.ZERO, 15000, 70, 8, 10, false),
+                    false, 65)).isEqualTo("Clear sky — no canvas");
+        }
+
+        @Test
+        @DisplayName("Null horizon data falls through to existing cascade")
+        void nullHorizon_fallsThrough() {
+            // Clear overhead, no horizon reading available — CLEAR_SKY still wins
+            assertThat(evaluator.deriveStanddownReason(
+                    new BriefingVerdictEvaluator.WeatherMetrics(
+                            5, BigDecimal.ZERO, 15000, 70, 8, 10, false),
+                    false, null)).isEqualTo("Clear sky — no canvas");
         }
     }
 

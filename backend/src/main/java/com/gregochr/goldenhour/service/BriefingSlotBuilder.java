@@ -179,7 +179,8 @@ public class BriefingSlotBuilder {
         List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext);
 
         String standdownReason = verdict == Verdict.STANDDOWN
-                ? verdictEvaluator.deriveStanddownReason(weatherMetrics, tidesNotAligned)
+                ? verdictEvaluator.deriveStanddownReason(weatherMetrics, tidesNotAligned,
+                        horizonLowCloud)
                 : null;
 
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
