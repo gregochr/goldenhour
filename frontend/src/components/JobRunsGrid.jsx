@@ -109,6 +109,28 @@ const JobRunsGrid = ({ runs, onLoadMore, hasMore = false, loading = false }) => 
                       <div className="text-xs text-plex-text-muted mt-1">
                         {formatTimestampUk(run.startedAt)}{run.appVersion ? ` · ${run.appVersion}` : ''} · {formatDuration(run.durationMs)}
                       </div>
+                      {isBatchRunType(run.runType) && run.batchSummary && (
+                        <div
+                          className="text-xs text-plex-text-secondary mt-1"
+                          data-testid={`batch-summary-${run.id}`}
+                        >
+                          {run.batchSummary.horizonRange}
+                          {run.batchSummary.eventTypes && run.batchSummary.eventTypes.length > 0
+                            && ` · ${run.batchSummary.eventTypes.join(' / ')}`}
+                          {` · ${run.batchSummary.locationCount} locations`}
+                          {` · ${run.batchSummary.evaluationModel}`}
+                          {run.batchSummary.extendedThinking && ' (ET)'}
+                          {` · ${run.batchSummary.regionCount} regions`}
+                        </div>
+                      )}
+                      {isBatchRunType(run.runType) && !run.batchSummary && !isBatchInProgress(run) && (
+                        <div
+                          className="text-xs text-plex-text-muted italic mt-1"
+                          data-testid={`batch-summary-missing-${run.id}`}
+                        >
+                          No detail available
+                        </div>
+                      )}
                       {run.activeStrategies && (
                         <div className="flex flex-wrap gap-1 mt-1" data-testid={`strategies-${run.id}`}>
                           {run.activeStrategies.split(',').map((s) => {
@@ -201,6 +223,14 @@ JobRunsGrid.propTypes = {
       durationMs: PropTypes.number,
       succeeded: PropTypes.number,
       failed: PropTypes.number,
+      batchSummary: PropTypes.shape({
+        horizonRange: PropTypes.string,
+        eventTypes: PropTypes.arrayOf(PropTypes.string),
+        evaluationModel: PropTypes.string,
+        locationCount: PropTypes.number,
+        regionCount: PropTypes.number,
+        extendedThinking: PropTypes.bool,
+      }),
     })
   ).isRequired,
   onLoadMore: PropTypes.func.isRequired,
