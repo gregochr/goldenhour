@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.BatchSummary;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -57,6 +59,50 @@ class JobMetricsControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].runType").value("SHORT_TERM"))
                 .andExpect(jsonPath("$.content[0].succeeded").value(10));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs enriches SCHEDULED_BATCH rows with a batchSummary")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_enrichesBatchSummaryForBatchRun() throws Exception {
+        JobRunEntity run = JobRunEntity.builder()
+                .id(42L)
+                .runType(RunType.SCHEDULED_BATCH)
+                .startedAt(LocalDateTime.of(2026, 5, 18, 2, 5, 30))
+                .build();
+        when(jobRunService.getRecentRunsAllTypes(20)).thenReturn(List.of(run));
+        when(batchSummaryDeriver.derive(any())).thenReturn(Optional.of(new BatchSummary(
+                "T+1", List.of("SUNRISE"), "HAIKU", 29, 7, false)));
+
+        mockMvc.perform(get("/api/metrics/job-runs")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].runType").value("SCHEDULED_BATCH"))
+                .andExpect(jsonPath("$.content[0].batchSummary.horizonRange").value("T+1"))
+                .andExpect(jsonPath("$.content[0].batchSummary.eventTypes[0]").value("SUNRISE"))
+                .andExpect(jsonPath("$.content[0].batchSummary.evaluationModel").value("HAIKU"))
+                .andExpect(jsonPath("$.content[0].batchSummary.locationCount").value(29))
+                .andExpect(jsonPath("$.content[0].batchSummary.regionCount").value(7))
+                .andExpect(jsonPath("$.content[0].batchSummary.extendedThinking").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs leaves batchSummary null when deriver returns empty")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_leavesBatchSummaryNullWhenDeriverEmpty() throws Exception {
+        JobRunEntity run = JobRunEntity.builder()
+                .id(1L)
+                .runType(RunType.TIDE)
+                .startedAt(LocalDateTime.now())
+                .build();
+        when(jobRunService.getRecentRunsAllTypes(20)).thenReturn(List.of(run));
+        when(batchSummaryDeriver.derive(any())).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/metrics/job-runs")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].runType").value("TIDE"))
+                .andExpect(jsonPath("$.content[0].batchSummary").isEmpty());
     }
 
     @Test

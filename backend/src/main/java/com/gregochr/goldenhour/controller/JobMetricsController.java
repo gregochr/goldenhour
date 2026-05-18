@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.JobRunService;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -30,14 +31,18 @@ import java.util.Map;
 public class JobMetricsController {
 
     private final JobRunService jobRunService;
+    private final BatchSummaryDeriver batchSummaryDeriver;
 
     /**
      * Constructs a {@code JobMetricsController}.
      *
-     * @param jobRunService the job run metrics service
+     * @param jobRunService        the job run metrics service
+     * @param batchSummaryDeriver  derives the read-time summary line for batch run rows
      */
-    public JobMetricsController(JobRunService jobRunService) {
+    public JobMetricsController(JobRunService jobRunService,
+            BatchSummaryDeriver batchSummaryDeriver) {
         this.jobRunService = jobRunService;
+        this.batchSummaryDeriver = batchSummaryDeriver;
     }
 
     /**
@@ -66,6 +71,8 @@ public class JobMetricsController {
             } else {
                 runs = jobRunService.getRecentRunsAllTypes(size);
             }
+
+            runs.forEach(run -> batchSummaryDeriver.derive(run).ifPresent(run::setBatchSummary));
 
             return ResponseEntity.ok(new PageImpl<>(runs, PageRequest.of(page, size), runs.size()));
         } catch (IllegalArgumentException e) {
