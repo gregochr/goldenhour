@@ -22,8 +22,13 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
  * Colour pill for a display signal. Accepts either a {@code displayVerdict}
  * (preferred — already reflects Claude ratings when available) or falls back
  * to the legacy {@code verdict} prop for not-yet-migrated call sites.
+ *
+ * <p>Optional {@code label} prop overrides the default text for the resolved
+ * signal — used by the Gate 2 honesty patch to surface
+ * "Too unsettled to forecast" on STAND_DOWN regions where no Claude
+ * evaluation was produced.
  */
-function VerdictPill({ displayVerdict, verdict }) {
+function VerdictPill({ displayVerdict, verdict, label }) {
   const signal = displayVerdict
     || (verdict === 'GO' ? 'WORTH_IT'
       : verdict === 'MARGINAL' ? 'MAYBE'
@@ -46,7 +51,7 @@ function VerdictPill({ displayVerdict, verdict }) {
       data-testid="verdict-pill"
       className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[signal] || 'bg-plex-surface text-plex-text-secondary'}`}
     >
-      {labels[signal] || signal}
+      {label || labels[signal] || signal}
     </span>
   );
 }
@@ -460,7 +465,11 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  con
               <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
                 {eventName}{eventTime ? ` · ${eventTime}` : ''}
               </span>
-              <VerdictPill displayVerdict={region.displayVerdict} verdict={region.verdict} />
+              <VerdictPill
+                displayVerdict={region.displayVerdict}
+                verdict={region.verdict}
+                label={region.verdictLabel}
+              />
               <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                 {region.summary}
               </span>
@@ -569,7 +578,7 @@ function MobileRegionCard({ date, regionName, briefingDays, driveMap, typeMap, i
         style={{ pointerEvents: isStanddown ? 'none' : undefined }}
         onClick={isStanddown ? undefined : onToggle}
       >
-        <VerdictPill displayVerdict={bestDisplay} />
+        <VerdictPill displayVerdict={bestDisplay} label={bestRegion?.verdictLabel} />
         <span className="font-medium text-plex-text flex-1" style={{ fontSize: '13px' }}>
           {regionName}
         </span>

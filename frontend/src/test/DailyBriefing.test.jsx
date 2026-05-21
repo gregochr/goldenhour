@@ -445,6 +445,76 @@ describe('DailyBriefing', () => {
     expect(pillTexts).toContain('Maybe');
   });
 
+  // ── Gate 2 honesty patch: verdictLabel override ──
+
+  it('verdictLabel override replaces the default STAND_DOWN pill label', async () => {
+    // Region returned from the API in its post-honesty-filter shape:
+    // displayVerdict=STAND_DOWN with a custom verdictLabel. The pill must
+    // render the override text, not the default 'Stand down'.
+    localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+    const dateStr = futureDateStr();
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: dateStr,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'The Lake District',
+            verdict: 'GO',
+            displayVerdict: 'STAND_DOWN',
+            verdictLabel: 'Too unsettled to forecast',
+            summary: 'No per-location forecast — conditions too unsettled to evaluate',
+            tideHighlights: [],
+            slots: [],
+          }],
+          unregioned: [],
+        }],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const pills = screen.getAllByTestId('verdict-pill');
+    const pillTexts = pills.map((p) => p.textContent);
+    expect(pillTexts).toContain('Too unsettled to forecast');
+    expect(pillTexts).not.toContain('Stand down');
+  });
+
+  it('without verdictLabel, STAND_DOWN pill falls back to the default "Stand down" label', async () => {
+    // Mirrors the override test but with no verdictLabel — the default label survives.
+    localStorage.setItem('plannerQualityTier', JSON.stringify(5));
+    const dateStr = futureDateStr();
+    getDailyBriefing.mockResolvedValue({
+      generatedAt: new Date().toISOString().slice(0, 19),
+      headline: '',
+      days: [{
+        date: dateStr,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Coastal North',
+            verdict: 'STANDDOWN',
+            displayVerdict: 'STAND_DOWN',
+            summary: 'Heavy cloud and rain across all 3 locations',
+            tideHighlights: [],
+            slots: [],
+          }],
+          unregioned: [],
+        }],
+      }],
+    });
+    render(<DailyBriefing />);
+    await waitFor(() => screen.getByTestId('briefing-toggle'));
+    fireEvent.click(screen.getByTestId('briefing-toggle'));
+
+    const pills = screen.getAllByTestId('verdict-pill');
+    const pillTexts = pills.map((p) => p.textContent);
+    expect(pillTexts).toContain('Stand down');
+  });
+
   it('mobile region card shows Worth it sunset for GO sunset region', async () => {
     const dateStr = futureDateStr();
     getDailyBriefing.mockResolvedValue({

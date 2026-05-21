@@ -110,8 +110,11 @@ function getRegionLocationNames(date, regionName, briefingDays) {
  * ({@code WORTH_IT} / {@code MAYBE} / {@code STAND_DOWN} / {@code AWAITING})
  * or falls back to the legacy {@code verdict} ({@code GO} / {@code MARGINAL}
  * / {@code STANDDOWN}) for call-sites that haven't been migrated.
+ *
+ * Optional {@code label} prop overrides the default text — used by the
+ * Gate 2 honesty patch on zero-coverage STAND_DOWN regions.
  */
-function VerdictPill({ displayVerdict, verdict }) {
+function VerdictPill({ displayVerdict, verdict, label }) {
   const signal = displayVerdict
     || (verdict === 'GO' ? 'WORTH_IT'
       : verdict === 'MARGINAL' ? 'MAYBE'
@@ -134,7 +137,7 @@ function VerdictPill({ displayVerdict, verdict }) {
       data-testid="verdict-pill"
       className={`inline-block px-2 py-0.5 rounded text-[12px] font-bold ${colours[signal] || 'bg-plex-surface text-plex-text-secondary'}`}
     >
-      {labels[signal] || signal}
+      {label || labels[signal] || signal}
     </span>
   );
 }
@@ -489,7 +492,11 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
                 <span className="font-medium text-plex-text" style={{ minWidth: '68px', fontSize: '13px' }}>
                   {eventName}{eventTime ? ` · ${eventTime}` : ''}
                 </span>
-                <VerdictPill displayVerdict={region.displayVerdict} verdict={region.verdict} />
+                <VerdictPill
+                  displayVerdict={region.displayVerdict}
+                  verdict={region.verdict}
+                  label={region.verdictLabel}
+                />
                 <span className="text-plex-text-secondary flex-1 truncate" style={{ fontSize: '12px' }}>
                   {region.summary}
                 </span>

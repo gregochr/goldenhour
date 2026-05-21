@@ -40,7 +40,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     @WithMockUser
     @DisplayName("GET /api/briefing returns 200 with cached briefing")
     void getBriefing_returnsCachedResult() throws Exception {
-        when(briefingService.getCachedBriefing()).thenReturn(buildSampleBriefing());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
@@ -57,7 +57,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     @WithMockUser
     @DisplayName("GET /api/briefing returns 204 when cache is empty")
     void getBriefing_noContent() throws Exception {
-        when(briefingService.getCachedBriefing()).thenReturn(null);
+        when(briefingService.getCachedBriefingForApi()).thenReturn(null);
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isNoContent());
@@ -74,7 +74,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"LITE_USER"})
     @DisplayName("GET /api/briefing accessible to LITE_USER")
     void getBriefing_liteUser() throws Exception {
-        when(briefingService.getCachedBriefing()).thenReturn(buildSampleBriefing());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk());
@@ -84,7 +84,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     @WithMockUser
     @DisplayName("JSON includes slot-level detail")
     void getBriefing_slotDetail() throws Exception {
-        when(briefingService.getCachedBriefing()).thenReturn(buildSampleBriefing());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].slots[0].locationName")
@@ -99,11 +99,48 @@ class BriefingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("GET /api/briefing routes through getCachedBriefingForApi (not the raw accessor)")
+    void getBriefing_routesThroughHonestyApiAccessor() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
+
+        mockMvc.perform(get("/api/briefing")).andExpect(status().isOk());
+
+        verify(briefingService).getCachedBriefingForApi();
+        verify(briefingService, org.mockito.Mockito.never()).getCachedBriefing();
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing — honesty-filtered region JSON shape "
+            + "(verdictLabel, empty slots, replacement summary)")
+    void getBriefing_zeroCoverageSurfacesHonestyFilter() throws Exception {
+        // Stubs the service with a region in its post-filter shape — verdictLabel set,
+        // slots cleared, replacement summary — so the test asserts the controller serialises
+        // those fields correctly without coupling to the filter implementation.
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildHonestyFilteredBriefing());
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].displayVerdict")
+                        .value("STAND_DOWN"))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].verdictLabel")
+                        .value("Too unsettled to forecast"))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].summary")
+                        .value("No per-location forecast — conditions too unsettled to evaluate"))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].slots.length()")
+                        .value(0))
+                // Triage verdict preserved for downstream consumers.
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].verdict")
+                        .value("GO"));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/briefing — bestBets field is present even when empty")
     void getBriefing_bestBetsAlwaysPresent() throws Exception {
         // Verifies that @JsonInclude(ALWAYS) on bestBets means the field is never silently
         // omitted from the HTTP response body, even when the list is empty.
-        when(briefingService.getCachedBriefing()).thenReturn(buildSampleBriefing());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildSampleBriefing());
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
@@ -199,9 +236,13 @@ class BriefingControllerTest extends AbstractControllerTest {
                         false, false, null, null, null),
                 List.of("Tide aligned"), null);
 
+        // Use the 13-arg convenience constructor with scoredLocationCount=1 so
+        // the Gate 2 honesty filter does NOT rewrite this fixture — the existing
+        // controller tests assert end-to-end JSON shape on a covered region.
         BriefingRegion region = new BriefingRegion("Lake District",
                 Verdict.GO, "Clear at 1 of 1 location",
-                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null, null);
+                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null, null,
+                com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT, 1);
 
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());
@@ -212,6 +253,32 @@ class BriefingControllerTest extends AbstractControllerTest {
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 14, 0),
                 "Today sunset looks promising in Lake District",
+                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+    }
+
+    private static DailyBriefingResponse buildHonestyFilteredBriefing() {
+        // Region pre-built in its post-filter shape: STAND_DOWN, verdictLabel set,
+        // replacement summary, gloss replaced, slots cleared, but triage verdict
+        // and weather snapshot preserved (factual fields the filter leaves alone).
+        BriefingRegion region = new BriefingRegion(
+                "The Lake District",
+                Verdict.GO,
+                "No per-location forecast — conditions too unsettled to evaluate",
+                List.of(), List.of(),
+                14.0, 13.0, 4.5, 3,
+                null,
+                "Conditions across this region were classified as too unsettled to evaluate "
+                        + "confidently at this horizon. No per-location forecast was produced. "
+                        + "The picture may firm up closer to the date — or it may remain unsettled.",
+                com.gregochr.goldenhour.model.DisplayVerdict.STAND_DOWN,
+                0,
+                "Too unsettled to forecast");
+        BriefingEventSummary eventSummary = new BriefingEventSummary(
+                TargetType.SUNSET, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(LocalDate.of(2026, 5, 23), List.of(eventSummary));
+        return new DailyBriefingResponse(
+                LocalDateTime.of(2026, 5, 21, 14, 0),
+                "Sunset window looks promising in the Lake District",
                 List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
     }
 }

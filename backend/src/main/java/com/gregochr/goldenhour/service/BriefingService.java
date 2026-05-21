@@ -211,6 +211,26 @@ public class BriefingService {
     }
 
     /**
+     * API-facing variant of {@link #getCachedBriefing()} that applies the Gate 2
+     * honesty filter: any region whose {@code scoredLocationCount == 0} has its
+     * user-facing display fields (verdict pill, summary line, gloss prose,
+     * per-location slot list) rewritten so the response cannot advertise a
+     * positive verdict for a region in which zero locations were ever
+     * evaluated.
+     *
+     * <p>Internal callers (the batch task collector, the SSE drill-down service,
+     * the model-comparison test harness) continue to call {@link
+     * #getCachedBriefing()} so they see the untransformed triage data they
+     * depend on. See {@link BriefingHonestyFilter} for the rationale.
+     *
+     * @return the cached briefing with honesty filter applied, or {@code null}
+     *         if no briefing has been built yet
+     */
+    public DailyBriefingResponse getCachedBriefingForApi() {
+        return BriefingHonestyFilter.apply(getCachedBriefing());
+    }
+
+    /**
      * Returns the cached briefing days without overlaying live state.
      *
      * <p>Used by hot topic strategies to scan triage data (e.g. tide
@@ -417,6 +437,13 @@ public class BriefingService {
                             .toList();
                     BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
                             ratingEntries, region.regionName(), day.date(), es.targetType());
+                    if (stats.isEmpty()) {
+                        LOG.info("[GATE2 HONESTY OVERRIDE] region={} date={} target={} "
+                                        + "briefingVerdict={} scoredCount=0 "
+                                        + "(overriding to STAND_DOWN at read time)",
+                                region.regionName(), day.date(), es.targetType(),
+                                region.verdict());
+                    }
                     enrichedRegions.add(new BriefingRegion(
                             region.regionName(), region.verdict(), region.summary(),
                             region.tideHighlights(), enrichedSlots,

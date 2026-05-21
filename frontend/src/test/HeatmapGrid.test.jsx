@@ -632,6 +632,72 @@ describe('HeatmapGrid — glossDetail in drill-down', () => {
 
 });
 
+// ── Gate 2 honesty patch: verdictLabel override in the drill-down event row ──
+
+describe('HeatmapGrid — verdictLabel override on the drill-down event row', () => {
+  it('renders verdictLabel ("Too unsettled to forecast") instead of the default STAND_DOWN label', () => {
+    // Mirrors the post-honesty-filter shape: STAND_DOWN displayVerdict, custom label,
+    // empty slots, replacement summary.
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          displayVerdict: 'STAND_DOWN',
+          verdictLabel: 'Too unsettled to forecast',
+          summary: 'No per-location forecast — conditions too unsettled to evaluate',
+          glossDetail: null,
+          slots: [],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: true,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const drillDown = screen.getByTestId('drill-down-panel');
+    const pill = drillDown.querySelector('[data-testid="verdict-pill"]');
+    expect(pill.textContent).toBe('Too unsettled to forecast');
+    expect(drillDown.textContent).not.toContain('Stand down');
+  });
+
+  it('without verdictLabel, falls back to default "Stand down" label', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'STANDDOWN',
+          displayVerdict: 'STAND_DOWN',
+          summary: 'Heavy cloud and rain',
+          glossDetail: null,
+          slots: [],
+        }],
+      }],
+    }));
+
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: true,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const drillDown = screen.getByTestId('drill-down-panel');
+    const pill = drillDown.querySelector('[data-testid="verdict-pill"]');
+    expect(pill.textContent).toBe('Stand down');
+  });
+});
+
 // ── Cell element type and accessibility ──────────────────────────────────────
 
 describe('HeatmapGrid — cell accessibility and keyboard', () => {
