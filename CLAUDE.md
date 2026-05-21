@@ -132,6 +132,7 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 - **Location metadata** — production locations DB-managed via Admin UI (no YAML seeding). `application-local.yml` has locations for local dev.
 - **JWT** — stateless HMAC-SHA256; refresh token stored hashed (SHA-256) in `refresh_token` table.
 - **Freemium UI** — breadcrumbs not paywalls. See `docs/product/freemium_ui_strategy.md`.
+- **Batch eligibility (Gate 4)** — per-`daysAhead` policy in `ForecastTaskCollector.resolveEligibility`: T+0/T+1 all stabilities (NEAR=Sonnet); T+2 SETTLED+TRANSITIONAL (FAR=Haiku); T+3 SETTLED only; T+4+ never. `ForecastStability.evaluationWindowDays()` is **display-only** now — never read for batch eligibility. **Open inconsistency**: `ForecastCommandExecutor.applyStabilityFilter` (legacy admin "Run Forecast" path) still reads `evaluationWindowDays` as policy. Out of scope for Gate 4; unify in a follow-up. Per-cycle `[BATCH ELIG]` INFO log shows included/excluded by `(daysAhead × stability)`.
 
 ---
 

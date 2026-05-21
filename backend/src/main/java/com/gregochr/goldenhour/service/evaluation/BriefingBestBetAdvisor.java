@@ -850,9 +850,16 @@ public class BriefingBestBetAdvisor {
 
     /**
      * Returns {@code true} if {@code candidate} is more unstable than {@code current}.
+     *
+     * <p>Relies on the declared enum order in {@link ForecastStability}: SETTLED
+     * (ordinal 0) is the most stable, UNSETTLED (ordinal 2) is the least —
+     * a higher ordinal means a more unstable cell. Previously this used
+     * {@code evaluationWindowDays} as a side-channel ordering primitive; that
+     * field is now a display-only depth hint and must not be relied on for
+     * any policy decision.
      */
     private static boolean isMoreUnstable(ForecastStability candidate, ForecastStability current) {
-        return candidate.evaluationWindowDays() < current.evaluationWindowDays();
+        return candidate.ordinal() > current.ordinal();
     }
 
     private void appendAuroraEvent(ArrayNode eventsNode, String eventId) {
