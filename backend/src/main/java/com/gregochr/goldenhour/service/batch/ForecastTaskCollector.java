@@ -42,6 +42,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -238,6 +239,7 @@ public class ForecastTaskCollector {
         int skippedError = 0;
         int includedNear = 0;
         int includedFar = 0;
+        EligibilityAggregator agg = new EligibilityAggregator();
 
         LOG.warn("[BATCH DIAG] Starting triage loop — {} candidate tasks", candidates.size());
 
@@ -255,22 +257,23 @@ public class ForecastTaskCollector {
                     continue;
                 }
                 int daysAhead = preEval.daysAhead();
-                int maxDays = getStabilityWindowDays(
+                ForecastStability stability = stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
-                if (daysAhead > maxDays) {
-                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY "
-                                    + "T+{}d maxDays={}",
+                EligibilityDecision decision = resolveEligibility(
+                        daysAhead, stability, nearTermModel, farTermModel);
+                if (!decision.eligible()) {
+                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=STABILITY ({})",
                             candidate.location().getName(), candidate.date(),
-                            candidate.targetType(), daysAhead, maxDays);
+                            candidate.targetType(), decision.skipReason());
+                    agg.recordExcluded(daysAhead, stability);
                     skippedStability++;
                     continue;
                 }
 
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
-                EvaluationModel model = isNearTerm ? nearTermModel : farTermModel;
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
-                        model, preEval.atmosphericData(),
+                        decision.model(), preEval.atmosphericData(),
                         EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
@@ -290,6 +293,7 @@ public class ForecastTaskCollector {
                     }
                     includedFar++;
                 }
+                agg.recordIncluded(daysAhead, stability);
                 LOG.warn("[BATCH DIAG] INCLUDE {} | date={} event={} | tier={} type={}",
                         candidate.location().getName(), candidate.date(),
                         candidate.targetType(),
@@ -308,6 +312,7 @@ public class ForecastTaskCollector {
                 totalIncluded, includedNear, includedFar,
                 skippedTriage + skippedStability + skippedError,
                 skippedTriage, skippedStability, skippedError);
+        LOG.info("[BATCH ELIG] {}", agg.formatSummary());
 
         if (totalIncluded == 0) {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
@@ -315,6 +320,69 @@ public class ForecastTaskCollector {
         }
 
         return new ScheduledBatchTasks(nearInland, nearCoastal, farInland, farCoastal);
+    }
+
+    /**
+     * Encodes the Gate 4 batch eligibility policy: which (daysAhead, stability)
+     * combinations enter the batch, and which model tier evaluates them.
+     *
+     * <table>
+     *   <caption>Eligibility table</caption>
+     *   <tr><th>daysAhead</th><th>Eligibility</th><th>Model tier</th></tr>
+     *   <tr><td>T+0, T+1</td><td>all stabilities</td>
+     *       <td>{@code BATCH_NEAR_TERM}</td></tr>
+     *   <tr><td>T+2</td><td>SETTLED or TRANSITIONAL</td>
+     *       <td>{@code BATCH_FAR_TERM}</td></tr>
+     *   <tr><td>T+3</td><td>SETTLED only</td>
+     *       <td>{@code BATCH_FAR_TERM}</td></tr>
+     *   <tr><td>T+4 and beyond</td><td>never eligible</td><td>—</td></tr>
+     * </table>
+     *
+     * <p>UNSETTLED cells from T+1 onward are not evaluated by the batch — they
+     * remain triage-only. The policy is intentionally independent of
+     * {@code ForecastStability.evaluationWindowDays()}, which is now a
+     * display-only depth hint for the admin UI.
+     *
+     * @param daysAhead     forecast horizon (T+0 = 0)
+     * @param stability     classified stability for the grid cell
+     * @param nearTermModel resolved {@code BATCH_NEAR_TERM} model for this run
+     * @param farTermModel  resolved {@code BATCH_FAR_TERM} model for this run
+     * @return include-with-model or skip-with-reason
+     */
+    static EligibilityDecision resolveEligibility(int daysAhead, ForecastStability stability,
+            EvaluationModel nearTermModel, EvaluationModel farTermModel) {
+        return switch (daysAhead) {
+            case 0, 1 -> EligibilityDecision.include(nearTermModel);
+            case 2 -> (stability == ForecastStability.SETTLED
+                       || stability == ForecastStability.TRANSITIONAL)
+                    ? EligibilityDecision.include(farTermModel)
+                    : EligibilityDecision.skip("T+2 " + stability);
+            case 3 -> stability == ForecastStability.SETTLED
+                    ? EligibilityDecision.include(farTermModel)
+                    : EligibilityDecision.skip("T+3 " + stability);
+            default -> EligibilityDecision.skip("T+" + daysAhead + " beyond horizon");
+        };
+    }
+
+    /**
+     * Resolves the stability classification for a candidate, with a
+     * TRANSITIONAL fallback for tasks that lack a grid cell or a forecast
+     * response (matches the pre-Gate-4 behaviour of allowing T+0/T+1 for
+     * unclassified locations; under the new policy, TRANSITIONAL adds T+2
+     * as well, which is acceptable for the rare unclassified case).
+     */
+    private ForecastStability stabilityFor(LocationEntity location,
+            ForecastPreEvalResult preEval,
+            Map<String, GridCellStabilityResult> stabilityByCell) {
+        if (!location.hasGridCell() || preEval.forecastResponse() == null) {
+            return ForecastStability.TRANSITIONAL;
+        }
+        String key = location.gridCellKey();
+        GridCellStabilityResult stability = stabilityByCell.computeIfAbsent(key, k ->
+                stabilityClassifier.classify(
+                        key, location.getGridLat(), location.getGridLng(),
+                        preEval.forecastResponse().getHourly()));
+        return stability != null ? stability.stability() : ForecastStability.TRANSITIONAL;
     }
 
     /**
@@ -384,14 +452,19 @@ public class ForecastTaskCollector {
                     continue;
                 }
                 int daysAhead = preEval.daysAhead();
-                int maxDays = getStabilityWindowDays(
+                ForecastStability stability = stabilityFor(
                         candidate.location(), preEval, stabilityByCell);
-                if (daysAhead > maxDays) {
+                // Region-filtered admin batches only ever use the near-term model
+                // (legacy contract). Pass `model` as both tiers so the policy's
+                // include branch lands with the right model regardless of horizon.
+                EligibilityDecision decision = resolveEligibility(
+                        daysAhead, stability, model, model);
+                if (!decision.eligible()) {
                     continue;
                 }
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
-                        model, preEval.atmosphericData(),
+                        decision.model(), preEval.atmosphericData(),
                         EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
                 if (preEval.atmosphericData().tide() != null) {
                     coastal.add(eval);
@@ -655,19 +728,6 @@ public class ForecastTaskCollector {
         return stabilityByCell;
     }
 
-    private int getStabilityWindowDays(LocationEntity location, ForecastPreEvalResult preEval,
-            Map<String, GridCellStabilityResult> stabilityByCell) {
-        if (!location.hasGridCell() || preEval.forecastResponse() == null) {
-            return 1;
-        }
-        String key = location.gridCellKey();
-        GridCellStabilityResult stability = stabilityByCell.computeIfAbsent(key, k ->
-                stabilityClassifier.classify(
-                        key, location.getGridLat(), location.getGridLng(),
-                        preEval.forecastResponse().getHourly()));
-        return stability != null ? Math.min(stability.evaluationWindowDays(), 3) : 1;
-    }
-
     private LocationEntity findLocation(String name) {
         return locationService.findAllEnabled().stream()
                 .filter(loc -> loc.getName().equals(name))
@@ -744,5 +804,79 @@ public class ForecastTaskCollector {
      */
     private record ForecastCandidate(LocationEntity location, LocalDate date,
             TargetType targetType) {
+    }
+
+    /**
+     * Per-cycle counters that cross-tab included and excluded candidate counts
+     * by {@code (daysAhead, stability)}. Used to emit the single-line
+     * {@code [BATCH ELIG]} INFO summary that operators rely on to confirm Gate 4
+     * is honouring its policy table after each scheduled run.
+     */
+    private static final class EligibilityAggregator {
+
+        private final Map<Integer, EnumMap<ForecastStability, Integer>> included =
+                new LinkedHashMap<>();
+        private final Map<Integer, EnumMap<ForecastStability, Integer>> excluded =
+                new LinkedHashMap<>();
+
+        void recordIncluded(int daysAhead, ForecastStability stability) {
+            bump(included, daysAhead, stability);
+        }
+
+        void recordExcluded(int daysAhead, ForecastStability stability) {
+            bump(excluded, daysAhead, stability);
+        }
+
+        private static void bump(
+                Map<Integer, EnumMap<ForecastStability, Integer>> sink,
+                int daysAhead, ForecastStability stability) {
+            sink.computeIfAbsent(daysAhead, k -> new EnumMap<>(ForecastStability.class))
+                    .merge(stability, 1, Integer::sum);
+        }
+
+        /**
+         * Formats a single readable line of the form:
+         * {@code included T+0=5(S:3,T:1,U:1) T+2=18(S:12,T:6) | excluded T+2=1(U:1) T+3=4(T:3,U:1)}.
+         */
+        String formatSummary() {
+            return "included " + formatBlock(included) + " | excluded " + formatBlock(excluded);
+        }
+
+        private static String formatBlock(
+                Map<Integer, EnumMap<ForecastStability, Integer>> block) {
+            if (block.isEmpty()) {
+                return "none";
+            }
+            StringBuilder sb = new StringBuilder();
+            block.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> {
+                        if (sb.length() > 0) {
+                            sb.append(' ');
+                        }
+                        int total = entry.getValue().values().stream()
+                                .mapToInt(Integer::intValue).sum();
+                        sb.append("T+").append(entry.getKey()).append('=').append(total);
+                        sb.append('(');
+                        boolean first = true;
+                        for (Map.Entry<ForecastStability, Integer> e : entry.getValue().entrySet()) {
+                            if (!first) {
+                                sb.append(',');
+                            }
+                            sb.append(initial(e.getKey())).append(':').append(e.getValue());
+                            first = false;
+                        }
+                        sb.append(')');
+                    });
+            return sb.toString();
+        }
+
+        private static char initial(ForecastStability stability) {
+            return switch (stability) {
+                case SETTLED      -> 'S';
+                case TRANSITIONAL -> 'T';
+                case UNSETTLED    -> 'U';
+            };
+        }
     }
 }

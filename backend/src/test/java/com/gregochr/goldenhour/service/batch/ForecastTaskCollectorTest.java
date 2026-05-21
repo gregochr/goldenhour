@@ -329,7 +329,7 @@ class ForecastTaskCollectorTest {
         assertThat(result.farCoastal()).isEmpty();
         EvaluationTask.Forecast task = result.nearInland().get(0);
         assertThat(task.location().getName()).isEqualTo("Durham UK");
-        assertThat(task.model()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(task.model()).isEqualTo(EvaluationModel.SONNET);
     }
 
     @Test
@@ -377,8 +377,8 @@ class ForecastTaskCollectorTest {
         assertThat(result.nearInland()).isEmpty();
         assertThat(result.nearCoastal()).isEmpty();
         assertThat(result.farCoastal()).isEmpty();
-        // Far-term tasks use the far-term model
-        assertThat(result.farInland().get(0).model()).isEqualTo(EvaluationModel.SONNET);
+        // Far-term tasks use the far-term model (BATCH_FAR_TERM → HAIKU in production)
+        assertThat(result.farInland().get(0).model()).isEqualTo(EvaluationModel.HAIKU);
     }
 
     @Test
@@ -406,6 +406,63 @@ class ForecastTaskCollectorTest {
 
         assertThat(result.farCoastal()).hasSize(1);
         assertThat(result.farInland()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: T+2 TRANSITIONAL inland → far inland (Gate 4 unlock)")
+    void collectScheduledBatches_t2TransitionalInland_included() {
+        // Gate 4: TRANSITIONAL is newly eligible at T+2 (previously gated out by the
+        // enum's evaluationWindowDays=1). Verifies the policy change directly.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(2),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(2), 2));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.TRANSITIONAL, "frontal approach", 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.farInland()).hasSize(1);
+        assertThat(result.farInland().get(0).model()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(result.nearInland()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: T+3 TRANSITIONAL → excluded (still triage-only at T+3)")
+    void collectScheduledBatches_t3Transitional_excluded() {
+        // Gate 4: TRANSITIONAL remains gated out at T+3 — only SETTLED reaches T+3.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        loc.setGridLat(54.7500);
+        loc.setGridLng(-1.6250);
+        DailyBriefingResponse briefing = buildBriefingWithSlots(TODAY.plusDays(3),
+                Verdict.GO, loc.getName());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(3), 3));
+        when(stabilityClassifier.classify(any(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyDouble(), any()))
+                .thenReturn(new GridCellStabilityResult(
+                        loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
+                        ForecastStability.TRANSITIONAL, "frontal approach", 1));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        assertThat(result.isEmpty()).isTrue();
     }
 
     // ── Region-filtered ───────────────────────────────────────────────────────
@@ -693,10 +750,14 @@ class ForecastTaskCollectorTest {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private void stubModels() {
+        // Match production (V92): BATCH_NEAR_TERM = SONNET, BATCH_FAR_TERM = HAIKU.
+        // Fixture was inverted prior to Gate 4 — the test only cared about which
+        // tier a task landed in, not which model. Asserting against the real
+        // tier→model mapping catches accidental tier swaps.
         lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-        lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
+        lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
     }
 
     /**

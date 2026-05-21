@@ -553,20 +553,24 @@ The Section 3 investigation revised the picture: Gate 3 performs real work (559 
 
 ### Gate 4 — Stability
 
-**Recommendation**: **Remap window_days**, decoupling permission-to-evaluate from model-choice.
+**Status: implemented** (Variant A — repurpose, no rename). Per-`daysAhead` policy now lives in [`ForecastTaskCollector.resolveEligibility`](../../backend/src/main/java/com/gregochr/goldenhour/service/batch/ForecastTaskCollector.java); the enum's `evaluationWindowDays()` is retained as a display-only depth hint for the admin stability summary UI.
+
+**Recommendation (as shipped)**: **Remap window_days**, decoupling permission-to-evaluate from model-choice.
 
 - Keep `ForecastStabilityClassifier` as-is — it's well-calibrated.
-- Remove `evaluationWindowDays` from `ForecastStability` enum (or repurpose it as "default depth hint" for display).
-- Implement explicit per-days-ahead policy in `ForecastTaskCollector`:
+- Repurpose `evaluationWindowDays` on `ForecastStability` as display-only (Javadoc updated; field unread by the batch collector after Gate 4).
+- Explicit per-days-ahead policy in `ForecastTaskCollector.resolveEligibility`:
   - T+0, T+1: always evaluate regardless of stability. Model = BATCH_NEAR_TERM (SONNET).
   - T+2: evaluate iff stability ∈ {SETTLED, TRANSITIONAL}. Model = BATCH_FAR_TERM (HAIKU).
   - T+3: evaluate iff stability = SETTLED. Model = BATCH_FAR_TERM (HAIKU).
+  - T+4 and beyond: never eligible.
 
-**Impact**: T+1 evaluation now covers all 159 cells (today: ~124, missing the 35 UNSETTLED). About +22% T+1 volume. T+2 evaluation now covers the 124 TRANSITIONAL cells (today: ~0, missing all). About +124 location-batch slots per cycle. Modest cost increase concentrated in Haiku (cheap). T+3 unchanged because SETTLED is rare.
+**Impact**: T+1 evaluation now covers all cells (UNSETTLED no longer gated out from T+1). T+2 evaluation now covers TRANSITIONAL cells (previously empty). Modest cost increase concentrated in Haiku (cheap). T+3 unchanged because SETTLED-only persists.
 
-**Risk**: Evaluating T+2 TRANSITIONAL slots is exactly what the original April 22 design said NOT to do — design said "T+2 UNSETTLED → triage only" but didn't address T+2 TRANSITIONAL explicitly. The proposal above interprets TRANSITIONAL as "settled enough for T+2 Haiku". If that interpretation is wrong, T+2 should be SETTLED-only too.
+**Open inconsistency** (deliberate, scoped): The legacy `ForecastCommandExecutor.applyStabilityFilter` path (admin "Run Forecast", short-/long-term commands) still reads `evaluationWindowDays` as policy. That path is not used by the scheduled batch and was left alone per Gate 4's stated scope ("solely about which tasks enter the batch"). A follow-up should unify it.
 
-**Effort**: ~2 days. Need to update tests that assert current `evaluationWindowDays` behaviour, possibly add a feature flag for gradual rollout.
+**Verification**: post-deploy, the new `[BATCH ELIG]` INFO log line (emitted once per scheduled cycle) shows included/excluded counts cross-tabbed by `(daysAhead × stability)`. Example shape:
+`included T+0=5(S:3,T:1,U:1) T+1=5(S:3,T:1,U:1) T+2=18(S:12,T:6) T+3=10(S:10) | excluded T+2=1(U:1) T+3=4(T:3,U:1)`
 
 ### Combined recommendation
 
