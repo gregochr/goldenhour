@@ -47,11 +47,15 @@ public class BriefingController {
      * Returns the most recent daily briefing, or 204 No Content if no briefing
      * has been generated yet.
      *
-     * @return the cached briefing response
+     * <p>Calls the API-facing variant of the cached-briefing accessor so the
+     * Gate 2 honesty filter is applied to any region with zero Claude-scored
+     * locations before the response leaves the service layer.
+     *
+     * @return the cached briefing response with honesty filter applied
      */
     @GetMapping
     public ResponseEntity<DailyBriefingResponse> getBriefing() {
-        DailyBriefingResponse briefing = briefingService.getCachedBriefing();
+        DailyBriefingResponse briefing = briefingService.getCachedBriefingForApi();
         if (briefing == null) {
             return ResponseEntity.noContent().build();
         }

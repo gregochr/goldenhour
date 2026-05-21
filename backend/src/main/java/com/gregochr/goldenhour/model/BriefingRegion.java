@@ -22,6 +22,11 @@ import java.util.List;
  * @param scoredLocationCount         number of locations in this region whose Claude rating was
  *                                    used to derive {@code displayVerdict} (0 means no Claude
  *                                    scores yet — the triage fallback produced the verdict)
+ * @param verdictLabel                 optional override for the pill label shown next to
+ *                                     {@code displayVerdict}. {@code null} means "use the
+ *                                     frontend's default label for the enum value". Currently
+ *                                     populated only by the Gate 2 honesty override on the API
+ *                                     read path when {@code scoredLocationCount == 0}.
  */
 public record BriefingRegion(
         String regionName,
@@ -36,11 +41,30 @@ public record BriefingRegion(
         String glossHeadline,
         String glossDetail,
         DisplayVerdict displayVerdict,
-        int scoredLocationCount) {
+        int scoredLocationCount,
+        String verdictLabel) {
 
     public BriefingRegion {
         tideHighlights = List.copyOf(tideHighlights);
         slots = List.copyOf(slots);
+    }
+
+    /**
+     * Convenience constructor for enrichment paths that have computed the
+     * Claude-rating rollup but do not need to override the pill label.
+     * Defaults {@code verdictLabel} to {@code null} (frontend uses the default
+     * label for the enum value).
+     */
+    public BriefingRegion(String regionName, Verdict verdict, String summary,
+            List<String> tideHighlights, List<BriefingSlot> slots,
+            Double regionTemperatureCelsius, Double regionApparentTemperatureCelsius,
+            Double regionWindSpeedMs, Integer regionWeatherCode,
+            String glossHeadline, String glossDetail,
+            DisplayVerdict displayVerdict, int scoredLocationCount) {
+        this(regionName, verdict, summary, tideHighlights, slots,
+                regionTemperatureCelsius, regionApparentTemperatureCelsius,
+                regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
+                displayVerdict, scoredLocationCount, null);
     }
 
     /**
@@ -58,6 +82,6 @@ public record BriefingRegion(
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                DisplayVerdict.resolve(null, verdict), 0);
+                DisplayVerdict.resolve(null, verdict), 0, null);
     }
 }
