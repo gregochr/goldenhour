@@ -233,6 +233,19 @@ public class PromptBuilder {
             + "  - current ≥60%, at-event 25-50%: uncertain → penalise fiery_sky by 10-20 points.\n"
             + "  - current 30-60%: softer signal — penalise fiery_sky by 5-15 points.\n\n"
             + "Do not use double-quote characters within the summary text.\n\n"
+            + "HEADLINE FIELD (optional): you may also output a `headline` field — a single, "
+            + "short fragment (4-9 words) that captures the verdict at a glance. The headline "
+            + "becomes the card header in the UI, so it must read naturally on its own. Write "
+            + "in Claude's voice, not as a clinical assessment. Examples:\n"
+            + "  - 4-5★ \"Pre-frontal fire — mid cloud catches colour\"\n"
+            + "  - 3★ \"Soft pastels overhead but the horizon's blocked\"\n"
+            + "  - 1-2★ \"Blanket overcast — no canvas, no colour\"\n"
+            + "  - 1-2★ \"Heavy rain — stay in and edit\"\n"
+            + "  - 1-2★ \"Sun blocked at the eastern horizon\"\n"
+            + "Do not write \"headline:\" or include the rating in the headline text. "
+            + "Match the headline's tone to the rating: do not write \"worth a look\" for "
+            + "a 1-2★ result.\n"
+            + "Do not use double-quote characters within the headline text.\n\n"
             + "CRITICAL OUTPUT FORMAT RULES:\n"
             + "- Respond ONLY with a single valid JSON object.\n"
             + "- Do NOT write reasoning, thinking, or commentary inside the JSON values.\n"
@@ -576,7 +589,11 @@ public class PromptBuilder {
                                                 "enum", List.of("NONE", "MODERATE", "STRONG"))),
                                         Map.entry("bluebell_score", Map.of("type", "integer")),
                                         Map.entry("bluebell_summary",
-                                                Map.of("type", "string")))))
+                                                Map.of("type", "string")),
+                                        Map.entry("headline", Map.of(
+                                                "type", "string",
+                                                "description",
+                                                "4-9 word card header in Claude's voice.")))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",

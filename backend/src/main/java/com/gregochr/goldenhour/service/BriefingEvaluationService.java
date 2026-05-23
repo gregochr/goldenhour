@@ -23,7 +23,6 @@ import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.TriageReason;
-import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -624,7 +623,7 @@ public class BriefingEvaluationService {
                 .flatMap(es -> es.regions().stream())
                 .filter(region -> region.regionName().equals(regionName))
                 .flatMap(region -> region.slots().stream())
-                .filter(slot -> slot.verdict() == Verdict.GO || slot.verdict() == Verdict.MARGINAL)
+                .filter(BriefingGatingPolicy::isEligibleForEvaluation)
                 .map(BriefingSlot::locationName)
                 .collect(Collectors.toSet());
     }

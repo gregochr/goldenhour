@@ -24,6 +24,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -125,16 +126,48 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
-    @DisplayName("collectScheduledBatches: all STANDDOWN slots → empty result, no prefetch")
-    void collectScheduledBatches_allStanddown_returnsEmpty() {
+    @DisplayName("collectScheduledBatches: all TIDE_MISMATCH STANDDOWN slots → empty result")
+    void collectScheduledBatches_allTideMismatchStanddown_returnsEmpty() {
+        // Tide mismatch is the only hard-constraint STANDDOWN reason that still gates
+        // after the Gate 2 redesign — a coastal slot whose tide is wrong is geometrically
+        // unphotographable regardless of weather, so Claude is not asked.
         when(briefingService.getCachedBriefing())
-                .thenReturn(buildBriefingForVerdict(TODAY, Verdict.STANDDOWN));
+                .thenReturn(buildBriefingWithStanddownReason(
+                        TODAY, "Durham UK",
+                        BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label()));
         stubModels();
 
         ScheduledBatchTasks result = collector.collectScheduledBatches();
 
         assertThat(result.isEmpty()).isTrue();
         verifyNoInteractions(openMeteoService, forecastService);
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: weather-STANDDOWN slot is now eligible (Gate 2 redesign)")
+    void collectScheduledBatches_weatherStanddown_reachesTriage() {
+        // Under the Gate 2 redesign, weather-condition STANDDOWN slots (heavy cloud,
+        // rain, clear sky, sun blocked at horizon, etc.) now reach Claude evaluation.
+        // This is the central behaviour change of PR 1.
+        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        DailyBriefingResponse briefing = buildBriefingWithStanddownReason(
+                TODAY, loc.getName(),
+                BriefingVerdictEvaluator.StanddownReason.HEAVY_CLOUD.label());
+        when(briefingService.getCachedBriefing()).thenReturn(briefing);
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        stubModels();
+        stubPrefetchSuccess(loc);
+        when(forecastService.fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
+
+        ScheduledBatchTasks result = collector.collectScheduledBatches();
+
+        // The previously-filtered slot now reaches prefetch + triage and ends up in
+        // the near-term inland bucket.
+        assertThat(result.nearInland()).hasSize(1);
+        verify(forecastService).fetchWeatherAndTriage(
+                any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -803,6 +836,29 @@ class ForecastTaskCollectorTest {
         }
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), slots,
+                null, null, null, null, null, null);
+        BriefingEventSummary eventSummary = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(region), List.of());
+        BriefingDay day = new BriefingDay(date, List.of(eventSummary));
+        return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
+                false, false, 0, null, List.of(), List.of());
+    }
+
+    /**
+     * Builds a briefing with a single STANDDOWN slot carrying the supplied reason label.
+     * Used to verify how the gating policy treats specific {@link
+     * BriefingVerdictEvaluator.StanddownReason} values.
+     */
+    private DailyBriefingResponse buildBriefingWithStanddownReason(LocalDate date,
+            String locationName, String standdownReason) {
+        BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
+                20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
+        BriefingSlot slot = new BriefingSlot(locationName,
+                date.atTime(5, 30),
+                Verdict.STANDDOWN, weather, BriefingSlot.TideInfo.NONE, List.of(),
+                standdownReason);
+        BriefingRegion region = new BriefingRegion(
+                "North East", Verdict.STANDDOWN, "Summary", List.of(), List.of(slot),
                 null, null, null, null, null, null);
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(region), List.of());

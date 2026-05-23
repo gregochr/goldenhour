@@ -76,6 +76,10 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     static final Pattern BLUEBELL_SUMMARY_PATTERN =
             Pattern.compile("\"bluebell_summary\"\\s*:\\s*\"([^\"]+)\"");
 
+    /** Extracts the Claude-authored card headline (Gate 2 redesign). */
+    static final Pattern HEADLINE_PATTERN =
+            Pattern.compile("\"headline\"\\s*:\\s*\"([^\"]+)\"");
+
     private final AnthropicApiClient anthropicApiClient;
     private final PromptBuilder promptBuilder;
     private final CoastalPromptBuilder coastalPromptBuilder;
@@ -190,9 +194,12 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                     ? node.get("bluebell_score").asInt() : null;
             String bluebellSummary = node.has("bluebell_summary")
                     ? node.get("bluebell_summary").textValue() : null;
+            String headline = node.has("headline")
+                    ? node.get("headline").stringValue() : null;
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential, bluebellScore, bluebellSummary);
+                    inversionScore, inversionPotential, bluebellScore, bluebellSummary,
+                    headline);
         } catch (Exception jsonException) {
             return parseWithRegexFallback(text, jsonException);
         }
@@ -283,9 +290,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             String bluebellSummary = bluebellSummaryMatcher.find()
                     ? bluebellSummaryMatcher.group(1) : null;
 
+            Matcher headlineMatcher = HEADLINE_PATTERN.matcher(text);
+            String headline = headlineMatcher.find() ? headlineMatcher.group(1) : null;
+
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
                     basicFierySky, basicGoldenHour, basicSummary,
-                    inversionScore, inversionPotential, bluebellScore, bluebellSummary);
+                    inversionScore, inversionPotential, bluebellScore, bluebellSummary,
+                    headline);
         }
 
         throw new IllegalArgumentException(

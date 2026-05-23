@@ -374,8 +374,19 @@ function EventPips({ allEvents, auroraActive }) { // eslint-disable-line no-unus
 
 // ── LocationSlotList (shared between mobile drill-down and heatmap drill-down) ──
 
-function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
-  const standdowns = sortedSlots((slots || []).filter((s) => s.verdict === 'STANDDOWN'));
+// Decides whether a slot belongs in the dimmed "standdown" section. After the Gate 2
+// redesign, the displayVerdict already incorporates Claude's rating — so a triage-STANDDOWN
+// slot that Claude rated 3-5★ stays in the main list. Falls back to the legacy verdict
+// check for slots that pre-date the displayVerdict field.
+function isPoorSlot(slot) {
+  if (slot.displayVerdict) {
+    return slot.displayVerdict === 'STAND_DOWN' || slot.displayVerdict === 'AWAITING';
+  }
+  return slot.verdict === 'STANDDOWN';
+}
+
+function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
+  const standdowns = sortedSlots((slots || []).filter(isPoorSlot));
   if (visible.length === 0 && standdowns.length === 0) return null;
   return (
     <div className="ml-4 mt-0.5 space-y-1 mb-1" data-testid="region-slots">
@@ -402,11 +413,21 @@ function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sorte
               </span>
             )}
             {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
+            {slot.claudeHeadline && (
+              <span
+                data-testid="slot-headline"
+                className="w-full text-plex-text font-medium"
+                style={{ fontSize: '12px' }}
+              >
+                {slot.claudeHeadline}
+              </span>
+            )}
           </div>
         );
       })}
       {standdowns.map((slot) => {
         const typeIcon = LOCATION_TYPE_ICONS[typeMap.get(slot.locationName)];
+        const subtitle = slot.claudeHeadline || slot.standdownReason;
         return (
           <div
             key={slot.locationName}
@@ -418,13 +439,13 @@ function LocationSlotList({ slots, driveMap, typeMap }) {  const visible = sorte
               {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
               {slot.locationName}
             </span>
-            {slot.standdownReason && (
+            {subtitle && (
               <span
                 data-testid="slot-standdown-reason"
                 className="text-plex-text-secondary italic"
                 style={{ fontSize: '12px' }}
               >
-                — {slot.standdownReason}
+                — {subtitle}
               </span>
             )}
           </div>
@@ -441,7 +462,9 @@ function EventDrillList({ events, driveMap, typeMap, date, onShowOnMap }) {  con
   return (
     <div className="space-y-0.5">
       {events.map(({ es, region, past }) => {
-        const tappable = !past && region.verdict !== 'STANDDOWN';
+        const regionDisplay = resolveRegionDisplay(region);
+        const regionIsPoor = regionDisplay === 'STAND_DOWN' || regionDisplay === 'AWAITING';
+        const tappable = !past && !regionIsPoor;
         const eventKey = es.targetType;
         const isExpanded = expandedType === eventKey;
         const eventTime = formatTime(getEventTime(es));

@@ -25,6 +25,9 @@ import java.util.List;
  * @param claudeSummary       cached Claude prose summary, or null
  * @param displayVerdict      unified colour/label signal; never null, recomputed whenever
  *                            {@code claudeRating} changes (see {@link #withClaudeScores})
+ * @param claudeHeadline      4-9 word Claude-authored card header (Gate 2 redesign), or null
+ *                            when no Claude evaluation has been performed or the result
+ *                            pre-dates the headline field
  */
 public record BriefingSlot(
         String locationName,
@@ -38,7 +41,8 @@ public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer fierySkyPotential,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer goldenHourPotential,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeSummary,
-        DisplayVerdict displayVerdict) {
+        DisplayVerdict displayVerdict,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline) {
 
     public BriefingSlot {
         flags = List.copyOf(flags);
@@ -61,24 +65,40 @@ public record BriefingSlot(
             String standdownReason) {
         this(locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, null, null, null, null,
-                DisplayVerdict.resolve(null, verdict));
+                DisplayVerdict.resolve(null, verdict), null);
     }
 
     /**
-     * Returns a copy of this slot with Claude evaluation scores populated.
+     * Returns a copy of this slot with Claude evaluation scores populated (no headline).
      * The {@code displayVerdict} is recomputed from the new rating.
      *
      * @param rating      Claude 1-5 star rating
      * @param fierySky    fiery sky potential 0-100
      * @param goldenHour  golden hour potential 0-100
      * @param summary     Claude prose summary
-     * @return new slot with Claude fields set
+     * @return new slot with Claude fields set, headline left null
      */
     public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
             Integer goldenHour, String summary) {
+        return withClaudeScores(rating, fierySky, goldenHour, summary, null);
+    }
+
+    /**
+     * Returns a copy of this slot with Claude evaluation scores and the synthesised headline
+     * populated. The {@code displayVerdict} is recomputed from the new rating.
+     *
+     * @param rating      Claude 1-5 star rating
+     * @param fierySky    fiery sky potential 0-100
+     * @param goldenHour  golden hour potential 0-100
+     * @param summary     Claude prose summary
+     * @param headline    4-9 word Claude-authored card header, or null when omitted
+     * @return new slot with Claude fields and headline set
+     */
+    public BriefingSlot withClaudeScores(Integer rating, Integer fierySky,
+            Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, fierySky, goldenHour, summary,
-                DisplayVerdict.resolve(rating, verdict));
+                DisplayVerdict.resolve(rating, verdict), headline);
     }
 
     /**

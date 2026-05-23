@@ -147,7 +147,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
             BriefingEvaluationResult result = new BriefingEvaluationResult(
                     location.getName(), safeRating,
-                    eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary());
+                    eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
+                    null, null, eval.headline());
 
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(), outcome.model());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -205,7 +206,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                 task.location().getName(), task.model().name());
         BriefingEvaluationResult result = new BriefingEvaluationResult(
                 task.location().getName(), safeRating,
-                eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary());
+                eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
+                null, null, eval.headline());
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
