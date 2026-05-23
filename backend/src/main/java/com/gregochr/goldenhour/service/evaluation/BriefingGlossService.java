@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.slf4j.Logger;
@@ -30,11 +31,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Generates Claude-authored one-line glosses for GO/MARGINAL briefing regions.
+ * Generates Claude-authored one-line glosses for briefing regions that have at least
+ * one slot eligible for Claude evaluation under {@link BriefingGatingPolicy}.
  *
  * <p>After the briefing triage builds the day → event → region hierarchy, this service
- * enriches each GO/MARGINAL region with a short (~10 word) explanation of the key reason
- * for its verdict. STANDDOWN regions are skipped (gloss left null).
+ * enriches each region with a short (~10 word) explanation. Under the Gate 2 redesign,
+ * weather-condition STANDDOWN regions now receive a gloss too — the gloss reflects
+ * Claude's actual evaluation rather than assuming a positive GO/MARGINAL framing.
+ * Regions whose every slot is hard-constrained (e.g. all coastal slots tide-mismatched)
+ * are skipped (gloss left null) because no slot reached Claude.
  *
  * <p>Calls are made in parallel using virtual threads with a concurrency cap. Each call
  * is individually error-handled — a failed gloss never blocks the briefing.
@@ -148,8 +153,8 @@ public class BriefingGlossService {
                         item.region.regionName(), item.day.date(),
                         item.eventSummary.targetType()).isEmpty())
                 .count();
-        LOG.info("Gloss generation: {}/{} work items have Claude scores",
-                withScores, workItems.size());
+        LOG.info("Gloss generation: {} work items, {} with Claude scores",
+                workItems.size(), withScores);
 
         glossExecutor.execute(workItems, item -> callGloss(item, model, jobRunId));
 
@@ -157,7 +162,9 @@ public class BriefingGlossService {
     }
 
     /**
-     * Walks the hierarchy and collects one work item per GO/MARGINAL region.
+     * Walks the hierarchy and collects one work item per region that has at least
+     * one slot eligible for Claude evaluation under {@link BriefingGatingPolicy}.
+     * Regions whose slots are all hard-constrained (tide mismatch only) are skipped.
      */
     private List<GlossWorkItem> collectWorkItems(List<BriefingDay> days) {
         List<GlossWorkItem> items = new ArrayList<>();
@@ -167,7 +174,7 @@ public class BriefingGlossService {
                 BriefingEventSummary es = day.eventSummaries().get(ei);
                 for (int ri = 0; ri < es.regions().size(); ri++) {
                     BriefingRegion region = es.regions().get(ri);
-                    if (region.verdict() == Verdict.GO || region.verdict() == Verdict.MARGINAL) {
+                    if (BriefingGatingPolicy.hasAnyEligibleSlot(region)) {
                         items.add(new GlossWorkItem(di, ei, ri, day, es, region));
                     }
                 }
@@ -222,13 +229,16 @@ public class BriefingGlossService {
      */
     String buildUserMessage(GlossWorkItem item) {
         BriefingRegion region = item.region;
-        List<BriefingSlot> nonStanddown = region.slots().stream()
-                .filter(s -> s.verdict() != Verdict.STANDDOWN)
+        // Under the Gate 2 redesign, the "candidate" slot set is anything eligible for
+        // Claude evaluation — including weather-STANDDOWN. Only hard-constrained slots
+        // (tide mismatch) are excluded from the median cloud cover used in the prompt.
+        List<BriefingSlot> evaluableSlots = region.slots().stream()
+                .filter(BriefingGatingPolicy::isEligibleForEvaluation)
                 .toList();
         List<BriefingSlot> goSlots = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO)
                 .toList();
-        List<BriefingSlot> medianSource = goSlots.isEmpty() ? nonStanddown : goSlots;
+        List<BriefingSlot> medianSource = goSlots.isEmpty() ? evaluableSlots : goSlots;
 
         int cloudLow = median(medianSource.stream()
                 .mapToInt(s -> s.weather().lowCloudPercent()).sorted().toArray());

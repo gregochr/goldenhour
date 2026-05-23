@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,9 +109,15 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("STANDDOWN region skipped — no Haiku call, gloss stays null")
-    void standdownRegion_noCall() {
-        List<BriefingDay> days = List.of(dayWith(region("Northumberland", Verdict.STANDDOWN)));
+    @DisplayName("All-TIDE_MISMATCH STANDDOWN region skipped — no Haiku call, gloss stays null")
+    void allTideMismatchStanddownRegion_noCall() {
+        // After the Gate 2 redesign, only hard-constraint STANDDOWN reasons skip the
+        // gloss (the region has no eligible slot for Claude). Tide mismatch is the
+        // only such reason today.
+        BriefingRegion tideMismatch = regionWithStanddownReason(
+                "Northumberland", Verdict.STANDDOWN,
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        List<BriefingDay> days = List.of(dayWith(tideMismatch));
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
         BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
@@ -120,8 +127,33 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("Mixed verdicts: GO gets gloss, STANDDOWN stays null in same event")
-    void mixedVerdicts_goGlossedStanddownNull() {
+    @DisplayName("Weather-condition STANDDOWN region IS glossed (Gate 2 redesign)")
+    void weatherStanddownRegion_isGlossed() {
+        // Heavy cloud is a weather condition — Claude is now asked to gloss the
+        // region so the user sees a Claude-authored explanation rather than a silent
+        // skip.
+        stubModelSelection();
+        Message response = mockResponse(
+                "{\"headline\": \"Blanket cloud — flat light\","
+                        + " \"detail\": \"Low cloud at 95% blocks the horizon.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        BriefingRegion heavyCloud = regionWithStanddownReason(
+                "Northumberland", Verdict.STANDDOWN,
+                BriefingVerdictEvaluator.StanddownReason.HEAVY_CLOUD.label());
+        List<BriefingDay> days = List.of(dayWith(heavyCloud));
+        List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("Blanket cloud — flat light");
+        assertThat(r.glossDetail()).isEqualTo("Low cloud at 95% blocks the horizon.");
+        verify(anthropicApiClient, times(1)).createMessage(any());
+    }
+
+    @Test
+    @DisplayName("Mixed verdicts: GO is glossed, TIDE_MISMATCH STANDDOWN is skipped")
+    void mixedVerdicts_goGlossedTideMismatchSkipped() {
         stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"High cloud with clear horizon\","
@@ -130,8 +162,10 @@ class BriefingGlossServiceTest {
                 .thenReturn(response);
 
         BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-        BriefingRegion standdownRegion = region("Lake District", Verdict.STANDDOWN);
-        List<BriefingDay> days = List.of(dayWith(goRegion, standdownRegion));
+        BriefingRegion tideMismatchRegion = regionWithStanddownReason(
+                "Lake District", Verdict.STANDDOWN,
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        List<BriefingDay> days = List.of(dayWith(goRegion, tideMismatchRegion));
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
         List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
@@ -599,7 +633,7 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("GO glossDetail survives reassembly while STANDDOWN glossDetail stays null")
+    @DisplayName("GO glossDetail survives reassembly while TIDE_MISMATCH glossDetail stays null")
     void mixedVerdicts_glossDetailSurvivesReassembly() {
         stubModelSelection();
         Message response = mockResponse(
@@ -609,8 +643,10 @@ class BriefingGlossServiceTest {
                 .thenReturn(response);
 
         BriefingRegion goRegion = region("Northumberland", Verdict.GO);
-        BriefingRegion standdownRegion = region("Lake District", Verdict.STANDDOWN);
-        List<BriefingDay> days = List.of(dayWith(goRegion, standdownRegion));
+        BriefingRegion tideMismatchRegion = regionWithStanddownReason(
+                "Lake District", Verdict.STANDDOWN,
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        List<BriefingDay> days = List.of(dayWith(goRegion, tideMismatchRegion));
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
         List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
@@ -1091,6 +1127,17 @@ class BriefingGlossServiceTest {
                 new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
                         10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
                 BriefingSlot.TideInfo.NONE, flags, null);
+        return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(slot),
+                10.0, 8.0, 3.5, 0, null, null);
+    }
+
+    private static BriefingRegion regionWithStanddownReason(String name, Verdict verdict,
+            String standdownReason) {
+        BriefingSlot slot = new BriefingSlot(
+                "Location1", LocalDateTime.of(2026, 4, 10, 18, 30), verdict,
+                new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
+                        10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40),
+                BriefingSlot.TideInfo.NONE, List.of(), standdownReason);
         return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(slot),
                 10.0, 8.0, 3.5, 0, null, null);
     }

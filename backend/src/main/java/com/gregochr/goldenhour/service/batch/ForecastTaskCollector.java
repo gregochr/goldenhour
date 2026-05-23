@@ -15,9 +15,9 @@ import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
-import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
@@ -539,10 +539,11 @@ public class ForecastTaskCollector {
                     }
                     for (BriefingSlot slot : region.slots()) {
                         totalSlots++;
-                        if (slot.verdict() != Verdict.GO && slot.verdict() != Verdict.MARGINAL) {
+                        if (!BriefingGatingPolicy.isEligibleForEvaluation(slot)) {
                             LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
-                                            + "reason=VERDICT_{}", slot.locationName(),
-                                    date, targetType, slot.verdict());
+                                            + "reason=VERDICT_{} ({})",
+                                    slot.locationName(), date, targetType,
+                                    slot.verdict(), slot.standdownReason());
                             skippedVerdict++;
                             continue;
                         }

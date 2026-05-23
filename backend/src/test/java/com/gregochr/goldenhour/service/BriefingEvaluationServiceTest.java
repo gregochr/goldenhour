@@ -116,21 +116,28 @@ class BriefingEvaluationServiceTest {
     // ── Filtering tests ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("evaluateRegion evaluates GO/MARGINAL locations only")
-    void evaluates_goAndMarginal_only() {
+    @DisplayName("evaluateRegion evaluates eligible: GO, MARGINAL, weather-STANDDOWN; TIDE_MISMATCH skipped")
+    void evaluates_eligibleSlots_only() {
+        // Gate 2 redesign (Option B): weather-condition STANDDOWN slots reach Claude.
+        // Only hard-constraint reasons (currently TIDE_MISMATCH) still gate.
         LocationEntity goLoc = locationInRegion("Bamburgh", REGION);
         LocationEntity marginalLoc = locationInRegion("Dunstanburgh", REGION);
-        LocationEntity standdownLoc = locationInRegion("Craster", REGION);
+        LocationEntity heavyCloudLoc = locationInRegion("Embleton", REGION);
+        LocationEntity tideMismatchLoc = locationInRegion("Craster", REGION);
 
-        when(locationService.findAllEnabled()).thenReturn(List.of(goLoc, marginalLoc, standdownLoc));
+        when(locationService.findAllEnabled()).thenReturn(
+                List.of(goLoc, marginalLoc, heavyCloudLoc, tideMismatchLoc));
         when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(jobRunService.startRun(eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU)))
                 .thenReturn(JobRunEntity.builder().id(1L).build());
 
         BriefingSlot goSlot = slot("Bamburgh", Verdict.GO);
         BriefingSlot marginalSlot = slot("Dunstanburgh", Verdict.MARGINAL);
-        BriefingSlot standdownSlot = slot("Craster", Verdict.STANDDOWN);
-        stubBriefing(List.of(goSlot, marginalSlot, standdownSlot));
+        BriefingSlot heavyCloudSlot = slotWithStanddownReason("Embleton",
+                BriefingVerdictEvaluator.StanddownReason.HEAVY_CLOUD.label());
+        BriefingSlot tideMismatchSlot = slotWithStanddownReason("Craster",
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+        stubBriefing(List.of(goSlot, marginalSlot, heavyCloudSlot, tideMismatchSlot));
 
         ForecastPreEvalResult preEval = nonTriagedResult(goLoc);
         when(forecastService.fetchWeatherAndTriage(
@@ -142,12 +149,12 @@ class BriefingEvaluationServiceTest {
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
 
-        // GO + MARGINAL = 2 calls
-        verify(forecastService, times(2))
+        // GO + MARGINAL + weather-STANDDOWN = 3 calls
+        verify(forecastService, times(3))
                 .fetchWeatherAndTriage(any(), eq(DATE), eq(TargetType.SUNSET), any(),
                         any(), eq(false), any());
 
-        // Standdown location must never reach forecastService
+        // TIDE_MISMATCH location must never reach forecastService
         verify(forecastService, never())
                 .fetchWeatherAndTriage(
                         argThat(loc -> "Craster".equals(loc.getName())),
@@ -155,9 +162,9 @@ class BriefingEvaluationServiceTest {
 
         Map<String, BriefingEvaluationResult> cached =
                 service.getCachedScores(REGION, DATE, TargetType.SUNSET);
-        assertThat(cached).hasSize(2);
-        assertThat(cached).containsKey("Bamburgh");
-        assertThat(cached).containsKey("Dunstanburgh");
+        assertThat(cached).hasSize(3);
+        assertThat(cached).containsKeys("Bamburgh", "Dunstanburgh", "Embleton");
+        assertThat(cached).doesNotContainKey("Craster");
         assertThat(cached.get("Bamburgh").rating()).isEqualTo(4);
     }
 
@@ -570,11 +577,14 @@ class BriefingEvaluationServiceTest {
     }
 
     @Test
-    @DisplayName("All STANDDOWN slots yield empty evaluation with no job run")
-    void allStanddown_noJobRun() {
+    @DisplayName("All-TIDE_MISMATCH STANDDOWN slots yield empty evaluation with no job run")
+    void allTideMismatchStanddown_noJobRun() {
+        // Only hard-constraint STANDDOWN slots short-circuit the evaluation pipeline
+        // post-Gate 2. Weather-STANDDOWN slots no longer do this — they reach Claude.
         LocationEntity loc = locationInRegion("Craster", REGION);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        stubBriefing(List.of(slot("Craster", Verdict.STANDDOWN)));
+        stubBriefing(List.of(slotWithStanddownReason("Craster",
+                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label())));
 
         SseEmitter emitter = mock(SseEmitter.class);
         service.evaluateRegion(REGION, DATE, TargetType.SUNSET, emitter);
@@ -1570,6 +1580,20 @@ class BriefingEvaluationServiceTest {
                 new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null, 0, 0),
                 new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
                 List.of(), null);
+    }
+
+    /**
+     * Builds a STANDDOWN slot carrying the supplied reason label, used to distinguish
+     * weather-condition STANDDOWN from hard-constraint STANDDOWN under
+     * {@code BriefingGatingPolicy}.
+     */
+    private BriefingSlot slotWithStanddownReason(String locationName, String standdownReason) {
+        return new BriefingSlot(locationName,
+                LocalDateTime.of(2026, 3, 30, 18, 30),
+                Verdict.STANDDOWN,
+                new BriefingSlot.WeatherConditions(30, null, 20000, 70, 8.0, 6.0, 2, null, 0, 0),
+                new BriefingSlot.TideInfo(null, false, null, null, false, false, null, null, null),
+                List.of(), standdownReason);
     }
 
     private void stubBriefing(List<BriefingSlot> slots) {
