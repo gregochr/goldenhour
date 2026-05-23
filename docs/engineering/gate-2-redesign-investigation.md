@@ -2,6 +2,8 @@
 
 Status: investigation only. Written 2026-05-23 against `main` at `054ce17`. No production code modified.
 
+**Update (as built, 2026-05-23):** Option B (verdict-gating removed at all horizons, TIDE_MISMATCH retained as hard constraint) shipped via commits `3b70066` (gating policy + 3 sites) and `a7b1d0b` (Claude headline + STANDDOWN gloss + UI). The UI shape that landed is **α-shaped** (Claude-authored headline rendered alongside a separate triage element), **not the γ synthesised header** the implementation prompt referenced. See [Section 9.6](#96-update-as-built--shape-is-α-not-γ) for the correction note. The options analysis in Section 5 is otherwise accurate.
+
 This is a sibling document to [gating-architecture-investigation.md](gating-architecture-investigation.md). Section 2 of the parent document mapped Gate 2 in its current shape and proposed "soften to attribute" as a recommendation. This document is the deep-dive needed before drafting an implementation prompt: it traces every site that produces or consumes the verdict, examines the STANDDOWN reason distribution, sketches three UI shapes for the user to choose between, and presents three concrete end-state options.
 
 The work that motivated this investigation is the April 22 2026 product principle ("Claude evaluates every photographable opportunity at T and T+1"). Gate 4 (just shipped via PR #100) achieved this for the stability axis. Gate 2 — the briefing verdict — remains the dominant skip reason in production logs. This document is the basis for the work that closes the gap.
@@ -805,6 +807,16 @@ If the user is also planning the Gate 1 (cache freshness, per-location) work fro
 - **Gate 1 before Gate 2**: per-location freshness in place → Gate 2's volume increase is absorbed cleanly. Order: parent investigation's Gate 1 → then B.
 
 Either order works. The parent investigation suggested Gate 1 should come after Gate 2/4 because Gate 2/4 changes the cache write shape. That argument still holds.
+
+### 9.6 Update (as built): UI shape is α, not γ
+
+**UI shape as built: α-shaped (Claude-authored headline + separate triage element).**
+
+The original plan referenced option γ (a synthesised header merging Claude's evaluation and the triage verdict into one sentence). The implementation took a cheaper, cleaner path: Claude authors the headline from the same atmospheric/scoring data it rates from, and the triage-vs-Claude two-layer story surfaces as separate UI elements (Claude headline + rating as the primary signal; triage verdict as a secondary chip/sub-line) rather than as synthesised prose.
+
+This is functionally closer to option α (Claude-dominant header, triage as a separate element) than to γ. The synthesis logic γ described — and the brittleness concern that came with Java-composing two signals into one sentence — does not exist in the as-built system, because there is no synthesis: the two signals are displayed side by side, not merged.
+
+**Deferred: triage-aware headline synthesis (true γ).** If the separate-element presentation proves confusing in practice, threading the triage verdict + reason into the headline prompt so Claude can explicitly acknowledge it ("Triage flagged stand down, but...") is a clean additive follow-up. It was deferred to avoid a ~10-file prompt-context cascade for a UX refinement whose value is unproven until the separate-element UI has been seen in production.
 
 ---
 
