@@ -83,6 +83,11 @@ public class BriefingGlossService {
             Use them to calibrate your language: a claudeAverageRating above 3.5 justifies \
             optimistic language; below 2.5 warrants caution even if the triage verdict is GO. \
             When absent, base your assessment on the cloud and tide data alone.
+            STANDDOWN regions: when the input verdict is STANDDOWN, conditions are poor \
+            across the region — write a cautionary headline and detail in honest terms. \
+            Examples: "Heavy rain washes out the sky", "Sun blocked at the eastern horizon", \
+            "Blanket overcast — no canvas, no colour". Do NOT use optimistic language like \
+            "worth a look" or "promising" for STANDDOWN regions.
             Respond with ONLY a JSON object. No markdown, no code fences, no preamble, \
             no trailing text. The response must start with { and end with }.
             Example: {"headline": "High cirrus canvas — colour potential", \

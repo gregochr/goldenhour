@@ -438,9 +438,11 @@ public class BriefingService {
                     BriefingRatingStats.Stats stats = BriefingRatingStats.compute(
                             ratingEntries, region.regionName(), day.date(), es.targetType());
                     if (stats.isEmpty()) {
-                        LOG.info("[GATE2 HONESTY OVERRIDE] region={} date={} target={} "
+                        LOG.info("[ZERO COVERAGE] region={} date={} target={} "
                                         + "briefingVerdict={} scoredCount=0 "
-                                        + "(overriding to STAND_DOWN at read time)",
+                                        + "(honesty filter will rewrite at API read time — "
+                                        + "post-Gate-2 this should only fire on batch "
+                                        + "failures or all-hard-constrained regions)",
                                 region.regionName(), day.date(), es.targetType(),
                                 region.verdict());
                     }
@@ -471,7 +473,7 @@ public class BriefingService {
         BriefingEvaluationResult eval = cached.get(slot.locationName());
         if (eval != null && eval.rating() != null) {
             return slot.withClaudeScores(eval.rating(), eval.fierySkyPotential(),
-                    eval.goldenHourPotential(), eval.summary());
+                    eval.goldenHourPotential(), eval.summary(), eval.headline());
         }
         return slot;
     }

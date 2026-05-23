@@ -20,6 +20,8 @@ package com.gregochr.goldenhour.model;
  * @param inversionPotential       inversion classification (NONE, MODERATE, STRONG), or null
  * @param bluebellScore            bluebell conditions score (0-10) from Claude, or null
  * @param bluebellSummary          bluebell conditions summary from Claude, or null
+ * @param headline                 4-9 word Claude-authored card header (Gate 2 redesign), or null
+ *                                 when Claude omitted the field (legacy responses)
  */
 public record SunsetEvaluation(
         Integer rating,
@@ -32,7 +34,8 @@ public record SunsetEvaluation(
         Integer inversionScore,
         String inversionPotential,
         Integer bluebellScore,
-        String bluebellSummary
+        String bluebellSummary,
+        String headline
 ) {
 
     /**
@@ -46,7 +49,7 @@ public record SunsetEvaluation(
     public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
             Integer goldenHourPotential, String summary) {
         this(rating, fierySkyPotential, goldenHourPotential, summary,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -66,7 +69,7 @@ public record SunsetEvaluation(
             String basicSummary) {
         this(rating, fierySkyPotential, goldenHourPotential, summary,
                 basicFierySkyPotential, basicGoldenHourPotential, basicSummary, null, null,
-                null, null);
+                null, null, null);
     }
 
     /**
@@ -88,6 +91,31 @@ public record SunsetEvaluation(
             String basicSummary, Integer inversionScore, String inversionPotential) {
         this(rating, fierySkyPotential, goldenHourPotential, summary,
                 basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
-                inversionScore, inversionPotential, null, null);
+                inversionScore, inversionPotential, null, null, null);
+    }
+
+    /**
+     * Constructs an evaluation with basic-tier, inversion, and bluebell fields but no headline.
+     *
+     * @param rating                   1-5 rating
+     * @param fierySkyPotential        dramatic colour potential (0-100)
+     * @param goldenHourPotential      overall light quality (0-100)
+     * @param summary                  Claude's explanation
+     * @param basicFierySkyPotential   basic fiery sky score, or null
+     * @param basicGoldenHourPotential basic golden hour score, or null
+     * @param basicSummary             basic summary, or null
+     * @param inversionScore           inversion score (0-10), or null
+     * @param inversionPotential       inversion classification string, or null
+     * @param bluebellScore            bluebell conditions score (0-10), or null
+     * @param bluebellSummary          bluebell conditions summary, or null
+     */
+    public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
+            Integer goldenHourPotential, String summary,
+            Integer basicFierySkyPotential, Integer basicGoldenHourPotential,
+            String basicSummary, Integer inversionScore, String inversionPotential,
+            Integer bluebellScore, String bluebellSummary) {
+        this(rating, fierySkyPotential, goldenHourPotential, summary,
+                basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
+                inversionScore, inversionPotential, bluebellScore, bluebellSummary, null);
     }
 }

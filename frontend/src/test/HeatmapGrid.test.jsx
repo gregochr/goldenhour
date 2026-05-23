@@ -1150,3 +1150,112 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
     expect(slot.textContent).not.toContain(longSentence);
   });
 });
+
+// \u2500\u2500 Gate 2 redesign: claudeHeadline + displayVerdict-based filtering \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+describe('HeatmapGrid \u2014 Gate 2 claudeHeadline and Claude-elevated slots', () => {
+  it('renders Claude headline under a regular slot row when present', () => {
+    const days = [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          summary: 'Clear skies',
+          slots: [{
+            locationName: 'Bamburgh',
+            verdict: 'GO',
+            solarEventTime: `${DATE_1}T19:30:00`,
+            claudeRating: 4,
+            claudeSummary: 'Plenty of cloud canvas.',
+            claudeHeadline: 'Pre-frontal fire \u2014 mid cloud catches colour',
+          }],
+        }],
+      }],
+    }];
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const headline = screen.getByTestId('slot-headline');
+    expect(headline.textContent).toContain('Pre-frontal fire');
+  });
+
+  it('keeps a Claude-elevated STANDDOWN slot in the main list (displayVerdict overrides verdict)', () => {
+    // Triage said STANDDOWN (Heavy cloud) but Claude rated 4\u2605 and elevated the slot
+    // to WORTH_IT via DisplayVerdict.resolve. The slot must NOT be banished to the
+    // dimmed "Poor conditions" section.
+    const days = [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'STANDDOWN',
+          displayVerdict: 'WORTH_IT',
+          summary: 'Mixed conditions',
+          slots: [{
+            locationName: 'Bamburgh',
+            verdict: 'STANDDOWN',
+            displayVerdict: 'WORTH_IT',
+            solarEventTime: `${DATE_1}T19:30:00`,
+            standdownReason: 'Heavy cloud',
+            claudeRating: 4,
+            claudeHeadline: 'Cloud breaking up just in time',
+            flags: [],
+          }],
+        }],
+      }],
+    }];
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // The slot is in the main list (briefing-slot), not the dimmed standdown row
+    expect(screen.queryAllByTestId('briefing-slot')).toHaveLength(1);
+    expect(screen.queryAllByTestId('standdown-slot')).toHaveLength(0);
+    // The headline is rendered
+    expect(screen.getByTestId('slot-headline').textContent).toContain('Cloud breaking up');
+  });
+
+  it('shows claudeHeadline in the dimmed Poor row when slot is genuinely STAND_DOWN', () => {
+    const days = [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'STANDDOWN',
+          summary: 'Heavy rain',
+          slots: [{
+            locationName: 'Bamburgh',
+            verdict: 'STANDDOWN',
+            displayVerdict: 'STAND_DOWN',
+            solarEventTime: `${DATE_1}T19:30:00`,
+            standdownReason: 'Rain',
+            claudeRating: 1,
+            claudeHeadline: 'Heavy rain \u2014 stay in and edit',
+            flags: ['Active rain'],
+          }],
+        }],
+      }],
+    }];
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days,
+      showAllLocations: true,
+    });
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const standdownSlot = screen.getByTestId('standdown-slot');
+    expect(standdownSlot.textContent).toContain('Heavy rain \u2014 stay in and edit');
+  });
+});

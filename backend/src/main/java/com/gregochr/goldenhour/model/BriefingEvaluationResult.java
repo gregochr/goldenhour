@@ -16,6 +16,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param summary             Claude's plain-English explanation, or null
  * @param triageReason        categorised stand-down reason, or null if Claude-scored
  * @param triageMessage       formatted stand-down explanation text, or null
+ * @param headline            4-9 word Claude-authored card header (Gate 2 redesign), or null
+ *                            for legacy results that pre-date the field
  */
 public record BriefingEvaluationResult(
         String locationName,
@@ -24,11 +26,12 @@ public record BriefingEvaluationResult(
         Integer goldenHourPotential,
         String summary,
         @JsonInclude(JsonInclude.Include.NON_NULL) TriageReason triageReason,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage
+        @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String headline
 ) {
 
     /**
-     * Convenience constructor for Claude-scored results (no triage fields).
+     * Convenience constructor for Claude-scored results (no triage fields, no headline).
      *
      * @param locationName        the location
      * @param rating              1-5 rating
@@ -38,7 +41,26 @@ public record BriefingEvaluationResult(
      */
     public BriefingEvaluationResult(String locationName, Integer rating,
             Integer fierySkyPotential, Integer goldenHourPotential, String summary) {
-        this(locationName, rating, fierySkyPotential, goldenHourPotential, summary, null, null);
+        this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
+                null, null, null);
+    }
+
+    /**
+     * Convenience constructor for triaged results (no headline).
+     *
+     * @param locationName        the location
+     * @param rating              1-5 rating (typically null for triaged)
+     * @param fierySkyPotential   fiery sky score (typically null for triaged)
+     * @param goldenHourPotential golden hour score (typically null for triaged)
+     * @param summary             Claude's explanation (typically null for triaged)
+     * @param triageReason        categorised stand-down reason
+     * @param triageMessage       formatted stand-down explanation
+     */
+    public BriefingEvaluationResult(String locationName, Integer rating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String summary,
+            TriageReason triageReason, String triageMessage) {
+        this(locationName, rating, fierySkyPotential, goldenHourPotential, summary,
+                triageReason, triageMessage, null);
     }
 
     /**
@@ -49,6 +71,6 @@ public record BriefingEvaluationResult(
      */
     public BriefingEvaluationResult withRating(Integer newRating) {
         return new BriefingEvaluationResult(locationName, newRating, fierySkyPotential,
-                goldenHourPotential, summary, triageReason, triageMessage);
+                goldenHourPotential, summary, triageReason, triageMessage, headline);
     }
 }

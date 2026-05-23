@@ -246,16 +246,29 @@ function mergedScore(slot, sseScore) {
   return null;
 }
 
+// Decides whether a slot belongs in the "Poor" dimmed-rows section.
+// Post Gate 2 redesign: Claude evaluates weather-STANDDOWN slots and may elevate them
+// to 3-5★ — those slots should NOT be dimmed even if their triage verdict was STANDDOWN.
+// The slot's `displayVerdict` already encodes this (Claude rating > triage when both present).
+// For backwards compatibility with slots that pre-date the displayVerdict field, we fall
+// back to the legacy verdict check.
+function isPoorSlot(slot) {
+  if (slot.displayVerdict) {
+    return slot.displayVerdict === 'STAND_DOWN' || slot.displayVerdict === 'AWAITING';
+  }
+  return slot.verdict === 'STANDDOWN';
+}
+
 function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false }) {
   // Track which rows are *collapsed* (not expanded) so default is expanded —
   // any slot not in this set shows its full summary.
   const [collapsedRows, setCollapsedRows] = useState(new Set());
-  const visible = sortedSlots((slots || []).filter((s) => s.verdict !== 'STANDDOWN'));
+  const visible = sortedSlots((slots || []).filter((s) => !isPoorSlot(s)));
   const standdownSlots = showAllLocations
-    ? (slots || []).filter((s) => s.verdict === 'STANDDOWN')
+    ? (slots || []).filter(isPoorSlot)
     : [];
 
-  const hasHiddenStanddowns = !showAllLocations && (slots || []).some((s) => s.verdict === 'STANDDOWN');
+  const hasHiddenStanddowns = !showAllLocations && (slots || []).some(isPoorSlot);
 
   if (visible.length === 0 && standdownSlots.length === 0) {
     if (hasHiddenStanddowns) {
@@ -331,7 +344,16 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
               </span>
             )}
             {slot.flags?.map((flag) => <FlagChip key={flag} label={flag} />)}
-            {hasSummary && !expanded && (
+            {slot.claudeHeadline && (
+              <span
+                data-testid="slot-headline"
+                className="w-full text-plex-text font-medium animate-fade-in"
+                style={{ fontSize: '12px' }}
+              >
+                {slot.claudeHeadline}
+              </span>
+            )}
+            {hasSummary && !expanded && !slot.claudeHeadline && (
               <span className="w-full text-plex-text-secondary truncate animate-fade-in" style={{ fontSize: '11px' }}>
                 {firstSentence(score.summary)}
               </span>
@@ -392,7 +414,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
                   {slot.locationName}
                 </span>
                 <span className="text-plex-text-muted" style={{ fontSize: '12px' }}>
-                  {slot.standdownReason || slot.flags?.[0] || 'Poor conditions'}
+                  {slot.claudeHeadline || slot.standdownReason || slot.flags?.[0] || 'Poor conditions'}
                 </span>
                 {drive && (
                   <span className="text-plex-text-secondary" style={{ fontSize: '12px' }}>
@@ -472,7 +494,9 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
 
       <div className="space-y-0.5">
         {events.map(({ es, region, past }) => {
-          const tappable = !past && (region.verdict !== 'STANDDOWN' || showAllLocations);
+          const regionDisplay = resolveRegionDisplay(region);
+          const regionIsPoor = regionDisplay === 'STAND_DOWN' || regionDisplay === 'AWAITING';
+          const tappable = !past && (!regionIsPoor || showAllLocations);
           const eventKey = es.targetType;
           const eventTime = formatTime(
             (es.regions || []).flatMap((r) => r.slots || []).find((s) => s.solarEventTime)?.solarEventTime,

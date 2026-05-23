@@ -14,11 +14,26 @@ import java.util.List;
  * triage-derived display fields with honest "we did not evaluate this"
  * messaging.
  *
- * <p>This is the Gate 2 honesty patch. Before this filter existed, a region
- * whose triage rollup said {@code GO} but whose
- * {@code cached_evaluation} held no rows would surface as a confident
- * "Worth it" pill with the briefing's "Clear at N of M locations" summary —
- * actively misleading the user about coverage that was never produced.
+ * <p><b>Role after the Gate 2 redesign:</b> failure-defence. Under the Gate 2
+ * verdict-as-attribute redesign, weather-condition STANDDOWN slots reach Claude
+ * via {@link BriefingGatingPolicy}, so policy-driven zero-coverage cases are
+ * rare. Residual zero-coverage now comes from:
+ * <ul>
+ *   <li>Batch API failures or partial results that write zero rows to a
+ *       region's cache for a given (date, target).</li>
+ *   <li>Regions whose every slot is hard-constrained (e.g. all-tide-mismatched
+ *       coastal regions at a particular tide phase). The region's triage
+ *       verdict may still read GO/MARGINAL from a non-coastal subset of slots
+ *       but the hard-constraint slots never reach Claude.</li>
+ *   <li>The narrow window between a briefing refresh and the first batch
+ *       result writing back. Briefings refresh every ~8h; batches arrive
+ *       within minutes-to-hours.</li>
+ * </ul>
+ *
+ * <p><b>Before the redesign</b> the filter also caught the dominant
+ * policy-driven zero-coverage case where Gate 2 had filtered every slot
+ * before Claude could score them. That case has been collapsed by the policy
+ * change.
  *
  * <p>The filter is intentionally scoped to the API read path
  * ({@link BriefingService#getCachedBriefingForApi}). Internal callers of
