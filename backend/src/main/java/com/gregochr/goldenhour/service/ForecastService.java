@@ -640,6 +640,7 @@ public class ForecastService {
                 .fierySkyPotential(evaluation.fierySkyPotential())
                 .goldenHourPotential(evaluation.goldenHourPotential())
                 .summary(evaluation.summary())
+                .headline(evaluation.headline())
                 .basicFierySkyPotential(evaluation.basicFierySkyPotential())
                 .basicGoldenHourPotential(evaluation.basicGoldenHourPotential())
                 .basicSummary(evaluation.basicSummary())
