@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Map star-threshold filter hid briefing-rated locations
+- **`MapView.getRatingForLocation`** — now consults `briefingScores` before falling back to `forecastsByDate.[type].rating`, matching the precedence the marker render path has used all along (line ~901, `briefingScore?.rating ?? forecast?.rating`). Before this fix, a location whose rating came only via `cached_evaluation` (i.e. the Plan tab's briefing enrichment) would render a 3★ medallion on the marker but get filtered out by the star-threshold filter — `getRatingForLocation` returned `null`, the filter routed it to the `showUnrated` branch (default off), and the marker disappeared. Visible bug: selecting 3★ on a Sunset map with a 3★ briefing-only location (e.g. College Valley) emptied the map
+- Test: 1 new `MapViewStarFilter.test.jsx` regression case (`briefingScore.rating survives the star-threshold filter`)
+
+### Fixed — Map tab missing future-date forecasts that Plan tab shows
+- **`ForecastController.getForecasts`** — merge cached-only rows so the Map date strip surfaces future dates that the batch pipeline has scored but not yet persisted as full `forecast_evaluation` rows. Before this fix, the Map tab read only `forecast_evaluation` directly, so the date strip cut off at today while the Plan tab (which reads `cached_evaluation` via `BriefingService.enrichWithCachedScores`) correctly showed T+1 through T+3. The two views now share the same source-of-truth boundary that `EvaluationViewService`'s Javadoc has always promised
+- **`ForecastDtoMapper.toSparseDto`** — new method that synthesises a sparse `ForecastEvaluationDto` from a `LocationEvaluationView` whose source is `CACHED_EVALUATION`. Atmospheric, tide, surge and inversion fields are left null (cached_evaluation doesn't carry them); solar event time + azimuth, golden/blue hour windows, lunar tide type and lunar phase are computed deterministically from the location's lat/lon so the marker and popup render sensible scaffolding
+- **Merge rule** — when the same `(location, date, type)` tuple has both a `forecast_evaluation` row and a `cached_evaluation` entry, the rich row wins; the cached entry is dropped as a duplicate
+- Tests: 2 new `ForecastControllerTest` cases (`getForecasts_surfacesCachedOnlyRows`, `getForecasts_prefersForecastRowOverCachedDuplicate`); `EvaluationViewService` added to `AbstractControllerTest` mock superset
+
 ### Added — SCHEDULED_BATCH summary line on metrics page (v2.11.18)
 - **`BatchSummary` record** (`backend/.../model`) — new read-only enrichment carrying horizon range, event types, evaluation model, location count, region count, and extended-thinking flag for batch job runs
 - **`HorizonRangeFormatter`** (`backend/.../util`) — pure utility that turns a set of day-ahead offsets into a compact label (`T`, `T+1`, `T to T+2`, `T, T+2`)

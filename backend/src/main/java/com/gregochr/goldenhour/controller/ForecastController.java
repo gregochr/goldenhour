@@ -7,8 +7,10 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
 import com.gregochr.goldenhour.model.ForecastRunRequest;
+import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastCommand;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
@@ -36,6 +38,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +68,7 @@ public class ForecastController {
     private final ForecastCommandExecutor commandExecutor;
     private final ScheduledForecastService scheduledForecastService;
     private final ForecastDtoMapper dtoMapper;
+    private final EvaluationViewService evaluationViewService;
     private final JobRunService jobRunService;
     private final RunProgressTracker progressTracker;
     private final Executor forecastExecutor;
@@ -77,6 +82,7 @@ public class ForecastController {
      * @param commandExecutor           executes forecast commands
      * @param scheduledForecastService  the scheduled forecast service (for tide refresh)
      * @param dtoMapper                 maps entities to role-aware DTOs
+     * @param evaluationViewService     canonical merge layer for cached + forecast evaluations
      * @param jobRunService             the service for creating job run entities
      * @param progressTracker           tracks live run progress for SSE broadcasting
      * @param forecastExecutor          the executor used for async forecast runs
@@ -85,7 +91,8 @@ public class ForecastController {
             LocationService locationService, ForecastCommandFactory commandFactory,
             ForecastCommandExecutor commandExecutor,
             ScheduledForecastService scheduledForecastService,
-            ForecastDtoMapper dtoMapper, JobRunService jobRunService,
+            ForecastDtoMapper dtoMapper, EvaluationViewService evaluationViewService,
+            JobRunService jobRunService,
             RunProgressTracker progressTracker, Executor forecastExecutor) {
         this.repository = repository;
         this.locationService = locationService;
@@ -93,17 +100,27 @@ public class ForecastController {
         this.commandExecutor = commandExecutor;
         this.scheduledForecastService = scheduledForecastService;
         this.dtoMapper = dtoMapper;
+        this.evaluationViewService = evaluationViewService;
         this.jobRunService = jobRunService;
         this.progressTracker = progressTracker;
         this.forecastExecutor = forecastExecutor;
     }
 
     /**
-     * Returns stored forecast evaluations for all configured locations from today
+     * Returns stored forecast evaluations for all configured locations from T-7
      * through T+{@value ForecastCommandFactory#FORECAST_HORIZON_DAYS}.
      *
-     * <p>Scores are role-aware: LITE users receive basic (observer-point) scores,
-     * PRO/ADMIN users receive enhanced (directional) scores.
+     * <p>Merges two sources so the Map tab stays in sync with the Plan tab:
+     * <ul>
+     *   <li>Rich rows from {@code forecast_evaluation} (full atmospheric data) — preferred.</li>
+     *   <li>Sparse rows from {@code cached_evaluation} (briefing/batch scores only) for
+     *       {@code (location, date, type)} tuples that have no {@code forecast_evaluation}
+     *       row yet — common while a batch is in-flight between submit and result-write.</li>
+     * </ul>
+     *
+     * <p>Scores are role-aware: LITE users receive basic (observer-point) scores from rich
+     * rows; PRO/ADMIN users receive enhanced (directional) scores. Sparse rows carry a single
+     * set of scores (no basic vs enhanced split) for both roles.
      *
      * @param auth the current authentication context (injected by Spring Security)
      * @return evaluations ordered by target date and target type
@@ -113,11 +130,43 @@ public class ForecastController {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate from = today.minusDays(7);
         LocalDate horizon = today.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
-        var entities = locationService.findAllEnabled().stream()
+        boolean lite = isLiteUser(auth);
+
+        List<LocationEntity> enabled = locationService.findAllEnabled();
+
+        // 1. Rich rows from forecast_evaluation (full atmospheric data)
+        var entities = enabled.stream()
                 .flatMap(loc -> repository.findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
                         loc.getId(), from, horizon).stream())
                 .toList();
-        return dtoMapper.toDtoList(entities, isLiteUser(auth));
+        List<ForecastEvaluationDto> dtos = new ArrayList<>(dtoMapper.toDtoList(entities, lite));
+
+        // 2. Cached-only rows — surfaced so the Map date strip shows future dates that the
+        //    batch pipeline has scored but not yet persisted as full forecast_evaluation rows
+        Set<String> covered = new HashSet<>();
+        for (var entity : entities) {
+            covered.add(entity.getLocationName() + "|" + entity.getTargetDate()
+                    + "|" + entity.getTargetType());
+        }
+        Map<Long, LocationEntity> byId = enabled.stream()
+                .collect(Collectors.toMap(LocationEntity::getId, l -> l));
+        List<LocationEvaluationView> views = evaluationViewService.forDateRange(
+                from, horizon, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
+        for (LocationEvaluationView view : views) {
+            if (view.source() != LocationEvaluationView.Source.CACHED_EVALUATION) {
+                continue;
+            }
+            String key = view.locationName() + "|" + view.date() + "|" + view.targetType();
+            if (covered.contains(key)) {
+                continue;
+            }
+            LocationEntity loc = byId.get(view.locationId());
+            if (loc == null) {
+                continue;
+            }
+            dtos.add(dtoMapper.toSparseDto(view, loc, lite));
+        }
+        return dtos;
     }
 
     /**
