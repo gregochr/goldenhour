@@ -3,7 +3,9 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ForecastEvaluationDto;
+import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.RunProgress;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -83,6 +86,61 @@ class ForecastControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast surfaces cached_evaluation rows when forecast_evaluation has none")
+    void getForecasts_surfacesCachedOnlyRows() throws Exception {
+        when(forecastEvaluationRepository
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        LocalDate futureDate = LocalDate.of(2999, 1, 3);
+        LocationEvaluationView cachedView = new LocationEvaluationView(
+                1L, "Durham UK", null, null, futureDate, TargetType.SUNSET,
+                LocationEvaluationView.Source.CACHED_EVALUATION,
+                4, "Patchy mid cloud — could pop colour.", 72, 80,
+                null, null, null, null, DisplayVerdict.WORTH_IT);
+        when(evaluationViewService.forDateRange(any(LocalDate.class), any(LocalDate.class), any()))
+                .thenReturn(List.of(cachedView));
+        when(dtoMapper.toSparseDto(eq(cachedView), eq(DURHAM), anyBoolean()))
+                .thenReturn(buildDto("Durham UK", 72, 80));
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].locationName").value("Durham UK"))
+                .andExpect(jsonPath("$[0].fierySkyPotential").value(72));
+
+        verify(dtoMapper).toSparseDto(eq(cachedView), eq(DURHAM), anyBoolean());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast prefers forecast_evaluation rows over cached_evaluation duplicates")
+    void getForecasts_prefersForecastRowOverCachedDuplicate() throws Exception {
+        ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 20));
+        when(forecastEvaluationRepository
+                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
+                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of(entity));
+        when(dtoMapper.toDtoList(any(), anyBoolean()))
+                .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
+
+        // Cached view for the same (loc, date, type) — should be skipped as a duplicate
+        LocationEvaluationView duplicateView = new LocationEvaluationView(
+                1L, "Durham UK", null, null, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocationEvaluationView.Source.CACHED_EVALUATION,
+                3, "stale", 50, 60, null, null, null, null, DisplayVerdict.MAYBE);
+        when(evaluationViewService.forDateRange(any(LocalDate.class), any(LocalDate.class), any()))
+                .thenReturn(List.of(duplicateView));
+
+        mockMvc.perform(get("/api/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].fierySkyPotential").value(72));
     }
 
     @Test

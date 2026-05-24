@@ -9,7 +9,11 @@ import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -195,5 +199,128 @@ public class ForecastDtoMapper {
                 entity.getTriageReason(),
                 entity.getTriageMessage(),
                 entity.getHeadline());
+    }
+
+    /**
+     * Builds a sparse {@link ForecastEvaluationDto} from a merged evaluation view that came
+     * from {@code cached_evaluation} only (i.e. no matching {@code forecast_evaluation} row
+     * exists yet). Atmospheric, tide, surge and inversion fields are left {@code null} because
+     * {@code cached_evaluation} stores only the per-region briefing scores, not the rich
+     * per-location weather inputs.
+     *
+     * <p>This exists so the Map tab's date strip surfaces dates that the asynchronous batch
+     * pipeline has scored but not yet persisted as full forecast rows. The Plan tab already
+     * reads {@code cached_evaluation} via {@code BriefingService.enrichWithCachedScores}; this
+     * keeps the two tabs in sync as the canonical {@code EvaluationViewService} Javadoc intends.
+     *
+     * <p>Solar event time, azimuth, golden/blue hour windows, lunar tide type and lunar phase
+     * are computed from the location's lat/lon and the target date so the popup still renders
+     * sensible scaffolding.
+     *
+     * <p>The {@code isLiteUser} flag is accepted for signature symmetry with
+     * {@link #toDto(ForecastEvaluationEntity, boolean)} but is currently unused — cached
+     * evaluations carry only one set of scores (no basic vs enhanced split).
+     *
+     * @param view       the merged evaluation view (source must be CACHED_EVALUATION)
+     * @param location   the location entity, used for lat/lon and computed solar times
+     * @param isLiteUser true if the caller is a LITE_USER (reserved for future use)
+     * @return a sparse DTO suitable for the Map tab
+     */
+    @SuppressWarnings("PMD.UnusedFormalParameter")
+    public ForecastEvaluationDto toSparseDto(LocationEvaluationView view, LocationEntity location,
+            boolean isLiteUser) {
+        LocalDate date = view.date();
+        TargetType type = view.targetType();
+        double lat = location.getLat();
+        double lon = location.getLon();
+
+        // Solar event time + azimuth — computed from lat/lon + date
+        LocalDateTime solarEventTime = null;
+        Integer azimuthDeg = null;
+        if (date != null && type != null && type != TargetType.HOURLY) {
+            try {
+                boolean isSunrise = type == TargetType.SUNRISE;
+                solarEventTime = isSunrise
+                        ? solarService.sunriseUtc(lat, lon, date)
+                        : solarService.sunsetUtc(lat, lon, date);
+                azimuthDeg = isSunrise
+                        ? solarService.sunriseAzimuthDeg(lat, lon, date)
+                        : solarService.sunsetAzimuthDeg(lat, lon, date);
+            } catch (Exception ignored) {
+                // Graceful — leave null if calculation fails (e.g. polar edge case)
+            }
+        }
+
+        // Golden/blue hour window
+        LocalDateTime goldenHourStart = null;
+        LocalDateTime goldenHourEnd = null;
+        LocalDateTime blueHourStart = null;
+        LocalDateTime blueHourEnd = null;
+        if (date != null && type != null && type != TargetType.HOURLY) {
+            try {
+                boolean isSunrise = type == TargetType.SUNRISE;
+                SolarService.SolarWindow sw = solarService.goldenBlueWindow(lat, lon, date, isSunrise);
+                goldenHourStart = sw.goldenHourStart();
+                goldenHourEnd = sw.goldenHourEnd();
+                blueHourStart = sw.blueHourStart();
+                blueHourEnd = sw.blueHourEnd();
+            } catch (Exception ignored) {
+                // Graceful — leave null if calculation fails
+            }
+        }
+
+        LunarTideType lunarTideType = date != null ? lunarPhaseService.classifyTide(date) : null;
+        String lunarPhase = date != null ? lunarPhaseService.getMoonPhase(date) : null;
+
+        Integer daysAhead = date != null
+                ? (int) ChronoUnit.DAYS.between(LocalDate.now(ZoneOffset.UTC), date)
+                : null;
+
+        LocalDateTime forecastRunAt = view.evaluatedAt() != null
+                ? LocalDateTime.ofInstant(view.evaluatedAt(), ZoneOffset.UTC)
+                : LocalDateTime.now(ZoneOffset.UTC);
+
+        // Bluebell exposure — only surfaced during season for bluebell sites
+        String bluebellExposure = null;
+        if (location.getLocationType() != null
+                && location.getLocationType().contains(LocationType.BLUEBELL)
+                && date != null
+                && SeasonalWindow.BLUEBELL.isActive(date)
+                && location.getBluebellExposure() != null) {
+            bluebellExposure = location.getBluebellExposure().name();
+        }
+
+        return new ForecastEvaluationDto(
+                null,
+                location.getName(),
+                BigDecimal.valueOf(lat),
+                BigDecimal.valueOf(lon),
+                date,
+                type,
+                forecastRunAt,
+                daysAhead,
+                view.rating(),
+                view.fierySkyPotential(),
+                view.goldenHourPotential(),
+                view.summary(),
+                solarEventTime,
+                azimuthDeg,
+                null,
+                null, null, null, null, null, null, null,
+                null, null, null, null,
+                null, null, null,
+                null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null,
+                null, null, null,
+                null, null, null,
+                null, null, null,
+                lunarTideType, lunarPhase,
+                null, null, null, null, null, null,
+                null, null,
+                goldenHourStart, goldenHourEnd, blueHourStart, blueHourEnd,
+                null, null, bluebellExposure,
+                view.triageReason(), view.triageMessage(),
+                null);
     }
 }

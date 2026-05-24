@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.ForecastService;
@@ -104,6 +105,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected DynamicSchedulerService schedulerService;
+
+    @MockitoBean
+    protected EvaluationViewService evaluationViewService;
 
     @MockitoBean
     protected ForecastCommandExecutor forecastCommandExecutor;

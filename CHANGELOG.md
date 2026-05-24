@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — Map tab missing future-date forecasts that Plan tab shows
+- **`ForecastController.getForecasts`** — merge cached-only rows so the Map date strip surfaces future dates that the batch pipeline has scored but not yet persisted as full `forecast_evaluation` rows. Before this fix, the Map tab read only `forecast_evaluation` directly, so the date strip cut off at today while the Plan tab (which reads `cached_evaluation` via `BriefingService.enrichWithCachedScores`) correctly showed T+1 through T+3. The two views now share the same source-of-truth boundary that `EvaluationViewService`'s Javadoc has always promised
+- **`ForecastDtoMapper.toSparseDto`** — new method that synthesises a sparse `ForecastEvaluationDto` from a `LocationEvaluationView` whose source is `CACHED_EVALUATION`. Atmospheric, tide, surge and inversion fields are left null (cached_evaluation doesn't carry them); solar event time + azimuth, golden/blue hour windows, lunar tide type and lunar phase are computed deterministically from the location's lat/lon so the marker and popup render sensible scaffolding
+- **Merge rule** — when the same `(location, date, type)` tuple has both a `forecast_evaluation` row and a `cached_evaluation` entry, the rich row wins; the cached entry is dropped as a duplicate
+- Tests: 2 new `ForecastControllerTest` cases (`getForecasts_surfacesCachedOnlyRows`, `getForecasts_prefersForecastRowOverCachedDuplicate`); `EvaluationViewService` added to `AbstractControllerTest` mock superset
+
 ### Added — SCHEDULED_BATCH summary line on metrics page (v2.11.18)
 - **`BatchSummary` record** (`backend/.../model`) — new read-only enrichment carrying horizon range, event types, evaluation model, location count, region count, and extended-thinking flag for batch job runs
 - **`HorizonRangeFormatter`** (`backend/.../util`) — pure utility that turns a set of day-ahead offsets into a compact label (`T`, `T+1`, `T to T+2`, `T, T+2`)
