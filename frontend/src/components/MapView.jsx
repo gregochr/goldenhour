@@ -480,9 +480,13 @@ function MapView({ locations, date, autoEventType, handoffEventType, handoffFilt
     if (eventType === 'ASTRO') {
       return astroScores[loc.name]?.stars ?? null;
     }
+    // Mirror the marker render's precedence (line ~901): briefing score wins, then
+    // forecast row. Without this, locations rated only via cached_evaluation render a
+    // medallion but get hidden by the star-threshold filter.
+    const briefingScore = getBriefingScore(briefingScores, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
-    return forecast?.rating ?? null;
+    return briefingScore?.rating ?? forecast?.rating ?? null;
   }
 
   // Filter logic: type filters and rating filters are both AND-ed.

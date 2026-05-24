@@ -546,6 +546,29 @@ describe('MapView filter behaviour — stand-down hide/show', () => {
     expect(visibleCount()).toBe(2);
   });
 
+  it('briefingScore.rating survives the star-threshold filter (regression: filter only read forecast.rating)', () => {
+    // Reproduces the College Valley 3★ bug: rating populated via briefingScores only
+    // (i.e. came from cached_evaluation, not a forecast_evaluation row) was rendered
+    // on the marker but filtered out by the 3★ threshold, leaving the map empty.
+    const loc = {
+      name: 'BriefingRated', lat: 55.5, lon: -1.7, id: 99,
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: null, solarEventTime: `${TODAY}T18:00:00` },
+        sunrise: { rating: null, solarEventTime: `${TODAY}T06:00:00` },
+      }]]),
+      locationType: ['LANDSCAPE'],
+    };
+    const briefingScores = new Map([
+      [`Region|${TODAY}|SUNSET|BriefingRated`, { rating: 3 }],
+    ]);
+    renderMap({ locations: [loc], briefingScores });
+    // Without filter: the briefing-rated loc is visible
+    expect(visibleCount()).toBe(1);
+    // With 3★ threshold: it must STILL be visible (rating = 3 satisfies >= 3)
+    fireEvent.click(screen.getByTestId('star-filter-3'));
+    expect(visibleCount()).toBe(1);
+  });
+
   it('briefingScore.triageReason also triggers stand-down classification', () => {
     const loc = {
       name: 'BriefingStandDown', lat: 55.5, lon: -1.7,
