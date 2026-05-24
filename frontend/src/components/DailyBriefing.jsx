@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
-import { subscribeToBriefingEvaluation, getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
+import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { getDriveTimes } from '../api/settingsApi.js';
-import { getAvailableModels } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import HotTopicStrip from './HotTopicStrip.jsx';
@@ -799,8 +798,7 @@ const DISMISSED_AT_KEY = 'briefing-dismissed-at';
 
 export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScoresChange, onSeasonalFeaturesChange }) {
   const { role } = useAuth();
-  const canSeeBestBets = role === 'ADMIN' || role === 'PRO_USER';
-  const canRunEvaluation = role === 'ADMIN' || role === 'PRO_USER';
+  const isPro = role === 'ADMIN' || role === 'PRO_USER';
   const [briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissedAt, setDismissedAt] = useState(() => sessionStorage.getItem(DISMISSED_AT_KEY));
@@ -811,82 +809,13 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
   const intervalRef = useRef(null);
 
-  // Evaluation state: keyed by "regionName|date|targetType|locationName"
+  // Evaluation scores hydrated from the batch-written cached_evaluation cache.
+  // Keyed by "regionName|date|targetType|locationName".
   const [evaluationScores, setEvaluationScores] = useState(new Map());
-  // { regionName, date, targetType, completed, total, failed, status: 'running'|'complete'|'error', evaluatedAt }
-  const [evaluationProgress, setEvaluationProgress] = useState(null);
-  // Stores evaluatedAt timestamps keyed by "regionName|date|targetType"
-  const [evaluationTimestamps, setEvaluationTimestamps] = useState(new Map());
-  const evalCleanupRef = useRef(null);
-
-  // Active evaluation model for briefing (SHORT_TERM run type)
-  const [activeModelName, setActiveModelName] = useState(null); // e.g. 'HAIKU'
-
-  // Simulation active indicator — only checked for ADMIN users
 
   // Astro conditions: per-date scores keyed by locationName
   const [astroScoresByDate, setAstroScoresByDate] = useState({}); // { date: { locName: score } }
   const [astroAvailableDates, setAstroAvailableDates] = useState([]);
-
-  /** Starts a Claude evaluation for the given drill-down cell. */
-  const handleRunEvaluation = useCallback((regionName, date, targetType) => {
-    // Clean up any previous subscription
-    if (evalCleanupRef.current) evalCleanupRef.current();
-
-    setEvaluationProgress({ regionName, date, targetType, completed: 0, total: 0, failed: 0, status: 'running' });
-
-    const cleanup = subscribeToBriefingEvaluation(
-      regionName, date, targetType,
-      // onLocationScored
-      (result) => {
-        setEvaluationScores((prev) => {
-          const next = new Map(prev);
-          next.set(`${regionName}|${date}|${targetType}|${result.locationName}`, result);
-          return next;
-        });
-      },
-      // onProgress
-      (progress) => {
-        setEvaluationProgress((prev) => prev ? {
-          ...prev, completed: progress.completed, total: progress.total, failed: progress.failed,
-        } : prev);
-      },
-      // onComplete
-      (data) => {
-        setEvaluationProgress((prev) => prev ? {
-          ...prev, completed: data.completed, total: data.total, failed: data.failed,
-          status: 'complete', evaluatedAt: data.evaluatedAt,
-        } : prev);
-        if (data.evaluatedAt) {
-          setEvaluationTimestamps((prev) => {
-            const next = new Map(prev);
-            next.set(`${regionName}|${date}|${targetType}`, data.evaluatedAt);
-            return next;
-          });
-        }
-      },
-      // onLocationError
-      () => {},
-      // onError
-      () => {
-        setEvaluationProgress((prev) => prev ? { ...prev, status: 'error' } : prev);
-      },
-    );
-    evalCleanupRef.current = cleanup;
-  }, []);
-
-  /** Stops any running SSE evaluation (called when drill-down closes or tab switches). */
-  const handleStopEvaluation = useCallback(() => {
-    if (evalCleanupRef.current) {
-      evalCleanupRef.current();
-      evalCleanupRef.current = null;
-    }
-  }, []);
-
-  // Clean up SSE on unmount
-  useEffect(() => {
-    return () => { if (evalCleanupRef.current) evalCleanupRef.current(); };
-  }, []);
 
   // Hydrate evaluation scores from backend cache on mount (batch-scored locations)
   useEffect(() => {
@@ -999,16 +928,6 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
   useEffect(() => {
     getAstroAvailableDates().then(setAstroAvailableDates).catch(() => {});
   }, []);
-
-  // Fetch active model for cost estimates (briefing uses SHORT_TERM).
-  useEffect(() => {
-    if (canRunEvaluation) {
-      getAvailableModels()
-        .then((data) => setActiveModelName(data.configs?.SHORT_TERM ?? null))
-        .catch(() => {});
-    }
-  }, [canRunEvaluation]);
-
 
   // Fetch astro conditions for each visible date in the heatmap.
   const astroDayDates = useMemo(() => {
@@ -1179,16 +1098,16 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
       </div>
 
       {/* ── Best bet banner — ADMIN and PRO only; placeholder for LITE; empty state ── */}
-      {canSeeBestBets && briefing.bestBets && briefing.bestBets.length > 0 ? (
+      {isPro && briefing.bestBets && briefing.bestBets.length > 0 ? (
         <BestBetBanner
           picks={briefing.bestBets}
           todayStr={todayStr}
           tomorrowStr={tomorrowStr}
           onPickClick={handlePickClick}
         />
-      ) : !canSeeBestBets && briefing.bestBets?.length > 0 ? (
+      ) : !isPro && briefing.bestBets?.length > 0 ? (
         <BestBetPlaceholder />
-      ) : canSeeBestBets && !loading ? (
+      ) : isPro && !loading ? (
         <div
           data-testid="best-bet-empty"
           className="mb-3 text-center rounded-lg"
@@ -1366,13 +1285,8 @@ export default function DailyBriefing({ locations, onShowOnMap, onEvaluationScor
         tomorrowStr={tomorrowStr}
         onShowOnMap={onShowOnMap}
         evaluationScores={evaluationScores}
-        evaluationProgress={evaluationProgress}
-        evaluationTimestamps={evaluationTimestamps}
-        onRunEvaluation={handleRunEvaluation}
-        onStopEvaluation={handleStopEvaluation}
-        canRunEvaluation={canRunEvaluation}
+        isPro={isPro}
         astroScoresByDate={astroScoresByDate}
-        activeModelName={activeModelName}
         showAllLocations={showAllLocations}
       />
     </div>
