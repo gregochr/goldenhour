@@ -497,6 +497,6 @@ class ForecastControllerTest extends AbstractControllerTest {
                 null, null, null, null, null, null,
                 null, null,
                 null, null, null, null, null, null, null,
-                null, null);
+                null, null, null);
     }
 }

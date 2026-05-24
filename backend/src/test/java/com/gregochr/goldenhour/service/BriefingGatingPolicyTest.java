@@ -114,6 +114,49 @@ class BriefingGatingPolicyTest {
         }
     }
 
+    @Nested
+    @DisplayName("isHardConstraintSkip")
+    class IsHardConstraintSkip {
+
+        @Test
+        @DisplayName("STANDDOWN + TIDE_MISMATCH is a hard-constraint skip")
+        void tideMismatch_isHardConstraint() {
+            BriefingSlot slot = slot(Verdict.STANDDOWN, StanddownReason.TIDE_MISMATCH.label());
+            assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot)).isTrue();
+        }
+
+        @ParameterizedTest(name = "STANDDOWN + {0} is NOT a hard-constraint skip")
+        @EnumSource(value = StanddownReason.class, names = {
+                "HEAVY_CLOUD", "OVERCAST", "RAIN", "POOR_VISIBILITY",
+                "BUILDING_CLOUD", "SUN_BLOCKED_HORIZON", "CLEAR_SKY", "POOR_CONDITIONS"
+        })
+        void weatherStanddown_isNotHardConstraint(StanddownReason reason) {
+            BriefingSlot slot = slot(Verdict.STANDDOWN, reason.label());
+            assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot)).isFalse();
+        }
+
+        @Test
+        @DisplayName("GO slot is not a hard-constraint skip")
+        void goSlot_isNotHardConstraint() {
+            BriefingSlot slot = slot(Verdict.GO, null);
+            assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot)).isFalse();
+        }
+
+        @Test
+        @DisplayName("STANDDOWN with null reason is not a hard-constraint skip")
+        void standdownWithNullReason_isNotHardConstraint() {
+            BriefingSlot slot = slot(Verdict.STANDDOWN, null);
+            assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot)).isFalse();
+        }
+
+        @Test
+        @DisplayName("STANDDOWN with unrecognised reason label is not a hard-constraint skip")
+        void standdownWithUnknownLabel_isNotHardConstraint() {
+            BriefingSlot slot = slot(Verdict.STANDDOWN, "Some new reason we have not seen");
+            assertThat(BriefingGatingPolicy.isHardConstraintSkip(slot)).isFalse();
+        }
+    }
+
     @Test
     @DisplayName("Every StanddownReason label is recognised by the policy")
     void allStanddownReasonLabels_areRecognised() {

@@ -168,6 +168,10 @@ public class ForecastEvaluationEntity {
     @Column(name = "summary", columnDefinition = "TEXT")
     private String summary;
 
+    /** Claude-authored short headline (4–9 words). Null for historical rows or when Claude omitted it. */
+    @Column(name = "headline", length = 255)
+    private String headline;
+
     /** UTC time of the solar event (sunrise or sunset). */
     @Column(name = "solar_event_time")
     private LocalDateTime solarEventTime;

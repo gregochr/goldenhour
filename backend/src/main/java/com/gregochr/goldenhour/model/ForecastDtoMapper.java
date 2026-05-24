@@ -193,6 +193,7 @@ public class ForecastDtoMapper {
                 bluebellSummary,
                 bluebellExposure,
                 entity.getTriageReason(),
-                entity.getTriageMessage());
+                entity.getTriageMessage(),
+                entity.getHeadline());
     }
 }

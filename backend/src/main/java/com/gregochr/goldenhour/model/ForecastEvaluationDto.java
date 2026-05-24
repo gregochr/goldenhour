@@ -88,6 +88,7 @@ import java.time.LocalDateTime;
  * @param bluebellExposure               WOODLAND or OPEN_FELL (nullable — bluebell sites only)
  * @param triageReason                   categorised stand-down reason, or null if Claude-scored
  * @param triageMessage                  formatted stand-down explanation text, or null
+ * @param headline                       Claude-authored short headline (4-9 words), nullable
  */
 public record ForecastEvaluationDto(
         Long id,
@@ -159,5 +160,6 @@ public record ForecastEvaluationDto(
         @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellSummary,
         @JsonInclude(JsonInclude.Include.NON_NULL) String bluebellExposure,
         @JsonInclude(JsonInclude.Include.NON_NULL) TriageReason triageReason,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String triageMessage,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String headline) {
 }

@@ -609,6 +609,27 @@ Things I couldn't determine confidently from code alone:
 
 ---
 
+## Parked findings (2026-05-24)
+
+Two findings that surfaced during sparse-coverage investigation. Both are message-accuracy refinements, not safety issues. Recording here so the next person looking at the honesty filter has the prior thinking to lean on.
+
+### Sparse-coverage honesty filter — investigated and dropped
+
+Considered extending the zero-coverage honesty filter (`BriefingHonestyFilter` — see Section 7, Gate 2) to a sparse threshold: rewrite any region with fewer than N (or less than X%) of locations scored. The investigation found `cached_evaluation.results_json` holds only rating ≥ 3 locations, so a low array length means "few decent locations," **not** "few evaluated locations." A sparse filter would suppress the high-value "most of this region is poor today, but here are the few good spots" case — exactly what a photographer wants on a marginal day. **Dropped, not deferred.** The zero-coverage filter remains valid as-is.
+
+### All-poor vs no-data labelling — parked, not yet investigated
+
+`cached_evaluation.results_json` contains only rating ≥ 3 locations; poor-rated locations are evaluated but stored/surfaced via a separate path. So an empty `results_json` can mean two different things:
+
+- (a) **Genuine no-data** — batch failed, nothing evaluated.
+- (b) **All-poor coverage** — the region WAS fully evaluated and every location rated poor (1–2).
+
+The honesty filter currently rewrites both to "Too unsettled to forecast." For case (b) that's mislabelled — the region *was* forecast; the answer is just "everywhere's poor today," which is different from "we have no information." A future refinement could distinguish the two (similar in spirit to the `SUN_BLOCKED_HORIZON` labelling fix in Section 2: right decision, wrong message). Distinguishing them at filter time requires cross-referencing the poor-location source so the filter can tell "evaluated but poor" from "not evaluated at all."
+
+**Priority: low.** Both currently stand-down, so the user isn't driving anywhere on bad info — message-accuracy refinement, not a safety issue.
+
+---
+
 ## Appendix: Files referenced
 
 | File | Lines | Purpose |

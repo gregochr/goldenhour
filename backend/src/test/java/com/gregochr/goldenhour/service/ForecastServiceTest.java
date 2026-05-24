@@ -651,6 +651,61 @@ class ForecastServiceTest {
     }
 
     @Test
+    @DisplayName("evaluateAndPersist() persists Claude-authored headline when present")
+    void evaluateAndPersist_persistsHeadlineWhenPresent() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        SunsetEvaluation evaluation = new SunsetEvaluation(
+                4, 80, 75, "Layered cloud should catch fire near the horizon.",
+                null, null, null, null, null, null, null,
+                "Layered horizon — fire likely");
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, data, DURHAM_LOCATION, date,
+                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
+                DURHAM + "|" + date + "|SUNSET", null);
+
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.evaluateAndPersist(preEval, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(evalCaptor.capture());
+        assertThat(evalCaptor.getValue().getHeadline())
+                .isEqualTo("Layered horizon — fire likely");
+    }
+
+    @Test
+    @DisplayName("evaluateAndPersist() leaves headline null when Claude omitted it")
+    void evaluateAndPersist_leavesHeadlineNullWhenOmitted() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        // Legacy 4-arg constructor — headline defaults to null.
+        SunsetEvaluation evaluation = new SunsetEvaluation(null, 50, 60, "Soft pastel light.");
+
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, data, DURHAM_LOCATION, date,
+                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
+                DURHAM + "|" + date + "|SUNSET", null);
+
+        when(engineEvaluationService.evaluateNow(any(), any()))
+                .thenReturn(new EvaluationResult.Scored(evaluation));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.evaluateAndPersist(preEval, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> evalCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(evalCaptor.capture());
+        assertThat(evalCaptor.getValue().getHeadline()).isNull();
+    }
+
+    @Test
     @DisplayName("evaluateAndPersist() sends notifications after saving")
     void evaluateAndPersist_sendsNotifications() {
         LocalDate date = LocalDate.of(2026, 6, 21);

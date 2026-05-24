@@ -540,10 +540,13 @@ public class ForecastTaskCollector {
                     for (BriefingSlot slot : region.slots()) {
                         totalSlots++;
                         if (!BriefingGatingPolicy.isEligibleForEvaluation(slot)) {
+                            String reasonLabel = BriefingGatingPolicy.isHardConstraintSkip(slot)
+                                    ? "HARD_CONSTRAINT"
+                                    : "VERDICT_" + slot.verdict();
                             LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
-                                            + "reason=VERDICT_{} ({})",
+                                            + "reason={} ({})",
                                     slot.locationName(), date, targetType,
-                                    slot.verdict(), slot.standdownReason());
+                                    reasonLabel, slot.standdownReason());
                             skippedVerdict++;
                             continue;
                         }
