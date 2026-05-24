@@ -104,4 +104,27 @@ public final class BriefingGatingPolicy {
     public static boolean hasAnyEligibleSlot(BriefingRegion region) {
         return region.slots().stream().anyMatch(BriefingGatingPolicy::isEligibleForEvaluation);
     }
+
+    /**
+     * Returns {@code true} when the slot is being gated by a hard-constraint
+     * standdown reason — currently only {@link StanddownReason#TIDE_MISMATCH}.
+     *
+     * <p>Callers that emit skip diagnostics should prefer this method over
+     * inspecting the slot's reason label so the diagnostic stays in lockstep
+     * with {@link #HARD_CONSTRAINT_REASONS} as that set evolves.
+     *
+     * @param slot the briefing slot
+     * @return true iff the slot is STANDDOWN and its reason is a hard constraint
+     */
+    public static boolean isHardConstraintSkip(BriefingSlot slot) {
+        if (slot.verdict() != Verdict.STANDDOWN) {
+            return false;
+        }
+        String label = slot.standdownReason();
+        if (label == null) {
+            return false;
+        }
+        StanddownReason reason = REASON_BY_LABEL.get(label);
+        return reason != null && HARD_CONSTRAINT_REASONS.contains(reason);
+    }
 }
