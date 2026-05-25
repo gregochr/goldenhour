@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
+import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
 import jakarta.annotation.PostConstruct;
@@ -58,6 +59,7 @@ public class ScheduledBatchEvaluationService {
     private final DynamicSchedulerService dynamicSchedulerService;
     private final EvaluationService evaluationService;
     private final ForecastTaskCollector forecastTaskCollector;
+    private final ForecastDispositionService dispositionService;
 
     /** Prevents concurrent forecast batch submissions. */
     private final AtomicBoolean forecastBatchRunning = new AtomicBoolean(false);
@@ -77,6 +79,7 @@ public class ScheduledBatchEvaluationService {
      * @param dynamicSchedulerService     scheduler to register job targets
      * @param evaluationService           Pass 3.2 engine — builds requests + submits + processes
      * @param forecastTaskCollector       Pass 3.2.1 collector — task construction + triage + bucketing
+     * @param dispositionService          persists per-candidate disposition rows tied to the cycle's first job_run
      */
     public ScheduledBatchEvaluationService(
             ModelSelectionService modelSelectionService,
@@ -87,7 +90,8 @@ public class ScheduledBatchEvaluationService {
             AuroraProperties auroraProperties,
             DynamicSchedulerService dynamicSchedulerService,
             EvaluationService evaluationService,
-            ForecastTaskCollector forecastTaskCollector) {
+            ForecastTaskCollector forecastTaskCollector,
+            ForecastDispositionService dispositionService) {
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
@@ -97,6 +101,7 @@ public class ScheduledBatchEvaluationService {
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.evaluationService = evaluationService;
         this.forecastTaskCollector = forecastTaskCollector;
+        this.dispositionService = dispositionService;
     }
 
     /**
@@ -210,22 +215,43 @@ public class ScheduledBatchEvaluationService {
             return;
         }
 
+        // Submit each non-empty bucket; capture the first non-null jobRunId so
+        // every disposition the collector accumulated (across all four buckets,
+        // plus skips) can be persisted against the cycle's representative
+        // job_run. The other buckets create their own job_runs for cost/API
+        // tracking but do not re-persist dispositions.
+        Long cycleJobRunId = null;
+
         if (!tasks.nearInland().isEmpty()) {
-            evaluationService.submit(tasks.nearInland(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h =
+                    evaluationService.submit(tasks.nearInland(), BatchTriggerSource.SCHEDULED);
+            cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.nearInland(), "near-term inland");
         }
         if (!tasks.nearCoastal().isEmpty()) {
-            evaluationService.submit(tasks.nearCoastal(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h =
+                    evaluationService.submit(tasks.nearCoastal(), BatchTriggerSource.SCHEDULED);
+            cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.nearCoastal(), "near-term coastal");
         }
         if (!tasks.farInland().isEmpty()) {
-            evaluationService.submit(tasks.farInland(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h =
+                    evaluationService.submit(tasks.farInland(), BatchTriggerSource.SCHEDULED);
+            cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.farInland(), "far-term inland");
         }
         if (!tasks.farCoastal().isEmpty()) {
-            evaluationService.submit(tasks.farCoastal(), BatchTriggerSource.SCHEDULED);
+            EvaluationHandle h =
+                    evaluationService.submit(tasks.farCoastal(), BatchTriggerSource.SCHEDULED);
+            cycleJobRunId = firstNonNull(cycleJobRunId, h.jobRunId());
             logBatchBreakdown(tasks.farCoastal(), "far-term coastal");
         }
+
+        // Persist every disposition the collector recorded (EVALUATED plus all
+        // SKIPPED_*) against the cycle's first real job_run. Skipped if every
+        // bucket's submission failed at the Anthropic call — the [BATCH DIAG]
+        // logs still cover that case for live tailing.
+        dispositionService.persist(cycleJobRunId, tasks.dispositions());
 
         LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
                         + "total {} requests",
@@ -234,6 +260,10 @@ public class ScheduledBatchEvaluationService {
                 tasks.farInland().size() + tasks.farCoastal().size(),
                 tasks.farInland().size(), tasks.farCoastal().size(),
                 tasks.totalSize());
+    }
+
+    private static Long firstNonNull(Long current, Long candidate) {
+        return current != null ? current : candidate;
     }
 
     /**

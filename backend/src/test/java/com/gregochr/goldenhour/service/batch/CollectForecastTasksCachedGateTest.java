@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.Verdict;
@@ -34,6 +35,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -87,10 +89,15 @@ class CollectForecastTasksCachedGateTest {
     @SuppressWarnings("unchecked")
     private List<?> invokeCollectForecastCandidates(DailyBriefingResponse briefing)
             throws Exception {
+        // V101 added a second parameter (List<CandidateDisposition>) that the
+        // first pass appends to. This test exercises the cache-gate behaviour
+        // only — the dispositions list is captured into a throwaway sink.
         Method method = ForecastTaskCollector.class
-                .getDeclaredMethod("collectForecastCandidates", DailyBriefingResponse.class);
+                .getDeclaredMethod("collectForecastCandidates",
+                        DailyBriefingResponse.class, List.class);
         method.setAccessible(true);
-        return (List<?>) method.invoke(collector, briefing);
+        return (List<?>) method.invoke(collector, briefing,
+                new ArrayList<CandidateDisposition>());
     }
 
     private DailyBriefingResponse briefingWithOneSlot(String regionName, String locationName) {

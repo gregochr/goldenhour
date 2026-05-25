@@ -3,12 +3,14 @@ package com.gregochr.goldenhour.service.batch;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
@@ -86,6 +88,8 @@ class ScheduledBatchEvaluationServiceTest {
     private EvaluationService evaluationService;
     @Mock
     private ForecastTaskCollector forecastTaskCollector;
+    @Mock
+    private ForecastDispositionService dispositionService;
 
     private ScheduledBatchEvaluationService service;
 
@@ -95,7 +99,7 @@ class ScheduledBatchEvaluationServiceTest {
                 modelSelectionService, noaaSwpcClient,
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
-                evaluationService, forecastTaskCollector);
+                evaluationService, forecastTaskCollector, dispositionService);
     }
 
     // ── registerJobTargets ───────────────────────────────────────────────────
@@ -139,7 +143,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(forecastTaskCollector.collectScheduledBatches())
                 .thenReturn(new ScheduledBatchTasks(
                         List.of(nearInlandTask), List.of(nearCoastalTask),
-                        List.of(), List.of()));
+                        List.of(), List.of(), List.of()));
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_x", 1));
 
@@ -148,6 +152,83 @@ class ScheduledBatchEvaluationServiceTest {
         // One submit per non-empty bucket — exactly two here
         verify(evaluationService, org.mockito.Mockito.times(2))
                 .submit(any(List.class), eq(BatchTriggerSource.SCHEDULED));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: persists dispositions tied to the cycle's "
+            + "first non-null jobRunId")
+    void submitForecastBatch_persistsDispositionsAgainstFirstJobRunId() {
+        // Two buckets submitted; the FIRST handle returned has jobRunId 100, the
+        // second has 101. Dispositions must be persisted against 100 — the cycle's
+        // representative job_run — and persist must be invoked exactly once with
+        // the full dispositions list from the collector.
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        EvaluationTask.Forecast nearCoastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition evaluatedDispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        CandidateDisposition triagedDispo = new CandidateDisposition(
+                43L, "Newcastle", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+        when(forecastTaskCollector.collectScheduledBatches())
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(nearCoastalTask),
+                        List.of(), List.of(),
+                        List.of(evaluatedDispo, triagedDispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
+                .thenReturn(new EvaluationHandle(100L, "msgbatch_1", 1))
+                .thenReturn(new EvaluationHandle(101L, "msgbatch_2", 1));
+
+        service.submitForecastBatch();
+
+        verify(dispositionService).persist(eq(100L),
+                eq(List.of(evaluatedDispo, triagedDispo)));
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: empty bucket result → dispositionService not called")
+    void submitForecastBatch_emptyBuckets_noDispositionPersist() {
+        when(forecastTaskCollector.collectScheduledBatches())
+                .thenReturn(ScheduledBatchTasks.empty());
+
+        service.submitForecastBatch();
+
+        verifyNoInteractions(dispositionService);
+    }
+
+    @Test
+    @DisplayName("submitForecastBatch: all submissions return null jobRunId → "
+            + "persist called with null (no-op in service)")
+    void submitForecastBatch_allHandlesReturnNullJobRunId_persistsWithNull() {
+        // When every bucket's submit() returns EvaluationHandle.empty() (no Anthropic
+        // submission happened), persist is still invoked but with a null jobRunId — the
+        // service's null-guard turns it into a no-op. We assert persist was called
+        // with null specifically rather than relying on no-op inference.
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast nearInlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, buildAtmospheric(),
+                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches())
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(nearInlandTask), List.of(), List.of(), List.of(),
+                        List.of(dispo)));
+        when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
+                .thenReturn(EvaluationHandle.empty());
+
+        service.submitForecastBatch();
+
+        verify(dispositionService).persist(eq(null), eq(List.of(dispo)));
     }
 
     @Test
