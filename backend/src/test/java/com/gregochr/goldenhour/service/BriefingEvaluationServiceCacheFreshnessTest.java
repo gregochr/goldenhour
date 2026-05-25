@@ -1,11 +1,9 @@
 package com.gregochr.goldenhour.service;
 
-import com.anthropic.client.AnthropicClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.EvaluationDeltaLogRepository;
-import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -27,15 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ExtendWith(MockitoExtension.class)
 class BriefingEvaluationServiceCacheFreshnessTest {
 
-    @Mock private LocationService locationService;
-    @Mock private BriefingService briefingService;
-    @Mock private ForecastService forecastService;
-    @Mock private ModelSelectionService modelSelectionService;
-    @Mock private JobRunService jobRunService;
-    @Mock private ForecastBatchRepository batchRepository;
     @Mock private CachedEvaluationRepository cachedEvaluationRepository;
     @Mock private EvaluationDeltaLogRepository deltaLogRepository;
-    @Mock private AnthropicClient anthropicClient;
     @Mock private FreshnessResolver freshnessResolver;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
 
@@ -44,11 +35,8 @@ class BriefingEvaluationServiceCacheFreshnessTest {
     @BeforeEach
     void setUp() {
         service = new BriefingEvaluationService(
-                locationService, briefingService, forecastService,
-                modelSelectionService, jobRunService, batchRepository,
                 cachedEvaluationRepository, deltaLogRepository,
-                anthropicClient, new ObjectMapper(),
-                freshnessResolver, stabilitySnapshotProvider);
+                new ObjectMapper(), freshnessResolver, stabilitySnapshotProvider);
     }
 
     /**
